@@ -3025,6 +3025,9 @@ export class AppState {
   private readonly receiveStorage = (event: StorageEvent): void => {
     this.settings.refreshFromStorage(event.key)
     this.retireUnusedResultOwners()
+    if (event.key?.startsWith(scopedStorageKey('dinkster.workflow-retentions.'))) {
+      for (const refresh of this.workflowRetentionRefreshes.values()) refresh()
+    }
     // A closed renderer leaves recovery data, not permission to finish its
     // network work. A live peer admits the stored roots before compaction.
     if (!this.disposed && event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) {
@@ -3835,7 +3838,8 @@ export class AppState {
         replacement.generation === owner.generation && replacement.project === owner.project &&
         replacement.storage === owner.storage && replacement.retained.complete &&
         JSON.stringify(replacement.document) === JSON.stringify(owner.document))) continue
-      void retireAssetOwner(owner.backend.connection, owner.retained)
+      void retireAssetOwner(owner.backend.connection, owner.retained).finally(() =>
+        this.workflowRetentionRefreshes.get(owner.backend.connection)?.())
     }
   }
 
@@ -3853,7 +3857,7 @@ export class AppState {
     // not acknowledged ownership, until its exact captured roots are retained.
     const pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
     const previous = this.persistedWorkflowSlots.get(key)
-    const previousOwners = previous?.raw === storage.getItem(key) ? [...previous.owners] : []
+    const previousOwners = [...(previous?.owners ?? [])]
     storage.setItem(key, pending)
     if (this.disposed) return Promise.resolve(undefined)
     this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
@@ -3879,10 +3883,23 @@ export class AppState {
         return retainWorkflowAssets(backend.connection, document.lineage, revision, roots, storage)
       }))
       if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
-        storage.getItem(key) !== pending || sources.some(({ tab, backend, generation }) =>
+        sources.some(({ tab, backend, generation }) =>
           !this.backends.get().includes(backend) ||
           this.assetConnectionGenerations.get(backend.connection) !== generation ||
           (tab !== undefined && this.backendForTab(tab) !== backend))) {
+        throw new Error('Workspace recovery changed during asset admission')
+      }
+      if (storage.getItem(key) !== pending) {
+        // A peer's storage write supersedes publication, not our admitted owners.
+        const slot = this.persistedWorkflowSlots.get(key)
+        this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
+          owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]),
+            ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
+          ],
+        })
+        if (previousOwners.some((previous) => !previous.retained.complete && owners.some((retained, index) =>
+          retained.complete && native[index]!.backend === previous.backend &&
+          JSON.stringify(native[index]!.document) === JSON.stringify(previous.document)))) this.reconcilePersistedTabs()
         throw new Error('Workspace recovery changed during asset admission')
       }
       // A refreshed schema may reveal different roots; admit them before publishing the operation.
@@ -4383,6 +4400,7 @@ export class AppState {
   }>()
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
   private readonly workflowRetentionRecoveries = new Map<DinksterConnection, AbortController>()
+  private readonly workflowRetentionRefreshes = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
   private refreshWorkflowAssets(tab: Tab): void {
@@ -4960,6 +4978,28 @@ export class AppState {
         base.invalidateRemoteChoices()
         startRefresh('reconnect')
       }
+      let retentionRefreshTimer: ReturnType<typeof setTimeout> | undefined
+      const reconcileRetentions = (): void => {
+        if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend) return
+        this.workflowRetentionRecoveries.get(connection)?.abort()
+        const controller = new AbortController()
+        this.workflowRetentionRecoveries.set(connection, controller)
+        void reconcileWorkflowRetentions(connection, AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]))
+          .then((resolved) => {
+            if (this.disposed || controller.signal.aborted || this.backendFor(id) !== nativeBackend) return
+            this.replaceProblems(retentionProblemsOwner, resolved ? [] : [diag(
+              'warning', 'validation', 'workflow.retention.unresolved',
+              `[${label}] Workflow ownership unconfirmed.`,
+            )])
+          })
+      }
+      this.workflowRetentionRefreshes.set(connection, () => {
+        if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
+        retentionRefreshTimer = setTimeout(() => {
+          retentionRefreshTimer = undefined
+          reconcileRetentions()
+        }, 400)
+      })
       const handleStatusChange = (status: ConnectionStatus): void => {
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         this.submissionAssetOwners = new WeakMap()
@@ -4967,17 +5007,7 @@ export class AppState {
         this.workflowRetentionRecoveries.delete(connection)
         if (status === 'connected') {
           refreshOnConnect()
-          if (this.disposed) return
-          const controller = new AbortController()
-          this.workflowRetentionRecoveries.set(connection, controller)
-          void reconcileWorkflowRetentions(connection, AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]))
-            .then((resolved) => {
-              if (this.disposed || controller.signal.aborted || this.backendFor(id) !== nativeBackend) return
-              this.replaceProblems(retentionProblemsOwner, resolved ? [] : [diag(
-                'warning', 'validation', 'workflow.retention.unresolved',
-                `[${label}] Workflow ownership unconfirmed.`,
-              )])
-            })
+          reconcileRetentions()
         } else {
           staleGen += 1
           base.templatesEnabled.set(false)
@@ -5029,6 +5059,8 @@ export class AppState {
           disposeCatalogSetting()
           this.workflowRetentionRecoveries.get(connection)?.abort()
           this.workflowRetentionRecoveries.delete(connection)
+          this.workflowRetentionRefreshes.delete(connection)
+          if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
           this.clearProblems(retentionProblemsOwner)
           disposeCompletionHydration()
           disposeMountHealth()
