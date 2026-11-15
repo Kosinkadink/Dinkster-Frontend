@@ -589,6 +589,59 @@ describe('share', () => {
 })
 
 describe('join and convergence', () => {
+  it.each(['buffered', 'late'] as const)('joins from an older snapshot with %s transport baseline', async (baseline) => {
+    const server = new FakeCollabServer()
+    const sharer = makeApp(server)
+    expect(await sharer.shareActiveTab()).toBeUndefined()
+    const shared = activeTab(sharer)
+    const sessionId = sharer.collabFor(shared.id)!.descriptor.sessionId
+    expect((await addNode(sharer, shared)).ok).toBe(true)
+    await sharedSession(sharer, shared.id).settle()
+
+    const joiner = makeApp(server)
+    const prior = activeTab(joiner)
+    const connect = server.transport.connect
+    let releaseOps!: () => void
+    let requested!: () => void
+    const fetching = new Promise<void>((resolve) => { requested = resolve })
+    const operations = new Promise<void>((resolve) => { releaseOps = resolve })
+    let announce = () => {}
+    const backend = joiner.collabBackend()!
+    const retain = backend.connection.retainAssets.bind(backend.connection)
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (...args) => {
+      announce()
+      return retain(...args)
+    })
+    server.transport.connect = (options) => {
+      const connection = connect(options)
+      const onEvent = connection.onEvent.bind(connection)
+      connection.onEvent = (listener) => onEvent((event) => {
+        if (baseline === 'late' && event.kind === 'connected') announce = () => listener(event)
+        else listener(event)
+      })
+      const fetchOps = connection.fetchOps.bind(connection)
+      connection.fetchOps = async (after) => {
+        requested()
+        await operations
+        return fetchOps(after)
+      }
+      return connection
+    }
+    const joining = joiner.joinCollabSession(sessionId)
+    await fetching
+    expect(activeTab(joiner)).toBe(prior)
+    releaseOps()
+    expect(await joining).toBeUndefined()
+    const joined = activeTab(joiner)
+    expect(joined.store.doc).toEqual(shared.store.doc)
+    expect(joiner.collabFor(joined.id)?.session.status.get()).toBe('live')
+
+    expect((await addNode(sharer, shared)).ok).toBe(true)
+    await sharedSession(sharer, shared.id).settle()
+    await until(() => nodeCount(joined) === nodeCount(shared), 'remote edit after caught-up join')
+    expect(joined.store.doc).toEqual(shared.store.doc)
+  })
+
   it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'registry', 'disconnected', 'disposed', 'remote-edit', 'ended', 'projection'] as const)(
     'holds a joined snapshot before ownership acknowledgment: %s', async (scenario) => {
       const server = new FakeCollabServer()
@@ -601,7 +654,8 @@ describe('join and convergence', () => {
           held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
         } } })).ok).toBe(true)
       const shared = server.createSession(COLLAB_SCOPE, prior.id, prior.store.doc)
-      let acknowledge!: () => void
+      const acknowledgments: (() => void)[] = []
+      let released = false
       let requested!: () => void
       const request = new Promise<void>((resolve) => { requested = resolve })
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
@@ -609,7 +663,9 @@ describe('join and convergence', () => {
         expect(declaration).toEqual({ revision: 0, complete: true, digests: [digest] })
         requested()
         return new Promise((resolve) => {
-          acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+          const acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+          if (released) acknowledge()
+          else acknowledgments.push(acknowledge)
         })
       })
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
@@ -633,7 +689,8 @@ describe('join and convergence', () => {
         app.settings.set('features.appView.enabled', true)
         app.setTabEditorKind(prior.id, APP_EDITOR_KIND)
       }
-      acknowledge()
+      released = true
+      for (const acknowledge of acknowledgments) acknowledge()
       const accepted = scenario === 'accepted' || scenario === 'projection'
       expect(await joining === undefined).toBe(accepted)
       expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
@@ -1459,6 +1516,8 @@ describe('reload rejoin', () => {
     const server = new FakeCollabServer()
     const first = makeApp(server)
     expect(await first.shareActiveTab()).toBeUndefined()
+    expect((await addNode(first, activeTab(first))).ok).toBe(true)
+    await sharedSession(first, activeTab(first).id).settle()
     first.flushPersistTabs()
     const second = makeApp(server)
     const restored = activeTab(second)

@@ -22,7 +22,12 @@ keeps prior undo history and reports the failure through the existing action
 status. Reload rejoin keeps its membership record for retry. An edit, backend
 change, session update or closure during acknowledgment prevents stale adoption;
 switching the editor view alone does not. Successful adoption targets the
-session's backend.
+session's backend. Operations newer than the fetched snapshot are acknowledged
+and caught up before the shared tab is installed. The HTTP descriptor's known
+revision starts catch-up even if the socket descriptor has not arrived yet.
+During that initial catch-up, the pending destination must remain unchanged;
+after installation, incoming
+operations require that exact shared session to still own the tab.
 
 When sharing or same-origin promotion preserves the document and history, the
 editing receipt follows the replacement session. Its previous complete receipt
