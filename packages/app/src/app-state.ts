@@ -4139,11 +4139,13 @@ export class AppState {
         return false
       })
       const nextTabs = [...nextLive, ...frozen]
-      this.tabs.set(nextTabs)
       for (const { tab, backend, connectionGeneration } of candidates) {
-        const receipt = receipts.get(tab)
-        if (receipt !== undefined) this.replaceWorkflowAssetOwner(tab.store, backend, receipt, project, connectionGeneration)
+        const retained = receipts.get(tab)
+        if (retained !== undefined) this.workflowAssetOwners.set(tab.store, {
+          backend, retained, project, generation: connectionGeneration,
+        })
       }
+      this.tabs.set(nextTabs)
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
       if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
       else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')

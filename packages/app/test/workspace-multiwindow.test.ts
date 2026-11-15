@@ -155,7 +155,7 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
-  it('retires incoming-tab admission with its published lifetime without releasing an independent holder', async () => {
+  it.each(['promoted', 'publication-close'] as const)('retires incoming-tab admission after %s without releasing an independent holder', async (scenario) => {
     let lock = Promise.resolve()
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
       const next = lock.then(callback)
@@ -165,21 +165,23 @@ describe('AppState multi-window workspace', () => {
     const factory = authorityFactories()
     const author = createEditableApp()
     const viewer = createEditableApp()
+    const independentApp = createEditableApp()
     const digest = `blake3:${'a'.repeat(64)}`
     const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'held', optional: false,
         type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
     author.registerSchemas([schema])
     viewer.registerSchemas([schema])
-    const independent: RetainedAssets = { scope: 'local', ownerKind: 'document',
-      ownerId: 'workflow-candidate:independent-window', revision: 1, complete: true, digests: [digest] }
-    const receipts = new Map<string, RetainedAssets>([[independent.ownerId, independent]])
+    independentApp.registerSchemas([schema])
+    const receipts = new Map<string, RetainedAssets>()
+    const independentOwners = new Set<string>()
     const viewerOwners = new Set<string>()
-    for (const app of [author, viewer]) {
+    for (const app of [author, viewer, independentApp]) {
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         const receipt = { ...owner, ...declaration, revision: 1 }
         receipts.set(owner.ownerId, receipt)
         if (app === viewer) viewerOwners.add(owner.ownerId)
+        if (app === independentApp) independentOwners.add(owner.ownerId)
         return receipt
       })
       vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
@@ -195,14 +197,28 @@ describe('AppState multi-window workspace', () => {
         digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
       } } },
     } } } }, 'Retained incoming workflow')
+    await independentApp.openDocument({ ...author.activeTab()!.store.doc, lineage: asLineageId('independent-window') }, 'Independent holder')
+    const independent = [...independentOwners].map((id) => receipts.get(id)!).filter((receipt) => receipt.digests.includes(digest))
+    expect(independent.length).toBeGreaterThan(0)
     await author.enableWorkspaceAuthority(factory.document, factory.workspace)
+    let closed = false
+    const unsubscribe = viewer.tabs.subscribe((tabs) => {
+      if (scenario === 'publication-close' && !closed && tabs.some((tab) => tab.id === document.lineage)) {
+        closed = true
+        expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+      }
+    })
     await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
-    await vi.waitFor(() => expect(viewer.tabs.get().some((tab) => tab.id === document.lineage && 'status' in tab.store)).toBe(true))
-    expect([...viewerOwners].some((id) => receipts.get(id)?.digests.includes(digest))).toBe(true)
-    expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+    if (scenario === 'promoted') {
+      await vi.waitFor(() => expect(viewer.tabs.get().some((tab) => tab.id === document.lineage && 'status' in tab.store)).toBe(true))
+      expect([...viewerOwners].some((id) => receipts.get(id)?.digests.includes(digest))).toBe(true)
+      expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+    } else expect(closed).toBe(true)
+    unsubscribe()
     await vi.waitFor(() => expect(author.tabs.get().some((tab) => tab.id === document.lineage)).toBe(false))
     await vi.waitFor(() => expect([...viewerOwners].filter((id) => receipts.get(id)?.digests.includes(digest))).toEqual([]))
-    expect(receipts.get(independent.ownerId)).toEqual(independent)
+    expect(independentApp.tabs.get().some((tab) => tab.id === 'independent-window')).toBe(true)
+    for (const receipt of independent) expect(receipts.get(receipt.ownerId)).toEqual(receipt)
   })
 
   it.each(['accepted', 'refused', 'retargeted', 'registry', 'disposed'] as const)(
