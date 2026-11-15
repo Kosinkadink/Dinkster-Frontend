@@ -3112,6 +3112,8 @@ function compileImpl(
       inputPorts,
       outputTypes,
       outputPorts,
+      ...(resolveNode(fn.graphId, fn.node)?.residentAffinity !== undefined
+        ? { residentAffinity: resolveNode(fn.graphId, fn.node)!.residentAffinity } : {}),
     }
   }
   const buildNativeGraph = (scopeRegion?: RegionLowering, prefix = ''): DinksterGraphWire => {

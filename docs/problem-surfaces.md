@@ -48,6 +48,13 @@ Native backend pack failures are restored from the process-lifetime
 healthy snapshot clears only that backend's pack failures, leaving unrelated
 app and document problems intact.
 
+A resident-value connection between packs in different processes marks the
+consumer node Unavailable before Run. Its problem names both packs and offers
+admission to the shared inference process or an engine-run owner node on a
+reference. Connections within one process and transferable asset references
+remain available. Process affinity comes from the current backend catalog,
+not the saved workflow.
+
 Node badge popovers stay open through background overlay updates while the
 same document, graph occurrence, badge and on-screen anchor remain valid.
 This applies to expanded and minimized nodes. Moving or removing the badge,

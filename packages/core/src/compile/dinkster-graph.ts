@@ -41,7 +41,7 @@
 import { diag, type Diagnostic, type DiagnosticAnchor } from '../diagnostics.js'
 import type { Json } from '../format/document.js'
 import type { PortRef } from '../ids.js'
-import { canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, type TypeExpr } from '../schema/model.js'
+import { canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, type NodeSchema, type TypeExpr } from '../schema/model.js'
 import { typeExprFromDinksterWire } from '../schema/dinkster-wire.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 
@@ -275,6 +275,7 @@ export interface DinksterGraphValidationNode {
   readonly inputPorts: Readonly<Record<string, PortRef>>
   readonly outputTypes: Readonly<Record<string, TypeExpr>>
   readonly outputPorts: Readonly<Record<string, PortRef>>
+  readonly residentAffinity?: NodeSchema['residentAffinity']
 }
 
 export type DinksterGraphValidationContext = ReadonlyMap<string, DinksterGraphValidationNode>
@@ -339,6 +340,19 @@ export function validateDinksterGraph(
   return out
 }
 
+function mayHoldResident(type: TypeExpr, types: readonly string[]): boolean {
+  switch (type.kind) {
+    case 'concrete': return types.includes(type.name)
+    case 'union': return type.names.some((name) => types.includes(name))
+    case 'list':
+    case 'stream': return mayHoldResident(type.element, types)
+    case 'tuple': return type.elements.some((element) => mayHoldResident(element, types))
+    case 'variable': return type.allowedTypes?.some((element) => mayHoldResident(element, types)) ?? false
+    case 'tuple_element': return type.element !== undefined && mayHoldResident(type.element, types)
+    default: return false
+  }
+}
+
 /** One nesting scope: a top-level graph or one region body. */
 function validateScope(
   graph: DinksterGraphWire,
@@ -370,6 +384,17 @@ function validateScope(
 
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {
+      const link = asDinksterLink(value)
+      const producer = link === undefined ? undefined : context?.get(joinPath(prefix, link.node))
+      const affinity = producer?.residentAffinity
+      const consumers = nodeContext?.residentAffinity?.routes ?? []
+      const sourceType = link === undefined ? undefined : producer?.outputTypes[link.output]
+      if (affinity !== undefined && affinity.routes.length > 0 && consumers.length > 0 && sourceType !== undefined &&
+          mayHoldResident(sourceType, affinity.types) && !affinity.routes.some((owner) => consumers.some((consumer) => consumer.process === owner.process))) {
+        out.push(diag('error', 'compile', 'dinksterGraph.residentProcessBoundary',
+          `Pack '${consumers[0]!.pack}' cannot receive a resident value from pack '${affinity.routes[0]!.pack}' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference.`,
+          anchorData(context, path, inputId)))
+      }
       const expected = nodeContext?.inputTypes[inputId]
       if (expected === undefined || asDinksterLink(value) !== undefined ||
           parseTypedLiteralWire(value as Json) !== undefined || parseDecimalIntegerWire(value as Json) !== undefined) continue

@@ -39,6 +39,29 @@ const compileInput = (
 })
 
 describe('golden pairs', () => {
+  it.each([false, true])('checks resident process affinity before submit (shared=%s)', (shared) => {
+    const document = loadWorkflow('minimal')
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (!schema) return undefined
+      return {
+        ...schema,
+        residentAffinity: {
+          types: ['MODEL', 'CLIP', 'VAE', 'CONDITIONING'],
+          routes: [{ process: shared || type === 'CheckpointLoaderSimple' ? 'shared' : 'isolated',
+            pack: type === 'CheckpointLoaderSimple' ? 'models' : 'conditioning', worker: 'local' }],
+        },
+      }
+    }
+    const result = compile({ ...compileInput(document, { kind: 'full' }, resolve), graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok).toBe(shared)
+    if (!result.ok) {
+      const problem = result.diagnostics.find((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary')
+      expect(problem?.message).toBe("Pack 'conditioning' cannot receive a resident value from pack 'models' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference.")
+      expect(problem?.anchor?.occurrence?.node).toBe('n1')
+      expect(problem?.anchor?.port?.port).toBe('clip')
+    }
+  })
   it.each([25, 29.97, undefined])('stamps numeric-union widget value %s without changing concrete numerics', (value) => {
     const schema = parseDinksterSchema('Numeric', {
       outputNode: true,
