@@ -7043,6 +7043,7 @@ export class AppState {
       }),
     )
     let session: SharedDocumentSession
+    let adopted = false
     try {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
@@ -7053,9 +7054,20 @@ export class AppState {
           const backend = live === undefined
             ? this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
             : this.backendForTab(live)
+          const destination = this.tabs.get().find((tab) => tab.id === document.lineage && !tab.execution)
+          const priorStore = destination?.store
+          const priorDocument = priorStore?.doc
+          const priorRevision = priorStore?.revision
+          const priorTarget = destination === undefined ? undefined : this.backendForTab(destination)
           return this.confirmRemoteDocumentOwnership(backend, document, revision, current, history, retainedDocuments,
-            () => session === undefined || this.tabs.get().some((tab) =>
-              tab.store === session && this.backendForTab(tab) === backend), session)
+            () => {
+              if (adopted) return this.tabs.get().some((tab) =>
+                tab.store === session && this.backendForTab(tab) === backend)
+              const pending = this.tabs.get().find((tab) => tab.id === document.lineage && !tab.execution)
+              return pending?.store === priorStore && pending?.store.doc === priorDocument &&
+                pending?.store.revision === priorRevision &&
+                (pending === undefined || this.backendForTab(pending) === priorTarget)
+            }, adopted ? session : undefined)
         },
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
@@ -7063,17 +7075,21 @@ export class AppState {
             { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
+      owner = session.doc.lineage
+      // Catch-up may start before the tab exists; confirm the settled document below.
+      await session.settle()
     } catch (e) {
       connection.close() // a failed join must not leak a retrying socket
       throw e
     }
-    owner = session.doc.lineage
     if (session.status.get() === 'closed' || session.status.get() === 'error') {
       // The session ended during the join itself (a session_closed frame
       // buffered by the transport replays synchronously at subscription):
       // never stand a dead session up as a membership.
+      const ended = session.status.get() === 'closed'
       session.close()
-      throw new CollabSessionEndedDuringJoinError()
+      if (ended) throw new CollabSessionEndedDuringJoinError()
+      throw new Error('Shared workflow ownership could not be confirmed; the existing tabs were kept')
     }
     let prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
     if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
@@ -7145,6 +7161,7 @@ export class AppState {
     this.tabs.update((tabs) =>
       tabs.some((t) => t.id === tab.id) ? tabs.map((t) => (t.id === tab.id ? tab : t)) : [...tabs, tab],
     )
+    adopted = true
     if (preservesHistory && prior !== undefined) this.continueWorkflowAssetOwner(prior.store, session)
     this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
     if (opts?.activate !== false) this.activeTabId.set(tab.id)
