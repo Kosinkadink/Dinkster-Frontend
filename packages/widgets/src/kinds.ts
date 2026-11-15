@@ -106,7 +106,7 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
     ? spec.default
     : isIntegerWidgetValue(spec.options['min']) ? spec.options['min'] : 0,
   validate: (value, spec) => integerRangeDiags(value, spec),
-  defaultView: () => 'core.number',
+  defaultView: (spec) => spec.options['display'] === 'color' ? 'core.integerColor' : 'core.number',
 }
 
 /**
@@ -831,6 +831,21 @@ export const colorView: WidgetView<string> = {
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
   },
 }
+export function integerColorHex(value: unknown): string | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffff
+    ? `#${value.toString(16).padStart(6, '0')}` : undefined
+}
+
+export const integerColorView: WidgetView<IntegerWidgetValue> = {
+  ...makeCompactView<IntegerWidgetValue>('core.integerColor', 'INT'),
+  isCompatible: (spec) => spec.options['display'] === 'color',
+  drawCompact(ctx, value, spec, state) {
+    const hex = integerColorHex(value)
+    if (hex === undefined) numberView.drawCompact(ctx, value, spec, state)
+    else colorView.drawCompact(ctx, hex, spec, state)
+  },
+}
+
 export const colorsView: WidgetView<string[]> = {
   ...makeCompactView<string[]>('core.colors', 'COLORS'),
   drawCompact(ctx, value, _spec, state) {
@@ -1019,7 +1034,7 @@ export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {
