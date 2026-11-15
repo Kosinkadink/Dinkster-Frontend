@@ -282,7 +282,10 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   }, imageOutput(['first.png']))
   await expect(page.getByTestId('output-viewer')).toHaveCount(1)
   await expect(page.getByTestId('output-viewer-position')).toHaveText('1 / 1')
-  await expect(page.getByTestId('node-output-pager')).toHaveCount(0)
+  await expect(pager.getByRole('button', { name: /Previous image/ })).toHaveCount(0)
+  await expect(pager.getByRole('button', { name: /Next image/ })).toHaveCount(0)
+  await expect(pager.getByRole('button', { name: 'Open image 1 of 1 for Save Image', exact: true })).toBeVisible()
+  await expect(pager.getByRole('link', { name: 'Download', exact: true })).toHaveAttribute('download', 'first.png')
   await expect.poll(() => page.evaluate(() => {
     const preview = window.__dinksterTest!.renderer!.getNodePreviews()['save'] as { index?: number; count?: number } | undefined
     return [preview?.index, preview?.count]
