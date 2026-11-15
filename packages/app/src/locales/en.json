@@ -208,6 +208,7 @@
   "assetConsent.action.dismiss": "Dismiss",
   "assetConsent.ariaLabel": "Review and acquire missing assets",
   "assetConsent.eyebrow": "Queue blocked",
+  "assetConsent.fact.destination": "Download folder",
   "assetConsent.fact.digest": "Digest",
   "assetConsent.fact.source": "Source",
   "assetConsent.intro": "The backend needs these exact assets before it can submit this workflow. Review every source, then choose which available assets Dinkster may acquire.",

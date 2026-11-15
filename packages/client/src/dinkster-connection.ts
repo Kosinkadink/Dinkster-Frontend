@@ -934,6 +934,7 @@ export interface MissingAsset {
   readonly status: 'missing' | 'failed'
   readonly sources: readonly string[]
   readonly fetchable: boolean
+  readonly destination?: string
   readonly detail?: string
   readonly kind?: string
   readonly size?: number
@@ -1214,6 +1215,7 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
       !Array.isArray(asset['sources']) ||
       !asset['sources'].every((source) => typeof source === 'string') ||
       typeof asset['fetchable'] !== 'boolean' ||
+      (asset['destination'] !== undefined && typeof asset['destination'] !== 'string') ||
       (asset['detail'] !== undefined && typeof asset['detail'] !== 'string') ||
       (asset['kind'] !== undefined && typeof asset['kind'] !== 'string') ||
       (asset['size'] !== undefined && (typeof asset['size'] !== 'number' || !Number.isInteger(asset['size']) || asset['size'] < 0)) ||
@@ -1225,6 +1227,7 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
       status: asset['status'],
       sources: asset['sources'] as string[],
       fetchable: asset['fetchable'],
+      ...(typeof asset['destination'] === 'string' ? { destination: asset['destination'] } : {}),
       ...(typeof asset['detail'] === 'string' ? { detail: asset['detail'] } : {}),
       ...(typeof asset['kind'] === 'string' ? { kind: asset['kind'] } : {}),
       ...(typeof asset['size'] === 'number' ? { size: asset['size'] } : {}),

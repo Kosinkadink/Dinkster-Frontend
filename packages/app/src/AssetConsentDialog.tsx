@@ -121,6 +121,7 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 </span>
                 <span class="asset-decision-fact asset-decision-digest"><span>{message('assetConsent.fact.digest')}</span><code>{asset.digest}</code></span>
                 <span id={detailId} class="asset-decision-source"><span>{message('assetConsent.fact.source')}</span>{display().source}</span>
+                <Show when={asset.destination}>{(destination) => <span class="asset-decision-fact" data-testid="asset-consent-destination"><span>{message('assetConsent.fact.destination')}</span><code>{destination()}</code></span>}</Show>
                 <Show when={asset.detail}><small class="asset-decision-warning">{asset.detail}</small></Show>
               </label>
             </li>

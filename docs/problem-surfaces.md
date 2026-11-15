@@ -81,6 +81,21 @@ Packs and backend, with provider ids in the expanded detail. The notice
 is advisory: those ids are refused when a plan references them, and the
 advisory disappears once the pack composes with a live worker.
 
+## Missing model downloads
+
+When submission needs a digest-backed model, the acquisition consent dialog
+shows its name, source, size when known, and the backend's planned **Download
+folder** when provided. The folder remains visible while acquisition and the
+captured submission retry are busy. Choose only the exact assets to acquire;
+closing the busy view does not cancel the active retry. Successful acquisition
+closes the dialog and continues submission. Failed acquisition returns its
+updated plan or reports the refusal in Problems. Older backends and packaged
+assets without a destination keep their existing presentation.
+
+The displayed folder belongs to the serving backend, which can be another
+machine. It is not a browser download directory and is not saved into the
+workflow.
+
 ## Focus-to-context ownership
 
 The Focused tab derives WHAT is focused from live shell facts with one pure

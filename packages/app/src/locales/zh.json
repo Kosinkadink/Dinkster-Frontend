@@ -210,6 +210,7 @@
   "assetConsent.action.dismiss": "关闭视图",
   "assetConsent.ariaLabel": "查看并获取缺失资产",
   "assetConsent.eyebrow": "队列已阻止",
+  "assetConsent.fact.destination": "下载文件夹",
   "assetConsent.fact.digest": "摘要",
   "assetConsent.fact.source": "来源",
   "assetConsent.intro": "后端需要这些确切资产才能提交此工作流。请检查每个来源，然后选择允许 Dinkster 获取的可用资产。",
