@@ -4069,16 +4069,19 @@ export class AppState {
       return recovery !== undefined && JSON.stringify(record.document) === JSON.stringify(recovery.initial)
         ? { ...record, document: recovery.document } : record
     })
+    const project = activeProjectId()
+    const receipts = new Map<Tab, RetainedAssets>()
+    const candidates = incoming.map((record) => {
+      const tab = this.makeTab(record.document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
+      const backend = this.backendForTab(tab)
+      const registry = backend.registry.get()
+      const connectionGeneration = this.assetConnectionGenerations.get(backend.connection)
+      let connectionChanged = false
+      const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+      return { tab, backend, registry, connectionGeneration, unsubscribe, connectionChanged: () => connectionChanged }
+    })
     if (incoming.length > 0) {
       const local = current.map((tab) => ({ tab, document: tab.store.doc, revision: tab.store.revision, backend: this.backendForTab(tab) }))
-      const candidates = incoming.map((record) => {
-        const tab = this.makeTab(record.document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
-        const backend = this.backendForTab(tab)
-        const registry = backend.registry.get()
-        let connectionChanged = false
-        const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-        return { tab, backend, registry, unsubscribe, connectionChanged: () => connectionChanged }
-      })
       try {
         const native = candidates.filter(({ backend }) => backend.protocol === 'dinkster')
         const retained = await Promise.all(native.map(async ({ tab, backend, registry }) => {
@@ -4088,16 +4091,20 @@ export class AppState {
           return { tab, roots, receipt }
         }))
         const latest = this.tabs.get()
-        if (this.disposed || !this.workspaceAuthorityEnabled || generation !== this.workspaceAuthorityGeneration ||
+        if (this.disposed || activeProjectId() !== project || !this.workspaceAuthorityEnabled || generation !== this.workspaceAuthorityGeneration ||
           sequence !== this.workspaceSnapshotSequence || mutationSequence !== this.workspaceMutationSequence ||
           this.workspaceTabPending > 0 || latest.length !== current.length ||
           local.some(({ tab, document, revision, backend }, index) => latest[index] !== tab ||
             tab.store.doc !== document || tab.store.revision !== revision || this.backendForTab(tab) !== backend) ||
-          candidates.some(({ tab, backend, registry, connectionChanged }) => connectionChanged() ||
+          candidates.some(({ tab, backend, registry, connectionGeneration, connectionChanged }) => connectionChanged() ||
+            this.assetConnectionGenerations.get(backend.connection) !== connectionGeneration ||
             !this.backends.get().includes(backend) || this.backendForTab(tab) !== backend || backend.registry.get() !== registry)) {
           throw new Error('The workspace changed while incoming tab ownership was being confirmed; local tabs were kept')
         }
-        for (const { tab, roots, receipt } of retained) this.reportIncompleteOwnership(tab.id, roots, receipt)
+        for (const { tab, roots, receipt } of retained) {
+          receipts.set(tab, receipt)
+          this.reportIncompleteOwnership(tab.id, roots, receipt)
+        }
       } catch (error) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
           'error', 'command', 'workspace.tabs.ownershipFailed',
@@ -4116,13 +4123,13 @@ export class AppState {
     this.workspaceTabBaseline = snapshot.tabs
     this.workspaceActiveBaseline = snapshot.active
     const nextLive: Tab[] = []
+    let publicationChangedTabs = false
     this.applyingWorkspaceTabs = true
     try {
       for (const record of snapshot.tabs) {
         let tab = liveById.get(record.id)
         if (!tab) {
-          const document = incoming.find((candidate) => candidate.id === record.id)!.document
-          tab = this.makeTab(document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
+          tab = candidates.find((candidate) => candidate.tab.id === record.id)!.tab
           this.workspaceRecoveryDocuments.delete(record.id)
           this.markTabDirty(tab.id)
         } else {
@@ -4150,13 +4157,21 @@ export class AppState {
         return false
       })
       const nextTabs = [...nextLive, ...frozen]
+      for (const { tab, backend, connectionGeneration } of candidates) {
+        const retained = receipts.get(tab)
+        if (retained !== undefined) this.workflowAssetOwners.set(tab.store, {
+          backend, retained, project, generation: connectionGeneration,
+        })
+      }
       this.tabs.set(nextTabs)
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
       if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
       else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
+      publicationChangedTabs = this.tabs.get() !== nextTabs
     } finally {
       this.applyingWorkspaceTabs = false
     }
+    if (publicationChangedTabs) this.syncWorkspaceTabs()
     this.watchTabDocuments()
     this.schedulePersistTabs()
     void this.promoteWorkspaceTabs()
