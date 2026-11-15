@@ -44,6 +44,10 @@ preview loading or failure never downloads their original bytes automatically.
 Canvas and App View show attributed live frames while a node is running.
 Once it finishes, recorded native media renditions take precedence over late
 frames, just like saved artifact previews. Frame-only nodes retain their frame.
+Video inspection preserves pending and displayed indexed frames and thumbnails
+across preview refreshes with the same source URL and autoplay setting. A real
+source replacement resets inspection; enabling autoplay resumes playback and
+leaves indexed inspection.
 
 When a server rendition includes `X-Dinkster-Color-Transform`, canvas and App View
 captions show its conversion label as **Preview color**. App View calls that
