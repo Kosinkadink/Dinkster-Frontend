@@ -198,7 +198,7 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
-  it.each(['reconnect', 'disconnect', 'remove', 'dispose'] as const)(
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -216,10 +216,13 @@ describe('workflow retention recovery', () => {
         close() {}
       }
       vi.stubGlobal('WebSocket', FakeSocket)
+      const events = new EventTarget()
+      vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+      vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
       const requests: Array<{ signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
       vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
         if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
-        if (url.includes('/api/library/retentions/')) {
+        if (url.includes('/api/library/retentions/') && url.includes(encodeURIComponent(f.intent.owner.ownerId))) {
           expect(init?.method).toBe('GET')
           expect(init?.cache).toBe('no-store')
           const result = deferred<Response>()
@@ -241,6 +244,15 @@ describe('workflow retention recovery', () => {
         await vi.waitFor(() => expect(requests).toHaveLength(1))
         requests[0]!.result.resolve(new Response('{}', { status: 404 }))
         await vi.waitFor(() => expect(notices()).toHaveLength(1))
+        if (scenario === 'journal-change') {
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(notices()).toHaveLength(0))
+          expect(f.entries.get(f.key)).toBe(bytes)
+          expect(sockets).toHaveLength(1)
+          return
+        }
         backend.connection.disconnect()
         backend.connection.connect()
         await vi.waitFor(() => expect(sockets).toHaveLength(2))
