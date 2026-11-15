@@ -180,6 +180,7 @@ describe('asset modal surfaces', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]!.textContent).toContain(digest('a'))
     expect(rows[0]!.textContent).toContain('Download from models.example')
+    expect(rows[0]!.querySelector('.asset-decision-source code')?.textContent).toBe('https://models.example/fixture')
     expect(rows[0]!.querySelector('[data-testid="asset-consent-destination"]')?.textContent).toBe('Download folder/home/user/Dinkster/Models/checkpoints')
     expect(rows[1]!.querySelector('[data-testid="asset-consent-destination"]')).toBeNull()
     expect(rows[1]!.dataset['state']).toBe('unresolvable')
