@@ -19,6 +19,9 @@ if (!Number.isSafeInteger(nativePort) || nativePort < 1024 || nativePort > 65535
 }
 const frontendRoot = resolve(import.meta.dirname, '../..')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
+const generation = requiredDirectory('DINKSTER_E2E_GENERATION')
+const python = resolve(generation, 'python/bin/python')
+accessSync(python)
 const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
 
@@ -40,12 +43,12 @@ export default defineConfig({
   webServer: [
     {
       command: [
-        JSON.stringify(resolve(dinksterRoot, '.venv/bin/python')),
+        JSON.stringify(python),
         '-m dinkster.serve',
         '--host 127.0.0.1',
         `--port ${nativePort}`,
-        '--engine-variant linux-cpu',
-        `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
+        `--generation ${JSON.stringify(generation)}`,
+        `--execution-python ${JSON.stringify(python)}`,
         `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/native-library'))}`,
       ].join(' '),
       cwd: dinksterRoot,

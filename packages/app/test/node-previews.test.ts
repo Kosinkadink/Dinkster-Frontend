@@ -312,6 +312,40 @@ describe('sourceFor', () => {
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]))
   })
 
+  it('loads selected models through the captured byte reader and disposes their blob URLs', async () => {
+    const digest = `blake3:${'2'.repeat(64)}`
+    let bytes = new Uint8Array([19, 0, 241]).buffer
+    const objects = vi.spyOn(URL, 'createObjectURL')
+    const revoke = vi.spyOn(URL, 'revokeObjectURL')
+    const l = createPreviewLoader({
+      assetUrlForExecution: () => '',
+      assetUrlForInput: () => `http://selected/api/assets/${digest}`,
+      inputAssetBytes: () => {
+        const selected = bytes
+        return async (signal) => { signal?.throwIfAborted(); return selected }
+      },
+      renderModel3dPoster: async () => ({ image: {} as CanvasImageSource, width: 12, height: 8 }),
+      onDecoded: () => {},
+    })
+    try {
+      const source = l.inputAssetSource!(digest, 'model/gltf-binary', 'model3d')!
+      bytes = new Uint8Array([7, 8]).buffer
+      l.resolve(source)
+      await flush()
+      const loaded = l.resolve(source)
+      expect(loaded?.src).toMatch(/^blob:/)
+      const blob = objects.mock.calls.at(-1)![0] as Blob
+      expect(blob.type).toBe('model/gltf-binary')
+      expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array([19, 0, 241]))
+      l.dispose()
+      expect(revoke).toHaveBeenCalledWith(loaded!.src)
+    } finally {
+      l.dispose()
+      objects.mockRestore()
+      revoke.mockRestore()
+    }
+  })
+
   it('keeps selected-input and recorded-output cache identities separate', async () => {
     const digest = `blake3:${'3'.repeat(64)}`
     const url = `http://backend/api/assets/${digest}`
@@ -396,7 +430,7 @@ describe('sourceFor', () => {
     const l = loader({ renderModel3dPoster: () => Promise.reject(new Error('no webgl')) })
     const s = l.inputAssetSource!(digest, 'model/gltf-binary', 'model3d')!
     await expect(s.load()).resolves.toEqual({
-      kind: 'model3d', mime: 'model/gltf-binary', src: `http://backend/api/assets/${digest}`, status: 'failed',
+      kind: 'model3d', mime: 'model/gltf-binary', src: expect.stringMatching(/^blob:/), status: 'failed',
     })
   })
 

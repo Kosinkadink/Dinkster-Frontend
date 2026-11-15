@@ -1007,12 +1007,12 @@ describe('ASSET widget modal integration', () => {
     unmount()
   })
 
-  it('renders a selected video from the server asset URL with controls and a download fallback', async () => {
+  it('renders selected video bytes through an owned blob with controls and a download fallback', async () => {
     const root = document.createElement('div')
     document.body.append(root)
     const digest = `blake3:${'e'.repeat(64)}`
-    const assetUrl = vi.fn((value: string) => `/api/assets/${encodeURIComponent(value)}`)
-    const createObjectUrl = vi.spyOn(URL, 'createObjectURL')
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video-preview')
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const ed: WidgetEditorState = {
       tab: {} as Tab,
       graphId: 'g0',
@@ -1026,12 +1026,12 @@ describe('ASSET widget modal integration', () => {
     }
     const backend = { protocol: 'dinkster', id: 'native', connection: {
         ...assetLocationMethods,
-        assetUrl,
+        fetchAssetBytes: vi.fn().mockResolvedValue(new Uint8Array([0, 1, 2, 3]).buffer),
         listMounts: vi.fn().mockResolvedValue([]),
       } }
     const app = {
       backendForTab: () => backend,
-      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
+      retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       dispatchTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
@@ -1042,17 +1042,17 @@ describe('ASSET widget modal integration', () => {
     expect(video).not.toBeNull()
     expect(video.controls).toBe(true)
     expect(video.preload).toBe('metadata')
-    expect(video.getAttribute('src')).toBe(`/api/assets/${encodeURIComponent(digest)}`)
-    expect(assetUrl).toHaveBeenCalledWith(digest)
-    expect(createObjectUrl).not.toHaveBeenCalled()
+    expect(video.getAttribute('src')).toBe('blob:video-preview')
+    expect(createObjectUrl).toHaveBeenCalledOnce()
 
     video.dispatchEvent(new Event('error'))
     const fallback = root.querySelector<HTMLElement>('[data-testid="asset-video-fallback"]')!
     expect(fallback.textContent).toContain('Video preview unavailable.')
     const download = fallback.querySelector<HTMLAnchorElement>('a')!
-    expect(download.getAttribute('href')).toBe(`/api/assets/${encodeURIComponent(digest)}`)
+    expect(download.getAttribute('href')).toBe('blob:video-preview')
     expect(download.download).toBe('clip.webm')
     unmount()
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:video-preview')
   })
 
   it('replaces an undecodable selected image with a semantic download fallback', async () => {

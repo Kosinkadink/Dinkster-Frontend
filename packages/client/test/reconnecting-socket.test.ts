@@ -45,6 +45,28 @@ function harness() {
 }
 
 describe('CL3 socket identity guards', () => {
+  it('suspends delivery and reconnects until resumed, without reviving a disconnected lifetime', () => {
+    const { socket, sockets, scheduled, received } = harness()
+    socket.connect()
+    const first = sockets[0]!
+    first.onopen?.({})
+    const lateMessage = first.onmessage
+    const resume = socket.suspend()
+    lateMessage?.({ data: 'while suspended' })
+    expect(received).toEqual([])
+    expect(scheduled).toEqual([])
+    expect(first.closed).toBe(true)
+    resume()
+    sockets[1]!.onopen?.({})
+    sockets[1]!.onmessage?.({ data: 'resumed' })
+    expect(received).toEqual(['resumed'])
+    const staleResume = socket.suspend()
+    socket.disconnect()
+    staleResume()
+    expect(sockets).toHaveLength(2)
+    expect(socket.status.get()).toBe('disconnected')
+  })
+
   it('ignores open and message from a superseded socket', () => {
     const { socket, sockets, scheduled, received } = harness()
     socket.connect()

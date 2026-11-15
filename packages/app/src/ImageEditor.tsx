@@ -161,9 +161,8 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
       if (!reader) throw new Error('Source image ownership is unavailable')
       await reader.read(async () => {
         if (!current()) return
-        const response = await fetch(backend.connection.assetUrl(request.sourceRef.digest), { signal: abort.signal })
-        if (!response.ok) throw new Error(`Source image fetch failed (${response.status})`)
-        const bytes = await response.arrayBuffer()
+        const bytes = await backend.connection.fetchAssetBytes(request.sourceRef.digest, abort.signal)
+        if (bytes === undefined) throw new Error('Source image is unavailable')
         if (!current()) return
         const decoded = await decodePng(new Uint8Array(bytes))
         if (!current()) return

@@ -1,7 +1,7 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { buildDinksterRegistry, type DinksterSubmitResult } from '@dinkster/client'
+import { buildDinksterRegistry, RetentionClient, type DinksterSubmitResult } from '@dinkster/client'
 import { asConnectionId, asPromptId, createMenuRegistry, createSearchRegistry, createSignal, type EffectiveExtensionSnapshot, type ExtensionEvent, type ExtensionHostOptions, type FrontendContributionKind, type FrontendPrivilege, type NodeDecorationContribution, type VirtualNodeKind } from '@dinkster/core'
 import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, type TextWidgetEditorExtension } from '@dinkster/widgets'
 import { ExtensionWorld, type FrontendActivationContext } from '../src/extension-world.js'
@@ -290,7 +290,8 @@ describe('connection extension worlds', () => {
 
   it.each(['GET', 'POST'] as const)('confines %s queries to typed own-pack snapshot routes and tears them down', async (method) => {
     const { target, ui } = setup()
-    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
+    const retention = new RetentionClient('/a')
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target, undefined, retention.fetch)
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
     Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { href: 'http://test/', origin: 'http://test' } })
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"count":4}', { headers: {
@@ -314,23 +315,34 @@ describe('connection extension worlds', () => {
       await expect(context.queryRoute('other.policy', { count: 4 })).rejects.toThrow('undeclared own-pack')
       await expect(context.queryRoute('policy', { count: 4.5 })).rejects.toThrow('undeclared own-pack')
       expect(fetch).not.toHaveBeenCalled()
+      const generation = 'a'.repeat(32)
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+        clientId: 'b'.repeat(32), generation, revision: 1, connected: true,
+        pendingRequests: 0, activeStreams: 0, complete: false,
+        holders: Object.fromEntries(Array.from({ length: 8 }, (_, index) => [String(index + 1), []])),
+      })))
       const result = await context.queryRoute('policy', input)
       expect(result).toEqual({ count: 4 })
       expect(Object.isFrozen(result)).toBe(true)
-      const [url, init] = fetch.mock.calls[0]!
+      expect(String(fetch.mock.calls[0]![0])).toBe('/a/api/library/retention-clients')
+      const [url, init] = fetch.mock.calls[1]!
       expect(String(url)).toBe('http://test/a/api/extensions/demo/routes/policy')
       expect(init?.method).toBe(method)
-      expect(init?.headers).toMatchObject({ 'If-Match': digest })
+      expect(new Headers(init?.headers).get('If-Match')).toBe(digest)
+      expect(new Headers(init?.headers).get('X-Dinkster-Retention-Generation')).toBe(generation)
       expect(init?.body).toBe(method === 'POST' ? '{"count":4}' : undefined)
       fetch.mockResolvedValueOnce(new Response('{"count":4}', { headers: { 'Content-Type': 'application/json', 'X-Dinkster-Extension-Snapshot': 'other' } }))
       await expect(context.queryRoute('policy', input)).rejects.toThrow('unpaired response')
       fetch.mockResolvedValueOnce(new Response('{"count":"bad"}', { headers: { 'Content-Type': 'application/json', 'X-Dinkster-Extension-Snapshot': digest } }))
       await expect(context.queryRoute('policy', input)).rejects.toThrow('does not match')
+      let requestStarted!: () => void
+      const started = new Promise<void>((resolve) => { requestStarted = resolve })
       fetch.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('cancelled')), { once: true })
+        requestStarted()
       }))
       const pending = context.queryRoute('policy', input)
-      await Promise.resolve()
+      await started
       world.dispose()
       await expect(pending).rejects.toThrow('cancelled')
       expect(init?.signal?.aborted).toBe(true)

@@ -153,7 +153,21 @@ export class ReconnectingSocket {
     }, delay)
   }
 
+  /** Suspend delivery and retries without retiring the owning connection. */
+  suspend(): () => void {
+    const running = !this.deliberateClose
+    this.closeSocket(false)
+    const generation = this.reconnectGeneration
+    return () => {
+      if (running && generation === this.reconnectGeneration) this.connect()
+    }
+  }
+
   disconnect(): void {
+    this.closeSocket(true)
+  }
+
+  private closeSocket(publishStatus: boolean): void {
     this.deliberateClose = true
     this.reconnectGeneration += 1
     if (this.reconnectHandle !== undefined) {
@@ -170,7 +184,7 @@ export class ReconnectingSocket {
       ws.onerror = null
       ws.close()
     }
-    this.statusSignal.set('disconnected')
+    if (publishStatus) this.statusSignal.set('disconnected')
   }
 
   /**

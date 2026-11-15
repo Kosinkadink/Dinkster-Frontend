@@ -144,7 +144,7 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
             }
             assertCurrent()
             const retained = await retainWorkflowAssets(connection, document.lineage, revision,
-              { complete: true, digests }, storage)
+              { complete: true, digests }, storage, undefined, false, [2, 3, 4])
             assertCurrent()
             return () => {
               if (session !== undefined && session.doc !== document) return
@@ -178,7 +178,7 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
       await uploadResources(session.doc)
       assertCurrent()
       const retained = await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
-        { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage)
+        { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage, undefined, false, [2, 3, 4])
       installOwner(retained)
     }
     assertCurrent()
@@ -189,7 +189,7 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
         if (!prepared.ok) return prepared
         await uploadResources(prepared.document)
         const retained = await retainWorkflowAssets(connection, prepared.document.lineage, revision,
-          { complete: true, digests: prepared.resourceDigests }, storage)
+          { complete: true, digests: prepared.resourceDigests }, storage, undefined, false, [2, 3, 4])
         assertCurrent()
         admitted = prepared.document
         try {

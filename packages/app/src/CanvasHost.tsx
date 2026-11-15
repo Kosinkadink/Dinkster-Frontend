@@ -2233,6 +2233,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // from peekCandidatesFor (host state: companion sources + occurrences).
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
+    readAssetForExecution: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
+    inputAssetBytes: (digest) => {
+      const tab = activeTab()
+      if (tab === undefined) return undefined
+      const connection = props.app.backendForTab(tab).connection
+      return (signal) => connection.fetchAssetBytes(digest, signal)
+    },
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),
@@ -3978,7 +3985,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const backend = props.app.backendForTab(tab)
       const ownerRegistry = props.app.registryForTab(tab)
       const frozenState = tab.execution
-      const baseUrl = backend.baseUrl
       // Graph INCARNATION latch: graph ids are reusable (an undo of an
       // import frees 'g<n>' for the next import to re-key onto), so the id
       // string matching again after the fetch does not prove the gesture's
@@ -3991,7 +3997,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       try {
         const outcome = await insertBlueprintIntoTab({
-          loadBody: () => blueprintBodies.load(baseUrl, bp.packId, bp.descriptor.id, bp.descriptor.digest),
+          loadBody: () => blueprintBodies.load(backend.connection, bp.packId, bp.descriptor.id, bp.descriptor.digest),
           graphId,
           position: { x: Math.round(p.worldX), y: Math.round(p.worldY) },
           tabStillOpen: () => props.app.tabs.get().includes(tab),

@@ -11,6 +11,7 @@ import { ProductActionFooter } from './ProductForm.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
 import { useSignal } from './solid-adapter.js'
+import { CollectionImage } from './CollectionImage.js'
 
 interface TemplateFamily {
   readonly id: string
@@ -206,9 +207,7 @@ export function TemplateGallery(props: {
                         return (
                           <button type="button" class="template-card" role="option" aria-selected="false" onClick={() => open(entry)} data-testid="template-card">
                             <span class="template-card-image">
-                              <Show when={entry.thumbUrl} fallback={<span class="template-card-initials">{initialsOf(entry.title)}</span>}>
-                                {(url) => <img src={url()} alt="" loading="lazy" />}
-                              </Show>
+                              <CollectionImage entry={entry} class="" alt="" fallback={<span class="template-card-initials">{initialsOf(entry.title)}</span>} />
                               <span class="template-card-source">{source}</span>
                             </span>
                             <span class="template-card-copy">

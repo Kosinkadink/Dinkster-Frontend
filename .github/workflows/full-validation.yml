@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: bea09a5890abaa3117d41c5cca6c88bc8e11cf24
+  DINKSTER_REF: dfc0d0ddc3470f80466fb7eea407aa760cb68a2c
 
 jobs:
   validation-plan:
@@ -100,22 +100,14 @@ jobs:
           python-version: "3.12"
 
       - run: pnpm install --frozen-lockfile
-      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
-      - name: Install checkout pack sources
-        run: |
-          packs=()
-          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
-            packs+=(-e "$pack")
-          done
-          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
-            "${packs[@]}"
+      - uses: ./.github/actions/prepare-native-generation
       - name: Verify generated fixtures are current
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
         run: |
-          .ci/Dinkster/.venv/bin/python .ci/Dinkster/tools/gen_extension_contribution_kinds.py --check --frontend-root .
-          .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
-          .ci/Dinkster/.venv/bin/python scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
+          "$DINKSTER_E2E_DINKSTER_PYTHON" .ci/Dinkster/tools/gen_extension_contribution_kinds.py --check --frontend-root .
+          "$DINKSTER_E2E_DINKSTER_PYTHON" scripts/gen-dinkster-nodes-fixture.py > packages/core/fixtures/dinkster-nodes.json
+          "$DINKSTER_E2E_DINKSTER_PYTHON" scripts/gen-dinkster-streams-fixture.py > packages/core/fixtures/events/dinkster-streams.json
           git diff --exit-code -- packages/core/fixtures/dinkster-nodes.json packages/core/fixtures/events/dinkster-streams.json
       - run: pnpm exec prettier --check --single-quote --no-semi scripts/ci-fast.mjs
       - run: pnpm check:extension-literals
@@ -128,10 +120,6 @@ jobs:
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
-      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
-        env:
-          CUDA_VISIBLE_DEVICES: ""
-          UV_TORCH_BACKEND: cpu
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
@@ -191,34 +179,7 @@ jobs:
       - run: uv venv --python 3.12 .ci/ComfyUI/venv
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
-      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
-      - name: Install checkout pack sources
-        run: |
-          packs=()
-          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
-            packs+=(-e "$pack")
-          done
-          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
-            "${packs[@]}"
-      - name: Install hosted compatibility dependencies
-        run: |
-          UV_PROJECT_ENVIRONMENT=.venv-torch uv sync --project .ci/Dinkster --python 3.12 --locked --package dinkster --no-dev
-          packs=()
-          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
-            packs+=(-e "$pack")
-          done
-          uv pip install --python .ci/Dinkster/.venv-torch/bin/python --no-deps --no-sources \
-            "${packs[@]}"
-          uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          uv pip install --python .ci/Dinkster/.venv-torch/bin/python -r .ci/ComfyUI/requirements.txt
-          uv pip install --python .ci/Dinkster/.venv-torch/bin/python --torch-backend cpu --default-index https://pypi.org/simple \
-            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@9a9d0fd74ede9dea3058a0a63b2c5e9a8b00cb1c" \
-            packaging "comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0" \
-            "sentencepiece==0.2.1" "tokenizers==0.23.1"
-      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
-        env:
-          CUDA_VISIBLE_DEVICES: ""
-          UV_TORCH_BACKEND: cpu
+      - uses: ./.github/actions/prepare-native-generation
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Install software Vulkan for hosted rendering
         run: |

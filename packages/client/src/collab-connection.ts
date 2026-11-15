@@ -53,6 +53,7 @@ import type {
   WorkflowDocument,
 } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
+import type { RetentionClient } from './retention-client.js'
 import { credentialFetch, type CollabCredentials } from './credentials.js'
 import {
   ReconnectingSocket,
@@ -240,6 +241,7 @@ export interface CollabHttpConnectionConfig extends CollabCredentials {
   /** Stamped on outbound presence frames (ops carry their own actorId). */
   readonly actorId: string
   readonly fetchFn?: FetchLike
+  readonly retentionClient?: RetentionClient
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + the events route. */
   readonly wsUrl?: string
   readonly webSocketFactory?: WebSocketFactory
@@ -292,13 +294,14 @@ export class CollabHttpConnection implements CollabConnection {
    */
   private wsSend: ((data: string) => void) | undefined
   private closed = false
+  private readonly unregisterRetentionStream: (() => void) | undefined
 
   constructor(config: CollabHttpConnectionConfig) {
     this.sessionId = config.sessionId
     this.baseUrl = config.baseUrl
     this.actorId = config.actorId
     this.onDiagnostic = config.onDiagnostic
-    const fetchFn = credentialFetch(config, config.fetchFn ?? defaultFetch)
+    const fetchFn = credentialFetch(config, config.retentionClient?.fetch ?? config.fetchFn ?? defaultFetch)
     this.authenticatedFetch = fetchFn
     this.fetchFn = async (url, init) => {
       while (true) {
@@ -318,12 +321,14 @@ export class CollabHttpConnection implements CollabConnection {
       `${config.baseUrl.replace(/^http/, 'ws')}/api/sessions/${encodeURIComponent(config.sessionId)}/events`
     this.socket = new ReconnectingSocket({
       url: wsUrl,
-      ...((config.token !== undefined || config.actorKind === 'agent') && {
+      ...((config.retentionClient !== undefined || config.token !== undefined || config.actorKind === 'agent') && {
         resolveUrl: async () => {
+          const url = config.retentionClient === undefined ? wsUrl : await config.retentionClient.socketUrl(wsUrl)
+          if (config.token === undefined && config.actorKind !== 'agent') return url
           const response = await this.fetchFn(`${this.baseUrl}/api/auth/ws-ticket`, { method: 'POST' })
           await this.checkAuthorization(response, 'ws-ticket')
           const body = await jsonOrThrow(response, 'WebSocket authentication; supply a delegation with --token or DINKSTER_AGENT_TOKEN') as { ticket: string }
-          return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
+          return `${url}${url.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
         },
       }),
       ...(config.webSocketFactory !== undefined && { webSocketFactory: config.webSocketFactory }),
@@ -356,6 +361,10 @@ export class CollabHttpConnection implements CollabConnection {
         this.emit({ kind: 'disconnected' })
       }
       void this.probeWhileDisconnected()
+    })
+    this.unregisterRetentionStream = config.retentionClient?.registerStream(() => {
+      this.wsSend = undefined
+      return this.socket.suspend()
     })
     this.socket.connect()
   }
@@ -640,6 +649,7 @@ export class CollabHttpConnection implements CollabConnection {
     this.cancelProbe?.()
     this.stopUserSessionWait(new Error('connection closed'))
     this.socket.disconnect()
+    this.unregisterRetentionStream?.()
     this.listeners.clear()
   }
 

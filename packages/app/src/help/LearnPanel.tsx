@@ -1,13 +1,14 @@
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DocsDescriptor, DocsLocaleDescriptor, DinksterConnection } from '@dinkster/client'
 import { t, type MessageParams } from '@dinkster/core'
 import { Markdown, type MarkdownAssets } from './Markdown.js'
+import { loadDocsAssets } from './docs-assets.js'
 import { selectDocsLocale } from './NodeHelpPanel.js'
 import { parseMarkdown, type MarkdownBlock } from './markdownParser.js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 
-type LearnConnection = Pick<DinksterConnection, 'listDocs' | 'fetchDocsPage' | 'docsAssetUrl'>
+type LearnConnection = Pick<DinksterConnection, 'listDocs' | 'fetchDocsPage' | 'fetchDocsAsset'>
 
 export interface LearnBackend {
   readonly id: string
@@ -83,15 +84,19 @@ export function LearnPanel(props: {
     const backend = props.backend
     const requestedLocale = props.locale
     const generation = ++guideGeneration
+    const abort = new AbortController()
+    onCleanup(() => { guideGeneration++; abort.abort() })
     if (descriptor === undefined || backend === undefined) return
     const selection = selectDocsLocale(descriptor, [requestedLocale])
     setGuideState({ kind: 'loading' })
-    void backend.connection.fetchDocsPage(descriptor.pack, selection.page.digest).then((markdown) => {
+    void backend.connection.fetchDocsPage(descriptor.pack, selection.page.digest).then(async (markdown) => {
       if (generation !== guideGeneration) return
       if (markdown === undefined) {
         setGuideState({ kind: 'missing' })
         return
       }
+      const assets = await loadDocsAssets(backend.connection, descriptor.pack, selection.page.assets, abort.signal)
+      if (generation !== guideGeneration) return
       setGuideState({
         kind: 'loaded',
         guide: {
@@ -99,14 +104,12 @@ export function LearnPanel(props: {
           locale: selection.locale,
           page: selection.page,
           blocks: parseMarkdown(markdown),
-          assets: Object.fromEntries(Object.entries(selection.page.assets).map(([source, asset]) => [source, {
-            url: backend.connection.docsAssetUrl(descriptor.pack, asset.digest),
-            mediaType: asset.mediaType,
-          }])),
+          assets,
           fallback: selection.fallback,
         },
       })
     }).catch((error: unknown) => {
+      abort.abort()
       if (generation === guideGeneration) setGuideState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
     })
   })

@@ -8,6 +8,9 @@ import { localAssetSource } from '../src/asset-browser/localAssetSource.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
 import { initializeProjectScope } from '../src/projects.js'
 
+const poster = vi.hoisted(() => vi.fn(async (_url: string, _mime: string) => 'data:image/png;base64,poster'))
+vi.mock('../src/model3d-viewer.js', () => ({ renderModel3dPosterUrl: poster }))
+
 const item = normalizeMountEntry('mount:m', 'm', { virtualPath: 'images/a.png', name: 'a.png', digest: 'blake3:a', size: 12, mediaType: 'image/png', kind: 'media/image' })
 function previewFixture() {
   const entries = new Map<string, string>()
@@ -67,6 +70,19 @@ it.each(['accepted', 'refused', 'mismatched', 'project', 'connection', 'closed']
     }
   },
 )
+
+it('renders model thumbnails from enrolled bytes and revokes the temporary source', async () => {
+  const f = previewFixture()
+  const createUrl = vi.spyOn(URL, 'createObjectURL')
+  const revoke = vi.spyOn(URL, 'revokeObjectURL')
+  poster.mockImplementationOnce(async (url, mime) => {
+    expect(url).toMatch(/^blob:/)
+    const bytes = await fetch(url).then((response) => response.arrayBuffer())
+    return `${mime}:${[...new Uint8Array(bytes)].join(',')}`
+  })
+  expect(await f.entry.thumbRender!(new AbortController().signal)).toBe('model/gltf-binary:17,31,7')
+  expect(revoke).toHaveBeenCalledWith(createUrl.mock.results[0]!.value)
+})
 
 describe('local recorded asset source', () => {
   it('retains aliases and job provenance, but never picks or previews missing bytes', async () => {

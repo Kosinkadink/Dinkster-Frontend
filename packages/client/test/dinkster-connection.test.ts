@@ -1292,6 +1292,41 @@ describe('retained asset ownership', () => {
     expect(requests[1]!.init?.cache).toBe('no-store')
   })
 
+  it('preserves explicit multi-class membership across writes, source claims and exact release', async () => {
+    const admitted = { ...owner, holderClasses: [3, 1] as const }
+    let response = manifest
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { ...response, holderClasses: [8] }))
+    const receipt = await conn.retainAssets(admitted, { revision: 7, digests: [a, b], complete: true })
+    expect(receipt.holderClasses).toEqual([3, 1])
+    expect(Object.isFrozen(receipt.holderClasses)).toBe(true)
+    response = { ...manifest, revision: 9, digests: [] }
+    await conn.releaseRetainedAssets(receipt, 8)
+    expect(requests.map(({ init }) => new Headers(init?.headers).get('X-Dinkster-Retention-Holder')))
+      .toEqual(['1,3', '1,3'])
+    const sourceToken = 'a'.repeat(32)
+    const resultOwner = { ...admitted, ownerKind: 'shown-result' as const, holderClasses: [6, 5] as const }
+    const claimed = { ...resultOwner, revision: 1, digests: [a], complete: true, sourceToken }
+    const source = submitHarness(() => jsonResponse(200, claimed))
+    expect((await source.conn.claimResultAssets(resultOwner, sourceToken)).holderClasses).toEqual([6, 5])
+    expect(new Headers(source.requests[0]!.init?.headers).get('X-Dinkster-Retention-Holder')).toBe('5,6')
+    // Wire fields cannot supply authority absent from the caller's admitted lifetime.
+    const legacy = submitHarness(() => jsonResponse(200, { ...manifest, holderClasses: [1, 3] }))
+    expect((await legacy.conn.fetchRetainedAssets(owner))?.holderClasses).toBeUndefined()
+    expect((await legacy.conn.retainAssets(owner, { revision: 7, digests: [a, b], complete: true })).holderClasses).toBeUndefined()
+    expect(new Headers(legacy.requests[1]!.init?.headers).has('X-Dinkster-Retention-Holder')).toBe(false)
+  })
+
+  it('refuses empty, duplicate and invalid holder membership before sending a mutation', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
+    for (const holderClasses of [[], [1, 1], [0], [9], [1.5]]) {
+      const invalid = { ...owner, holderClasses } as Parameters<typeof conn.retainAssets>[0]
+      await expect(conn.retainAssets(invalid, { revision: 7, digests: [a, b], complete: true })).rejects.toThrow('holder classes')
+      await expect(conn.releaseRetainedAssets(invalid, 8)).rejects.toThrow('holder classes')
+      await expect(conn.claimResultAssets({ ...invalid, ownerKind: 'shown-result' }, 'a'.repeat(32))).rejects.toThrow('holder classes')
+    }
+    expect(requests).toHaveLength(0)
+  })
+
   it('does not accept a different owner, set, completeness or mutation revision', async () => {
     for (const mismatch of [
       { scope: 'other' }, { ownerKind: 'preview' }, { ownerId: 'another generation' },
