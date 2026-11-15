@@ -433,6 +433,41 @@ test('left and bottom tab strips start durable cross-zone drags', async ({ page 
   await expect(zoneTab(page, 'bottom', 'logs')).toBeVisible()
 })
 
+test('unrelated panel-body scrolling preserves a drag through docking', async ({ page }) => {
+  await registerDockingProof(page)
+  await rightTab(page, 'docking-proof').click()
+  const body = page.getByTestId('docking-proof-body')
+  await body.evaluate((element) => {
+    element.style.height = '100px'
+    element.style.overflow = 'auto'
+    const content = document.createElement('div')
+    content.style.height = '1000px'
+    content.textContent = 'Scrollable panel content'
+    element.append(content)
+  })
+  const source = rightTab(page, 'queue')
+  const from = await center(source)
+  const viewport = page.viewportSize()!
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(viewport.width / 2, viewport.height - 2, { steps: 4 })
+  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-zone', 'bottom')
+
+  await body.evaluate((element) => new Promise<void>((resolve) => {
+    element.addEventListener('scroll', () => resolve(), { once: true })
+    element.scrollTop = 100
+  }))
+  expect(await body.evaluate((element) => element.scrollTop)).toBe(100)
+  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-zone', 'bottom')
+  await capture(page, 'panel-body-scroll-drag')
+  await page.mouse.up()
+
+  expect(await zoneOrder(page, 'bottom')).toContain('queue')
+  expect(await zoneOrder(page, 'right')).not.toContain('queue')
+  await expect(zoneTab(page, 'bottom', 'queue')).toBeVisible()
+  await capture(page, 'panel-body-scroll-docked')
+})
+
 test('illegal, Escape, capture-loss, scroll, and resize endings always roll back', async ({ page }) => {
   // Register a rail-only panel: the built-in panels all accept the bottom
   // zone, so proving the illegal-drop rollback needs a restricted one.
