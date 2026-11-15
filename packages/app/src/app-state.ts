@@ -3865,6 +3865,11 @@ export class AppState {
         generation: this.assetConnectionGenerations.get(backend.connection) }
     })
     const native = sources.filter(({ backend }) => backend.protocol === 'dinkster')
+    // An opening transport will advance the connection generation before admission settles.
+    if (native.some(({ backend }) => {
+      const status = backend.connection.status.get()
+      return status === 'connecting' || status === 'reconnecting'
+    })) return undefined
     let owners: RetainedAssets[] = []
     for (;;) {
       for (const source of sources) source.registry = source.backend.registry.get()
@@ -4713,7 +4718,7 @@ export class AppState {
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
           if (!this.disposed && [...this.persistedWorkflowSlots.values()].some((slot) =>
-            !slot.complete && slot.owners.some((owner) => owner.backend.id === id))) this.schedulePersistTabs()
+            !slot.complete && (slot.owners.length === 0 || slot.owners.some((owner) => owner.backend.id === id)))) this.schedulePersistTabs()
           // Schema refresh can invalidate an in-flight reconnect read. The
           // coalesced trailing pass captures the newly published owner.
           reconcileConnected()

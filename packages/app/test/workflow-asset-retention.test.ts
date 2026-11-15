@@ -1136,6 +1136,41 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['connecting', 'reconnecting'] as const)(
+    'keeps restored workspace recovery local until the transport settles: %s', async (status) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp(null, session().doc)
+        const transport = vi.spyOn(app.connection.status, 'get').mockReturnValue(status)
+        const owners = new Map<string, RetainedAssets>()
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        })
+        app.flushPersistTabs(true)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(owners.size).toBe(0)
+        const pending = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+        expect(pending.tabs.find((tab: { doc: WorkflowDocument }) => tab.doc.lineage === 'retention').doc)
+          .toEqual(session().doc)
+        expect(pending.assetRetention.acknowledged).toBe(false)
+        transport.mockReturnValue('connected')
+        const schemas = new Map([[schema.type, schema]])
+        app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'connected',
+          resolve: (type) => schemas.get(type) })
+        await vi.advanceTimersByTimeAsync(500)
+        const restored = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+        expect(restored.assetRetention.complete).toBe(true)
+        expect(owners.size).toBeGreaterThan(0)
+        expect([...owners.values()].every((owner) => owner.complete)).toBe(true)
+        expect(restored.tabs.find((tab: { doc: WorkflowDocument }) => tab.doc.lineage === 'retention').doc)
+          .toEqual(session().doc)
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it.each(['resolved', 'during-admission', 'locked-candidate', 'locked-unresolved', 'locked-refused', 'unresolved', 'different-document', 'refused'] as const)(
     'hands off a schema-absent persisted snapshot only to an acknowledged exact replacement: %s', async (scenario) => {
     vi.useFakeTimers()
