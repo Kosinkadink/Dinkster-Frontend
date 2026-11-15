@@ -4,6 +4,7 @@ import {
   type ExtensionEvent, type ExtensionHostOptions, type FrontendPrivilege, type PackActivationApi, type PackManifest, type PackJsonObject,
 } from '@dinkster/core'
 import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors, type TextWidgetEditorExtension } from '@dinkster/widgets'
+import type { FetchLike } from '@dinkster/client'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import { HostUiContributionRegistry } from './host-ui.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from './settings.js'
@@ -64,6 +65,7 @@ export class ExtensionWorld {
     readonly digest: string,
     private readonly target: ExtensionHostOptions<TextWidgetEditorExtension>,
     private readonly report: (diagnostic: Diagnostic) => void = () => {},
+    private readonly fetchFn: FetchLike = (url, init) => fetch(url, init),
   ) {
     registerCoreWidgets(widgetRegistrationDoors(this.widgets))
     registerCoreWidgetEditors(this.widgets)
@@ -199,7 +201,7 @@ export class ExtensionWorld {
                 requireApp()
                 const url = new URL(`${baseUrl}/api/extensions/${pack.id}/routes/${route.id}`, location.href)
                 if (url.origin !== location.origin || url.username || url.password || url.hash || url.search) throw new Error('extension route must be same-origin')
-                const response = await fetch(url, {
+                const response = await this.fetchFn(url.href, {
                   method: route.method, signal, redirect: 'error', credentials: 'same-origin',
                   headers: { 'If-Match': this.digest, ...(route.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
                   ...(route.method === 'POST' ? { body: JSON.stringify(input) } : {}),

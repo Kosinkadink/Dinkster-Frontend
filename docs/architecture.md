@@ -85,6 +85,16 @@ the value descriptor or admitting rendition reads. Lost-response recovery checks
 the exact token, roots, completeness and revision. Discovery without an offer
 uses explicitly incomplete ownership; a malformed present offer is refused.
 
+Pack blueprint bodies, pack icons, local template thumbnails and documentation
+media use the captured backend connection's enrolled transport rather than global
+fetch or native media URLs. Blueprint decoding preserves digest-based negative
+caching and retries transport failures. Pack and template images load through the
+cancellable collection-image lifetime; documentation images and videos use owned
+Blob URLs that are revoked when their page or locale changes or the panel closes.
+External registry template thumbnails keep their registry transport and never
+receive a backend retention generation. Immutable installed module imports retain
+their native HTTP URLs under the backend's exact-module exemption.
+
 Shared asset-browser model thumbnails acknowledge independent incomplete
 `preview` ownership before entering the poster queue/cache. The project,
 connection and browser/picker lifetime must still match before publication.

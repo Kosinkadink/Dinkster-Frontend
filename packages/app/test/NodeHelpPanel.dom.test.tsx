@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { resolveObjectURL } from 'node:buffer'
 import { createSignal } from '@dinkster/core'
 import { createSignal as createSolidSignal } from 'solid-js'
 import { render } from 'solid-js/web'
@@ -17,7 +18,10 @@ const descriptor = {
   locales: {
     en: {
       title: 'Add values', summary: 'Adds two values.', schemaVersion: 1, digest: digest('1'),
-      assets: { 'assets/demo.mp4': { digest: digest('2'), mediaType: 'video/mp4' } },
+      assets: {
+        'assets/demo.mp4': { digest: digest('2'), mediaType: 'video/mp4' },
+        'assets/missing.png': { digest: digest('4'), mediaType: 'image/png' },
+      },
     },
     'zh-hans': {
       title: 'Add values zh', summary: 'Summary zh', digest: digest('3'), assets: {},
@@ -43,7 +47,10 @@ describe('NodeHelpPanel', () => {
     const connection = {
       listDocs,
       fetchDocsPage,
-      docsAssetUrl: vi.fn((_pack: string, assetDigest: string) => `/docs/${assetDigest}`),
+      fetchDocsAsset: vi.fn(async (_pack: string, assetDigest: string) => {
+        if (assetDigest === digest('4')) throw new Error('Media unavailable')
+        return new Blob(['demo'], { type: 'video/mp4' })
+      }),
     }
     const registry = createSignal({ resolve: () => ({ ext: { dinkster: { version: 2 } } }) })
     const app = {
@@ -58,12 +65,15 @@ describe('NodeHelpPanel', () => {
     expect(listDocs).toHaveBeenCalledWith({ kind: 'node', pack: 'demo-pack', id: 'demo.add', limit: 1 })
     expect(fetchDocsPage).toHaveBeenCalledWith('demo-pack', digest('1'))
     expect(host.querySelector('.dinkster-markdown h1')?.textContent).toBe('Usage')
-    expect(host.querySelector('video')?.getAttribute('src')).toBe(`/docs/${digest('2')}`)
+    const mediaUrl = host.querySelector('video')?.getAttribute('src')
+    expect(mediaUrl).toMatch(/^blob:/)
+    expect(await resolveObjectURL(mediaUrl!)?.text()).toBe('demo')
     expect(host.querySelector('.node-help-warning')).not.toBeNull()
 
     setLocale('zh-Hans-CN')
     await vi.waitFor(() => expect(host.querySelector('h1')?.textContent).toBe('Add values zh'))
     expect(fetchDocsPage).toHaveBeenLastCalledWith('demo-pack', digest('3'))
+    expect(resolveObjectURL(mediaUrl!)).toBeUndefined()
 
     setLocale('fr-CA')
     await vi.waitFor(() => expect(host.querySelector('.node-help-fallback')?.textContent).toBe('Shown in English (no fr-CA translation).'))

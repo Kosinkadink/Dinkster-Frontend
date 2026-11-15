@@ -25,10 +25,9 @@ it.each(['accepted', 'refused', 'close', 'session', 'owner', 'dispose'] as const
     publish()
   })
   const bytes = await encodePng(2, 1, new Uint8ClampedArray([1, 7, 3, 255, 4, 8, 2, 0]))
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array(bytes).buffer } as Response)
   const app = {
     imageEditorTarget, activeTabId: createSignal('first'), tabs: createSignal([{ id: 'first', store: {} } as Tab]),
-    backendForTab: () => ({ protocol: 'dinkster', connection: { assetUrl: () => '/api/assets/source' } }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { fetchAssetBytes: async () => new Uint8Array(bytes).buffer } }),
     closeImageEditor: () => imageEditorTarget.set(undefined), retainEditorAssets,
     workflowAssetReader: () => ({ current: () => ownerCurrent, read: async <T,>(consume: () => Promise<T>) => consume() }),
   } as unknown as AppState
@@ -72,18 +71,16 @@ it.each(['close', 'replace', 'session', 'tab', 'dispose'] as const)('settles obs
   const activeTabId = createSignal('first')
   let activeBodies = 0
   const reads: { url: string; signal: AbortSignal | null | undefined; finish: (bytes: ArrayBuffer) => void }[] = []
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => ({
-    ok: true, status: 200, arrayBuffer: () => new Promise<ArrayBuffer>((resolve, reject) => {
-      activeBodies++
-      let settled = false
-      const settle = () => { if (!settled) { settled = true; activeBodies-- } }
-      reads.push({ url: String(url), signal: init?.signal, finish: (bytes) => { settle(); resolve(bytes) } })
-      init?.signal?.addEventListener('abort', () => { settle(); reject(init.signal!.reason) }, { once: true })
-    }),
-  }) as Response)
+  const fetchAssetBytes = async (digest: string, signal?: AbortSignal) => new Promise<ArrayBuffer>((resolve, reject) => {
+    activeBodies++
+    let settled = false
+    const settle = () => { if (!settled) { settled = true; activeBodies-- } }
+    reads.push({ url: `/api/assets/${digest}`, signal, finish: (bytes) => { settle(); resolve(bytes) } })
+    signal?.addEventListener('abort', () => { settle(); reject(signal.reason) }, { once: true })
+  })
   const app = {
     imageEditorTarget, activeTabId, tabs: createSignal([{ id: 'first', store: {} } as Tab]),
-    backendForTab: () => ({ protocol: 'dinkster', connection: { assetUrl: (digest: string) => `/api/assets/${digest}` } }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { fetchAssetBytes } }),
     closeImageEditor: () => imageEditorTarget.set(undefined),
     retainEditorAssets: async (_target: unknown, _backend: unknown, _value: unknown, publish: () => boolean) => { publish() },
     workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),

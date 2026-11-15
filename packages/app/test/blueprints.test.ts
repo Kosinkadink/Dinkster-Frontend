@@ -10,6 +10,8 @@
  * against the captured graph.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { DinksterConnection } from '@dinkster/client'
+import { asConnectionId } from '@dinkster/core'
 import {
   coreCommandRegistry,
   DocumentStore,
@@ -62,10 +64,11 @@ describe('BlueprintBodyCache', () => {
       [jsonResponse({ format: 'dinkster-workflow', formatVersion: 1 }), 'sha256:' + 'd'.repeat(64)],
     ] as const) {
       const fetchFn = vi.fn(() => Promise.resolve(response))
-      const cache = new BlueprintBodyCache({ fetchFn })
-      expect(await cache.load('http://b', 'p', 'bp', digest)).toBeUndefined()
+      const cache = new BlueprintBodyCache()
+      const connection = new DinksterConnection({ id: asConnectionId('blueprints'), baseUrl: 'http://b', clientId: 'test', fetchFn })
+      expect(await cache.load(connection, 'p', 'bp', digest)).toBeUndefined()
       // Negative-cached: the second load never refetches.
-      expect(await cache.load('http://b', 'p', 'bp', digest)).toBeUndefined()
+      expect(await cache.load(connection, 'p', 'bp', digest)).toBeUndefined()
       expect(fetchFn).toHaveBeenCalledTimes(1)
     }
   })
@@ -75,10 +78,11 @@ describe('BlueprintBodyCache', () => {
       .fn<() => Promise<Response>>()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce(jsonResponse(validBody))
-    const cache = new BlueprintBodyCache({ fetchFn })
+    const cache = new BlueprintBodyCache()
+    const connection = new DinksterConnection({ id: asConnectionId('blueprints'), baseUrl: 'http://b', clientId: 'test', fetchFn })
 
-    expect(await cache.load('http://b', 'p', 'bp', DIGEST)).toBeUndefined()
-    expect(await cache.load('http://b', 'p', 'bp', DIGEST)).toBeDefined()
+    expect(await cache.load(connection, 'p', 'bp', DIGEST)).toBeUndefined()
+    expect(await cache.load(connection, 'p', 'bp', DIGEST)).toBeDefined()
     expect(fetchFn).toHaveBeenCalledTimes(2)
   })
 

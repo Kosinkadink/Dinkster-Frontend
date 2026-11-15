@@ -24,6 +24,7 @@
  */
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
+import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
 import {
   asPromptId,
@@ -780,6 +781,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
+  /** Shared with discovery and collaboration for the same backend/principal. */
+  readonly retentionClient?: RetentionClient
   readonly webSocketFactory?: WebSocketFactory
   readonly scheduleFn?: ScheduleFn
   readonly cancelFn?: CancelFn
@@ -1239,6 +1242,8 @@ export interface RetainedAssetOwner {
   readonly scope: string
   readonly ownerKind: 'document' | 'history' | 'shown-result' | 'preview'
   readonly ownerId: string
+  /** Immutable membership chosen by the admitting lifetime, never inferred from owner kind. */
+  readonly holderClasses?: readonly RetentionHolderClass[]
 }
 
 export interface RetainedAssets extends RetainedAssetOwner {
@@ -1287,6 +1292,16 @@ function retainedAssetRoute(owner: RetainedAssetOwner): string {
   return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
 }
 
+function retainedAssetHeaders(owner: RetainedAssetOwner): Record<string, string> {
+  const classes = owner.holderClasses
+  if (classes !== undefined && (classes.length === 0 || new Set(classes).size !== classes.length ||
+    classes.some((value) => !Number.isInteger(value) || value < 1 || value > 8))) {
+    throw new Error('Invalid retained asset holder classes')
+  }
+  return { 'Content-Type': 'application/json',
+    ...(classes === undefined ? {} : { 'X-Dinkster-Retention-Holder': [...classes].sort().join(',') }) }
+}
+
 export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
   if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
     value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
@@ -1301,6 +1316,7 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
   }
   return {
     scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId,
+    ...(owner.holderClasses === undefined ? {} : { holderClasses: Object.freeze([...owner.holderClasses]) }),
     revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
     ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
   }
@@ -1802,6 +1818,8 @@ export class DinksterConnection {
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
+  private readonly retentionClient: RetentionClient | undefined
+  private unregisterRetentionStream: (() => void) | undefined
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
   /**
@@ -1842,9 +1860,11 @@ export class DinksterConnection {
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
+    this.retentionClient = config.retentionClient
+    const backendFetch = config.retentionClient?.fetch ?? fetchFn
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
-      ? credentialFetch(config, fetchFn)
-      : fetchFn
+      ? credentialFetch(config, backendFetch)
+      : backendFetch
     this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
@@ -1858,8 +1878,10 @@ export class DinksterConnection {
     const eventsUrl = `${config.baseUrl}/api/events?clientId=${encodeURIComponent(config.clientId)}`
     this.socket = new ReconnectingSocket({
       url: wsUrl,
-      ...((config.token !== undefined || config.actorKind === 'agent') && {
+      ...((config.retentionClient !== undefined || config.token !== undefined || config.actorKind === 'agent') && {
         resolveUrl: async () => {
+          const url = config.retentionClient === undefined ? wsUrl : await config.retentionClient.socketUrl(wsUrl)
+          if (config.token === undefined && config.actorKind !== 'agent') return url
           const preflight = await this.fetchFn(eventsUrl)
           if (preflight.status === 401 || preflight.status === 403) {
             throw await this.failExecutionRequest(preflight, 'events')
@@ -1871,7 +1893,7 @@ export class DinksterConnection {
           if (!response.ok) throw new Error(`WebSocket authentication failed: HTTP ${response.status}`)
           const body = await response.json() as { ticket?: unknown }
           if (typeof body.ticket !== 'string') throw new Error('WebSocket authentication returned no ticket')
-          return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
+          return `${url}${url.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
         },
       }),
       ...(config.webSocketFactory ? { webSocketFactory: config.webSocketFactory } : {}),
@@ -2666,11 +2688,14 @@ export class DinksterConnection {
   // -- Workflow library (POST /api/assets + /api/library) --------------------
 
   async fetchLibraryStorage(signal?: AbortSignal): Promise<LibraryStorage> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage`, {
-      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
-    })
-    if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
-    return libraryStorage(await res.json())
+    const read = async (fetchFn: FetchLike): Promise<LibraryStorage> => {
+      const res = await fetchFn(`${this.baseUrl}/api/library/storage`, {
+        method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+      })
+      if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
+      return libraryStorage(await res.json())
+    }
+    return this.retentionClient === undefined ? read(this.fetchFn) : this.retentionClient.collect(read)
   }
 
   async updateLibraryStorageLimit(limitBytes: number | null): Promise<void> {
@@ -2688,8 +2713,14 @@ export class DinksterConnection {
     }
   }
 
-  async clearLibraryStorage(): Promise<LibraryStorageCleanup> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
+  clearLibraryStorage(): Promise<LibraryStorageCleanup> {
+    return this.retentionClient === undefined
+      ? this.clearLibraryStorageUsing(this.fetchFn)
+      : this.retentionClient.collect((fetchFn) => this.clearLibraryStorageUsing(fetchFn))
+  }
+
+  private async clearLibraryStorageUsing(fetchFn: FetchLike): Promise<LibraryStorageCleanup> {
+    const res = await fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     })
     if (!res.ok && res.status !== 409) throw new Error(`POST library storage clear failed: ${res.status}`)
@@ -2780,7 +2811,7 @@ export class DinksterConnection {
       throw new Error('Invalid result asset claim')
     }
     const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: retainedAssetHeaders(owner),
       body: JSON.stringify({ revision: 0, sourceToken }),
       ...(signal !== undefined ? { signal } : {}),
     })
@@ -2813,10 +2844,8 @@ export class DinksterConnection {
     }
     const route = `${retainedAssetRoute(owner)}${method === 'DELETE' ? `&revision=${revision}` : ''}`
     const res = await this.fetchFn(`${this.baseUrl}${route}`, {
-      method,
-      ...(method === 'PUT' ? {
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, digests, complete }),
-      } : {}),
+      method, headers: retainedAssetHeaders(owner),
+      ...(method === 'PUT' ? { body: JSON.stringify({ revision, digests, complete }) } : {}),
       ...(signal !== undefined ? { signal } : {}),
     })
     // A failed or lost response can still have committed. Reconciliation is
@@ -3318,6 +3347,12 @@ export class DinksterConnection {
     return res.text()
   }
 
+  /** Probe the selected asset without caching or losing the caller's cancellation. */
+  probeOutputProfile(kind: string, digest: string, revision: string, signal: AbortSignal): Promise<Response> {
+    const query = new URLSearchParams({ digest, revision })
+    return this.fetchFn(`${this.baseUrl}/api/output-profiles/${encodeURIComponent(kind)}?${query}`, { signal })
+  }
+
   /** Fetch opaque asset bytes without corrupting images through text decoding. */
   async fetchAssetBytes(digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`, signal ? { signal } : undefined)
@@ -3625,6 +3660,32 @@ export class DinksterConnection {
     }
   }
 
+  /** Fetch and validate one immutable blueprint through the owning backend transport. */
+  async fetchBlueprintBody(packId: string, blueprintId: string): Promise<WorkflowDocument | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/blueprints/${encodeURIComponent(blueprintId)}`)
+    if (!res.ok) return undefined
+    try { return loadDocument(JSON.parse(await res.text()) as unknown).document }
+    catch { return undefined }
+  }
+
+  async fetchPackIcon(packId: string, signal: AbortSignal): Promise<Blob> {
+    return this.fetchPackMedia(`/api/packs/${encodeURIComponent(packId)}/icon`, signal)
+  }
+
+  async fetchTemplateThumbnail(packId: string, templateId: string, signal: AbortSignal): Promise<Blob> {
+    return this.fetchPackMedia(`/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}/thumbnail`, signal)
+  }
+
+  async fetchDocsAsset(packId: string, digest: string, signal: AbortSignal): Promise<Blob> {
+    return this.fetchPackMedia(`/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`, signal)
+  }
+
+  private async fetchPackMedia(path: string, signal: AbortSignal): Promise<Blob> {
+    const res = await this.fetchFn(`${this.baseUrl}${path}`, { signal })
+    if (!res.ok) throw new Error(`GET pack media failed: ${res.status}`)
+    return res.blob()
+  }
+
   /** Fetch and validate one immutable native-format template body. */
   async fetchTemplateBody(packId: string, templateId: string): Promise<WorkflowDocument | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}`)
@@ -3909,11 +3970,14 @@ export class DinksterConnection {
   // -- WebSocket -----------------------------------------------------------------
 
   connect(): void {
+    this.unregisterRetentionStream ??= this.retentionClient?.registerStream(() => this.socket.suspend())
     this.socket.connect()
   }
 
   disconnect(): void {
     this.socket.disconnect()
+    this.unregisterRetentionStream?.()
+    this.unregisterRetentionStream = undefined
   }
 
   /** See ReconnectingSocket.simulateConnectionLoss. */

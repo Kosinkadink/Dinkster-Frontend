@@ -1,4 +1,4 @@
-import { uuidv4, type DinksterConnection, type ExecutionState, type RetainedAssetOwner, type RetainedAssets, type ResultAssetOffer } from '@dinkster/client'
+import { uuidv4, type DinksterConnection, type ExecutionState, type RetainedAssetOwner, type RetainedAssets, type RetentionHolderClass, type ResultAssetOffer } from '@dinkster/client'
 import {
   APP_LAYOUT_EXT_KEY,
   EMPTY_CONNECTIVITY,
@@ -666,6 +666,7 @@ export async function retainWorkflowAssets(
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
   clipboardText?: string,
   requireComplete = false,
+  holderClasses: readonly RetentionHolderClass[] = [1, 2, 3],
 ): Promise<RetainedAssets> {
   if (clipboardText !== undefined) {
     const envelope: unknown = JSON.parse(clipboardText)
@@ -674,7 +675,7 @@ export async function retainWorkflowAssets(
     }
   }
   return retainAssetRoots(connection, 'document', { documentLineage, documentRevision,
-    ...(clipboardText === undefined ? {} : { clipboardText }) }, roots, storage, requireComplete, clipboardText === undefined)
+    ...(clipboardText === undefined ? {} : { clipboardText }) }, roots, storage, holderClasses, requireComplete, clipboardText === undefined)
 }
 
 export async function retainExecutionAssets(
@@ -683,7 +684,7 @@ export async function retainExecutionAssets(
   roots: ReturnType<typeof workflowAssetRoots> | ResultAssetOffer,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
 ): Promise<RetainedAssets> {
-  return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
+  return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage, [5, 6])
 }
 
 /** Only validated preview formats certify their entire external inventory. */
@@ -706,8 +707,9 @@ export function previewAssetRoots(event: Extract<ExecutionEvent, { readonly kind
 export async function retainPreviewAssets(
   connection: DinksterConnection,
   roots: ReturnType<typeof workflowAssetRoots>,
+  holderClasses: readonly RetentionHolderClass[] = [7],
 ): Promise<RetainedAssets> {
-  return retainAssetRoots(connection, 'preview', { preview: true }, roots, globalThis.localStorage)
+  return retainAssetRoots(connection, 'preview', { preview: true }, roots, globalThis.localStorage, holderClasses)
 }
 
 /** Source reads own preview receipts; an explicit replacement group shares one immutable source lifetime. */
@@ -726,8 +728,8 @@ export async function readAssetPreview<T>(
   let reader: RetainedAssetReader | undefined
   try {
     if (!current()) throw new Error('Asset preview changed before admission')
-    const retained = await retainPreviewAssets(connection, typeof inventory === 'string'
-      ? { complete: false, digests: [inventory] } : inventory)
+    const retained = await retainAssetRoots(connection, 'preview', { preview: true }, typeof inventory === 'string'
+      ? { complete: false, digests: [inventory] } : inventory, globalThis.localStorage, [8])
     reader = new RetainedAssetReader(connection, retained, current)
     replacementReaders?.add(reader)
     const value = await reader.read(consume)
@@ -759,7 +761,8 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
     const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
     if (intent === null || intent.acknowledgedRevision !== retained.revision ||
       intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
-      canonicalJson(intent.owner) !== canonicalJson({ scope: retained.scope, ownerKind: retained.ownerKind, ownerId: retained.ownerId }) ||
+      canonicalJson(intent.owner) !== canonicalJson({ scope: retained.scope, ownerKind: retained.ownerKind, ownerId: retained.ownerId,
+        ...(retained.holderClasses === undefined ? {} : { holderClasses: retained.holderClasses }) }) ||
       canonicalJson(intent.digests) !== canonicalJson(retained.digests) || intent.complete !== retained.complete ||
       intent.sourceToken !== retained.sourceToken || intent.releaseRevision !== undefined) return
     const releasing = { ...intent, releaseRevision: retained.revision }
@@ -823,6 +826,7 @@ async function retainAssetRoots(
   context: { readonly documentLineage: string; readonly documentRevision: number; readonly clipboardText?: string } | { readonly executionKey: string } | { readonly preview: true },
   roots: ReturnType<typeof workflowAssetRoots> | ResultAssetOffer,
   storage: Pick<Storage, 'setItem'>,
+  holderClasses: readonly RetentionHolderClass[],
   requireComplete = false,
   resolveCompositors = true,
 ): Promise<RetainedAssets> {
@@ -880,7 +884,7 @@ async function retainAssetRoots(
       return census.resolve(inventories)
     }, () => true, async (resolved) => {
       if (requireComplete && !resolved.complete) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
-      retained = await retainAssetRoots(connection, ownerKind, context, resolved, storage, requireComplete, false)
+      retained = await retainAssetRoots(connection, ownerKind, context, resolved, storage, holderClasses, requireComplete, false)
       return true
     }).then(() => retained!)
   }
@@ -889,7 +893,8 @@ async function retainAssetRoots(
   if ('scope' in roots && (roots.scope !== 'local' || ownerKind !== 'shown-result')) throw new Error('Result offer owner scope differs')
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
-  const owner = { scope: 'local', ownerKind, ownerId: `${ownerKind === 'document' ? 'workflow-candidate' : ownerKind === 'preview' ? 'asset-preview' : 'execution-result'}:${uuidv4()}` }
+  const owner = { scope: 'local', ownerKind, holderClasses: Object.freeze([...holderClasses]),
+    ownerId: `${ownerKind === 'document' ? 'workflow-candidate' : ownerKind === 'preview' ? 'asset-preview' : 'execution-result'}:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,

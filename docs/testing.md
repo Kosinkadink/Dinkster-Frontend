@@ -39,18 +39,22 @@ The fast job runs source checks and, on ready pull requests, unit tests.
 The screenshot job installs Chromium and runs `pnpm test:visual` on the same
 Linux runner image as full validation, without a live backend. It discovers
 specs containing screenshot assertions so new screenshot specs join the check.
-The separate native startup job prepares the pinned default packs and dev
-pack, starts the real native servers, runs the live client/app cases, then
-runs `playwright.hosted.config.ts --project=native-startup --workers=1`.
-It retains browser failures and live Vitest reports. The execution interpreter
-installs CPU Torch for the live Preview Any node; no ComfyUI checkout or model
-inference dependencies are needed. Browser shards stay on main full
-validation. PR labels do not enable heavy jobs.
+The native startup and full-validation jobs use
+`.github/actions/prepare-native-generation` to capture every official pack
+and its shared helper library from the pinned `dinkster-nodes` revision,
+plus the engine's dev pack. Contributor setup builds their dependency locks,
+stages verified sources and prepares catalogs in one CPU generation. It then
+stops its setup server. The native servers and execution workers use that
+same generation and interpreter, exported as `DINKSTER_E2E_GENERATION` and
+`DINKSTER_E2E_DINKSTER_PYTHON`. Checkout `.venv` environments and
+`prepare-catalogs --defaults` cannot substitute for this captured pack set.
 
-CPU catalog preparation sets `UV_TORCH_BACKEND=cpu` for its child package
-installers. `--accelerator cpu` selects pack requirements, while the uv
-setting selects CPU PyTorch wheels and avoids installing CUDA runtimes on
-the hosted CPU runners.
+The separate native startup job runs the live client/app cases, then
+`playwright.hosted.config.ts --project=native-startup --workers=1`.
+It retains browser failures and live Vitest reports. Browser shards stay on
+main full validation. PR labels do not enable heavy jobs. Contributor setup
+selects `linux-cpu` and `UV_TORCH_BACKEND=cpu`; package resolution must not
+install CUDA runtimes on the hosted CPU runners.
 
 `pnpm test` runs the kept unit and component tests through each workspace
 package's test command. Tests of repository scripts and workflow files are

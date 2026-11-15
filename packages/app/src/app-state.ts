@@ -133,6 +133,7 @@ import {
   DinksterConnection,
   EngineNotReadyError,
   ExecutionStore,
+  RetentionClient,
   createScopedClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
@@ -2770,7 +2771,7 @@ export class AppState {
     const existing = worlds?.get(pair.digest)
     if (existing) return this.extensionWorldLoads.get(existing)
     const world = new ExtensionWorld(connection, pair.digest, { ...this.extensionTargets, initialGates: loadGates() },
-      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]))
+      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]), this.retentionClientFor(backend.baseUrl).fetch)
     if (worlds === undefined) {
       worlds = new Map()
       this.extensionWorlds.set(connection, worlds)
@@ -2944,6 +2945,20 @@ export class AppState {
   readonly collabTabs: Signal<ReadonlyMap<string, CollabTabState>> = createSignal<ReadonlyMap<string, CollabTabState>>(new Map())
   /** This browser's durable collab identity (joint actorId pin; collab.ts). */
   collabActorId: string
+  private readonly retentionClients = new Map<string, RetentionClient>()
+
+  private retentionClientFor(baseUrl: string): RetentionClient {
+    const base = canonicalBackendUrl(baseUrl)
+    let client = this.retentionClients.get(base)
+    if (client === undefined) {
+      let storage: Storage | undefined
+      try { storage = globalThis.sessionStorage } catch { /* Session-only identity. */ }
+      client = new RetentionClient(base, undefined, storage)
+      this.retentionClients.set(base, client)
+    }
+    return client
+  }
+
   readonly collabTransport: CollabTransport
   /**
    * Single-flight keys for in-progress collab operations (`share:<tabId>`,
@@ -3052,7 +3067,7 @@ export class AppState {
     readonly deniedExtensionPrivileges?: readonly FrontendPrivilege[]
   }) {
     this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
-    this.collabTransport = options?.collabTransport ?? httpCollabTransport
+    this.collabTransport = options?.collabTransport ?? httpCollabTransport((baseUrl) => this.retentionClientFor(baseUrl))
     this.collabActorId = stableActorId()
     this.workspaceEvents = options?.workspaceEvents ?? (
       typeof globalThis.SharedWorker === 'function' && typeof globalThis.BroadcastChannel === 'function'
@@ -3574,6 +3589,17 @@ export class AppState {
     globalThis.removeEventListener?.('storage', this.receiveStorage)
     globalThis.window?.removeEventListener('pagehide', this.handlePageHide)
     globalThis.window?.removeEventListener('pageshow', this.handlePageShow)
+    for (const entry of this.collabTabs.get().values()) {
+      entry.presence.dispose()
+      entry.session.close()
+    }
+    for (const cancel of this.supervisorPolls.values()) cancel()
+    for (const backend of [...this.backends.get(), ...this.retiredBackends.values()]) backend.connection.disconnect()
+    for (const client of this.retentionClients.values()) {
+      void client.disconnect().catch((error: unknown) => {
+        this.log('warn', 'Storage', `Client disconnect unconfirmed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }
   }
 
   /** Confirm restored local ownership before sharing the local inventory. */
@@ -4543,7 +4569,8 @@ export class AppState {
       : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseUrl}${wsPath}?clientId=${encodeURIComponent(clientId)}`
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
-    const scopedClient = createScopedClient({ baseUrl })
+    const retentionClient = this.retentionClientFor(baseUrl)
+    const scopedClient = createScopedClient({ baseUrl, fetchFn: retentionClient.fetch })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     const retentionProblemsOwner = Symbol(`workflow-retentions:${id}`)
@@ -4679,7 +4706,7 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(), retentionClient,
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
         admitValuePeek: async (query, descriptor, offer) => {
           const ref = { connection: id, prompt: asPromptId(query.jobId) }
@@ -5032,7 +5059,9 @@ export class AppState {
     const trimmed = canonicalBackendUrl(baseUrl)
     let found: BackendDiscovery
     try {
-      found = await (options?.discover ?? discoverBackend)(trimmed)
+      found = await (options?.discover?.(trimmed) ?? discoverBackend(trimmed, {
+        fetchFn: this.retentionClientFor(trimmed).fetch,
+      }))
     } catch (e) {
       // The live probe never throws, but an injected discovery can; keep
       // the named-problem contract instead of an unhandled rejection.
@@ -5177,6 +5206,12 @@ export class AppState {
     return `${backend.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
+  /** Read historical asset bytes through the execution's original backend. */
+  async readAssetForExecution(ref: ExecutionRef, digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
+    return backend?.connection.fetchAssetBytes(digest, signal)
+  }
+
   /** Read historical native values through their original owner, without reconnecting it. */
   valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
@@ -5218,7 +5253,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Workflow asset reader is no longer current')
-        admission ??= retainPreviewAssets(backend.connection, roots)
+        admission ??= retainPreviewAssets(backend.connection, roots, [8])
           .then((retained) => {
             if (!current()) throw new Error('Workflow changed during asset admission')
             return new RetainedAssetReader(backend.connection, retained, current)
@@ -5268,7 +5303,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Execution asset reader is no longer current')
-        admission ??= retainPreviewAssets(backend.connection, roots).then((retained) => {
+        admission ??= retainPreviewAssets(backend.connection, roots, [8]).then((retained) => {
           if (!current()) throw new Error('Execution changed during asset admission')
           return new RetainedAssetReader(backend.connection, retained, current)
         }).catch((error: unknown) => {
@@ -5316,7 +5351,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Original model owner is unavailable')
-        admission ??= retainPreviewAssets(backend.connection, roots)
+        admission ??= retainPreviewAssets(backend.connection, roots, [8])
           .then((retained) => new RetainedAssetReader(backend.connection, retained, current))
           .catch((error: unknown) => { admission = undefined; throw error })
         const owned = await admission
@@ -5851,7 +5886,8 @@ export class AppState {
     const assets = value === null ? [] : Array.isArray(value) ? value : [value]
     if (!assets.every(isAssetRef)) throw new Error('Picker asset inventory is invalid')
     const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest))].sort() }
-    const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+    const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision,
+      roots, undefined, undefined, false, [4, 8])
     if (!current()) throw new Error('Picker destination changed during asset admission')
     const owned = new RetainedAssetReader(backend.connection, retained, current)
     const reader = {
@@ -5951,7 +5987,8 @@ export class AppState {
         if (!isAssetRef(value) || value.digest !== target.sourceRef.digest) throw new Error('Editor resource inventory is invalid')
         digests = [value.digest]
       }
-      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision, { complete: true, digests })
+      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision,
+        { complete: true, digests }, undefined, undefined, false, [4])
       const previous = [...this.editorAssetOwners].filter(([, owner]) => owner.target === target)
       this.editorAssetOwners.set(retained, { target, session: tab.store, backend, project, registry, generation })
       this.retireEndedEditorOwners()
@@ -8847,7 +8884,7 @@ export class AppState {
   private superviseBackend(backend: Backend & { protocol: 'dinkster' }): void {
     this.supervisorPolls.get(backend.id)?.()
     const cancel = pollSupervisor({
-      probe: () => probeSupervisorStatus(backend.baseUrl),
+      probe: () => probeSupervisorStatus(backend.baseUrl, this.retentionClientFor(backend.baseUrl).fetch),
       connected: () => backend.connection.status.get() === 'connected',
       get: () => backend.supervisor.get(),
       set: (status) => backend.supervisor.set(status),
@@ -8870,7 +8907,7 @@ export class AppState {
   async restartEngine(backend: Backend): Promise<void> {
     if (backend.protocol !== 'dinkster') return
     this.log('info', backend.label, 'requesting engine restart')
-    const result = await restartSupervisorEngine(backend.baseUrl)
+    const result = await restartSupervisorEngine(backend.baseUrl, this.retentionClientFor(backend.baseUrl).fetch)
     // Removal and re-addition can reuse a ConnectionId. Exact object liveness
     // prevents the retired request from cancelling or polling the new backend.
     if (!this.backends.get().includes(backend)) return

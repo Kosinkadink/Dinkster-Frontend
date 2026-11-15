@@ -202,8 +202,9 @@ describe('startup result source admission', () => {
       }
       if (init?.method === 'PUT' && url.pathname.includes('/retentions/shown-result/')) {
         const ownerId = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        expect(new Headers(init.headers).get('X-Dinkster-Retention-Holder')).toBe('5,6')
         const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result', ownerId, revision: 1,
-          digests: [test.saved.sourceDocument!], complete: false, sourceToken: 'a'.repeat(32) }
+          holderClasses: [5, 6], digests: [test.saved.sourceDocument!], complete: false, sourceToken: 'a'.repeat(32) }
         owners.set(ownerId, receipt)
         return Response.json(receipt)
       }

@@ -1,0 +1,31 @@
+name: Prepare native generation
+description: Capture the pinned official packs and dev pack in one CPU contributor generation
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        clean: true
+        persist-credentials: false
+        repository: Kosinkadink/dinkster-nodes
+        ref: e3cc2acb32b0fdef6dcb104cd7d11a9ed75b904c
+        path: .ci/dinkster-nodes
+    - name: Prepare captured pack sources and interpreter
+      shell: bash
+      env:
+        CUDA_VISIBLE_DEVICES: ""
+        DINKSTER_ACCELERATOR: cpu
+        UV_TORCH_BACKEND: cpu
+      run: |
+        project="$GITHUB_WORKSPACE/.ci/native-project"
+        sources="$GITHUB_WORKSPACE/.ci/dinkster-nodes/packages"
+        packs=(--pack-source "$GITHUB_WORKSPACE/.ci/Dinkster/packages/dinkster-nodes-dev"
+          --library-source "$sources/dinkster-pack-helpers")
+        for pack in "$sources"/*; do
+          if [ -f "$pack/dinkster-pack.toml" ]; then
+            packs+=(--pack-source "$pack")
+          fi
+        done
+        uv run --no-project python .ci/Dinkster/scripts/develop.py --root "$project" setup --yes --port 15418 "${packs[@]}"
+        uv run --no-project python .ci/Dinkster/scripts/develop.py --root "$project" stop --yes
+        uv run --no-project python .ci/Dinkster/scripts/develop.py --root "$project" run -- python -c 'import os; from pathlib import Path; p = os.environ["DINKSTER_EXECUTION_PYTHON"]; print("DINKSTER_E2E_GENERATION=" + str(Path(p).parents[2])); print("DINKSTER_E2E_DINKSTER_PYTHON=" + p)' >> "$GITHUB_ENV"

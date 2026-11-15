@@ -1,9 +1,10 @@
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import type { DocsDescriptor, DocsLocaleDescriptor } from '@dinkster/client'
 import { t, type MessageParams } from '@dinkster/core'
 import type { AppState } from '../app-state.js'
 import { useSignal } from '../solid-adapter.js'
 import { Markdown, type MarkdownAssets } from './Markdown.js'
+import { loadDocsAssets } from './docs-assets.js'
 import { parseMarkdown, type MarkdownBlock } from './markdownParser.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 
@@ -56,6 +57,8 @@ export function NodeHelpPanel(props: { readonly app: AppState; readonly locale: 
     const target = request()
     const requestedLocale = props.locale
     const current = ++generation
+    const abort = new AbortController()
+    onCleanup(() => { generation++; abort.abort() })
     if (target === undefined) {
       setState({ kind: 'idle' })
       return
@@ -74,10 +77,7 @@ export function NodeHelpPanel(props: { readonly app: AppState; readonly locale: 
         const selected = selectDocsLocale(descriptor, [requestedLocale])
         const markdown = await backend.connection.fetchDocsPage(descriptor.pack, selected.page.digest)
         if (markdown === undefined) return undefined
-        const assets = Object.fromEntries(Object.entries(selected.page.assets).map(([source, asset]) => [source, {
-          url: backend.connection.docsAssetUrl(descriptor.pack, asset.digest),
-          mediaType: asset.mediaType,
-        }]))
+        const assets = await loadDocsAssets(backend.connection, descriptor.pack, selected.page.assets, abort.signal)
         const dinkster = backend.registry.get()?.resolve(target.nodeType)?.ext?.['dinkster']
         const schemaVersion = typeof dinkster === 'object' && dinkster !== null && typeof (dinkster as { version?: unknown }).version === 'number'
           ? (dinkster as { version: number }).version
@@ -99,6 +99,7 @@ export function NodeHelpPanel(props: { readonly app: AppState; readonly locale: 
           : { kind: 'loaded', value: loaded })
       })
       .catch((error: unknown) => {
+        abort.abort()
         if (generation === current) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
       })
   })

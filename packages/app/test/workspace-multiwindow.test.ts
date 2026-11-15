@@ -307,6 +307,7 @@ describe('AppState multi-window workspace', () => {
         setLocale('en')
         vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
           const url = String(input)
+          if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
           const displayName = url.endsWith(encodeURIComponent(`sha256:${'b'.repeat(64)}`))
             ? 'Changed label' : 'English label'
           return new Response(JSON.stringify(url.includes('/api/nodes') ? {

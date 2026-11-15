@@ -348,6 +348,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   createEffect(() => { activeTabId(); setOutputPages(new Map()) })
   const previewLoader = createPreviewLoader({
+    readAssetForExecution: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
+    inputAssetBytes: (digest) => {
+      const tab = activeTab()
+      if (tab === undefined) return undefined
+      const connection = props.app.backendForTab(tab).connection
+      return (signal) => connection.fetchAssetBytes(digest, signal)
+    },
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     assetUrlForInput: (digest) => {
