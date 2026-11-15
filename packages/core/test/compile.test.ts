@@ -79,6 +79,24 @@ describe('golden pairs', () => {
       expect(problem?.anchor?.port?.port).toBe('clip')
     }
   })
+  it.each([false, true])('honors explicit producer placement instead of an unused compatible route (placed=%s)', (placed) => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (!schema) return undefined
+      return { ...schema, residentAffinity: {
+        types: ['MODEL', 'CLIP', 'VAE', 'CONDITIONING'],
+        routes: type === 'CheckpointLoaderSimple' ? [
+          { process: 'isolated', pack: 'models', worker: 'local' },
+          { process: 'shared', pack: 'models', worker: 'remote', unplaced: false },
+        ] : [{ process: 'shared', pack: 'conditioning', worker: 'local' }],
+      } }
+    }
+    const result = compile({ ...compileInput(loadWorkflow('minimal'), { kind: 'full' }, resolve),
+      graphFeatures: ['regions', 'typedLiteral'], ...(placed ? { placement: { n0: 'remote' } } : {}),
+    })
+    expect(result.ok).toBe(placed)
+    if (!result.ok) expect(result.diagnostics.some((problem) => problem.code === 'dinksterGraph.residentProcessBoundary')).toBe(true)
+  })
   it.each([25, 29.97, undefined])('stamps numeric-union widget value %s without changing concrete numerics', (value) => {
     const schema = parseDinksterSchema('Numeric', {
       outputNode: true,

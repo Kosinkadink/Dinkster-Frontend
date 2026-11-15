@@ -973,7 +973,7 @@ export interface NodeSchema {
   /** Host-declared process affinity; opaque process keys are only compared for equality. */
   readonly residentAffinity?: {
     readonly types: readonly string[]
-    readonly routes: readonly { readonly process: string; readonly pack: string; readonly worker: string }[]
+    readonly routes: readonly { readonly process: string; readonly pack: string; readonly worker: string; readonly unplaced?: boolean; readonly provider?: string }[]
   }
   readonly description?: string
   readonly source: SchemaSource

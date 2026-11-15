@@ -2022,7 +2022,10 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
           if (typeof route['process'] !== 'string' || typeof route['pack'] !== 'string' || typeof route['worker'] !== 'string') {
             throw new Error('residentAffinity route requires process, pack and worker strings')
           }
-          return { process: route['process'], pack: route['pack'], worker: route['worker'] }
+          return { process: route['process'], pack: route['pack'], worker: route['worker'],
+            unplaced: route['unplaced'] !== false,
+            ...(typeof route['provider'] === 'string' ? { provider: route['provider'] } : {}),
+          }
         }),
       }
     }

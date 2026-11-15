@@ -295,6 +295,8 @@ export interface CompileInput {
    * = oldest wire, emit no negotiated forms.
    */
   readonly graphFeatures?: readonly string[]
+  /** Submission-only worker hints, keyed by root runtime node id. */
+  readonly placement?: Readonly<Record<string, string>>
 }
 
 interface FlatNode {
@@ -3192,7 +3194,7 @@ function compileImpl(
     return { nodes }
   }
   const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
-  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext))
+  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
