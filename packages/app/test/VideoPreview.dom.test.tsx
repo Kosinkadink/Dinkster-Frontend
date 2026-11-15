@@ -28,6 +28,44 @@ function mount(inspection: VideoInspection) {
   return { root, dispose, setMedia }
 }
 
+it('preserves pending and displayed indexed frames across equivalent media and autoplay refreshes', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:frame')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  const frame = deferred<RenditionResult>()
+  const inspection: VideoInspection = {
+    index: 0, count: 1, canSelectFrame: true, frameCount: 24, frameCountKind: 'exact',
+    request: () => frame.promise,
+    select: async () => { throw new Error('No second video') },
+  }
+  const [media, setMedia] = createSignal<VideoNodePreview>({ kind: 'video', src: 'blob:initial', mime: 'video/mp4', videoInspection: inspection })
+  const [preferences, setPreferences] = createSignal({ autoplay: true, muted: true, loop: true })
+  const root = document.createElement('div')
+  document.body.append(root)
+  disposers.push(render(() => <VideoPreview media={media()} preferences={preferences()} />, root))
+  const next = root.querySelector<HTMLButtonElement>('[aria-label="Next frame"]')!
+  await vi.waitFor(() => expect(next.disabled).toBe(false))
+  next.click()
+  expect(next.getAttribute('aria-disabled')).toBe('true')
+  setMedia({ ...media() })
+  setPreferences({ ...preferences() })
+  expect(next.getAttribute('aria-disabled')).toBe('true')
+  frame.resolve({ available: true, bytes: new ArrayBuffer(1), mime: 'image/png', fingerprint: 'frame', kind: 'frame' })
+  await vi.waitFor(() => expect(root.querySelector('[data-testid="video-timing"]')?.textContent).toContain('Frame 0 / 24'))
+  setMedia({ ...media() })
+  setPreferences({ ...preferences() })
+  expect(root.querySelector('[data-testid="video-timing"]')?.textContent).toContain('Frame 0 / 24')
+  expect(root.querySelector('.video-preview-frame')).not.toBeNull()
+  setPreferences({ ...preferences(), autoplay: false })
+  setPreferences({ ...preferences(), autoplay: true })
+  expect(root.querySelector('[data-testid="video-timing"]')?.textContent).toContain('Frame unknown')
+  next.click()
+  await vi.waitFor(() => expect(root.querySelector('[data-testid="video-timing"]')?.textContent).toContain('Frame 0 / 24'))
+  setMedia({ ...media(), src: 'blob:replacement' })
+  expect(root.querySelector('[data-testid="video-timing"]')?.textContent).toContain('Frame unknown')
+})
+
 it.each(['success', 'refusal'] as const)('keeps old thumbnail %s bound to the previous selection', async (outcome) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValueOnce('blob:new-video').mockReturnValue('blob:new-thumbs')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
