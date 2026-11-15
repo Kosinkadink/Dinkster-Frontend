@@ -61,6 +61,32 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it('confirms startup ownership after the opening transport publishes its catalog', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
+    const app = createEditableApp()
+    const backend = app.backends.get()[0]!
+    const status = app.connection.status as unknown as { set(value: string): void }
+    let publish!: () => void
+    const catalog = new Promise<NonNullable<ReturnType<typeof app.registry.get>>>((resolve) => {
+      publish = () => resolve({ ...app.registry.get()!, hash: 'connected-catalog' })
+    })
+    vi.spyOn(app.connection, 'fetchSchemas').mockImplementation(() => catalog)
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    status.set('connecting')
+    let settled = false
+    const confirmation = app.confirmStartupOwnership().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    status.set('connected')
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    publish()
+    await confirmation
+    expect(backend.registry.get()?.hash).toBe('connected-catalog')
+    expect(app.activeTab()?.store.doc).toEqual(seedBasic)
+    expect(settled).toBe(true)
+  })
+
   it.each(['accepted', 'refused', 'targeted', 'targeted-registry', 'operation-accepted', 'operation-refused'] as const)(
     'confirms losing durable recovery documents before startup continues: %s', async (scenario) => {
       const document = (digit: string, lineage = seedBasic.lineage) => ({ ...seedBasic, lineage,

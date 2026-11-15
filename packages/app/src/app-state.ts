@@ -3642,6 +3642,23 @@ export class AppState {
 
   /** Confirm restored local ownership before sharing the local inventory. */
   async confirmStartupOwnership(): Promise<void> {
+    // Initial socket opening replaces the catalog and connection lifetime.
+    // Capture ownership only after that publication, without retrying admission.
+    await new Promise<void>((resolve) => {
+      const ready = (): boolean => this.disposed || !this.backends.get().some((backend) => {
+        if (backend.protocol !== 'dinkster') return false
+        const status = backend.connection.status.get()
+        return status === 'connecting' || status === 'reconnecting' ||
+          (status === 'connected' && backend.schemaState.get().status === 'loading')
+      })
+      if (ready()) { resolve(); return }
+      const unsubscribe = this.backendsTick.subscribe(() => {
+        // Status observers must finish invalidating the connected catalog first.
+        queueMicrotask(() => {
+          if (ready()) { unsubscribe(); resolve() }
+        })
+      })
+    })
     const tabs = this.tabs.get()
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const currentLocalDocuments = new Set(tabs.filter((tab) => this.backendForTab(tab) === local)
@@ -4951,7 +4968,6 @@ export class AppState {
             }
             const layered = this.layerExtraSchemas(fresh)
             registry.set(layered)
-            base.schemaState.set({ status: 'ready' })
             base.invalidateRemoteChoices()
             this.refreshWorkerCatalog(nativeBackend, layered)
             void this.refreshPackLocaleOverlay(nativeBackend, fresh)
@@ -4961,9 +4977,10 @@ export class AppState {
             if (gen < staleGen) continue
             if (!current()) return targetEpoch
             // Older backend without epochs: one refetch is the best we can do.
-            if (fresh.epoch === undefined || fresh.epoch >= targetEpoch) return targetEpoch
-            // No progress and no newer ping arrived: stop rather than spin.
-            if (targetEpoch === goal) return goal
+            if (fresh.epoch === undefined || fresh.epoch >= targetEpoch || targetEpoch === goal) {
+              base.schemaState.set({ status: 'ready' })
+              return targetEpoch
+            }
           }
         }
         run().then(

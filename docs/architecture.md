@@ -537,6 +537,10 @@ Those sources stay captured even if local compaction retires them before the
 acknowledgment. Recovery documents use the same-origin backend, matching restored
 tabs' default target; session-only targets do not persist. Registry loading and
 the first local frame do not wait for ownership or shared-workspace promotion.
+Startup ownership captures its snapshot after an opening native transport and
+its connected catalog publication settle. Connected refreshes remain loading
+until their coalesced catalog work finishes; synchronous connection observers
+settle before admission checks readiness. No failed admission is retried.
 Refused, unavailable or stale startup acknowledgments leave ownership unconfirmed
 in Problems and prevent shared promotion without discarding saved documents.
 Pack locale labels may arrive during confirmation without invalidating its schema
