@@ -504,6 +504,18 @@ certify every optimistic rebase result. Bootstrap also confirms restored tabs an
 all valid canonical, workspace-candidate, document-recovery and operation-journal
 addition snapshots captured by the constructor, including losing versions and
 closed-lineage recovery slots. Journal additions are confirmed before worker replay.
+An explicit confirmed Close Tab ends only the captured local document lifetime,
+after closed membership is admitted at the authoritative workspace revision. It
+hands off that lifetime's receipt and retires its recovery slot only when both
+the stage ID and content digest match the stage already incorporated into the
+canonical document. Staging, acknowledgment and retirement use the same
+cross-window commit lock; retirement rechecks the exact admitted canonical
+snapshot and current recovery stage inside that lock. Without the lock, recovery
+sources stay protected. Newer, unmerged or different stages survive, as do live,
+undo, frozen, shared, restored and pending-read holders with independent receipts.
+A close does not release recovered historical receipts or grant discard authority.
+Synchronous per-window recovery retains dirty documents if teardown cannot await
+the locked document stage.
 Those sources stay captured even if local compaction retires them before the
 acknowledgment. Recovery documents use the same-origin backend, matching restored
 tabs' default target; session-only targets do not persist. Registry loading and

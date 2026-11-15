@@ -5,6 +5,8 @@
  * lineage id, NEVER "the active tab".
  */
 
+import { blake3 } from '@noble/hashes/blake3.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
@@ -1725,8 +1727,8 @@ interface PersistedTabs {
   readonly active: string
   readonly workspaceRevision?: number
   readonly workspaceOperationWatermarks?: Readonly<Record<string, number>>
-  /** Covered slots stay in storage because deleting one can race a newer stage for the same lineage. */
   readonly documentCandidateStages?: Readonly<Record<string, string>>
+  readonly documentCandidateDigests?: Readonly<Record<string, string>>
   readonly tabs: readonly {
     readonly title: string
     readonly doc: unknown
@@ -1754,6 +1756,12 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
         ? { documentCandidateStages: Object.fromEntries(
             Object.entries(parsed.documentCandidateStages).filter(([lineage, stageId]) =>
               lineage.length > 0 && typeof stageId === 'string' && stageId.length > 0),
+          ) }
+        : {}),
+      ...(parsed.documentCandidateDigests !== null && typeof parsed.documentCandidateDigests === 'object'
+        ? { documentCandidateDigests: Object.fromEntries(
+            Object.entries(parsed.documentCandidateDigests).filter(([lineage, digest]) =>
+              lineage.length > 0 && typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest)),
           ) }
         : {}),
       ...(parsed.workspaceOperationWatermarks !== null && typeof parsed.workspaceOperationWatermarks === 'object'
@@ -1800,6 +1808,10 @@ function committedPersistedTab(
 ): PersistedTabs['tabs'][number] {
   const { documentDirty: _documentDirty, ...committed } = tab
   return { ...committed, documentRevision }
+}
+
+function persistedDocumentDigest(document: unknown): string {
+  return bytesToHex(blake3(new TextEncoder().encode(canonicalJson(document))))
 }
 
 interface PersistedDocumentCandidate {
@@ -1857,11 +1869,12 @@ function mergePersistedTabs(
     }
   }
   const documentCandidateStages = { ...(states[0]?.documentCandidateStages ?? {}) }
+  const documentCandidateDigests = { ...(states[0]?.documentCandidateDigests ?? {}) }
   for (const candidate of documentCandidates) {
     const id = persistedTabId(candidate.tab)
     if (!id || documentCandidateStages[id] === candidate.stageId) continue
     const current = documents.get(id)
-    if (!current) continue
+    if (!current || !workspace.tabs.some((tab) => persistedTabId(tab) === id)) continue
     if (JSON.stringify(candidate.tab.doc) !== JSON.stringify(current.doc)) {
       documents.set(id, committedPersistedTab(
         candidate.tab,
@@ -1869,10 +1882,12 @@ function mergePersistedTabs(
       ))
     }
     documentCandidateStages[id] = candidate.stageId
+    documentCandidateDigests[id] = persistedDocumentDigest(candidate.tab.doc)
   }
   return {
     ...workspace,
     ...(Object.keys(documentCandidateStages).length > 0 ? { documentCandidateStages } : {}),
+    ...(Object.keys(documentCandidateDigests).length > 0 ? { documentCandidateDigests } : {}),
     tabs: workspace.tabs.map((tab) => {
       const id = persistedTabId(tab)
       const document = id ? documents.get(id) : undefined
@@ -2033,14 +2048,14 @@ function commitPersistedTabs(
   acknowledged: readonly { readonly opId: string; readonly revision: number }[],
   stage: (key: string, value: object, documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[]) => Promise<string | undefined>,
   onCommitted: (committed: PersistedTabs) => void,
-  onRetired: (retired: readonly string[]) => void,
+  onRetired: (retired: readonly string[], committed: PersistedTabs) => void,
   onSlotRetired: (key: string, raw: string) => void,
 ): void {
   const storage = globalThis.localStorage
   if (!storage) return
   const project = activeProjectId()
   if (state !== undefined) try {
-    // Each document's shared slot makes setItem itself the cross-renderer staging order.
+    // Document staging and retirement share the canonical commit lock.
     for (const tab of state.tabs) {
       const id = persistedTabId(tab)
       if (!id || tab.documentDirty !== true) continue
@@ -2053,11 +2068,8 @@ function commitPersistedTabs(
     // pagehide cannot await Web Locks, so leave a synchronous workspace recovery source too.
     const documents = state.tabs.map((tab) => ({ document: loadDocument(tab.doc).document!, revision: tab.documentRevision ?? 0 }))
     if (documents.some(({ document }) => !document)) return
-    void stage(`${tabsCandidatePrefix()}${actorId}`, {
-      ...state,
-      // Not a tacit callback: map would pass the index as documentRevision.
-      tabs: state.tabs.map((tab) => committedPersistedTab(tab)),
-    }, documents).catch(() => undefined)
+    // Preserve dirty documents if pagehide prevents the locked stage from running.
+    void stage(`${tabsCandidatePrefix()}${actorId}`, state, documents).catch(() => undefined)
   } catch {
     return
   }
@@ -2096,7 +2108,7 @@ function commitPersistedTabs(
               onSlotRetired(candidate.key, current)
             }
           }
-          onRetired(retired)
+          onRetired(retired, merged)
         }
         // Network admission must not hold the cross-window lock. Recheck its
         // exact canonical generation under the lock before retiring sources.
@@ -3034,7 +3046,8 @@ export class AppState {
     }
     // A closed renderer leaves recovery data, not permission to finish its
     // network work. A live peer admits the stored roots before compaction.
-    if (!this.disposed && event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) {
+    if (!this.disposed && ((event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) ||
+      event.key?.startsWith(documentCandidatePrefix()))) {
       this.reconcilePersistedTabs()
     }
     if (event.key !== backendsKey()) return
@@ -3862,11 +3875,6 @@ export class AppState {
     // Teardown cannot wait for the network. This generation is recovery data,
     // not acknowledged ownership, until its exact captured roots are retained.
     const pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
-    const previous = this.persistedWorkflowSlots.get(key)
-    const previousOwners = [...(previous?.owners ?? [])]
-    storage.setItem(key, pending)
-    if (this.disposed) return Promise.resolve(undefined)
-    this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const sources = documents.map(({ document, revision }) => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.id === document.lineage)
@@ -3875,6 +3883,17 @@ export class AppState {
         generation: this.assetConnectionGenerations.get(backend.connection) }
     })
     const native = sources.filter(({ backend }) => backend.protocol === 'dinkster')
+    const locks = key.startsWith(documentCandidatePrefix()) ? globalThis.navigator?.locks : undefined
+    let previousOwners: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners'][number][] = []
+    const writePending = (): void => {
+      if (activeProjectId() !== project || globalThis.localStorage !== storage) return
+      previousOwners = [...(this.persistedWorkflowSlots.get(key)?.owners ?? [])]
+      storage.setItem(key, pending)
+      if (!this.disposed) this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
+    }
+    if (locks) await locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, writePending)
+    else writePending()
+    if (this.disposed || storage.getItem(key) !== pending) return undefined
     // An opening transport will advance the connection generation before admission settles.
     if (native.some(({ backend }) => {
       const status = backend.connection.status.get()
@@ -3921,17 +3940,32 @@ export class AppState {
     const acknowledged = JSON.stringify({ ...value, assetRetention: {
       stageId, acknowledged: true, complete, owners: receipts,
     } })
-    storage.setItem(key, acknowledged)
-    const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
-    this.persistedWorkflowSlots.set(key, { raw: acknowledged, complete, owners: [
-      ...(complete ? [] : previousOwners),
-      ...replacements,
-    ] })
-    // Only this app's exact staged generations confer release authority.
-    // Stored receipts from another window or lifetime remain observation-only.
-    if (complete) this.retirePersistedWorkflowOwners(previousOwners.filter((owner) =>
-      native.some(({ backend, generation }) => owner.backend === backend && owner.generation === generation)), replacements)
-    return complete ? acknowledged : undefined
+    const publish = (): string | undefined => {
+      const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
+      if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
+        storage.getItem(key) !== pending || sources.some(({ backend, registry, generation, tab }) =>
+          !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
+          this.assetConnectionGenerations.get(backend.connection) !== generation ||
+          (tab !== undefined && this.backendForTab(tab) !== backend))) {
+        const slot = this.persistedWorkflowSlots.get(key)
+        this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
+          owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]), ...replacements] })
+        return undefined
+      }
+      storage.setItem(key, acknowledged)
+      this.persistedWorkflowSlots.set(key, { raw: acknowledged, complete, owners: [
+        ...(complete ? [] : previousOwners),
+        ...replacements,
+      ] })
+      // Only this app's exact staged generations confer release authority.
+      // Stored receipts from another window or lifetime remain observation-only.
+      if (complete) this.retirePersistedWorkflowOwners(previousOwners.filter((owner) =>
+        native.some(({ backend, generation }) => owner.backend === backend && owner.generation === generation)), replacements)
+      return complete ? acknowledged : undefined
+    }
+    return locks
+      ? locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, publish)
+      : publish()
   }
 
   private submitWorkspaceTabMutation(mutation: WorkspaceTabMutation): void {
@@ -4069,7 +4103,10 @@ export class AppState {
         nextLive.push(tab)
       }
       const retained = new Set(snapshot.tabs.map((tab) => tab.id))
-      for (const tab of current) if (!tab.execution && !retained.has(tab.id)) this.cleanupClosedTab(tab.id)
+      for (const tab of current) if (!tab.execution && !retained.has(tab.id)) {
+        if (!opening) this.captureClosedWorkflow(tab, snapshot.revision)
+        this.cleanupClosedTab(tab.id)
+      }
       // A shared live tab whose lineage collides with a local frozen tab id
       // displaces the frozen view; drop it and release its pin exactly once,
       // or the duplicate id would leak the pin when the tab closes.
@@ -4555,7 +4592,13 @@ export class AppState {
   private reconcilePersistedTabs(state?: PersistedTabs): void {
     const acknowledged = [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision }))
     commitPersistedTabs(state, this.workspaceActorId, acknowledged,
-      (key, value, documents) => this.stagePersistedWorkflowSlot(key, value, documents), (committed) => {
+      (key, value, documents) => {
+        const admission = this.stagePersistedWorkflowSlot(key, value, documents)
+        if (key.startsWith(documentCandidatePrefix())) void admission.then((admitted) => {
+          if (admitted !== undefined && !this.disposed) this.reconcilePersistedTabs()
+        }).catch(() => undefined)
+        return admission
+      }, (committed) => {
       for (const tab of committed.tabs) {
         const id = persistedTabId(tab)
         if (!id) continue
@@ -4567,7 +4610,8 @@ export class AppState {
         this.schedulePersistTabs()
       }
       this.retireSupersededWorkflowOwners()
-    }, (retired) => {
+    }, (retired, committed) => {
+      this.retireClosedWorkflowDocuments(committed)
       for (const opId of retired) {
         if ((this.workspaceAcknowledgedOperations.get(opId) ?? Infinity) <= this.workspacePersistedRevision) {
           this.workspaceAcknowledgedOperations.delete(opId)
@@ -6794,11 +6838,90 @@ export class AppState {
     }
   }
 
+  private readonly closedWorkflowDocuments = new Map<DocumentSession, {
+    readonly tab: Tab
+    readonly project: string
+    readonly storage: Storage
+    readonly authorityGeneration: number
+    readonly revision: number
+    readonly stageId: string | undefined
+    readonly digest: string | undefined
+    readonly owner: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>> | undefined
+  }>()
+
+  private captureClosedWorkflow(tab: Tab, revision: number): void {
+    if (tab.execution || !this.workspaceAuthorityEnabled || this.closedWorkflowDocuments.has(tab.store)) return
+    const storage = globalThis.localStorage
+    if (!storage) return
+    const canonical = parsePersistedTabs(storage.getItem(tabsKey()))
+    const digest = canonical?.documentCandidateDigests?.[tab.id]
+    this.closedWorkflowDocuments.set(tab.store, {
+      tab, project: activeProjectId(), storage, authorityGeneration: this.workspaceAuthorityGeneration, revision,
+      stageId: digest === persistedDocumentDigest(tab.store.doc) ? canonical?.documentCandidateStages?.[tab.id] : undefined,
+      digest, owner: this.workflowAssetOwners.get(tab.store),
+    })
+  }
+
+  /** Called only inside the commit lock after exact canonical admission. */
+  private retireClosedWorkflowDocuments(committed: PersistedTabs): void {
+    // Without cross-renderer synchronization recovery sources remain protected.
+    if (!globalThis.navigator?.locks) return
+    for (const [session, closed] of this.closedWorkflowDocuments) {
+      if (this.disposed || activeProjectId() !== closed.project || globalThis.localStorage !== closed.storage ||
+        this.workspaceAuthorityGeneration !== closed.authorityGeneration || !this.workspaceAuthorityEnabled ||
+        (committed.workspaceRevision ?? 0) < closed.revision ||
+        committed.tabs.some((tab) => persistedTabId(tab) === closed.tab.id) ||
+        this.tabs.get().some((tab) => tab.id === closed.tab.id)) continue
+      const key = `${documentCandidatePrefix()}${encodeURIComponent(closed.tab.id)}`
+      const raw = closed.storage.getItem(key)
+      const candidate = parsePersistedDocumentCandidate(raw)
+      if (raw !== null && candidate !== undefined && closed.stageId !== undefined && closed.digest !== undefined &&
+        committed.documentCandidateStages?.[closed.tab.id] === closed.stageId &&
+        committed.documentCandidateDigests?.[closed.tab.id] === closed.digest &&
+        candidate.stageId === closed.stageId && persistedDocumentDigest(candidate.tab.doc) === closed.digest &&
+        JSON.parse(raw).assetRetention?.acknowledged === true && JSON.parse(raw).assetRetention?.complete === true) {
+        closed.storage.removeItem(key)
+        this.retirePersistedWorkflowSlot(key, raw)
+      }
+      const localSlot = this.persistedWorkflowSlots.get(key)
+      const localCandidate = parsePersistedDocumentCandidate(localSlot?.raw ?? null)
+      if (closed.storage.getItem(key) === null && localSlot !== undefined && localCandidate !== undefined &&
+        closed.stageId !== undefined && closed.digest !== undefined && localCandidate.stageId === closed.stageId &&
+        persistedDocumentDigest(localCandidate.tab.doc) === closed.digest &&
+        committed.documentCandidateStages?.[closed.tab.id] === closed.stageId &&
+        committed.documentCandidateDigests?.[closed.tab.id] === closed.digest) {
+        this.retirePersistedWorkflowSlot(key, localSlot.raw)
+      }
+      const owner = closed.owner
+      if (owner !== undefined && this.workflowAssetOwners.get(session) === owner &&
+        activeProjectId() === owner.project && this.backends.get().includes(owner.backend) &&
+        this.assetConnectionGenerations.get(owner.backend.connection) === owner.generation) {
+        // Close ends only this captured live document lifetime. Recovery, shared
+        // views and readers retain their independent receipts and inventories.
+        this.workflowAssetOwners.delete(session)
+        void retireAssetOwner(owner.backend.connection, owner.retained)
+        for (const [retained, pending] of this.supersededWorkflowOwners) {
+          if (pending.session !== session || pending.backend !== owner.backend ||
+            pending.project !== owner.project || pending.generation !== owner.generation) continue
+          this.supersededWorkflowOwners.delete(retained)
+          void retireAssetOwner(owner.backend.connection, retained)
+        }
+      }
+      // A pending acknowledgment can still finish; it may retire only this stage.
+      if (candidate === undefined || closed.storage.getItem(key) === null || candidate.stageId !== closed.stageId ||
+        persistedDocumentDigest(candidate.tab.doc) !== closed.digest) this.closedWorkflowDocuments.delete(session)
+    }
+  }
+
   /** Close a tab after the caller has handled any dirty-work confirmation. */
   closeTab(id: string): void {
+    if (this.workspaceAuthorityEnabled) this.flushPersistTabs()
     this.releaseFrozenPin(id)
     for (const tab of this.tabs.get()) {
-      if (tab.id === id && !tab.execution) this.endedEditorDocuments.add(tab.store)
+      if (tab.id === id && !tab.execution) {
+        this.captureClosedWorkflow(tab, this.workspaceTabRevision + 1)
+        this.endedEditorDocuments.add(tab.store)
+      }
     }
     const remaining = this.tabs.get().filter((t) => t.id !== id)
     this.tabs.set(remaining)

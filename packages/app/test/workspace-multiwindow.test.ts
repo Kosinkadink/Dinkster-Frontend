@@ -434,6 +434,52 @@ describe('AppState multi-window workspace', () => {
     expect(secondTab.store.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
   })
 
+  it.each(['covered', 'newer', 'different-content', 'refused'] as const)(
+    'confirmed close retires only the incorporated recovery stage: %s', async (scenario) => {
+      let commits = Promise.resolve<unknown>(undefined)
+      vi.stubGlobal('navigator', { locks: { request: (
+        _name: string, _options: LockOptions, callback: () => unknown,
+      ) => {
+        const next = commits.then(callback)
+        commits = next.catch(() => undefined)
+        return next
+      } } })
+      const factory = authorityFactories()
+      const app = createEditableApp()
+      const schema = primitive('X', 'FLOAT')
+      app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
+        diagnostics: [], hash: 'close-test', resolve: (type) => type === 'X' ? schema : undefined })
+      await app.openDocument(workflow(), 'Closing workflow')
+      await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+      const tab = app.tabs.get().find((open) => open.id === 'multi-window-workflow')!
+      expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n1', title: 'Saved before close',
+      } })).ok).toBe(true)
+      await drainTasks()
+      app.flushPersistTabs(true)
+      await drainTasks()
+      const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+      const before = localStorage.getItem(key)
+      expect(before).not.toBeNull()
+      const candidate = JSON.parse(before!)
+      const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+      expect(canonical.documentCandidateStages[tab.id]).toBe(candidate.stageId)
+      if (scenario === 'newer') candidate.stageId = 'newer-stage'
+      if (scenario === 'different-content') candidate.tab.doc = {
+        ...candidate.tab.doc, ext: { unsaved: 'keep this recovery source' },
+      }
+      if (scenario !== 'covered') localStorage.setItem(key, JSON.stringify(candidate))
+      if (scenario === 'refused') vi.spyOn(app.connection, 'retainAssets').mockRejectedValue(new Error('Admission refused'))
+      app.closeTab(tab.id)
+      await drainTasks()
+      app.flushPersistTabs(true)
+      await drainTasks()
+      expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
+      if (scenario === 'covered') expect(localStorage.getItem(key)).toBeNull()
+      else expect(localStorage.getItem(key)).toBe(JSON.stringify(candidate))
+    },
+  )
+
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())
