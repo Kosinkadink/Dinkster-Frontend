@@ -437,7 +437,10 @@ it remains incomplete until migration, and malformed asset identities still refu
 A persisted snapshot admitted before its schemas arrive keeps its incomplete
 receipt until this window acknowledges a complete replacement for the exact
 same document on the same backend, project, storage and connection lifetime.
-Schema arrival reschedules incomplete local persistence. Candidate cleanup can
+While the event transport is connecting or reconnecting, persistence keeps its
+local recovery stage unacknowledged without creating server owners. The connected
+catalog reschedules that pending stage before it can publish acknowledged roots.
+Schema arrival also reschedules incomplete local persistence. Candidate cleanup can
 use this window's current acknowledged canonical snapshot as the exact-document
 replacement. Receipts admitted during a superseded schema request remain tracked
 through that handoff; recovered receipts from another window or lifetime never
