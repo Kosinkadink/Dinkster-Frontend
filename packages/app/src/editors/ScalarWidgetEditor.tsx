@@ -21,8 +21,9 @@ import type {
   TextWidgetEditorExtension,
 } from '@dinkster/widgets'
 import { Check, X } from 'lucide-solid'
-import { floatKind, floatSliderView } from '@dinkster/widgets'
+import { floatKind, floatSliderView, intKind } from '@dinkster/widgets'
 import { ProductSlider } from '../ProductSlider.js'
+import { ColorWidgetEditor } from './ColorWidgetEditor.js'
 import {
   WidgetEditorController,
   type WidgetEditorImplementationProps,
@@ -289,5 +290,9 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   </div>
 }
 
-export const ScalarWidgetEditor: Component<WidgetEditorProps> = (props) =>
-  <WidgetEditorController {...props} implementation={ScalarImplementation} />
+export const ScalarWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  if (props.ed.spec?.widgetType === intKind.type && props.ed.viewId === 'core.integerColor') {
+    return <ColorWidgetEditor {...props} />
+  }
+  return <WidgetEditorController {...props} implementation={ScalarImplementation} />
+}

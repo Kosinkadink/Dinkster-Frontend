@@ -1,5 +1,10 @@
 # Widget compact controls and expanded editors
 
+NUMBER descriptors with an INT socket and `display: color` show an RGB swatch
+and open the color picker. The picker accepts six-digit `#rrggbb` colors and
+commits the corresponding integer, retaining the INT socket and numeric saved
+value. Numeric bounds still apply. App View retains its numeric input.
+
 SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
 The writer adds the descriptor's suffix and numbering; no host path is stored
 in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
