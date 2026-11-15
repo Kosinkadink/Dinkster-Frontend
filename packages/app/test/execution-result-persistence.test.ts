@@ -241,6 +241,64 @@ describe('startup result source admission', () => {
         .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
     } finally { test.app.dispose() }
   })
+  it.each(['replaced', 'different-source', 'failed-replacement', 'disconnected'] as const)('retires an interrupted source reader only after successful same-result replacement: %s', async (mode) => {
+    const test = setup()
+    const owners = new Map<string, RetainedAssets>()
+    let finishRead!: (source: string) => void
+    const pending = new Promise<string>((resolve) => { finishRead = resolve })
+    test.fetchSource.mockReturnValueOnce(pending)
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    const previews = () => [...owners.values()].filter((receipt) => receipt.ownerKind === 'preview')
+    try {
+      const starting = test.app.start()
+      await vi.waitFor(() => expect(test.fetchSource).toHaveBeenCalledTimes(1))
+      const interrupted = previews()[0]!
+      expect(interrupted).toMatchObject({ revision: 1, complete: false, digests: [test.saved.sourceDocument] })
+      let refreshing: Promise<void> | undefined
+      if (mode === 'different-source') {
+        const sourceDocument = `blake3:${'c'.repeat(64)}`
+        saveExecutionResult({ ...test.saved, sourceDocument }, test.backendIdentity)
+        const history = await test.backend.connection.getHistoryRun(test.saved.jobRef!, 'local')
+        vi.mocked(test.backend.connection.getHistoryRun).mockResolvedValue({ ...history!, sourceDocument })
+        const job = await test.backend.connection.fetchJob(test.ref.prompt)
+        vi.mocked(test.backend.connection.fetchJob).mockResolvedValue({ ...job!, sourceDocument })
+      }
+      if (mode === 'failed-replacement') vi.mocked(test.backend.connection.fetchTerminalResultAssets).mockResolvedValue(undefined)
+      if (mode !== 'disconnected') {
+        refreshing = test.app.refreshBackendSchemas(test.backend)
+        await vi.waitFor(() => expect(test.backend.connection.fetchSchemas).toHaveBeenCalledTimes(2))
+      } else {
+        const status = test.backend.connection.status as unknown as { set(value: string): void }
+        status.set('connecting')
+        status.set('disconnected')
+      }
+      expect(owners.get(interrupted.ownerId)).toEqual(interrupted)
+      finishRead(test.source)
+      await Promise.all([starting, refreshing])
+      if (mode === 'replaced') {
+        await vi.waitFor(() => expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 }))
+        await vi.waitFor(() => expect(owners.get(interrupted.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] }))
+        expect(previews().every((receipt) => receipt.revision === 2)).toBe(true)
+      } else if (mode === 'different-source') {
+        await vi.waitFor(() => expect(test.app.store.get(test.ref)?.sourceDocument).toBe(`blake3:${'c'.repeat(64)}`))
+        expect(owners.get(interrupted.ownerId)).toEqual(interrupted)
+        expect(previews()).toContainEqual(expect.objectContaining({ revision: 2, digests: [], complete: true }))
+      } else {
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+        expect(owners.get(interrupted.ownerId)).toEqual(interrupted)
+      }
+    } finally { finishRead(test.source); test.app.dispose() }
+  })
+
   it.each(['accepted', 'saved-extra', 'missing-seal', 'wrong-attempt', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
     const test = setup()
     try {

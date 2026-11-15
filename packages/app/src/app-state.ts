@@ -8653,6 +8653,8 @@ export class AppState {
     }
   }
 
+  private readonly restorationSourceReaders = new WeakMap<Backend, Map<string, Set<RetainedAssetReader>>>()
+
   private async restoreExecutionResults(
     backend: Backend & { readonly protocol: 'dinkster' },
     registry: SchemaRegistry,
@@ -8673,6 +8675,12 @@ export class AppState {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         if (this.store.get(result.ref) !== undefined) continue
+        let sources = this.restorationSourceReaders.get(backend)
+        if (sources === undefined) this.restorationSourceReaders.set(backend, (sources = new Map()))
+        const sourceKey = canonicalJson({ project, ref: result.ref, jobRef: result.jobRef,
+          sourceDocument: result.sourceDocument, proof: result.proof })
+        let readers = sources.get(sourceKey)
+        if (readers === undefined) sources.set(sourceKey, (readers = new Set()))
         try {
           const restored = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
             const source = await backend.connection.fetchAssetText(result.sourceDocument)
@@ -8689,7 +8697,8 @@ export class AppState {
             for (const retained of candidate.assetRetentions ?? []) this.trackResultOwner(backend, retained)
             this.store.restoreCompleted(candidate)
             return this.store.get(candidate.ref)?.artifact === candidate.artifact
-          })
+          }, readers)
+          if (readers.size === 0) sources.delete(sourceKey)
           if (!current()) return
           if (restored === undefined) removeExecutionResult(result)
           this.retireUnusedResultOwners()

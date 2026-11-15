@@ -710,13 +710,14 @@ export async function retainPreviewAssets(
   return retainAssetRoots(connection, 'preview', { preview: true }, roots, globalThis.localStorage)
 }
 
-/** Source payload reads have independent preview ownership, not workflow roots. */
+/** Source reads own preview receipts; an explicit replacement group shares one immutable source lifetime. */
 export async function readAssetPreview<T>(
   connection: DinksterConnection,
   inventory: string | ReturnType<typeof workflowAssetRoots>,
   consume: () => Promise<T>,
   stillCurrent: () => boolean,
   handoff?: (value: T) => Promise<boolean>,
+  replacementReaders?: Set<RetainedAssetReader>,
 ): Promise<T> {
   const project = activeProjectId()
   let connectionChanged = false
@@ -728,13 +729,18 @@ export async function readAssetPreview<T>(
     const retained = await retainPreviewAssets(connection, typeof inventory === 'string'
       ? { complete: false, digests: [inventory] } : inventory)
     reader = new RetainedAssetReader(connection, retained, current)
+    replacementReaders?.add(reader)
     const value = await reader.read(consume)
     // Publishing a replacement can invalidate the open intent itself. Only the
     // successful handoff, not reader closure or cancellation, authorizes release.
     if (handoff !== undefined && await handoff(value)) {
-      await reader.close()
-      if (!connectionChanged && activeProjectId() === project) {
-        await retireAssetOwner(connection, retained)
+      const replaced = [...(replacementReaders ?? [reader])]
+      await Promise.all(replaced.map((previous) => previous.close()))
+      for (const previous of replaced) {
+        if (connectionChanged || activeProjectId() !== project || (replacementReaders !== undefined && !current())) break
+        if (previous.connection !== connection) continue
+        await retireAssetOwner(connection, previous.retained)
+        replacementReaders?.delete(previous)
       }
     }
     return value

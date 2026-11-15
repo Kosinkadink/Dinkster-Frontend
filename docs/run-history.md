@@ -88,7 +88,11 @@ Saved roots not covered by the new inventories receive separate incomplete
 protection; restoring a result never releases the source window's owners.
 Pending or refused ownership does not publish a restored execution. Backend,
 connection or registry changes and application disposal discard late startup
-results without deleting their saved retry records.
+results without deleting their saved retry records. A later successful restore
+of the same source, job and compile proof can replace interrupted source readers
+created by this application instance, after their pending reads drain. Failed
+restoration or disconnect alone never authorizes retirement. Readers from another
+application instance or a different source remain independent.
 
 Fetched completion and reconnect records also confirm independent ownership
 before publishing output descriptors, saved artifacts or replayed node states.
