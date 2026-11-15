@@ -4,6 +4,7 @@ import { planOccurrenceLinkCommand } from '../src/commands/occurrence-link-comma
 import { createLocalSession } from '../src/commands/session.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { compile, documentNodeResolver, scopeClosure } from '../src/compile/compile.js'
+import { validateDinksterGraph, type DinksterGraphValidationContext, type DinksterGraphWire } from '../src/compile/dinkster-graph.js'
 import type { GraphDef, Json, RegionContract, WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { validateDocumentShape } from '../src/format/validate.js'
@@ -131,6 +132,29 @@ const compileDocument = (document: WorkflowDocument) => compile({
 })
 
 describe('region document format and invariants', () => {
+  it.each([false, true])('checks resident origins through region state and exports (shared=%s)', (shared) => {
+    const graph: DinksterGraphWire = { nodes: {
+      source: { nodeType: 'Source', inputs: {} },
+      region: { region: {
+        kind: 'fold', ports: { state: { kind: 'concrete', types: ['MODEL'] }, step: { kind: 'concrete', types: ['FLOAT'] } },
+        inputs: { state: { $link: { node: 'source', output: 'model' } }, step: [0] },
+        elementPorts: ['step'], statePorts: ['state'],
+        body: { nodes: { modify: { nodeType: 'Modify', inputs: { model: { $link: { node: '$region', output: 'state' } } } } } },
+        outputs: { state: { mode: 'state', source: { node: 'modify', output: 'model' } } },
+      } },
+      sink: { nodeType: 'Sink', inputs: { model: { $link: { node: 'region', output: 'state' } } } },
+    } }
+    const context: DinksterGraphValidationContext = new Map(['source', 'region/modify', 'sink'].map((path) => [path, {
+      anchor: { occurrence: { instancePath: [], node: path as never } },
+      inputTypes: {}, inputPorts: {}, outputTypes: { model: { kind: 'concrete', name: 'MODEL' } }, outputPorts: {},
+      residentAffinity: { types: ['MODEL'], routes: [{ process: shared || path === 'source' ? 'producer' : 'consumer', pack: path === 'source' ? 'models' : 'modifier', worker: 'local' }] },
+    }]))
+    const problems = validateDinksterGraph(graph, context).filter((problem) => problem.code === 'dinksterGraph.residentProcessBoundary')
+    expect(problems.length > 0).toBe(!shared)
+    if (!shared) {
+      expect(problems.some((problem) => problem.message.includes("Pack 'modifier'") && problem.message.includes("pack 'models'"))).toBe(true)
+    }
+  })
   it('round-trips a strict v1 region block without changing FORMAT_VERSION', () => {
     const original = documentWith({
       kind: 'fold',

@@ -4301,7 +4301,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // validation runs AFTER refreshSceneOverlays so companion-driven rows
       // are excluded against this build's sources, not the previous one's.
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics]
+      const hasResidentMetadata = scene.nodes.some(({ node }) => {
+        const schema = reg?.resolve(node.type)
+        return node.type.startsWith('#') || schema?.residentAffinity !== undefined || schema?.unavailableReason !== undefined
+      })
+      const preflight = tab.execution || !hasResidentMetadata ? undefined : untrack(() => props.app.compileTabCached(tab))
+      const availabilityDiags = preflight?.ok === false ? preflight.diagnostics.filter((diagnostic) =>
+        diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable') : []
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (untrack(hostFocused)) props.app.solveDiagnostics.set(sceneDiags)
       renderer.setRowMarks(widgetDiags.marks)

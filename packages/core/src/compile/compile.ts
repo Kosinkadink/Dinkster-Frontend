@@ -2704,6 +2704,10 @@ function compileImpl(
 
   for (const fn of flat.values()) {
     if (!validatesNode(fn.runtimeId)) continue
+    const unavailableReason = resolveNode(fn.graphId, fn.node)?.unavailableReason
+    if (unavailableReason !== undefined) {
+      diags.push(diag('error', 'compile', 'dinksterGraph.nodeUnavailable', unavailableReason, { anchor: { occurrence: fn.occ } }))
+    }
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue // never reaches the prompt
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue

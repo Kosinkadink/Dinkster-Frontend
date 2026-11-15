@@ -55,6 +55,8 @@ reference. Connections within one process and transferable asset references
 remain available. Process affinity comes from the current backend catalog,
 not the saved workflow. A host-declared `unavailableReason` also marks the node
 Unavailable and blocks submission, preserving the exact reason in its problem.
+The live canvas derives these availability problems without queueing a job;
+region ports, state feedback and exports retain their original producer affinity.
 
 Node badge popovers stay open through background overlay updates while the
 same document, graph occurrence, badge and on-screen anchor remain valid.

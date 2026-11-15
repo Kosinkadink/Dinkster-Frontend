@@ -338,6 +338,7 @@ export function validateDinksterGraph(
 ): readonly Diagnostic[] {
   const out: Diagnostic[] = []
   validateScope(graph, '', undefined, context, out)
+  if (context !== undefined) validateResidency(graph, context, out)
   return out
 }
 
@@ -351,6 +352,84 @@ function mayHoldResident(type: TypeExpr, types: readonly string[]): boolean {
     case 'variable': return type.allowedTypes?.some((element) => mayHoldResident(element, types)) ?? false
     case 'tuple_element': return type.element !== undefined && mayHoldResident(type.element, types)
     default: return false
+  }
+}
+
+function validateResidency(
+  graph: DinksterGraphWire,
+  context: DinksterGraphValidationContext,
+  out: Diagnostic[],
+): void {
+  type Endpoint = { node: string; output: string }
+  const key = (source: Endpoint): string => JSON.stringify([source.node, source.output])
+  const aliases = new Map<string, Endpoint[]>()
+  const inputs: { consumer: string; input: string; source: Endpoint }[] = []
+  const nodes = new Set<string>()
+  const collect = (current: DinksterGraphWire, prefix: string): void => {
+    const sourceAt = (source: Endpoint): Endpoint => ({ ...source, node: joinPath(prefix, source.node) })
+    for (const [id, entry] of Object.entries(current.nodes)) {
+      const path = joinPath(prefix, id)
+      if (isDinksterRegionEntry(entry)) {
+        const region = entry.region
+        const bodySource = (source: Endpoint): Endpoint => ({ ...source, node: joinPath(path, source.node) })
+        for (const port of Object.keys(region.ports)) {
+          const sources: Endpoint[] = []
+          const initial = asDinksterLink(region.inputs[port] ?? null)
+          if (initial !== undefined) sources.push(sourceAt(initial))
+          const state = region.outputs[port]
+          if (region.statePorts?.includes(port) && state !== undefined) sources.push(bodySource(state.source))
+          aliases.set(key({ node: joinPath(path, DINKSTER_REGION_PSEUDO_NODE), output: port }), sources)
+        }
+        for (const [output, exported] of Object.entries(region.outputs)) {
+          const sources = [bodySource(exported.source)]
+          const initial = asDinksterLink(region.inputs[output] ?? null)
+          if (exported.mode === 'state' && initial !== undefined) sources.push(sourceAt(initial))
+          aliases.set(key({ node: path, output }), sources)
+        }
+        collect(region.body, path)
+      } else {
+        nodes.add(path)
+        for (const [input, value] of Object.entries(entry.inputs)) {
+          const source = asDinksterLink(value)
+          if (source !== undefined) inputs.push({ consumer: path, input, source: sourceAt(source) })
+        }
+      }
+    }
+  }
+  collect(graph, '')
+  const producers = (source: Endpoint, seen: ReadonlySet<string> = new Set()): Endpoint[] => {
+    const id = key(source)
+    if (seen.has(id)) return []
+    const parents = aliases.get(id)
+    return parents === undefined ? nodes.has(source.node) ? [source] : []
+      : parents.flatMap((parent) => producers(parent, new Set([...seen, id])))
+  }
+  const components = new Map([...nodes].map((path) => [path, new Set([path])]))
+  for (const { consumer, input, source } of inputs) {
+    const consumers = context.get(consumer)?.residentAffinity?.routes ?? []
+    for (const origin of producers(source)) {
+      const producer = context.get(origin.node)
+      const affinity = producer?.residentAffinity
+      const sourceType = producer?.outputTypes[origin.output]
+      if (affinity === undefined || affinity.routes.length === 0 || consumers.length === 0 ||
+        sourceType === undefined || !mayHoldResident(sourceType, affinity.types)) continue
+      const left = components.get(origin.node)!
+      const right = components.get(consumer)!
+      if (left === right) continue
+      const members = new Set([...left, ...right])
+      let processes: Set<string> | undefined
+      for (const member of members) {
+        const choices = new Set(context.get(member)?.residentAffinity?.routes.map((route) => route.process))
+        processes = processes === undefined ? choices : new Set([...processes].filter((process) => choices.has(process)))
+      }
+      if (processes?.size === 0) {
+        out.push(diag('error', 'compile', 'dinksterGraph.residentProcessBoundary',
+          `Pack '${consumers[0]!.pack}' cannot receive a resident value from pack '${affinity.routes[0]!.pack}' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference.`,
+          anchorData(context, consumer, input)))
+      } else {
+        for (const member of members) components.set(member, members)
+      }
+    }
   }
 }
 
@@ -389,17 +468,6 @@ function validateScope(
 
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {
-      const link = asDinksterLink(value)
-      const producer = link === undefined ? undefined : context?.get(joinPath(prefix, link.node))
-      const affinity = producer?.residentAffinity
-      const consumers = nodeContext?.residentAffinity?.routes ?? []
-      const sourceType = link === undefined ? undefined : producer?.outputTypes[link.output]
-      if (affinity !== undefined && affinity.routes.length > 0 && consumers.length > 0 && sourceType !== undefined &&
-          mayHoldResident(sourceType, affinity.types) && !affinity.routes.some((owner) => consumers.some((consumer) => consumer.process === owner.process))) {
-        out.push(diag('error', 'compile', 'dinksterGraph.residentProcessBoundary',
-          `Pack '${consumers[0]!.pack}' cannot receive a resident value from pack '${affinity.routes[0]!.pack}' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference.`,
-          anchorData(context, path, inputId)))
-      }
       const expected = nodeContext?.inputTypes[inputId]
       if (expected === undefined || asDinksterLink(value) !== undefined ||
           parseTypedLiteralWire(value as Json) !== undefined || parseDecimalIntegerWire(value as Json) !== undefined) continue
