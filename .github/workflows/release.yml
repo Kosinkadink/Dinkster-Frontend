@@ -107,9 +107,14 @@ jobs:
               }
               object = (await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` })).data.object;
             }
-            while (object.type === 'tag') {
-              object = (await github.rest.git.getTag({ ...context.repo, tag_sha: object.sha })).data.object;
+            if (object.type !== 'tag') throw new Error('Release tag must be annotated');
+            const annotation = (await github.rest.git.getTag({ ...context.repo, tag_sha: object.sha })).data;
+            const provenance = JSON.parse(annotation.message);
+            if (annotation.tag !== tag || provenance.version !== manifest.version ||
+                provenance.sourceCommit !== context.sha || provenance.sha256 !== manifest.sha256) {
+              throw new Error('Release tag annotation differs from the wheel provenance');
             }
+            object = annotation.object;
             if (object.type !== 'commit' || object.sha !== context.sha) {
               throw new Error('Release tag targets a different source commit');
             }
