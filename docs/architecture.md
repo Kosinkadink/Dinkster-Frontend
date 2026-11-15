@@ -195,7 +195,9 @@ permanent missing-image result. Input-model sources also carry that reader into
 the orbit overlay. Its independent read covers pending mount and the mounted
 handle until disposal; closing during mount waits for actual mount completion
 and disposes the late handle. A different captured owner closes the old viewer
-even when its URL is unchanged. Direct input-audio sources carry their document
+even when its URL is unchanged. Canvas orbit viewers remain open across preview
+refreshes with the same URL and captured reader; only an actual source replacement
+closes them. Direct input-audio sources carry their document
 reader into the native transport. Admission precedes assigning the audio source;
 the independent read spans native resource reset on replacement or unmount.
 A replacement waits for the old element's emptied event unless it was already
