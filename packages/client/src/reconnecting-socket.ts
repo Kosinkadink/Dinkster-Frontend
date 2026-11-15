@@ -40,6 +40,8 @@ export interface ReconnectingSocketConfig {
    */
   readonly onOpen?: (send: (data: string) => void) => void
   readonly onClose?: (event: unknown) => void
+  /** Resume delivery within the same logical lifetime; reconcile events missed while suspended. */
+  readonly onResumed?: () => void
   /** Every inbound message's raw data (string or ArrayBuffer). */
   readonly onData: (data: unknown) => void
 }
@@ -82,7 +84,7 @@ export class ReconnectingSocket {
     if (this.ws) return
     if (this.config.resolveUrl !== undefined) {
       const generation = this.reconnectGeneration
-      this.statusSignal.set(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
+      if (this.statusSignal.get() !== 'connected') this.statusSignal.set(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
       void this.config.resolveUrl().then((url) => {
         if (generation === this.reconnectGeneration && !this.deliberateClose) this.createSocket(url)
       }).catch(() => {
@@ -98,14 +100,17 @@ export class ReconnectingSocket {
     const factory =
       this.config.webSocketFactory ??
       ((url: string) => new WebSocket(url) as unknown as WebSocketLike)
-    this.statusSignal.set(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
+    // Planned suspension retains the logical connection; real loss already sets reconnecting.
+    if (this.statusSignal.get() !== 'connected') this.statusSignal.set(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
     const ws = factory(url)
     ws.binaryType = 'arraybuffer'
     ws.onopen = () => {
       if (this.ws !== ws || this.deliberateClose) return
+      const resumed = this.statusSignal.get() === 'connected'
       this.config.onOpen?.((data) => ws.send(data))
       this.reconnectAttempts = 0
       this.statusSignal.set('connected')
+      if (resumed) this.config.onResumed?.()
     }
     ws.onmessage = (ev) => {
       if (this.ws !== ws || this.deliberateClose) return
