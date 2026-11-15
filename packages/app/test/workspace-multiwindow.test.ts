@@ -12,7 +12,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
+import { DinksterConnection, buildDinksterRegistry, type RetainedAssets } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
 import {
@@ -155,6 +155,73 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it.each(['promoted', 'publication-close'] as const)('retires incoming-tab admission after %s without releasing an independent holder', async (scenario) => {
+    let lock = Promise.resolve()
+    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
+      const next = lock.then(callback)
+      lock = next.then(() => undefined, () => undefined)
+      return next
+    } } })
+    const factory = authorityFactories()
+    const author = createEditableApp()
+    const viewer = createEditableApp()
+    const independentApp = createEditableApp()
+    const digest = `blake3:${'a'.repeat(64)}`
+    const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'held', optional: false,
+        type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
+    author.registerSchemas([schema])
+    viewer.registerSchemas([schema])
+    independentApp.registerSchemas([schema])
+    const receipts = new Map<string, RetainedAssets>()
+    const independentOwners = new Set<string>()
+    const viewerOwners = new Set<string>()
+    for (const app of [author, viewer, independentApp]) {
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        receipts.set(owner.ownerId, receipt)
+        if (app === viewer) viewerOwners.add(owner.ownerId)
+        if (app === independentApp) independentOwners.add(owner.ownerId)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    }
+    await author.enableWorkspaceAuthority(factory.document, factory.workspace)
+    await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
+    await vi.waitFor(() => expect([author, viewer].every((app) => app.tabs.get().every((tab) => 'status' in tab.store))).toBe(true))
+    const document = workflow()
+    let closed = false
+    const unsubscribe = viewer.tabs.subscribe((tabs) => {
+      if (scenario === 'publication-close' && !closed && tabs.some((tab) => tab.id === document.lineage)) {
+        closed = true
+        expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+      }
+    })
+    await author.openDocument({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+      n1: { ...document.graphs.g0!.nodes.n1!, values: { held: {
+        digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
+      } } },
+    } } } }, 'Retained incoming workflow')
+    await independentApp.openDocument({ ...author.activeTab()!.store.doc, lineage: asLineageId('independent-window') }, 'Independent holder')
+    const independent = [...independentOwners].map((id) => receipts.get(id)!).filter((receipt) => receipt.digests.includes(digest))
+    expect(independent.length).toBeGreaterThan(0)
+    if (scenario === 'promoted') {
+      await vi.waitFor(() => expect(viewer.tabs.get().some((tab) => tab.id === document.lineage && 'status' in tab.store)).toBe(true))
+      expect([...viewerOwners].some((id) => receipts.get(id)?.digests.includes(digest))).toBe(true)
+      expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+    } else await vi.waitFor(() => expect(closed).toBe(true))
+    unsubscribe()
+    await vi.waitFor(() => expect(author.tabs.get().some((tab) => tab.id === document.lineage)).toBe(false))
+    await vi.waitFor(() => expect([...viewerOwners].filter((id) => receipts.get(id)?.digests.includes(digest))).toEqual([]))
+    expect(independentApp.tabs.get().some((tab) => tab.id === 'independent-window')).toBe(true)
+    for (const receipt of independent) expect(receipts.get(receipt.ownerId)).toEqual(receipt)
+  })
+
   it.each(['accepted', 'refused', 'retargeted', 'registry', 'disposed'] as const)(
     'retains incoming shared edits before publishing confirmed ground: %s', async (scenario) => {
       const factory = authorityFactories()
