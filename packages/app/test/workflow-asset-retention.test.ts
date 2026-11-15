@@ -1136,6 +1136,63 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['resolved', 'during-admission', 'unresolved', 'different-document', 'refused'] as const)(
+    'hands off a schema-absent persisted snapshot only to an acknowledged exact replacement: %s', async (scenario) => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp(null, session().doc)
+      const owners = new Map<string, RetainedAssets>()
+      const firstAcknowledgment = deferred<void>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        if (scenario === 'during-admission') await firstAcknowledgment.promise
+        return receipt
+      })
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(0)
+      const incomplete = [...owners.values()].filter((owner) => !owner.complete)
+      expect(incomplete.length).toBeGreaterThan(0)
+      expect(incomplete.every((owner) => owner.digests.includes(asset('a').digest))).toBe(true)
+      const schemas = new Map(scenario === 'unresolved' ? [] : [[schema.type, schema]])
+      app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'arrived',
+        resolve: (type) => schemas.get(type) })
+      if (scenario === 'different-document') expect(app.activeTab()!.store.dispatch({
+        command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n0', title: 'Changed snapshot' },
+      }).ok).toBe(true)
+      const acknowledgment = deferred<void>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        await acknowledgment.promise
+        const receipt = { ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      if (scenario === 'during-admission') firstAcknowledgment.resolve()
+      else if (scenario !== 'resolved') app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(scenario === 'resolved' ? 500 : 0)
+      expect(incomplete.map((owner) => owners.get(owner.ownerId)?.revision)).toEqual(incomplete.map(() => 1))
+      acknowledgment.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      if (scenario === 'resolved' || scenario === 'during-admission' || scenario === 'different-document') {
+        const canonical = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+        expect(canonical.assetRetention.complete).toBe(true)
+        expect(canonical.assetRetention.owners.some((entry: { retained: RetainedAssets }) =>
+          entry.retained.complete && entry.retained.digests.includes(asset('a').digest))).toBe(true)
+        for (const entry of canonical.assetRetention.owners) expect(entry.retained.holderClasses).toEqual([1, 2, 3])
+      }
+      expect(incomplete.map((owner) => owners.get(owner.ownerId)?.revision))
+        .toEqual(incomplete.map(() => scenario === 'resolved' || scenario === 'during-admission' ? 2 : 1))
+    } finally { vi.useRealTimers() }
+    },
+  )
+
   it('keeps document and history ownership across shared workspace promotion', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])

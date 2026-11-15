@@ -3798,6 +3798,7 @@ export class AppState {
     readonly raw: string
     readonly complete: boolean
     readonly owners: readonly {
+      readonly document: WorkflowDocument
       readonly backend: Backend
       readonly registry: SchemaRegistry | undefined
       readonly generation: number | undefined
@@ -3815,11 +3816,22 @@ export class AppState {
     this.retirePersistedWorkflowOwners(slot.owners)
   }
 
-  private retirePersistedWorkflowOwners(owners: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners']): void {
+  private retirePersistedWorkflowOwners(
+    owners: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners'],
+    replacements: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners'] = [],
+  ): void {
     for (const owner of owners) {
       if (this.disposed || activeProjectId() !== owner.project || globalThis.localStorage !== owner.storage ||
-        !this.backends.get().includes(owner.backend) || owner.backend.registry.get() !== owner.registry ||
+        !this.backends.get().includes(owner.backend) ||
         this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) continue
+      const registry = owner.backend.registry.get()
+      // A newly resolved schema can supersede an incomplete snapshot only after
+      // the exact same document has a complete acknowledgment in this lifetime.
+      if (registry !== owner.registry && !replacements.some((replacement) =>
+        replacement.backend === owner.backend && replacement.registry === registry &&
+        replacement.generation === owner.generation && replacement.project === owner.project &&
+        replacement.storage === owner.storage && replacement.retained.complete &&
+        JSON.stringify(replacement.document) === JSON.stringify(owner.document))) continue
       void retireAssetOwner(owner.backend.connection, owner.retained)
     }
   }
@@ -3838,7 +3850,7 @@ export class AppState {
     // not acknowledged ownership, until its exact captured roots are retained.
     const pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
     const previous = this.persistedWorkflowSlots.get(key)
-    const previousOwners = previous?.raw === storage.getItem(key) ? previous.owners : []
+    const previousOwners = previous?.raw === storage.getItem(key) ? [...previous.owners] : []
     storage.setItem(key, pending)
     if (this.disposed) return Promise.resolve(undefined)
     this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
@@ -3866,7 +3878,10 @@ export class AppState {
         throw new Error('Workspace recovery changed during asset admission')
       }
       // A refreshed schema may reveal different roots; admit them before publishing the operation.
-      if (sources.some(({ backend, registry }) => backend.registry.get() !== registry)) continue
+      if (sources.some(({ backend, registry }) => backend.registry.get() !== registry)) {
+        previousOwners.push(...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })))
+        continue
+      }
       break
     }
     const receipts = owners.map((retained, index) => ({ connectionId: native[index]!.backend.connection.id,
@@ -3876,15 +3891,15 @@ export class AppState {
       stageId, acknowledged: true, complete, owners: receipts,
     } })
     storage.setItem(key, acknowledged)
+    const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
     this.persistedWorkflowSlots.set(key, { raw: acknowledged, complete, owners: [
       ...(complete ? [] : previousOwners),
-      ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
+      ...replacements,
     ] })
     // Only this app's exact staged generations confer release authority.
     // Stored receipts from another window or lifetime remain observation-only.
     if (complete) this.retirePersistedWorkflowOwners(previousOwners.filter((owner) =>
-      native.some(({ backend, registry, generation }) => owner.backend === backend &&
-        owner.registry === registry && owner.generation === generation)))
+      native.some(({ backend, generation }) => owner.backend === backend && owner.generation === generation)), replacements)
     return complete ? acknowledged : undefined
   }
 
@@ -4689,6 +4704,8 @@ export class AppState {
           })))
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
+          if (!this.disposed && [...this.persistedWorkflowSlots.values()].some((slot) =>
+            !slot.complete && slot.owners.some((owner) => owner.backend.id === id))) this.schedulePersistTabs()
           // Schema refresh can invalidate an in-flight reconnect read. The
           // coalesced trailing pass captures the newly published owner.
           reconcileConnected()

@@ -434,6 +434,12 @@ Unknown schemas retain known roots with explicit incomplete ownership. An
 open can also retain an incomplete output descriptor for repair. Historical
 dynamic state is admitted only when a declared migration plans successfully;
 it remains incomplete until migration, and malformed asset identities still refuse.
+A persisted snapshot admitted before its schemas arrive keeps its incomplete
+receipt until this window acknowledges a complete replacement for the exact
+same document on the same backend, project, storage and connection lifetime.
+Schema arrival reschedules incomplete local persistence. Receipts admitted during
+a superseded schema request remain tracked through that handoff; recovered
+receipts from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
 keep the same document session and do not cancel admission. Library/template/run
