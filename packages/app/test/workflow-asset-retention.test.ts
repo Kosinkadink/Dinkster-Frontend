@@ -96,7 +96,8 @@ describe('workflow retention recovery', () => {
         n0: { ...workflow.graphs.g0!.nodes.n0!, ...(dormant ? { dynamic: { mode: { selected: 'active' } } } : {}),
           values: { [dormant ? 'mode.compositor' : 'compositor']: recipe } },
       } } } }
-      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema)
+      const sourceDocument = asset('f').digest
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema, [], 'publication', sourceDocument)
       expect(roots.complete).toBe(false)
       const owners = new Map<string, RetainedAssets>()
       const listeners = new Set<() => void>()
@@ -146,8 +147,8 @@ describe('workflow retention recovery', () => {
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview').map((owner) => owner.holderClasses)).toEqual([[8]])
       expect(retained.complete).toBe(['resolved', 'dormant', 'comfy-inputs', 'comfy-empty', 'comfy-output-policy'].includes(scenario))
       expect(retained.digests).toEqual((['missing-document', 'wrong-document', 'noncanonical-document'].includes(scenario)
-        ? [documentDigest] : ['opaque-extension', 'comfy-extra', 'comfy-unknown'].includes(scenario) ? [documentDigest, resourceDigest, asset('d').digest]
-        : [documentDigest, resourceDigest]).sort())
+        ? [sourceDocument, documentDigest] : ['opaque-extension', 'comfy-extra', 'comfy-unknown'].includes(scenario) ? [sourceDocument, documentDigest, resourceDigest, asset('d').digest]
+        : [sourceDocument, documentDigest, resourceDigest]).sort())
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview'))
         .toEqual([expect.objectContaining({ revision: 2, digests: [], complete: true })])
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'document')).toEqual([retained])
@@ -351,6 +352,8 @@ describe('retained app dispatch', () => {
         await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
+        expect(receipts.every((receipt) => receipt.complete)).toBe(true)
+        expect(receipts.find((receipt) => receipt.sourceToken === undefined)?.digests).toEqual([asset('a').digest])
         for (const receipt of saved.values()) expect(receipts).toContainEqual(receipt)
         expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set(sources.map((source) => source.token)))
         expect(new Set([...saved.values()].flatMap((receipt) => receipt.digests))).toEqual(new Set(sources.flatMap((source) => source.digests)))

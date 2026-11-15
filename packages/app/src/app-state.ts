@@ -146,6 +146,7 @@ import {
   type LibraryRecord,
   type BackendDiscovery,
   type DinksterSubmitResult,
+  type DinksterJobRecord,
   type DinksterValuesClient,
   type PreviewMode,
   type PrepareExecutionHydration,
@@ -8383,16 +8384,18 @@ export class AppState {
     backend: Extract<Backend, { protocol: 'dinkster' }>,
   ): Promise<{ sourceDocument: string } | undefined> {
     const revision = tab.store.revision
-    const schemaHash = this.registryForTab(tab)?.hash
+    const registry = this.registryForTab(tab)
+    const schemaHash = registry?.hash
     const cached = this.sourceDocCache.get(tab)
     if (cached && cached.connection === backend.connection && cached.revision === revision && cached.schemaHash === schemaHash) {
       return { sourceDocument: cached.digest }
     }
     try {
-      const digest = await backend.connection.uploadAsset(
-        JSON.stringify(this.stampedDocumentOf(tab)),
-      )
-      await retainWorkflowAssets(backend.connection, tab.id, revision, { complete: false, digests: [digest] })
+      const document = this.stampedDocumentOf(tab)
+      const resolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
+      const digest = await backend.connection.uploadAsset(JSON.stringify(document))
+      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] }, resolve, [], 'publication', digest)
+      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
       if (schemaHash !== undefined) this.sourceDocCache.set(tab, { connection: backend.connection, revision, schemaHash, digest })
       return { sourceDocument: digest }
     } catch {
@@ -8660,12 +8663,30 @@ export class AppState {
       }
     }
     if (Object.keys(nodes).length === 0) return undefined
+    for (const receipt of result.assetRetentions ?? []) {
+      const observed = await backend.connection.fetchRetainedAssets(receipt)
+      if (!stillCurrent()) return null
+      if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
+    }
+    const admitted = await this.retainTerminalExecutionAssets(backend.connection,
+      { ref: result.ref, artifact: compiled.artifact, jobRef: result.jobRef, sourceDocument: result.sourceDocument },
+      job, this.resolverWithVirtualNodes(registry.resolve), stillCurrent)
+    if (admitted === undefined) return null
+    const assetRetentions = [...admitted]
+    const covered = new Set(admitted.flatMap((receipt) => receipt.digests))
+    const uncovered = [...new Set((result.assetRetentions ?? []).flatMap((receipt) => receipt.digests))]
+      .filter((digest) => !covered.has(digest)).sort()
+    if (uncovered.length > 0) {
+      assetRetentions.push(await retainExecutionAssets(backend.connection, result.ref, { complete: false, digests: uncovered }))
+      if (!stillCurrent()) return null
+    }
     return {
       ref: result.ref,
       artifact: compiled.artifact,
       nodes,
       outputs,
       artifacts: job.artifacts ?? [],
+      assetRetentions,
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
@@ -8673,6 +8694,8 @@ export class AppState {
       endedAt: result.endedAt,
     }
   }
+
+  private readonly restorationSourceReaders = new WeakMap<Backend, Map<string, Set<RetainedAssetReader>>>()
 
   private async restoreExecutionResults(
     backend: Backend & { readonly protocol: 'dinkster' },
@@ -8694,6 +8717,12 @@ export class AppState {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         if (this.store.get(result.ref) !== undefined) continue
+        let sources = this.restorationSourceReaders.get(backend)
+        if (sources === undefined) this.restorationSourceReaders.set(backend, (sources = new Map()))
+        const sourceKey = canonicalJson({ project, ref: result.ref, jobRef: result.jobRef,
+          sourceDocument: result.sourceDocument, proof: result.proof })
+        let readers = sources.get(sourceKey)
+        if (readers === undefined) sources.set(sourceKey, (readers = new Set()))
         try {
           const restored = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
             const source = await backend.connection.fetchAssetText(result.sourceDocument)
@@ -8704,22 +8733,14 @@ export class AppState {
             return document === undefined ? undefined : this.validatedExecutionResult(backend, registry, result, current, document)
           }, current, async (candidate) => {
             if (candidate == null || !current()) return false
-            for (const receipt of result.assetRetentions ?? []) {
-              const observed = await backend.connection.fetchRetainedAssets(receipt)
-              if (!current()) return false
-              if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
-            }
-            const roots = executionAssetRoots(candidate, this.resolverWithVirtualNodes(registry.resolve))
-            const retained = await retainExecutionAssets(backend.connection, candidate.ref, { complete: false,
-              digests: [...new Set([...roots.digests, ...(result.assetRetentions ?? []).flatMap((receipt) => receipt.digests)])].sort() })
-            if (!current() || this.store.get(candidate.ref) !== undefined) return false
+            if (this.store.get(candidate.ref) !== undefined) return false
             this.retainedRegistries.set(candidate.artifact, registry)
-            // Restore takes independent ownership of the full saved roots, not
-            // authority to retire the source window's shown-result generation.
-            this.trackResultOwner(backend, retained)
-            this.store.restoreCompleted({ ...candidate, assetRetentions: [retained] })
-            return this.store.get(candidate.ref)?.assetRetentions?.includes(retained) === true
-          })
+            // Fresh source claims and snapshot ownership never retire another window's receipts.
+            for (const retained of candidate.assetRetentions ?? []) this.trackResultOwner(backend, retained)
+            this.store.restoreCompleted(candidate)
+            return this.store.get(candidate.ref)?.artifact === candidate.artifact
+          }, readers)
+          if (readers.size === 0) sources.delete(sourceKey)
           if (!current()) return
           if (restored === undefined) removeExecutionResult(result)
           this.retireUnusedResultOwners()
@@ -10169,6 +10190,46 @@ export class AppState {
   /** Keys already hydrated (or being hydrated) from /history. */
   private readonly hydrated = new Set<string>()
 
+  private async retainTerminalExecutionAssets(
+    connection: DinksterConnection,
+    state: Pick<ExecutionState, 'ref' | 'artifact' | 'jobRef' | 'sourceDocument'>,
+    job: DinksterJobRecord,
+    resolve: SchemaResolver,
+    current: () => boolean,
+  ): Promise<readonly RetainedAssets[] | undefined> {
+    if (state.jobRef === undefined || job.jobRef !== state.jobRef || job.sourceDocument !== state.sourceDocument) return undefined
+    const terminal = await connection.fetchTerminalResultAssets(state.jobRef, state.ref.prompt)
+    if (!current() || terminal === undefined || terminal.state !== job.state || terminal.attemptId !== job.attemptId) return undefined
+    const outputs = job.outputs ?? {}
+    if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return undefined
+    const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
+      Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId])))
+    const offeredKeys = new Set(terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
+      [JSON.stringify([offer.nodeId, offer.outputId])]))
+    // The seal also retains intermediate outputs omitted from job.outputs.
+    // Every published output needs a source; all sealed sources are claimed.
+    if (outputKeys.some((key) => !offeredKeys.has(key)) ||
+      terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return undefined
+    for (const offer of terminal.offers) {
+      if (offer.artifact !== undefined) {
+        const { index, ...artifact } = offer.artifact
+        if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return undefined
+      }
+    }
+    const retained: RetainedAssets[] = []
+    for (const offer of terminal.offers) {
+      retained.push(await retainExecutionAssets(connection, state.ref, offer))
+      if (!current()) return undefined
+    }
+    // Runtime source claims certify the outputs, not the producing document.
+    const roots = state.artifact === undefined
+      ? executionAssetRoots({ ...state, outputs: outputs as ExecutionState['outputs'], artifacts: job.artifacts ?? [] }, resolve)
+      : workflowAssetRoots(state.artifact.snapshot, { revision: state.artifact.revision, undo: [], redo: [] },
+        resolve, [], 'publication', state.sourceDocument)
+    retained.push(await retainExecutionAssets(connection, state.ref, roots))
+    return current() ? retained : undefined
+  }
+
   private prepareExecutionHydration(backend: Backend): PrepareExecutionHydration {
     const connection = backend.connection
     return (ref) => {
@@ -10188,31 +10249,12 @@ export class AppState {
         if (job === undefined) return true
         if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
         if (held.jobRef !== undefined && (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled')) {
-          const terminal = await connection.fetchTerminalResultAssets(held.jobRef, ref.prompt)
-          if (!current() || terminal === undefined) return false
-          if (terminal.state !== job.state || terminal.attemptId !== job.attemptId) return false
-          const outputs = job.outputs ?? {}
-          if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return false
-          const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
-            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId])))
-          const offeredKeys = new Set(terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
-            [JSON.stringify([offer.nodeId, offer.outputId])]))
-          // The seal also retains intermediate outputs omitted from job.outputs.
-          // Every published output needs a source; all sealed sources are claimed.
-          if (outputKeys.some((key) => !offeredKeys.has(key)) ||
-            terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return false
-          for (const offer of terminal.offers) {
-            if (offer.artifact !== undefined) {
-              const { index, ...artifact } = offer.artifact
-              if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return false
-            }
-          }
-          for (const offer of terminal.offers) {
-            const retained = await retainExecutionAssets(connection, ref, offer)
-            if (!current()) return false
-            this.trackResultOwner(backend, retained)
-            this.store.recordAssetRetentions(ref, [retained])
-          }
+          const receipts = await this.retainTerminalExecutionAssets(connection, held, job,
+            this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)), current)
+          if (receipts === undefined) return false
+          for (const retained of receipts) this.trackResultOwner(backend, retained)
+          this.store.recordAssetRetentions(ref, receipts)
+          return true
         }
         const outputs = workspaceRecord(job.outputs)
           ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
