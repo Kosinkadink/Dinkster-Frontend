@@ -18,7 +18,7 @@
  * - every message is anchored as <nodeId>.<valueKey> so a report names the
  *   exact node and input
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const problems = (page: Page) => page.getByTestId('problems-panel')
 
@@ -111,6 +111,53 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
+})
+
+test('an additive nested combo field keeps the node editable and reports its named warning', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'additive-widget-fixture', schemaWire: 1 },
+    nodes: { TolerantWidgets: { interface: [{ role: 'input', id: 'choice', required: true,
+      type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest',
+      widget: { type: 'COMBO', options: ['nearest', 'cubic'].map((value) => ({ value, futureHint: 'ignored' })) },
+    }] } },
+  } }))
+  await page.reload()
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
+  await waitForStartupOwnership(page)
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'additive-widget', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        sample: { id: 'sample', type: 'TolerantWidgets', values: { choice: 'nearest' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { sample: { position: { x: 280, y: 100 } } } } } },
+    }, 'Additive widget field')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect(problems(page)).toContainText('schema.widget.unknownField')
+  await expect(problems(page)).toContainText('TolerantWidgets.choice')
+  await expect(problems(page)).toContainText('futureHint')
+  await openEditor(page, 'sample', 'choice')
+  const search = page.getByTestId('combo-search')
+  await search.fill('cubic'); await search.press('ArrowDown'); await search.press('Enter')
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.sample!.values.choice,
+  )).toBe('cubic')
+  await openRailPanel(page, 'Problems')
+  await expect(problems(page)).toBeVisible()
+  await expect(problems(page)).toContainText('futureHint')
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('shell.layout.right.width', 560))
+  await problemEntries(page, 'schema.widget.unknownField').first().locator('summary').click()
+  await page.screenshot({ path: testInfo.outputPath('additive-widget-warning.png'), animations: 'disabled' })
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 2, dinkster: { version: 'clean-widget-fixture', schemaWire: 1 }, nodes: {},
+  } }))
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.refreshBackendSchemas(app.backendForTab(app.activeTab()!))
+  })
+  await expect(problems(page)).not.toContainText('schema.widget.unknownField')
 })
 
 test('out-of-range stored INT reports anchored in Problems and clears when fixed in the editor', async ({ page }) => {

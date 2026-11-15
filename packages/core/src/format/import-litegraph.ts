@@ -1625,6 +1625,10 @@ function importLitegraphGraph(
     const controllers: Record<string, ControllerMode> = {}
     const dynamic: Record<string, DynamicPortState & JsonObject> = {}
     const ext: Record<string, Json> = {}
+    if (typeof n.properties?.['ver'] === 'string') {
+      ext['importer.comfyNodeType'] = n.type
+      ext['importer.comfyNodeVersion'] = n.properties['ver']
+    }
     const additionalInputs: string[] = []
     const targetedSlots = new Set<number>()
     for (const wire of wires.values())
