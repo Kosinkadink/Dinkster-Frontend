@@ -118,7 +118,7 @@ async function openProof(page: Page) {
 
 test.beforeEach(async ({ context, page }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.route('/api/**', (route) => new URL(route.request().url()).pathname.startsWith('/api/library/retentions/')
+  await page.route('/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
     ? route.fallback()
     : route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))

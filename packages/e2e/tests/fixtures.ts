@@ -91,6 +91,9 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean 
     await context.route('**/replacements/index.json', (route) =>
       route.fulfill({ json: { schemaVersion: 1, items: [] } }))
     if (retentionApi) {
+      // Per-owner fixture receipts do not implement a server-owned client census.
+      await context.route('**/api/library/retention-clients', (route) =>
+        route.fulfill({ status: 404 }))
       const owners = new Map<string, { scope: string; ownerKind: string; ownerId: string;
         revision: number; complete: boolean; digests: string[] }>()
       const sourceOwners = new Set<string>()

@@ -62,7 +62,7 @@ const state = (page: Page) => page.evaluate(() => {
 test.beforeEach(async ({ page }, testInfo) => {
   const mockControllerDispatch = testInfo.annotations.some((annotation) => annotation.type === 'mock-controller-dispatch')
   if (mockControllerDispatch) {
-    await page.route('**/api/**', (route) => new URL(route.request().url()).pathname.startsWith('/api/library/retentions/')
+    await page.route('**/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
       ? route.fallback() : route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 1 }, nodes: {},
