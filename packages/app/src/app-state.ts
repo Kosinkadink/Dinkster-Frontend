@@ -1727,6 +1727,8 @@ interface PersistedTabs {
   readonly active: string
   readonly workspaceRevision?: number
   readonly workspaceOperationWatermarks?: Readonly<Record<string, number>>
+  readonly assetRetention?: { readonly stageId: string }
+  readonly incorporatedWorkspaceStages?: readonly string[]
   readonly documentCandidateStages?: Readonly<Record<string, string>>
   readonly documentCandidateDigests?: Readonly<Record<string, string>>
   readonly tabs: readonly {
@@ -1752,6 +1754,11 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
       ...(Number.isSafeInteger(parsed.workspaceRevision) && parsed.workspaceRevision! >= 0
         ? { workspaceRevision: parsed.workspaceRevision }
         : {}),
+      ...(typeof parsed.assetRetention?.stageId === 'string' && parsed.assetRetention.stageId.length > 0
+        ? { assetRetention: { stageId: parsed.assetRetention.stageId } } : {}),
+      ...(Array.isArray(parsed.incorporatedWorkspaceStages)
+        ? { incorporatedWorkspaceStages: parsed.incorporatedWorkspaceStages.filter((stageId) =>
+            typeof stageId === 'string' && stageId.length > 0) } : {}),
       ...(parsed.documentCandidateStages !== null && typeof parsed.documentCandidateStages === 'object'
         ? { documentCandidateStages: Object.fromEntries(
             Object.entries(parsed.documentCandidateStages).filter(([lineage, stageId]) =>
@@ -1847,11 +1854,19 @@ function mergePersistedTabs(
   if (!workspace) return undefined
   const documents = new Map<string, PersistedTabs['tabs'][number]>()
   const viewStates = new Map<string, TabViewState>()
+  const incorporated = new Set(states[0]?.incorporatedWorkspaceStages ?? [])
+  const canonicalLineages = new Set(states[0]?.tabs.map(persistedTabId))
+  const incorporatedWorkspaceStages = states.flatMap((state) =>
+    state.assetRetention === undefined || !state.tabs.some((tab) => tab.documentDirty === true)
+      ? [] : [state.assetRetention.stageId])
   for (const state of membership === undefined ? states : [...states, membership]) for (const tab of state.tabs) {
     const id = persistedTabId(tab)
     if (!id) continue
     const mergedViewState = mergeTabViewStates(viewStates.get(id), tab.viewState)
     if (mergedViewState !== undefined) viewStates.set(id, mergedViewState)
+    // A captured dirty edit contributes once, not once per admission or restart.
+    if (state !== states[0] && canonicalLineages.has(id) && state.assetRetention !== undefined &&
+      incorporated.has(state.assetRetention.stageId)) continue
     const current = documents.get(id)
     if (!current) {
       documents.set(id, committedPersistedTab(
@@ -1886,6 +1901,7 @@ function mergePersistedTabs(
   }
   return {
     ...workspace,
+    incorporatedWorkspaceStages,
     ...(Object.keys(documentCandidateStages).length > 0 ? { documentCandidateStages } : {}),
     ...(Object.keys(documentCandidateDigests).length > 0 ? { documentCandidateDigests } : {}),
     tabs: workspace.tabs.map((tab) => {

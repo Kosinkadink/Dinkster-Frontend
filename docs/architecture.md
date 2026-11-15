@@ -525,7 +525,12 @@ sources stay protected. Newer, unmerged or different stages survive, as do live,
 undo, frozen, shared, restored and pending-read holders with independent receipts.
 A close does not release recovered historical receipts or grant discard authority.
 Synchronous per-window recovery retains dirty documents if teardown cannot await
-the locked document stage.
+the locked document stage. Canonical snapshots record the exact dirty workspace
+stages already incorporated, so another admission or restart does not replay the
+same captured edits over the selected document. A new workspace stage still
+contributes even at an equal captured document revision. Incorporation metadata
+covers only currently present dirty snapshots and does not confer receipt-release
+authority.
 Those sources stay captured even if local compaction retires them before the
 acknowledgment. Recovery documents use the same-origin backend, matching restored
 tabs' default target; session-only targets do not persist. Registry loading and
