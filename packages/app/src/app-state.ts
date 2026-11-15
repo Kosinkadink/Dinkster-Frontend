@@ -4641,10 +4641,23 @@ export class AppState {
     const acknowledged = [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision }))
     commitPersistedTabs(state, this.workspaceActorId, acknowledged,
       (key, value, documents) => {
+        const candidate = key.startsWith(documentCandidatePrefix())
+          ? parsePersistedDocumentCandidate(JSON.stringify(value)) : undefined
+        const tab = candidate === undefined ? undefined : this.tabs.get().find((entry) =>
+          !entry.execution && entry.id === persistedTabId(candidate.tab))
+        const recovery = candidate === undefined || tab === undefined || !globalThis.localStorage ? undefined : {
+          stageId: candidate.stageId, digest: persistedDocumentDigest(candidate.tab.doc),
+          project: activeProjectId(), storage: globalThis.localStorage,
+          authorityGeneration: this.workspaceAuthorityGeneration, pending: true,
+        }
+        if (recovery !== undefined && tab !== undefined) this.documentRecoveryStages.set(tab.store, recovery)
         const admission = this.stagePersistedWorkflowSlot(key, value, documents)
-        if (key.startsWith(documentCandidatePrefix())) void admission.then((admitted) => {
+        if (candidate !== undefined) void admission.then((admitted) => {
           if (admitted !== undefined && !this.disposed) this.reconcilePersistedTabs()
-        }).catch(() => undefined)
+        }).catch(() => undefined).finally(() => {
+          if (recovery !== undefined) recovery.pending = false
+          if (tab !== undefined && this.closedWorkflowDocuments.has(tab.store) && !this.disposed) this.reconcilePersistedTabs()
+        })
         return admission
       }, (committed) => {
       for (const tab of committed.tabs) {
@@ -6887,6 +6900,15 @@ export class AppState {
     }
   }
 
+  private readonly documentRecoveryStages = new WeakMap<DocumentSession, {
+    readonly stageId: string
+    readonly digest: string
+    readonly project: string
+    readonly storage: Storage
+    readonly authorityGeneration: number
+    pending: boolean
+  }>()
+
   private readonly closedWorkflowDocuments = new Map<DocumentSession, {
     readonly tab: Tab
     readonly project: string
@@ -6895,6 +6917,7 @@ export class AppState {
     readonly revision: number
     readonly stageId: string | undefined
     readonly digest: string | undefined
+    readonly recovery: { readonly stageId: string; readonly pending: boolean } | undefined
     readonly owner: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>> | undefined
   }>()
 
@@ -6903,11 +6926,15 @@ export class AppState {
     const storage = globalThis.localStorage
     if (!storage) return
     const canonical = parsePersistedTabs(storage.getItem(tabsKey()))
-    const digest = canonical?.documentCandidateDigests?.[tab.id]
+    const digest = persistedDocumentDigest(tab.store.doc)
+    const staged = this.documentRecoveryStages.get(tab.store)
+    const recovery = staged?.digest === digest && staged.project === activeProjectId() && staged.storage === storage &&
+      staged.authorityGeneration === this.workspaceAuthorityGeneration ? staged : undefined
     this.closedWorkflowDocuments.set(tab.store, {
       tab, project: activeProjectId(), storage, authorityGeneration: this.workspaceAuthorityGeneration, revision,
-      stageId: digest === persistedDocumentDigest(tab.store.doc) ? canonical?.documentCandidateStages?.[tab.id] : undefined,
-      digest, owner: this.workflowAssetOwners.get(tab.store),
+      stageId: digest === canonical?.documentCandidateDigests?.[tab.id]
+        ? canonical?.documentCandidateStages?.[tab.id] : undefined,
+      digest, recovery, owner: this.workflowAssetOwners.get(tab.store),
     })
   }
 
@@ -6934,10 +6961,11 @@ export class AppState {
       }
       const localSlot = this.persistedWorkflowSlots.get(key)
       const localCandidate = parsePersistedDocumentCandidate(localSlot?.raw ?? null)
-      if (closed.storage.getItem(key) === null && localSlot !== undefined && localCandidate !== undefined &&
-        closed.stageId !== undefined && closed.digest !== undefined && localCandidate.stageId === closed.stageId &&
+      const localStageId = closed.recovery?.stageId ?? closed.stageId
+      if (!closed.recovery?.pending && closed.storage.getItem(key) === null && localSlot?.complete && localCandidate !== undefined &&
+        localStageId !== undefined && closed.digest !== undefined && localCandidate.stageId === localStageId &&
         persistedDocumentDigest(localCandidate.tab.doc) === closed.digest &&
-        committed.documentCandidateStages?.[closed.tab.id] === closed.stageId &&
+        committed.documentCandidateStages?.[closed.tab.id] === localStageId &&
         committed.documentCandidateDigests?.[closed.tab.id] === closed.digest) {
         this.retirePersistedWorkflowSlot(key, localSlot.raw)
       }
@@ -6957,8 +6985,10 @@ export class AppState {
         }
       }
       // A pending acknowledgment can still finish; it may retire only this stage.
-      if (candidate === undefined || closed.storage.getItem(key) === null || candidate.stageId !== closed.stageId ||
-        persistedDocumentDigest(candidate.tab.doc) !== closed.digest) this.closedWorkflowDocuments.delete(session)
+      if (!closed.recovery?.pending && (candidate === undefined || closed.storage.getItem(key) === null ||
+        candidate.stageId !== closed.stageId || persistedDocumentDigest(candidate.tab.doc) !== closed.digest)) {
+        this.closedWorkflowDocuments.delete(session)
+      }
     }
   }
 

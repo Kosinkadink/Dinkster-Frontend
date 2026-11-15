@@ -468,7 +468,11 @@ describe('shared DocumentSession', () => {
       })
       const original = session.doc
       const observed: string[] = []
-      session.document.subscribe((document) => observed.push(document.graphs.g0!.nodes.n1!.title ?? 'original'))
+      const observedBeforeReceipt: string[] = []
+      session.document.subscribe((document) => {
+        if (document.graphs.g0!.nodes.n1!.title === 'Incoming' && committed.length === 0) observedBeforeReceipt.push('Incoming')
+        observed.push(document.graphs.g0!.nodes.n1!.title ?? 'original')
+      })
       if (scenario.startsWith('resync-')) {
         conn.snapshotDoc = { ...baseDoc(), graphs: { g0: { ...baseDoc().graphs.g0!, nodes: {
           ...baseDoc().graphs.g0!.nodes, n1: { ...node('n1'), title: 'Incoming' },
@@ -505,6 +509,7 @@ describe('shared DocumentSession', () => {
           expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('Kept locally')
         } else expect(committed).toEqual([1])
       }
+      expect(observedBeforeReceipt).toEqual([])
       session.close()
     },
   )
