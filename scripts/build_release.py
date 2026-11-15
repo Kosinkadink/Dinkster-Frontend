@@ -14,15 +14,34 @@ import zipfile
 from pathlib import Path
 
 
-def build(root: Path, dist: Path, output: Path, tag: str | None = None) -> Path:
+def release_version(root: Path, tag: str | None, dev: bool) -> str:
     version = json.loads((root / "package.json").read_text(encoding="utf-8"))["version"]
     if (
         not isinstance(version, str)
         or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None
     ):
         raise ValueError("frontend release version must be X.Y.Z")
+    if dev:
+        revision = int(
+            subprocess.check_output(
+                ["git", "rev-list", "--count", "HEAD"], cwd=root, text=True
+            ).strip()
+        )
+        major, minor, patch = (int(part) for part in version.split("."))
+        return f"{major}.{minor}.{patch + 1}.dev{revision}"
     if tag is not None and tag != f"v{version}":
         raise ValueError("release tag must match the frontend package version")
+    return version
+
+
+def build(
+    root: Path,
+    dist: Path,
+    output: Path,
+    tag: str | None = None,
+    dev: bool = False,
+) -> Path:
+    version = release_version(root, tag, dev)
     api = json.loads((root / "frontend-release.json").read_text(encoding="utf-8"))[
         "engineApi"
     ]
@@ -77,6 +96,7 @@ def build(root: Path, dist: Path, output: Path, tag: str | None = None) -> Path:
     files[f"{metadata}/METADATA"] = (
         f"Metadata-Version: 2.1\nName: dinkster-frontend\nVersion: {version}\n"
         "Summary: Versioned Dinkster browser assets\nRequires-Python: >=3.10\n"
+        f"Project-URL: Source-Commit, https://github.com/Kosinkadink/Dinkster-Frontend/commit/{commit}\n"
         "Description-Content-Type: text/plain\n\n"
         "Built browser application and canonical branding for Dinkster.\n"
     ).encode()
@@ -126,6 +146,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=Path("packages/app/dist"))
     parser.add_argument("--output", type=Path, default=Path("dist"))
-    parser.add_argument("--tag")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--tag")
+    mode.add_argument("--dev", action="store_true")
     args = parser.parse_args()
-    print(build(Path(__file__).resolve().parents[1], args.dist, args.output, args.tag))
+    print(
+        build(
+            Path(__file__).resolve().parents[1],
+            args.dist,
+            args.output,
+            args.tag,
+            args.dev,
+        )
+    )

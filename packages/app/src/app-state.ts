@@ -3813,7 +3813,10 @@ export class AppState {
     if (slot === undefined || (slot.raw !== raw && !samePersistedWorkflowStage(slot.raw, raw)) ||
       globalThis.localStorage?.getItem(key) !== null) return
     this.persistedWorkflowSlots.delete(key)
-    this.retirePersistedWorkflowOwners(slot.owners)
+    const canonical = this.persistedWorkflowSlots.get(tabsKey())
+    const replacements = canonical?.complete && globalThis.localStorage?.getItem(tabsKey()) === canonical.raw
+      ? canonical.owners : []
+    this.retirePersistedWorkflowOwners(slot.owners, replacements)
   }
 
   private retirePersistedWorkflowOwners(
