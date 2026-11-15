@@ -34,6 +34,39 @@ test('mixed scalar COMBO keeps typed native choices through dropdown edits', asy
   }
 })
 
+test('native integer RGB color edits retain numeric values without catalog warnings', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'integer-color-fixture', schemaWire: 1 },
+    nodes: { IntegerColor: { displayName: 'Integer RGB color', outputNode: true, interface: [
+      { role: 'input', id: 'color', type: { kind: 'concrete', types: ['INT'] }, default: 0, widget: { type: 'NUMBER', min: 0, max: 16777215, step: 1, display: 'color' } },
+    ] } },
+  } }))
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'IntegerColor', widgets_values: [66051] }], links: [] }, 'Integer RGB color')
+    window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
+  })
+  const point = await nodeRowPoint(page, 'n1', 'color')
+  await page.mouse.click(point.x, point.y)
+  await page.screenshot({ path: testInfo.outputPath('integer-color-open.png') })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.dinkster.badNumberDisplay'))).toEqual([])
+  await expect(page.getByTestId('color-editor')).toBeVisible()
+  await expect(page.getByTestId('color-text')).toHaveValue('#010203')
+  await page.getByTestId('color-text').fill('#12345678')
+  await page.getByTestId('color-editor').getByRole('button', { name: 'Commit' }).click()
+  await expect(page.getByTestId('color-error')).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('integer-color-invalid.png') })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.color)).toBe(66051)
+  await page.getByTestId('color-text').fill('#ab1203')
+  await page.screenshot({ path: testInfo.outputPath('integer-color-editor.png') })
+  await page.getByTestId('color-editor').getByRole('button', { name: 'Commit' }).click()
+  await expect(page.getByTestId('color-editor')).not.toBeVisible()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.color)).toBe(11211267)
+  await page.mouse.click(point.x, point.y)
+  await expect(page.getByTestId('color-text')).toHaveValue('#ab1203')
+})
+
 test('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 1 },

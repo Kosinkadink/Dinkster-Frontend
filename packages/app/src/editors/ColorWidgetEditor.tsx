@@ -1,4 +1,4 @@
-import { colorKind, hexToHsv, hsvToHex } from '@dinkster/widgets'
+import { colorKind, hexToHsv, hsvToHex, intKind, integerColorHex } from '@dinkster/widgets'
 import { Check, X } from 'lucide-solid'
 import { createSignal, onCleanup, type Component } from 'solid-js'
 import { Icon } from '../Icon.js'
@@ -11,11 +11,14 @@ import {
 
 const ColorImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const ed = props.editor.ed
-  const initial = typeof ed.initial === 'string'
-    ? ed.initial
-    : typeof ed.spec?.default === 'string'
-      ? ed.spec.default
-      : '#ffffff'
+  const integer = ed.spec?.widgetType === intKind.type
+  const initial = integer
+    ? integerColorHex(ed.initial) ?? String(ed.initial ?? ed.spec?.default ?? 0)
+    : typeof ed.initial === 'string'
+      ? ed.initial
+      : typeof ed.spec?.default === 'string'
+        ? ed.spec.default
+        : '#ffffff'
   const [text, setText] = createSignal(initial)
   const [hue, setHue] = createSignal(hexToHsv(initial)?.h ?? 0)
   const [error, setError] = createSignal<string | undefined>()
@@ -23,16 +26,21 @@ const ColorImplementation: Component<WidgetEditorImplementationProps> = (props) 
 
   const commit = (): void => {
     if (ed.spec === undefined) return
-    const diagnostics = colorKind.validate(text(), ed.spec)
+    if (integer && !/^#[0-9a-f]{6}$/i.test(text())) {
+      setError('Enter an RGB color as #rrggbb')
+      return
+    }
+    const value = integer ? Number.parseInt(text().slice(1), 16) : text()
+    const diagnostics = integer ? intKind.validate(value as number, ed.spec) : colorKind.validate(value as string, ed.spec)
     if (diagnostics.length > 0) {
       setError(diagnostics[0]!.message)
       return
     }
-    props.commitValue(text())
+    props.commitValue(value)
   }
   const pick = (h: number, s: number, v: number): void => {
     setHue(h)
-    setText(hsvToHex(h, s, v, text()))
+    setText(hsvToHex(h, s, v, integer ? '' : text()))
     setError(undefined)
   }
   const pickSaturationValue = (event: PointerEvent): void => {
@@ -53,12 +61,11 @@ const ColorImplementation: Component<WidgetEditorImplementationProps> = (props) 
     pick(Math.max(0, Math.min(359.999, ((event.clientX - rect.left) / rect.width) * 360)), hsv.s, hsv.v)
   }
   const clickAway = (): void => {
-    const value = text()
-    if (value === String(ed.initial ?? '') || ed.spec === undefined || colorKind.validate(value, ed.spec).length > 0) {
+    if (text() === initial || ed.spec === undefined) {
       props.close()
       return
     }
-    props.commitValue(value)
+    commit()
   }
   props.editor.bindClickAway?.(clickAway)
   onCleanup(() => props.editor.bindClickAway?.(undefined))

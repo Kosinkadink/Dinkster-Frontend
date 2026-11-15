@@ -350,7 +350,7 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
 const ASSET_KIND = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)+$/
 
 const CONTROL_AFTER_GENERATE_MODES: ReadonlySet<string> = new Set(['fixed', 'increment', 'decrement', 'randomize'])
-const NUMBER_DISPLAY_MODES: ReadonlySet<string> = new Set(['number', 'slider', 'knob', 'gradientslider'])
+const NUMBER_DISPLAY_MODES: ReadonlySet<string> = new Set(['number', 'slider', 'knob', 'gradientslider', 'color'])
 
 const WIDGET_REPRESENTATION_ID = /^[A-Za-z0-9_-]+$/
 
@@ -1078,7 +1078,8 @@ function widgetFor(
           delete options['max']
         }
         if (descriptor.display !== undefined) {
-          if (typeof descriptor.display === 'string' && NUMBER_DISPLAY_MODES.has(descriptor.display)) {
+          if (typeof descriptor.display === 'string' && NUMBER_DISPLAY_MODES.has(descriptor.display) &&
+            (descriptor.display !== 'color' || numericKind === 'INT')) {
             options['display'] = descriptor.display
           } else {
             diags.push(
