@@ -96,9 +96,10 @@ test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ status: 502, body: 'no v1 backend' }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.backends.get()[0]!.connection.status.get(),
-  )).toBe('connected')
+  // Ownership admission cannot cross a connection lifetime change.
+  await page.waitForFunction(() =>
+    window.__dinksterTest!.app.backends.get()[0]!.connection.status.get() === 'connected',
+  )
   const diagnostics = await page.evaluate(async () => {
     const textRepresentations = (defaultView: 'single-line' | 'multiline') => ({
       default: defaultView,
