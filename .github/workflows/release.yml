@@ -2,11 +2,13 @@ name: Versioned frontend release
 
 on:
   push:
+    branches: [main]
     tags: ["v*.*.*"]
   pull_request:
     paths:
       - .github/workflows/release.yml
       - scripts/build_release.py
+      - scripts/test_build_release.py
       - frontend-release.json
       - package.json
 
@@ -21,6 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
@@ -33,14 +36,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: python -m unittest scripts/test_build_release.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @dinkster/app build
       - name: Build the versioned wheel and release manifest
         env:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          DEV_RELEASE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           args=()
           if [ -n "$RELEASE_TAG" ]; then args+=(--tag "$RELEASE_TAG"); fi
+          if [ "$DEV_RELEASE" = true ]; then args+=(--dev); fi
           python scripts/build_release.py "${args[@]}"
           (cd dist && sha256sum -c SHA256SUMS)
           python -m pip install --no-deps dist/*.whl
@@ -61,7 +67,7 @@ jobs:
 
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -81,6 +87,7 @@ jobs:
         with:
           packages-dir: wheels/
       - name: Publish the same files as a permanent GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
