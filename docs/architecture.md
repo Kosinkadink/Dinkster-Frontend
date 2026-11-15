@@ -507,8 +507,11 @@ resurrected, and a later shared record or live document authority stays authorit
 Incoming workspace inventories retain newly received native tab snapshots before publishing tabs or
 displacing local views. Refusal or a changed local inventory, document, backend,
 registry, connection or workspace authority keeps local tabs. Newer shared
-inventories supersede outstanding acknowledgments. Existing-tab metadata updates
-do not wait for another ownership request. Subsequent ordered shared documents and
+inventories supersede outstanding acknowledgments. Successful publication keeps
+the admitted tab and its exact receipt together; shared-session promotion transfers
+that lifetime to the promoted store, and acknowledged close retires it through
+the ordinary local document lifecycle. Rejected or historical admissions remain
+protected. Existing-tab metadata updates do not wait for another ownership request. Subsequent ordered shared documents and
 resync snapshots await ownership before confirmed-ground publication; this does not
 certify every optimistic rebase result. Bootstrap also confirms restored tabs and
 all valid canonical, workspace-candidate, document-recovery and operation-journal
