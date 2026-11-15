@@ -191,7 +191,17 @@ describe('AppState multi-window workspace', () => {
       })
       vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
     }
+    await author.enableWorkspaceAuthority(factory.document, factory.workspace)
+    await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
+    await vi.waitFor(() => expect([author, viewer].every((app) => app.tabs.get().every((tab) => 'status' in tab.store))).toBe(true))
     const document = workflow()
+    let closed = false
+    const unsubscribe = viewer.tabs.subscribe((tabs) => {
+      if (scenario === 'publication-close' && !closed && tabs.some((tab) => tab.id === document.lineage)) {
+        closed = true
+        expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+      }
+    })
     await author.openDocument({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
       n1: { ...document.graphs.g0!.nodes.n1!, values: { held: {
         digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
@@ -200,20 +210,11 @@ describe('AppState multi-window workspace', () => {
     await independentApp.openDocument({ ...author.activeTab()!.store.doc, lineage: asLineageId('independent-window') }, 'Independent holder')
     const independent = [...independentOwners].map((id) => receipts.get(id)!).filter((receipt) => receipt.digests.includes(digest))
     expect(independent.length).toBeGreaterThan(0)
-    await author.enableWorkspaceAuthority(factory.document, factory.workspace)
-    let closed = false
-    const unsubscribe = viewer.tabs.subscribe((tabs) => {
-      if (scenario === 'publication-close' && !closed && tabs.some((tab) => tab.id === document.lineage)) {
-        closed = true
-        expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
-      }
-    })
-    await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
     if (scenario === 'promoted') {
       await vi.waitFor(() => expect(viewer.tabs.get().some((tab) => tab.id === document.lineage && 'status' in tab.store)).toBe(true))
       expect([...viewerOwners].some((id) => receipts.get(id)?.digests.includes(digest))).toBe(true)
       expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
-    } else expect(closed).toBe(true)
+    } else await vi.waitFor(() => expect(closed).toBe(true))
     unsubscribe()
     await vi.waitFor(() => expect(author.tabs.get().some((tab) => tab.id === document.lineage)).toBe(false))
     await vi.waitFor(() => expect([...viewerOwners].filter((id) => receipts.get(id)?.digests.includes(digest))).toEqual([]))

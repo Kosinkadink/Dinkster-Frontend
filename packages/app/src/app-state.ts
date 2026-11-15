@@ -4106,6 +4106,7 @@ export class AppState {
     this.workspaceTabBaseline = snapshot.tabs
     this.workspaceActiveBaseline = snapshot.active
     const nextLive: Tab[] = []
+    let publicationChangedTabs = false
     this.applyingWorkspaceTabs = true
     try {
       for (const record of snapshot.tabs) {
@@ -4149,9 +4150,11 @@ export class AppState {
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
       if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
       else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
+      publicationChangedTabs = this.tabs.get() !== nextTabs
     } finally {
       this.applyingWorkspaceTabs = false
     }
+    if (publicationChangedTabs) this.syncWorkspaceTabs()
     this.watchTabDocuments()
     this.schedulePersistTabs()
     void this.promoteWorkspaceTabs()

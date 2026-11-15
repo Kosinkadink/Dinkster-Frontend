@@ -511,7 +511,9 @@ inventories supersede outstanding acknowledgments. Successful publication keeps
 the admitted tab and its exact receipt together; shared-session promotion transfers
 that lifetime to the promoted store, and acknowledged close retires it through
 the ordinary local document lifecycle. Rejected or historical admissions remain
-protected. Existing-tab metadata updates do not wait for another ownership request. Subsequent ordered shared documents and
+protected. Reentrant local tab changes during publication are submitted after the
+incoming inventory is applied, without waiting for another tab change. Existing-tab
+metadata updates do not wait for another ownership request. Subsequent ordered shared documents and
 resync snapshots await ownership before confirmed-ground publication; this does not
 certify every optimistic rebase result. Bootstrap also confirms restored tabs and
 all valid canonical, workspace-candidate, document-recovery and operation-journal
