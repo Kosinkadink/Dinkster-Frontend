@@ -198,7 +198,7 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
-  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change'] as const)(
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -242,6 +242,17 @@ describe('workflow retention recovery', () => {
         await vi.waitFor(() => expect(sockets).toHaveLength(1))
         sockets.at(-1)!.onopen?.({})
         await vi.waitFor(() => expect(requests).toHaveLength(1))
+        if (scenario === 'journal-change-pending') {
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          requests[0]!.result.resolve(new Response('{}', { status: 404 }))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(0)
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(0)
+          return
+        }
         requests[0]!.result.resolve(new Response('{}', { status: 404 }))
         await vi.waitFor(() => expect(notices()).toHaveLength(1))
         if (scenario === 'journal-change') {
