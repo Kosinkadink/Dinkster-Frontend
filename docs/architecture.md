@@ -443,8 +443,10 @@ catalog reschedules that pending stage before it can publish acknowledged roots.
 Schema arrival also reschedules incomplete local persistence. Candidate cleanup can
 use this window's current acknowledged canonical snapshot as the exact-document
 replacement. Receipts admitted during a superseded schema request remain tracked
-through that handoff; recovered receipts from another window or lifetime never
-confer release authority.
+through that handoff. A peer storage write can supersede publication but does
+not discard this window's admitted receipts; persistence retries its current
+snapshot before the same-lifetime replacement retires them. Recovered receipts
+from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
 keep the same document session and do not cancel admission. Library/template/run

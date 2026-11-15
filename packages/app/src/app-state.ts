@@ -3853,7 +3853,7 @@ export class AppState {
     // not acknowledged ownership, until its exact captured roots are retained.
     const pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
     const previous = this.persistedWorkflowSlots.get(key)
-    const previousOwners = previous?.raw === storage.getItem(key) ? [...previous.owners] : []
+    const previousOwners = [...(previous?.owners ?? [])]
     storage.setItem(key, pending)
     if (this.disposed) return Promise.resolve(undefined)
     this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
@@ -3879,10 +3879,21 @@ export class AppState {
         return retainWorkflowAssets(backend.connection, document.lineage, revision, roots, storage)
       }))
       if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
-        storage.getItem(key) !== pending || sources.some(({ tab, backend, generation }) =>
+        sources.some(({ tab, backend, generation }) =>
           !this.backends.get().includes(backend) ||
           this.assetConnectionGenerations.get(backend.connection) !== generation ||
           (tab !== undefined && this.backendForTab(tab) !== backend))) {
+        throw new Error('Workspace recovery changed during asset admission')
+      }
+      if (storage.getItem(key) !== pending) {
+        // A peer's storage write supersedes publication, not our admitted owners.
+        const slot = this.persistedWorkflowSlots.get(key)
+        this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
+          owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]),
+            ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
+          ],
+        })
+        this.schedulePersistTabs()
         throw new Error('Workspace recovery changed during asset admission')
       }
       // A refreshed schema may reveal different roots; admit them before publishing the operation.
