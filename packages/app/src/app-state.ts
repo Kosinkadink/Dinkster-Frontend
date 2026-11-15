@@ -5044,6 +5044,7 @@ export class AppState {
           })
       }
       this.workflowRetentionRefreshes.set(connection, () => {
+        this.workflowRetentionRecoveries.get(connection)?.abort()
         if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
         retentionRefreshTimer = setTimeout(() => {
           retentionRefreshTimer = undefined
