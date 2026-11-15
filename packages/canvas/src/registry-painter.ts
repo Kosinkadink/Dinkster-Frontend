@@ -94,9 +94,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       : resolved === null || typeof resolved === 'object'
         ? undefined
         : formatWidgetValue(resolved, row.spec)
-    const naturalValueWidth = valuePreview === undefined
-      ? usableWidth * 0.55
-      : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + 16
+    const naturalValueWidth = row.viewId === 'core.integerColor'
+      ? measureWidth(ctx, '#ffffff') + 32
+      : valuePreview === undefined
+        ? usableWidth * 0.55
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + 16
         + (row.viewId === 'core.color' ? 16 : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? 12 : 0)
     const controller = row.controllerMode !== undefined
