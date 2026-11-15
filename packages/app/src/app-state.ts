@@ -7076,8 +7076,8 @@ export class AppState {
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
       owner = session.doc.lineage
-      // Catch-up may start before the tab exists; confirm the settled document below.
-      await session.settle()
+      // The HTTP descriptor establishes a head even before the socket announces it.
+      await session.settle(descriptor.revision)
     } catch (e) {
       connection.close() // a failed join must not leak a retrying socket
       throw e

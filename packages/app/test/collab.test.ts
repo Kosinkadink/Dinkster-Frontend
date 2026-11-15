@@ -589,7 +589,7 @@ describe('share', () => {
 })
 
 describe('join and convergence', () => {
-  it('joins from an older snapshot and admits catch-up before installing the shared tab', async () => {
+  it.each(['buffered', 'late'] as const)('joins from an older snapshot with %s transport baseline', async (baseline) => {
     const server = new FakeCollabServer()
     const sharer = makeApp(server)
     expect(await sharer.shareActiveTab()).toBeUndefined()
@@ -605,8 +605,20 @@ describe('join and convergence', () => {
     let requested!: () => void
     const fetching = new Promise<void>((resolve) => { requested = resolve })
     const operations = new Promise<void>((resolve) => { releaseOps = resolve })
+    let announce = () => {}
+    const backend = joiner.collabBackend()!
+    const retain = backend.connection.retainAssets.bind(backend.connection)
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (...args) => {
+      announce()
+      return retain(...args)
+    })
     server.transport.connect = (options) => {
       const connection = connect(options)
+      const onEvent = connection.onEvent.bind(connection)
+      connection.onEvent = (listener) => onEvent((event) => {
+        if (baseline === 'late' && event.kind === 'connected') announce = () => listener(event)
+        else listener(event)
+      })
       const fetchOps = connection.fetchOps.bind(connection)
       connection.fetchOps = async (after) => {
         requested()
