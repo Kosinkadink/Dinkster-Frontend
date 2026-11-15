@@ -139,6 +139,14 @@ of every saved receipt. Only publication with independent acknowledged
 shown-result ownership permits its revision-bound retirement. A registered execution
 key, refused admission or changed registry keeps the source owner protected.
 
+Each queued source-document stamp captures its own acknowledged document
+receipt, even when unchanged source bytes reuse a cached digest. A successful
+submission, including an asset-consent retry, associates that receipt with the
+accepted execution. Complete result ownership retires it only when the new
+receipts cover every captured root. Rejected or uncertain submissions keep their
+source receipt; cached bytes never grant release authority. Project or connection
+lifetime changes prevent a later execution from retiring the earlier receipt.
+
 Retained previews carry the original stored execution for each runtime
 occurrence, including when a partial run displays outputs from several runs.
 The composite overlay is presentation data, not an ownership record. Recorded

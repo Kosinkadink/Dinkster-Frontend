@@ -7988,8 +7988,8 @@ export class AppState {
 
   /**
    * Per-tab digest of the last uploaded source document, validated by the
-   * connection and (revision, schemaHash) the stamp depends on - repeated
-   * queues reuse it only on the backend that acknowledged ownership. Keyed by
+   * connection lifetime, document and schema the stamp depends on. Repeated
+   * queues reuse bytes but independently acknowledge ownership. Keyed by
    * the Tab OBJECT, not its id: tab ids are lineages, a same-lineage
    * replacement session starts back at revision 0, and an id-keyed entry
    * could answer with the OLD session's digest for a revision-0 lookup.
@@ -7998,7 +7998,8 @@ export class AppState {
    */
   private readonly sourceDocCache = new WeakMap<
     Tab,
-    { connection: DinksterConnection; revision: number; schemaHash: string; digest: string }
+    { connection: DinksterConnection; revision: number; schemaHash: string; digest: string;
+      document: WorkflowDocument; project: string; generation: number | undefined; retained: RetainedAssets }
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
@@ -8600,25 +8601,47 @@ export class AppState {
   private async sourceDocumentFor(
     tab: Tab,
     backend: Extract<Backend, { protocol: 'dinkster' }>,
-  ): Promise<{ sourceDocument: string } | undefined> {
+  ): Promise<{ sourceDocument: string; retained: RetainedAssets; project: string; generation: number | undefined } | undefined> {
     const revision = tab.store.revision
+    const snapshot = tab.store.doc
     const registry = this.registryForTab(tab)
     const schemaHash = registry?.hash
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const current = (): boolean => !this.disposed && activeProjectId() === project &&
+      this.backendFor(backend.id) === backend && this.assetConnectionGenerations.get(backend.connection) === generation
     const cached = this.sourceDocCache.get(tab)
-    if (cached && cached.connection === backend.connection && cached.revision === revision && cached.schemaHash === schemaHash) {
-      return { sourceDocument: cached.digest }
-    }
     try {
       const document = this.stampedDocumentOf(tab)
       const resolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
-      const digest = await backend.connection.uploadAsset(JSON.stringify(document))
+      const digest = cached?.connection === backend.connection && cached.revision === revision &&
+        cached.schemaHash === schemaHash && cached.document === snapshot && cached.project === project && cached.generation === generation &&
+        this.resultAssetOwners.get(cached.retained.ownerId)?.retained === cached.retained
+        ? cached.digest : await backend.connection.uploadAsset(JSON.stringify(document))
+      if (!current()) return undefined
       const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] }, resolve, [], 'publication', digest)
-      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-      if (schemaHash !== undefined) this.sourceDocCache.set(tab, { connection: backend.connection, revision, schemaHash, digest })
-      return { sourceDocument: digest }
+      // Cached bytes do not carry ownership: each submission needs its own
+      // acknowledged receipt until its accepted execution covers these roots.
+      const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+      if (!current()) return undefined
+      if (schemaHash !== undefined) this.sourceDocCache.set(tab, {
+        connection: backend.connection, revision, schemaHash, digest, document: snapshot, project, generation, retained,
+      })
+      return { sourceDocument: digest, retained, project, generation }
     } catch {
       return undefined // absence of a stamp is fully valid
     }
+  }
+
+  private handoffSourceDocument(
+    backend: Backend, ref: ExecutionRef, source: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
+  ): void {
+    if (source === undefined || this.disposed || activeProjectId() !== source.project ||
+      this.backendFor(backend.id) !== backend ||
+      this.assetConnectionGenerations.get(backend.connection) !== source.generation) return
+    this.resultAssetOwners.set(source.retained.ownerId, { backend, retained: source.retained,
+      project: source.project, generation: source.generation, execution: executionKey(ref), interim: true, observed: true })
+    this.retireUnusedResultOwners()
   }
 
   /**
@@ -10276,7 +10299,7 @@ export class AppState {
       )) return
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
-        ...sourceDocument,
+        ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
         ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
         // Overrides come from the artifact snapshot (the exact document
@@ -10304,7 +10327,7 @@ export class AppState {
             compiledDocument,
             backend,
             requestedPlacement,
-            sourceDocument?.sourceDocument,
+            sourceDocument,
             lease,
           )
           consentOwnsLease = true
@@ -10322,6 +10345,7 @@ export class AppState {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
         ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
       })
+      this.handoffSourceDocument(backend, submitted.execution, sourceDocument)
       this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
       // Network/transport failures must land in Problems, never vanish -
@@ -10377,7 +10401,7 @@ export class AppState {
     compiledDocument: WorkflowDocument,
     backend: Backend,
     placement: Readonly<Record<string, string>> | undefined,
-    sourceDocument: string | undefined,
+    sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
     // Problems callbacks re-prove exact-object tab liveness at fire time: a
@@ -10409,8 +10433,9 @@ export class AppState {
         if (this.disposed) return
         this.installRun(ok.execution, artifact, plan, undefined, {
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
-          ...(sourceDocument === undefined ? {} : { sourceDocument }),
+          ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
         })
+        this.handoffSourceDocument(backend, ok.execution, sourceDocument)
         this.log(
           'info',
           this.backendFor(ok.execution.connection)?.label ?? String(ok.execution.connection),

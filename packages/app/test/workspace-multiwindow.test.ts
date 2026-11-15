@@ -480,6 +480,139 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
+  it('keeps a newer recovery edit when close races the document staging lock', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    const request = (_name: string, _options: LockOptions, callback: () => unknown): Promise<unknown> => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    }
+    vi.stubGlobal('navigator', { locks: { request } })
+    const app = createEditableApp()
+    const schema = primitive('X', 'FLOAT')
+    app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
+      diagnostics: [], hash: 'close-race', resolve: (type) => type === 'X' ? schema : undefined })
+    await app.openDocument(workflow(), 'Recovery race')
+    const factory = authorityFactories()
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const tab = app.tabs.get().find((open) => open.id === 'multi-window-workflow')!
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'Already saved',
+    } })).ok).toBe(true)
+    await drainTasks()
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    const before = localStorage.getItem(key)
+    expect(before).not.toBeNull()
+    let release!: () => void
+    void request('dinkster.openTabs.commit', { mode: 'exclusive' }, () =>
+      new Promise<void>((resolve) => { release = resolve }))
+    await drainTasks()
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'New edit while another renderer holds the lock',
+    } })).ok).toBe(true)
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect(localStorage.getItem(key)).toBe(before)
+    const recoveryKeys: string[] = []
+    for (let index = 0; index < localStorage.length; index++) {
+      const candidate = localStorage.key(index)!
+      if (candidate.startsWith('dinkster.openTabsCandidate.') && !recoveryKeys.includes(candidate)) recoveryKeys.push(candidate)
+    }
+    expect(recoveryKeys.some((candidate) => JSON.parse(localStorage.getItem(candidate)!).tabs.some(
+      (saved: { doc: WorkflowDocument; documentDirty?: boolean }) => saved.documentDirty === true &&
+        saved.doc.graphs.g0?.nodes.n1?.title === 'New edit while another renderer holds the lock'))).toBe(true)
+    app.closeTab(tab.id)
+    release()
+    await drainTasks()
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
+    expect(JSON.parse(localStorage.getItem(key)!).tab.doc.graphs.g0.nodes.n1.title)
+      .toBe('New edit while another renderer holds the lock')
+  })
+
+  it('confirmed close retires its live receipt without releasing another workflow of the same asset', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (
+      _name: string, _options: LockOptions, callback: () => unknown,
+    ) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const app = createEditableApp()
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'shared.png', size: 17,
+      mediaType: 'image/png', virtualPath: '' }
+    const schema: NodeSchema = { ...primitive('X', 'FLOAT'), items: [
+      { kind: 'input', id: 'held', optional: true, type: { kind: 'concrete', name: 'ASSET' } },
+    ] }
+    app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
+      diagnostics: [], hash: 'close-assets', resolve: (type) => type === 'X' ? schema : undefined })
+    const receipts = new Map<string, { revision: number; digests: readonly string[] }>()
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    const original = workflow()
+    const document = { ...original, graphs: { g0: { ...original.graphs.g0!, nodes: {
+      n1: { ...original.graphs.g0!.nodes.n1!, values: { held: asset } },
+    } } } }
+    await app.openDocument(document, 'Closing asset')
+    await app.openDocument({ ...document, lineage: asLineageId('independent-workflow') }, 'Independent asset')
+    const factory = authorityFactories()
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const closing = app.tabs.get().find((tab) => tab.id === original.lineage)!
+    const independentTab = app.tabs.get().find((tab) => tab.id === 'independent-workflow')!
+    await drainTasks()
+    expect((await app.dispatchRetainedTo(independentTab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'Keep this independent document',
+    } })).ok).toBe(true)
+    await drainTasks()
+    const liveBefore = new Set(receipts.keys())
+    expect((await app.dispatchRetainedTo(closing, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'Closed document',
+    } })).ok).toBe(true)
+    const liveOwners = [...receipts.keys()].filter((id) => !liveBefore.has(id))
+    expect(liveOwners.length).toBeGreaterThan(0)
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const candidateKey = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(closing.id)}`
+    const recovery = JSON.parse(localStorage.getItem(candidateKey)!).assetRetention.owners
+    expect(recovery.every((entry: { retained: { digests: string[] } }) => entry.retained.digests.includes(asset.digest))).toBe(true)
+    const independentKey = 'dinkster.openTabsDocumentCandidate.independent-workflow'
+    const independentStage = localStorage.getItem(independentKey)!
+    const independent = JSON.parse(independentStage).assetRetention.owners.map(
+      (entry: { retained: { ownerId: string } }) => [entry.retained.ownerId, receipts.get(entry.retained.ownerId)] as const)
+    expect(independent.length).toBeGreaterThan(0)
+    let finishRead!: () => void
+    const beforeRead = new Set(receipts.keys())
+    const reader = app.workflowAssetReader(independentTab, asset.digest, {})!
+    const pendingRead = reader.read(async () => new Promise<void>((resolve) => { finishRead = resolve }))
+    await drainTasks()
+    const readOwners = [...receipts].filter(([id]) => !beforeRead.has(id))
+    expect(readOwners).toHaveLength(1)
+    app.closeTab(closing.id)
+    await drainTasks()
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect(localStorage.getItem(candidateKey)).toBeNull()
+    for (const id of liveOwners) expect(receipts.get(id)).toMatchObject({ revision: 2, digests: [] })
+    for (const entry of recovery) expect(receipts.get(entry.retained.ownerId)).toMatchObject({ revision: 2, digests: [] })
+    for (const [id, receipt] of [...independent, ...readOwners]) expect(receipts.get(id)).toEqual(receipt)
+    expect(localStorage.getItem(independentKey)).toBe(independentStage)
+    expect(app.tabs.get().some((tab) => tab.id === 'independent-workflow')).toBe(true)
+    finishRead()
+    await pendingRead
+  })
+
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())
