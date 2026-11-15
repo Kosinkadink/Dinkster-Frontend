@@ -339,6 +339,13 @@ const mergeSnapshotNodes = (
  */
 const dropPreviewRings = ({ previewRings: _rings, ...rest }: ExecutionState): ExecutionState => rest
 
+const mergeAssetRetentions = (previous: readonly RetainedAssets[], retained: readonly RetainedAssets[]): readonly RetainedAssets[] => {
+  const covered = retained.length > 0 && retained.every((receipt) => receipt.complete)
+    ? new Set(retained.flatMap((receipt) => receipt.digests)) : undefined
+  return [...previous.filter((receipt) => receipt.complete || covered === undefined ||
+    !receipt.digests.every((digest) => covered.has(digest))), ...retained]
+}
+
 export class ExecutionStore {
   private readonly map = new Map<string, ExecutionState>()
   private readonly provisionallyLost = new Set<string>()
@@ -423,6 +430,12 @@ export class ExecutionStore {
     this.evictExecutionEntries(ref.connection)
   }
 
+  /** Only an absent result or a completed stream entry missing registration can be restored. */
+  canRestoreCompleted(ref: ExecutionRef): boolean {
+    const state = this.get(ref)
+    return state === undefined || (state.status === 'completed' && state.artifact === undefined && state.jobRef === undefined)
+  }
+
   /** Adopt a completed result only after its durable backend proof was revalidated. */
   restoreCompleted(state: {
     readonly ref: ExecutionRef
@@ -438,7 +451,8 @@ export class ExecutionStore {
     readonly endedAt: number
   }): void {
     const key = executionKey(state.ref)
-    if (this.map.has(key)) return
+    if (!this.canRestoreCompleted(state.ref)) return
+    const retained = mergeAssetRetentions(this.map.get(key)?.assetRetentions ?? [], state.assetRetentions ?? [])
     this.recentlyEvicted.delete(key)
     this.unconfirmed.delete(key)
     this.provisionallyLost.delete(key)
@@ -454,7 +468,7 @@ export class ExecutionStore {
       outputs: state.outputs,
       artifacts: state.artifacts,
       artifactsHydrated: true,
-      ...(state.assetRetentions === undefined ? {} : { assetRetentions: [...state.assetRetentions] }),
+      ...(retained.length === 0 ? {} : { assetRetentions: retained }),
       previews: {},
       activities: [],
       logs: [],
@@ -833,11 +847,7 @@ export class ExecutionStore {
   recordAssetRetentions(ref: ExecutionRef, retained: readonly RetainedAssets[]): void {
     const state = this.map.get(executionKey(ref))
     if (!state || retained.length === 0) return
-    const covered = retained.every((receipt) => receipt.complete)
-      ? new Set(retained.flatMap((receipt) => receipt.digests)) : undefined
-    const previous = (state.assetRetentions ?? []).filter((receipt) => receipt.complete ||
-      covered === undefined || !receipt.digests.every((digest) => covered.has(digest)))
-    this.put({ ...state, assetRetentions: [...previous, ...retained] })
+    this.put({ ...state, assetRetentions: mergeAssetRetentions(state.assetRetentions ?? [], retained) })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */

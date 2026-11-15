@@ -695,7 +695,7 @@ describe('recorded stream replay', () => {
     expect(after.artifact).toBeDefined()
   })
 
-  it('restores a revalidated completed result without volatile stream state', () => {
+  it.each(['absent', 'unregistered'] as const)('restores a revalidated completed result without volatile stream state: %s', (mode) => {
     const store = new ExecutionStore()
     const ref = { connection: asConnectionId('c0'), prompt: asPromptId('restored') }
     const artifact = { prompt: { producer: { class_type: 'Float', inputs: {} } } } as never
@@ -707,10 +707,20 @@ describe('recorded stream replay', () => {
       mediaType: 'application/json',
       virtualPath: 'output/value.json',
     }]
+    const complete = { scope: 'local' as const, ownerKind: 'shown-result' as const, ownerId: 'sealed', revision: 1,
+      complete: true, digests: [`blake3:${'a'.repeat(64)}`] }
+    const covered = { ...complete, ownerId: 'covered', complete: false }
+    const uncovered = { ...covered, ownerId: 'uncovered', digests: [`blake3:${'c'.repeat(64)}`] }
+    const independent = { ...complete, ownerId: 'independent' }
+    if (mode === 'unregistered') {
+      store.apply({ kind: 'completed', execution: ref, timestamp: 20 })
+      store.recordAssetRetentions(ref, [covered, uncovered, independent])
+    }
     store.restoreCompleted({
       ref,
       artifact,
       nodes: {},
+      assetRetentions: [complete],
       outputs: { producer: { value: 7.5 } },
       artifacts,
       submittedBy: { principalId: 'user-1', kind: 'human' },
@@ -730,6 +740,7 @@ describe('recorded stream replay', () => {
       queuedAt: 10,
       endedAt: 20,
     })
+    expect(restored.assetRetentions).toEqual(mode === 'absent' ? [complete] : [uncovered, independent, complete])
     expect(restored.artifacts).toEqual(artifacts)
     expect(restored.artifactsHydrated).toBe(true)
     expect(restored.previews).toEqual({})

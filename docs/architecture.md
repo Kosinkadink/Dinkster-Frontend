@@ -128,9 +128,15 @@ Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
 connection lifetime must remain current. Refused or stale reads preserve the
 saved result for retry; malformed or absent source documents remain invalid.
+A peer's saved-result update also retries restoration after a window opens.
+A completed stream-only entry missing both its compile artifact and job identity
+can receive the validated result; registered and running entries cannot. A
+concurrent registration invalidates the pending restoration. Covered incomplete
+receipts may be replaced, while independent complete and uncovered receipts stay
+protected.
 The source owner survives proof validation, output discovery and reconciliation
 of every saved receipt. Only publication with independent acknowledged
-shown-result ownership permits its revision-bound retirement. A reused execution
+shown-result ownership permits its revision-bound retirement. A registered execution
 key, refused admission or changed registry keeps the source owner protected.
 
 Retained previews carry the original stored execution for each runtime

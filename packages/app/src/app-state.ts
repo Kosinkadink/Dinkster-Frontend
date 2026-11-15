@@ -222,6 +222,7 @@ import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
 import { captureWebcamFrame, webcamError } from './webcam.js'
 import {
+  EXECUTION_RESULTS_STORAGE_KEY,
   clearExecutionResultJobRef,
   clearExecutionResults,
   loadExecutionResults,
@@ -3025,6 +3026,9 @@ export class AppState {
   private readonly receiveStorage = (event: StorageEvent): void => {
     this.settings.refreshFromStorage(event.key)
     this.retireUnusedResultOwners()
+    if (event.key === scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY) && event.newValue !== null) {
+      this.refreshPersistedExecutionResults()
+    }
     if (event.key?.startsWith(scopedStorageKey('dinkster.workflow-retentions.'))) {
       for (const refresh of this.workflowRetentionRefreshes.values()) refresh()
     }
@@ -3341,6 +3345,8 @@ export class AppState {
       }
       this.retireUnusedResultOwners()
       this.retireUnusedPreviewOwners()
+      if ([...executions.values()].some((execution) => execution.status === 'completed' &&
+        this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
@@ -8716,7 +8722,7 @@ export class AppState {
       for (const outputId of outputIds) {
         // This proof-validated read precedes publication of the restored entry.
         const pending = { backend, jobRef: result.jobRef, nodeId, outputId, current: () => stillCurrent() &&
-          activeProjectId() === project && this.store.get(result.ref) === undefined }
+          activeProjectId() === project && this.store.canRestoreCompleted(result.ref) }
         if (!pending.current()) return null
         const key = executionKey(result.ref)
         this.pendingResultReads.set(key, pending)
@@ -8785,6 +8791,27 @@ export class AppState {
   }
 
   private readonly restorationSourceReaders = new WeakMap<Backend, Map<string, Set<RetainedAssetReader>>>()
+  private readonly resultRestorations = new WeakMap<Backend, { dirty: boolean }>()
+
+  private refreshPersistedExecutionResults(): void {
+    for (const backend of this.backends.get()) {
+      if (backend.protocol !== 'dinkster') continue
+      const pending = this.resultRestorations.get(backend)
+      if (pending !== undefined) { pending.dirty = true; continue }
+      const request = { dirty: true }
+      this.resultRestorations.set(backend, request)
+      void (async () => {
+        try {
+          while (request.dirty && !this.disposed && this.backends.get().includes(backend)) {
+            request.dirty = false
+            const registry = backend.registry.get()
+            if (registry === undefined || backend.schemaState.get().status !== 'ready') return
+            await this.restoreExecutionResults(backend, registry, () => backend.schemaState.get().status === 'ready')
+          }
+        } finally { this.resultRestorations.delete(backend) }
+      })()
+    }
+  }
 
   private async restoreExecutionResults(
     backend: Backend & { readonly protocol: 'dinkster' },
@@ -8805,7 +8832,9 @@ export class AppState {
     try {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
-        if (this.store.get(result.ref) !== undefined) continue
+        if (!this.store.canRestoreCompleted(result.ref)) continue
+        let held = this.store.get(result.ref)
+        const resultCurrent = (): boolean => current() && this.store.get(result.ref) === held
         let sources = this.restorationSourceReaders.get(backend)
         if (sources === undefined) this.restorationSourceReaders.set(backend, (sources = new Map()))
         const sourceKey = canonicalJson({ project, ref: result.ref, jobRef: result.jobRef,
@@ -8819,15 +8848,16 @@ export class AppState {
             if (source === undefined) return undefined
             let document: WorkflowDocument | undefined
             try { document = loadDocument(JSON.parse(source) as unknown).document } catch { return undefined }
-            return document === undefined ? undefined : this.validatedExecutionResult(backend, registry, result, current, document)
-          }, current, async (candidate) => {
-            if (candidate == null || !current()) return false
-            if (this.store.get(candidate.ref) !== undefined) return false
+            return document === undefined ? undefined : this.validatedExecutionResult(backend, registry, result, resultCurrent, document)
+          }, resultCurrent, async (candidate) => {
+            if (candidate == null || !resultCurrent()) return false
+            if (!this.store.canRestoreCompleted(candidate.ref)) return false
             this.retainedRegistries.set(candidate.artifact, registry)
             // Fresh source claims and snapshot ownership never retire another window's receipts.
             for (const retained of candidate.assetRetentions ?? []) this.trackResultOwner(backend, retained)
             this.store.restoreCompleted(candidate)
-            return this.store.get(candidate.ref)?.artifact === candidate.artifact
+            held = this.store.get(candidate.ref)
+            return held?.artifact === candidate.artifact
           }, readers)
           if (readers.size === 0) sources.delete(sourceKey)
           if (!current()) return
