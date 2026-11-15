@@ -128,10 +128,24 @@ Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
 connection lifetime must remain current. Refused or stale reads preserve the
 saved result for retry; malformed or absent source documents remain invalid.
+A peer's saved-result update also retries restoration after a window opens.
+A completed stream-only entry missing both its compile artifact and job identity
+can receive the validated result; registered and running entries cannot. A
+concurrent registration invalidates the pending restoration. Covered incomplete
+receipts may be replaced, while independent complete and uncovered receipts stay
+protected.
 The source owner survives proof validation, output discovery and reconciliation
 of every saved receipt. Only publication with independent acknowledged
-shown-result ownership permits its revision-bound retirement. A reused execution
+shown-result ownership permits its revision-bound retirement. A registered execution
 key, refused admission or changed registry keeps the source owner protected.
+
+Each queued source-document stamp captures its own acknowledged document
+receipt, even when unchanged source bytes reuse a cached digest. A successful
+submission, including an asset-consent retry, associates that receipt with the
+accepted execution. Complete result ownership retires it only when the new
+receipts cover every captured root. Rejected or uncertain submissions keep their
+source receipt; cached bytes never grant release authority. Project or connection
+lifetime changes prevent a later execution from retiring the earlier receipt.
 
 Retained previews carry the original stored execution for each runtime
 occurrence, including when a partial run displays outputs from several runs.
@@ -181,7 +195,9 @@ permanent missing-image result. Input-model sources also carry that reader into
 the orbit overlay. Its independent read covers pending mount and the mounted
 handle until disposal; closing during mount waits for actual mount completion
 and disposes the late handle. A different captured owner closes the old viewer
-even when its URL is unchanged. Direct input-audio sources carry their document
+even when its URL is unchanged. Canvas orbit viewers remain open across preview
+refreshes with the same URL and captured reader; only an actual source replacement
+closes them. Direct input-audio sources carry their document
 reader into the native transport. Admission precedes assigning the audio source;
 the independent read spans native resource reset on replacement or unmount.
 A replacement waits for the old element's emptied event unless it was already
@@ -437,11 +453,21 @@ it remains incomplete until migration, and malformed asset identities still refu
 A persisted snapshot admitted before its schemas arrive keeps its incomplete
 receipt until this window acknowledges a complete replacement for the exact
 same document on the same backend, project, storage and connection lifetime.
-Schema arrival reschedules incomplete local persistence. Candidate cleanup can
+While the event transport is connecting or reconnecting, persistence keeps its
+local recovery stage unacknowledged without creating server owners. The connected
+catalog reschedules that pending stage before it can publish acknowledged roots.
+Schema arrival also reschedules incomplete local persistence. Candidate cleanup can
 use this window's current acknowledged canonical snapshot as the exact-document
 replacement. Receipts admitted during a superseded schema request remain tracked
-through that handoff; recovered receipts from another window or lifetime never
-confer release authority.
+through that handoff. A peer storage write can supersede publication but does
+not discard this window's admitted receipts; canonical compaction retries without
+staging another workspace candidate, before the same-lifetime replacement retires
+them. Journal changes from peers and completed local persisted-owner retirements
+reschedule read-only ownership checks, so a transient observation does not leave
+a stale warning. Scheduling a replacement check immediately cancels the older
+observation; its response cannot publish a warning during the refresh debounce.
+These checks never replay admission or release commands.
+Recovered receipts from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
 keep the same document session and do not cancel admission. Library/template/run
@@ -483,13 +509,35 @@ resurrected, and a later shared record or live document authority stays authorit
 Incoming workspace inventories retain newly received native tab snapshots before publishing tabs or
 displacing local views. Refusal or a changed local inventory, document, backend,
 registry, connection or workspace authority keeps local tabs. Newer shared
-inventories supersede outstanding acknowledgments. Existing-tab metadata updates
-do not wait for another ownership request. Subsequent ordered shared documents and
+inventories supersede outstanding acknowledgments. Successful publication keeps
+the admitted tab and its exact receipt together; shared-session promotion transfers
+that lifetime to the promoted store, and acknowledged close retires it through
+the ordinary local document lifecycle. Rejected or historical admissions remain
+protected. Reentrant local tab changes during publication are submitted after the
+incoming inventory is applied, without waiting for another tab change. Existing-tab
+metadata updates do not wait for another ownership request. Subsequent ordered shared documents and
 resync snapshots await ownership before confirmed-ground publication; this does not
 certify every optimistic rebase result. Bootstrap also confirms restored tabs and
 all valid canonical, workspace-candidate, document-recovery and operation-journal
 addition snapshots captured by the constructor, including losing versions and
 closed-lineage recovery slots. Journal additions are confirmed before worker replay.
+An explicit confirmed Close Tab ends only the captured local document lifetime,
+after closed membership is admitted at the authoritative workspace revision. It
+hands off that lifetime's receipt and retires its recovery slot only when both
+the stage ID and content digest match the stage already incorporated into the
+canonical document. Staging, acknowledgment and retirement use the same
+cross-window commit lock; retirement rechecks the exact admitted canonical
+snapshot and current recovery stage inside that lock. Without the lock, recovery
+sources stay protected. Newer, unmerged or different stages survive, as do live,
+undo, frozen, shared, restored and pending-read holders with independent receipts.
+A close does not release recovered historical receipts or grant discard authority.
+Synchronous per-window recovery retains dirty documents if teardown cannot await
+the locked document stage. Canonical snapshots record the exact dirty workspace
+stages already incorporated, so another admission or restart does not replay the
+same captured edits over the selected document. A new workspace stage still
+contributes even at an equal captured document revision. Incorporation metadata
+covers only currently present dirty snapshots and does not confer receipt-release
+authority.
 Those sources stay captured even if local compaction retires them before the
 acknowledgment. Recovery documents use the same-origin backend, matching restored
 tabs' default target; session-only targets do not persist. Registry loading and

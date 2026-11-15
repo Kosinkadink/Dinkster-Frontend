@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asPromptId, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
-import { buildDinksterRegistry, EngineNotReadyError, reconcileDinksterExecutions, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
+import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { historicalSchemas } from './historical-schemas.js'
@@ -74,6 +74,34 @@ const foreignRun = (connection: string, prompt: string): ExecutionRef => {
   const ref: ExecutionRef = { connection: asConnectionId(connection), prompt: asPromptId(prompt) }
   app.store.apply({ kind: 'started', execution: ref, timestamp: 0 })
   return ref
+}
+
+function registerNativeRun(backend: Backend, ref: ExecutionRef): void {
+  registryFor(backend)
+  app.setTabTarget(basic.id, backend.id)
+  const compiled = app.compileTab(basic)
+  if (!compiled?.ok) throw new Error('Native run fixture did not compile')
+  app.store.register(ref, compiled.artifact, 0, { jobRef: `job-${ref.prompt}` })
+}
+
+function sealedCompletion(
+  backend: Backend, ref: ExecutionRef, job: DinksterJobRecord & { readonly state: 'completed' }, digests: readonly string[] = [],
+): DinksterJobRecord {
+  const jobRef = `job-${ref.prompt}`
+  const outputs = job.outputs as Record<string, Record<string, unknown>> | undefined
+  const sources = [
+    ...Object.entries(outputs ?? {}).flatMap(([nodeId, values]) =>
+      Object.keys(values).map((outputId) => ({ nodeId, outputId }))),
+    ...(job.artifacts ?? []).map((artifact, index) => ({ nodeId: artifact.nodeId, artifact: { ...artifact, index } })),
+  ]
+  const offers = sources.map((source, index) => ({ ...source, scope: 'local' as const, jobRef, attemptId: 1,
+    token: (index + 1).toString(16).padStart(32, '0'), publication: 1, complete: true, digests }))
+  vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue({
+    scope: 'local', jobRef, attemptId: 1, state: job.state, complete: true, offers,
+  })
+  vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) =>
+    ({ ...owner, sourceToken, revision: 1, complete: true, digests }))
+  return { ...job, jobRef, attemptId: 1 }
 }
 
 beforeEach(async () => {
@@ -554,8 +582,10 @@ describe('backend protocols', () => {
       const outputs = { image: { result: { typeId: 'asset<media/image>',
         meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } } }
       let finish!: (value: typeof outputs) => void
-      vi.spyOn(backend.connection, 'fetchJob').mockImplementation(async () => ({ state: 'completed',
-        outputs: await new Promise<typeof outputs>((resolve) => { finish = resolve }) }))
+      vi.spyOn(backend.connection, 'fetchJob').mockImplementation(async () => sealedCompletion(backend, ref, {
+        state: 'completed', outputs: await new Promise<typeof outputs>((resolve) => { finish = resolve }), artifacts: [],
+      }, [`blake3:${'e'.repeat(64)}`]))
+      registerNativeRun(backend, ref)
       app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
       app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
       expect(app.store.get(ref)?.outputs).toEqual({})
@@ -574,7 +604,10 @@ describe('backend protocols', () => {
         const fresh = { image: { result: { typeId: 'INT', value: 37 } } }
         vi.spyOn(live.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
           ({ ...owner, ...declaration, revision: 1 }))
-        vi.spyOn(live.connection, 'fetchJob').mockResolvedValue({ state: 'completed', outputs: fresh })
+        vi.spyOn(live.connection, 'fetchJob').mockResolvedValue(sealedCompletion(live, ref, {
+          state: 'completed', outputs: fresh, artifacts: [],
+        }))
+        registerNativeRun(live, ref)
         app.store.apply({ kind: 'started', execution: { ...ref, prompt: asPromptId('next-job') }, timestamp: 3 })
         await new Promise<void>((resolve) => setImmediate(resolve))
         expect(app.store.get(ref)?.outputs).toEqual(fresh)
@@ -592,23 +625,27 @@ describe('backend protocols', () => {
       const artifact = { nodeId: 'save', digest: digest('a'), name: 'result.png', size: 7,
         mediaType: 'image/png', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
           size: 3, mediaType: 'image/png', virtualPath: '' } }
+      registerNativeRun(backend, ref)
       app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
       app.store.hydrateOutputs(ref, live)
-      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', outputs, artifacts: [artifact] })
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: 1 }))
+      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue(sealedCompletion(backend, ref,
+        { state: 'completed', outputs, artifacts: [artifact] }, [digest('a'), digest('c'), digest('e')]))
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      let requested = 0
+      let requested!: () => void
+      const requesting = new Promise<void>((resolve) => { requested = resolve })
       let acknowledge!: () => void
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
-        requested += 1
-        expect(declaration.digests).toEqual([digest('a'), digest('c'), digest('e')])
-        return new Promise((resolve, reject) => {
-          acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
-            : resolve({ ...owner, ...declaration, revision: 1 })
-        })
+      const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
+      const claim = vi.mocked(backend.connection.claimResultAssets).getMockImplementation()!
+      vi.mocked(backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+        requested()
+        await acknowledgment
+        if (scenario === 'refused') throw new Error('ownership refused')
+        return claim(owner, sourceToken)
       })
       backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(requested).toBe(1)
+      await requesting
       expect(app.store.get(ref)).toMatchObject({ outputs: live, artifacts: [], artifactsHydrated: false })
       if (scenario === 'removed') app.removeBackend(backend.id)
       if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
@@ -619,6 +656,12 @@ describe('backend protocols', () => {
       expect(app.store.get(ref)).toMatchObject(scenario === 'accepted'
         ? { outputs: { ...live, ...outputs }, artifacts: [artifact], artifactsHydrated: true }
         : { outputs: live, artifacts: [], artifactsHydrated: false })
+      if (scenario === 'accepted') {
+        const receipts = app.store.get(ref)!.assetRetentions!
+        expect(receipts.every((receipt) => receipt.complete)).toBe(true)
+        expect([...new Set(receipts.flatMap((receipt) => receipt.digests))].sort())
+          .toEqual([digest('a'), digest('c'), digest('e')])
+      }
     },
   )
 
@@ -670,6 +713,7 @@ describe('backend protocols', () => {
       ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('saved-job') }
     const outputs = { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } }
+    registerNativeRun(backend, ref)
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
     app.store.hydrateOutputs(ref, outputs)
     const artifact = {
@@ -680,10 +724,9 @@ describe('backend protocols', () => {
       mediaType: 'video/mp4',
       virtualPath: 'output/result.mp4',
     }
-    const fetchJob = vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({
-      state: 'completed',
-      artifacts: [artifact],
-    })
+    const fetchJob = vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue(sealedCompletion(backend, ref, {
+      state: 'completed', artifacts: [artifact],
+    }, [artifact.digest]))
 
     backend.connection.ingest({ type: 'run_finished', jobId: 'saved-job' })
     expect(app.store.get(ref)?.status).toBe('running')
@@ -694,14 +737,15 @@ describe('backend protocols', () => {
     expect(app.store.get(ref)?.artifactsHydrated).toBe(true)
     expect(app.store.get(ref)?.status).toBe('completed')
     expect(app.store.get(ref)?.outputs).toEqual(outputs)
-    expect(fetchJob).toHaveBeenCalledOnce()
     expect(fetchJob).toHaveBeenCalledWith('saved-job')
   })
 
   it('reconciles again when schema refresh supersedes a pending job read', async () => {
     const backend = addOffline('http://native:8000', 'Native')
     registryFor(backend)
-    const ref = foreignRun(backend.id, 'refreshing-job')
+    const ref = { connection: backend.id, prompt: asPromptId('refreshing-job') }
+    registerNativeRun(backend, ref)
+    app.store.apply({ kind: 'started', execution: ref, timestamp: 0 })
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     type Job = NonNullable<Awaited<ReturnType<typeof backend.connection.fetchJob>>>
     const reads: Array<(job: Job) => void> = []
@@ -711,11 +755,11 @@ describe('backend protocols', () => {
     registryFor(backend)
     await vi.waitFor(() => expect(reads).toHaveLength(1))
     registryFor(backend)
-    reads[0]!({ state: 'completed', outputs: { producer: { value: 7 } }, artifacts: [] })
+    reads[0]!(sealedCompletion(backend, ref, { state: 'completed', outputs: { producer: { value: 7 } }, artifacts: [] }))
     await vi.waitFor(() => expect(reads).toHaveLength(2))
     expect(app.store.get(ref)).toMatchObject({ status: 'running', outputs: {} })
 
-    reads[1]!({ state: 'completed', outputs: { producer: { value: 42 } }, artifacts: [] })
+    reads[1]!(sealedCompletion(backend, ref, { state: 'completed', outputs: { producer: { value: 42 } }, artifacts: [] }))
     await vi.waitFor(() => expect(app.store.get(ref)).toMatchObject({
       status: 'completed', outputs: { producer: { value: 42 } }, artifactsHydrated: true,
     }))
@@ -733,25 +777,32 @@ describe('backend protocols', () => {
       mediaType: 'video/mp4',
       virtualPath: 'output/retry.mp4',
     }
-    const fetchJob = vi.spyOn(backend.connection, 'fetchJob')
-      .mockRejectedValueOnce(new Error('connection lost'))
-      .mockResolvedValueOnce({ state: 'completed', artifacts: [artifact] })
+    registerNativeRun(backend, ref)
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+    let available = false
+    const completed = sealedCompletion(backend, ref, { state: 'completed', artifacts: [artifact] }, [artifact.digest])
+    const fetchJob = vi.spyOn(backend.connection, 'fetchJob').mockImplementation(async () => {
+      if (!available) throw new Error('connection lost')
+      return completed
+    })
 
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
     app.store.hydrateOutputs(ref, { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } })
     backend.connection.ingest({ type: 'run_finished', jobId: 'retry-job' })
     backend.connection.ingest({ type: 'job_state', jobId: 'retry-job', state: 'completed' })
-    await vi.waitFor(() => expect(fetchJob).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(fetchJob).toHaveBeenCalled())
     expect(app.store.get(ref)).toMatchObject({ status: 'completed', artifactsHydrated: false })
 
-    await reconcileDinksterExecutions(backend.connection, app.store)
+    available = true
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    registryFor(backend)
 
-    expect(fetchJob).toHaveBeenCalledTimes(2)
-    expect(app.store.get(ref)).toMatchObject({
+    await vi.waitFor(() => expect(app.store.get(ref)).toMatchObject({
       status: 'completed',
       artifacts: [artifact],
       artifactsHydrated: true,
-    })
+    }))
   })
 
 })

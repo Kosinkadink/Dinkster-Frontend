@@ -198,7 +198,7 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
-  it.each(['reconnect', 'disconnect', 'remove', 'dispose'] as const)(
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -216,10 +216,13 @@ describe('workflow retention recovery', () => {
         close() {}
       }
       vi.stubGlobal('WebSocket', FakeSocket)
+      const events = new EventTarget()
+      vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+      vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
       const requests: Array<{ signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
       vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
         if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
-        if (url.includes('/api/library/retentions/')) {
+        if (url.includes('/api/library/retentions/') && url.includes(encodeURIComponent(f.intent.owner.ownerId))) {
           expect(init?.method).toBe('GET')
           expect(init?.cache).toBe('no-store')
           const result = deferred<Response>()
@@ -239,8 +242,28 @@ describe('workflow retention recovery', () => {
         await vi.waitFor(() => expect(sockets).toHaveLength(1))
         sockets.at(-1)!.onopen?.({})
         await vi.waitFor(() => expect(requests).toHaveLength(1))
+        if (scenario === 'journal-change-pending') {
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          requests[0]!.result.resolve(new Response('{}', { status: 404 }))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(0)
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(0)
+          return
+        }
         requests[0]!.result.resolve(new Response('{}', { status: 404 }))
         await vi.waitFor(() => expect(notices()).toHaveLength(1))
+        if (scenario === 'journal-change') {
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(notices()).toHaveLength(0))
+          expect(f.entries.get(f.key)).toBe(bytes)
+          expect(sockets).toHaveLength(1)
+          return
+        }
         backend.connection.disconnect()
         backend.connection.connect()
         await vi.waitFor(() => expect(sockets).toHaveLength(2))
@@ -1136,7 +1159,42 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it.each(['resolved', 'during-admission', 'locked-candidate', 'locked-unresolved', 'locked-refused', 'unresolved', 'different-document', 'refused'] as const)(
+  it.each(['connecting', 'reconnecting'] as const)(
+    'keeps restored workspace recovery local until the transport settles: %s', async (status) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp(null, session().doc)
+        const transport = vi.spyOn(app.connection.status, 'get').mockReturnValue(status)
+        const owners = new Map<string, RetainedAssets>()
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        })
+        app.flushPersistTabs(true)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(owners.size).toBe(0)
+        const pending = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+        expect(pending.tabs.find((tab: { doc: WorkflowDocument }) => tab.doc.lineage === 'retention').doc)
+          .toEqual(session().doc)
+        expect(pending.assetRetention.acknowledged).toBe(false)
+        transport.mockReturnValue('connected')
+        const schemas = new Map([[schema.type, schema]])
+        app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'connected',
+          resolve: (type) => schemas.get(type) })
+        await vi.advanceTimersByTimeAsync(500)
+        const restored = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+        expect(restored.assetRetention.complete).toBe(true)
+        expect(owners.size).toBeGreaterThan(0)
+        expect([...owners.values()].every((owner) => owner.complete)).toBe(true)
+        expect(restored.tabs.find((tab: { doc: WorkflowDocument }) => tab.doc.lineage === 'retention').doc)
+          .toEqual(session().doc)
+      } finally { vi.useRealTimers() }
+    },
+  )
+
+  it.each(['resolved', 'during-admission', 'peer-overwrite', 'peer-during-admission', 'peer-different-document', 'locked-candidate', 'locked-unresolved', 'locked-refused', 'unresolved', 'different-document', 'refused'] as const)(
     'hands off a schema-absent persisted snapshot only to an acknowledged exact replacement: %s', async (scenario) => {
     vi.useFakeTimers()
     try {
@@ -1154,7 +1212,7 @@ describe('retained app dispatch', () => {
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         const receipt = { ...owner, ...declaration, revision: 1 }
         owners.set(owner.ownerId, receipt)
-        if (scenario === 'during-admission') await firstAcknowledgment.promise
+        if (scenario.endsWith('during-admission')) await firstAcknowledgment.promise
         return receipt
       })
       vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
@@ -1167,10 +1225,16 @@ describe('retained app dispatch', () => {
       const incomplete = [...owners.values()].filter((owner) => !owner.complete)
       expect(incomplete.length).toBeGreaterThan(0)
       expect(incomplete.every((owner) => owner.digests.includes(asset('a').digest))).toBe(true)
+      if (scenario.startsWith('peer-')) {
+        const key = scopedStorageKey('dinkster.openTabs')
+        const peer = JSON.parse(localStorage.getItem(key)!)
+        peer.assetRetention.stageId = 'peer-persisted-stage'
+        localStorage.setItem(key, JSON.stringify(peer))
+      }
       const schemas = new Map(scenario === 'unresolved' || scenario === 'locked-unresolved' ? [] : [[schema.type, schema]])
       app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'arrived',
         resolve: (type) => schemas.get(type) })
-      if (scenario === 'different-document') expect(app.activeTab()!.store.dispatch({
+      if (scenario.endsWith('different-document')) expect(app.activeTab()!.store.dispatch({
         command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n0', title: 'Changed snapshot' },
       }).ok).toBe(true)
       const acknowledgment = deferred<void>()
@@ -1181,13 +1245,13 @@ describe('retained app dispatch', () => {
         return receipt
       })
       vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      if (scenario === 'during-admission') firstAcknowledgment.resolve()
+      if (scenario.endsWith('during-admission')) firstAcknowledgment.resolve()
       else if (locked) locks.shift()!()
       else if (scenario !== 'resolved') app.flushPersistTabs(true)
       await vi.advanceTimersByTimeAsync(scenario === 'resolved' ? 500 : 0)
       expect(incomplete.map((owner) => owners.get(owner.ownerId)?.revision)).toEqual(incomplete.map(() => 1))
       acknowledgment.resolve()
-      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(scenario.startsWith('peer-') ? 500 : 0)
       if (locked) {
         for (let turn = 0; turn < 10 && locks.length > 0; turn++) {
           locks.shift()!()
@@ -1195,7 +1259,7 @@ describe('retained app dispatch', () => {
         }
         expect(locks).toHaveLength(0)
       }
-      if (scenario === 'resolved' || scenario === 'during-admission' || scenario === 'locked-candidate' || scenario === 'different-document') {
+      if (scenario === 'resolved' || scenario.endsWith('during-admission') || scenario === 'peer-overwrite' || scenario === 'locked-candidate' || scenario === 'different-document') {
         const canonical = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
         expect(canonical.assetRetention.complete).toBe(true)
         expect(canonical.assetRetention.owners.some((entry: { retained: RetainedAssets }) =>
@@ -1203,7 +1267,7 @@ describe('retained app dispatch', () => {
         for (const entry of canonical.assetRetention.owners) expect(entry.retained.holderClasses).toEqual([1, 2, 3])
       }
       expect(incomplete.map((owner) => owners.get(owner.ownerId)?.revision))
-        .toEqual(incomplete.map(() => scenario === 'resolved' || scenario === 'during-admission' || scenario === 'locked-candidate' ? 2 : 1))
+        .toEqual(incomplete.map(() => scenario === 'resolved' || scenario.endsWith('during-admission') || scenario === 'peer-overwrite' || scenario === 'locked-candidate' ? 2 : 1))
     } finally { vi.useRealTimers() }
     },
   )

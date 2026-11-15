@@ -1,4 +1,4 @@
-import type { Dialog, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import type { NodeSchema } from '@dinkster/core'
 import { expect, test, waitForStartupOwnership as waitForOwnership } from './fixtures.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
@@ -398,6 +398,12 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
   await waitForStartupOwnership(earlier)
   await expect.poll(() => tabIds(earlier)).toEqual(await tabIds(later))
   const lineage = (await tabIds(later))[0]!
+  const initialRevision = await later.evaluate((id) => {
+    const persisted = JSON.parse(localStorage.getItem('dinkster.openTabs')!) as {
+      tabs: Array<{ doc: { lineage: string }; documentRevision?: number }>
+    }
+    return persisted.tabs.find((tab) => tab.doc.lineage === id)!.documentRevision ?? 0
+  }, lineage)
 
   const blocker = await context.newPage()
   await disableSupervisorDiscovery(blocker)
@@ -426,80 +432,55 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
     }
   })
 
-  const edit = async (current: Page, name: string): Promise<void> => {
+  const edits = [
+    { id: lineage, graphName: 'actual-earlier-B' },
+    { id: lineage, graphName: 'actual-later-A' },
+  ]
+  await Promise.all([earlier, later].map((current) => current.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      disableWorkspaceAuthority(keepLocalTabs: boolean): void
+    }
+    app.disableWorkspaceAuthority(true)
+  })))
+  // The last submitted same-lineage stage must win, without bypassing its lock.
+  for (const [index, current] of [earlier, later].entries()) {
     await current.evaluate(async ({ id, graphName }) => {
       const app = window.__dinksterTest!.app as unknown as {
-        disableWorkspaceAuthority(keepLocalTabs: boolean): void
         openDocument(document: unknown, title: string): readonly unknown[]
         tabs: { get(): ReadonlyArray<{ id: string; store: { doc: { root: string; graphs: Record<string, { name: string }> } } }> }
       }
-      app.disableWorkspaceAuthority(true)
       const tab = app.tabs.get().find((entry) => entry.id === id)!
       const replacement = structuredClone(tab.store.doc)
       replacement.graphs[replacement.root]!.name = graphName
       await app.openDocument(replacement, graphName)
-    }, { id: lineage, graphName: name })
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
+    }, edits[index]!)
   }
-  await edit(later, 'actual-later-A')
-  await edit(earlier, 'actual-earlier-B')
-  let releaseDialog: ((dialog: Dialog) => void) | undefined
-  const writePaused = new Promise<Dialog>((resolve) => {
-    releaseDialog = resolve
-  })
-  later.once('dialog', (dialog) => releaseDialog?.(dialog))
-  await later.evaluate(() => {
-    const setItem = Storage.prototype.setItem
-    Storage.prototype.setItem = function (key: string, value: string): void {
-      if (key.startsWith('dinkster.openTabsDocumentCandidate.') && value.includes('actual-later-A')) {
-        alert('candidate-write-paused')
-      }
-      setItem.call(this, key, value)
-    }
-  })
-  const laterPagehide = later.evaluate(() => {
-    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
-  })
-  const dialog = await writePaused
-  expect(dialog.message()).toBe('candidate-write-paused')
-  await earlier.evaluate(() => {
-    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
-  })
 
-  await expect.poll(() => blocker.evaluate((id) => {
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index)
-      if (key !== `dinkster.openTabsDocumentCandidate.${encodeURIComponent(id)}`) continue
-      const candidate = JSON.parse(localStorage.getItem(key)!) as {
-        stageId: string
-        tab: {
-          doc: { lineage: string; root: string; graphs: Record<string, { name: string }> }
-          documentRevision?: number
-          documentDirty?: true
+  // pagehide must preserve both edits even when locked document staging cannot run.
+  for (const edit of edits) {
+    await expect.poll(() => blocker.evaluate(({ id, graphName }) => {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index)
+        if (!key?.startsWith('dinkster.openTabsCandidate.')) continue
+        const candidate = JSON.parse(localStorage.getItem(key)!) as {
+          tabs: ReadonlyArray<{
+            doc: { lineage: string; root: string; graphs: Record<string, { name: string }> }
+            documentDirty?: true
+          }>
         }
+        const tab = candidate.tabs.find((entry) => entry.doc.lineage === id)
+        if (tab?.documentDirty === true && tab.doc.graphs[tab.doc.root]!.name === graphName) return true
       }
-      return {
-        name: candidate.tab.doc.graphs[candidate.tab.doc.root]!.name,
-        revision: candidate.tab.documentRevision ?? 0,
-        dirty: candidate.tab.documentDirty === true,
-      }
-    }
-    return undefined
-  }, lineage)).toEqual({ name: 'actual-earlier-B', revision: 0, dirty: true })
-  await dialog.accept()
-  await laterPagehide
-  await expect.poll(() => blocker.evaluate((id) => {
-    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(id)}`
-    const candidate = JSON.parse(localStorage.getItem(key)!) as {
-      tab: { doc: { root: string; graphs: Record<string, { name: string }> } }
-    }
-    return candidate.tab.doc.graphs[candidate.tab.doc.root]!.name
-  }, lineage)).toBe('actual-later-A')
+      return false
+    }, edit)).toBe(true)
+  }
 
   await blocker.evaluate(() => {
     const state = globalThis as typeof globalThis & { releasePersistenceLock?: () => void }
     state.releasePersistenceLock?.()
   })
-  await expect.poll(() => blocker.evaluate((id) => {
+  await expect.poll(() => blocker.evaluate(({ id, revision }) => {
     const persisted = JSON.parse(localStorage.getItem('dinkster.openTabs')!) as {
       documentCandidateStages?: Record<string, string>
       tabs: Array<{
@@ -510,13 +491,15 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
     const tab = persisted.tabs.find((entry) => entry.doc.lineage === id)!
     return {
       name: tab.doc.graphs[tab.doc.root]!.name,
-      revision: tab.documentRevision ?? 0,
+      advanced: (tab.documentRevision ?? 0) > revision,
       candidates: [...Array(localStorage.length).keys()]
         .map((index) => localStorage.key(index))
         .filter((key) => key?.startsWith('dinkster.openTabsCandidate.')).length,
       covered: typeof persisted.documentCandidateStages?.[id] === 'string',
     }
-  }, lineage)).toEqual({ name: 'actual-later-A', revision: 1, candidates: 0, covered: true })
+  }, { id: lineage, revision: initialRevision })).toEqual({
+    name: 'actual-later-A', advanced: true, candidates: 0, covered: true,
+  })
 
   await Promise.all([earlier.close(), later.close(), blocker.close()])
   const reopened = await context.newPage()

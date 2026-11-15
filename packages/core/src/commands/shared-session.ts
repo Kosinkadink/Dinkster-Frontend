@@ -465,10 +465,14 @@ class SharedDocumentSession implements DocumentSession {
     throw Object.assign(new Error(JSON.stringify(diagnostic)), { diagnostic })
   }
 
-  /** Resolves when submission is quiescent; rejects a definitive refusal. */
-  async settle(): Promise<void> {
+  /** Resolves when submission and any known server revision are quiescent; rejects a definitive refusal. */
+  async settle(knownRevision?: number): Promise<void> {
     this.throwIfDenied()
-    while (this.pumpPromise || (this.beforeRemoteDocument !== undefined && this.syncPromise)) {
+    if (knownRevision !== undefined) {
+      if (!isValidCollabRevision(knownRevision)) throw new Error('settle: invalid revision')
+      if (knownRevision > this.confirmedRevision) this.requestCatchUp(knownRevision)
+    }
+    while (this.pumpPromise || ((knownRevision !== undefined || this.beforeRemoteDocument !== undefined) && this.syncPromise)) {
       await (this.pumpPromise ?? this.syncPromise)
     }
     this.throwIfDenied()

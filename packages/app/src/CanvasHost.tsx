@@ -1124,6 +1124,8 @@ export function NodeModel3dOverlay(props: {
   let settleViewer: (() => void) | undefined
   let mountToken = 0
   const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
+  const source = createMemo(() => props.media.src)
+  const assetReader = createMemo(() => props.assetReader)
   const close = (): void => {
     mountToken += 1
     viewer?.dispose()
@@ -1161,7 +1163,7 @@ export function NodeModel3dOverlay(props: {
   }
   // A page change or new execution swaps the source without remounting the
   // overlay; an open viewer would keep showing the old model.
-  createEffect(on(() => [props.media.src, props.assetReader] as const, () => close(), { defer: true }))
+  createEffect(on([source, assetReader], () => close(), { defer: true }))
   onCleanup(() => {
     mountToken += 1
     viewer?.dispose()

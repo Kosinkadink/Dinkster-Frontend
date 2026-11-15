@@ -96,7 +96,11 @@ test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ status: 502, body: 'no v1 backend' }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await page.evaluate(async () => {
+  // Ownership admission cannot cross a connection lifetime change.
+  await page.waitForFunction(() =>
+    window.__dinksterTest!.app.backends.get()[0]!.connection.status.get() === 'connected',
+  )
+  const diagnostics = await page.evaluate(async () => {
     const textRepresentations = (defaultView: 'single-line' | 'multiline') => ({
       default: defaultView,
       userSwitchable: true,
@@ -142,7 +146,7 @@ test.beforeEach(async ({ page }) => {
         items: [textInput(true)],
       },
     ])
-    await window.__dinksterTest!.app.openDocument({
+    return await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'text-completion-proof',
@@ -159,6 +163,7 @@ test.beforeEach(async ({ page }) => {
       view: { graphs: { g0: { nodes: { clip: { position: { x: 100, y: 100 } } } } } },
     }, 'Text Completion Proof')
   })
+  expect(diagnostics).toEqual([])
 })
 
 test('ordinary Text uses a compact editor and switches views only from its context menu', async ({ page }) => {

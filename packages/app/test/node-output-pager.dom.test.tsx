@@ -191,6 +191,44 @@ describe('NodeMediaOverlay', () => {
 
 describe('NodeModel3dOverlay', () => {
 
+  it('keeps an open viewer across unchanged source refreshes but closes on URL or reader replacement', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const canvas = document.createElement('canvas')
+    const reader = { key: 'first', current: () => true, read: <T,>(consume: () => Promise<T>) => consume() }
+    const [state, setState] = createSignal({ src: 'blob:first', reader })
+    orbit.mount.mockImplementation(async (host: HTMLElement) => {
+      const viewport = document.createElement('canvas')
+      host.append(viewport)
+      return { dispose: () => viewport.remove() }
+    })
+    const dispose = render(() => (
+      <NodeModel3dOverlay
+        media={{ kind: 'model3d', src: state().src }}
+        assetReader={state().reader}
+        rect={{ x: 10, y: 20, width: 300, height: 180 }}
+        scale={1}
+        canvas={canvas}
+      />
+    ), root)
+    try {
+      root.querySelector<HTMLButtonElement>('[aria-label="Open 3D orbit view"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('.node-model3d-viewport canvas')).not.toBeNull())
+      const viewport = root.querySelector('.node-model3d-viewport canvas')
+      setState({ ...state() })
+      expect(root.querySelector('.node-model3d-viewport canvas')).toBe(viewport)
+      setState({ ...state(), reader: { ...reader, key: 'second' } })
+      expect(root.querySelector('.node-model3d-viewport')).toBeNull()
+      root.querySelector<HTMLButtonElement>('[aria-label="Open 3D orbit view"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('.node-model3d-viewport canvas')).not.toBeNull())
+      setState({ ...state(), src: 'blob:second' })
+      expect(root.querySelector('.node-model3d-viewport')).toBeNull()
+    } finally {
+      dispose()
+      orbit.mount.mockReset()
+    }
+  })
+
   it('keeps a failed poster output downloadable', () => {
     const root = document.createElement('div')
     document.body.append(root)
