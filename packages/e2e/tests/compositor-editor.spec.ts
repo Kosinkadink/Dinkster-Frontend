@@ -3,6 +3,8 @@ import { expect, nativeTest as test, waitForStartupOwnership, type Page } from '
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { requireBackendNodes } from './required-nodes.js'
 
+test.use({ retentionApi: false })
+
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 interface Point {
