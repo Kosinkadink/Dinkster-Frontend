@@ -1145,17 +1145,12 @@ describe('shared DocumentSession', () => {
     expect(ops[0]).toMatchObject({ actorId: 'peer', revision: 1, origin: 'remote' })
   })
 
-  it('catches up past the snapshot when the connected descriptor was buffered before subscription', async () => {
-    // The real connection opens its WS in its constructor, so the
-    // descriptor frame (catch-up baseline) can arrive while
-    // connectSharedSession is still awaiting the HTTP snapshot; the
-    // connection buffers it and replays it synchronously inside onEvent.
-    // Found live 2026-07-27: without the replay, a rejoin whose session
-    // already held ops above the snapshot revision never caught up.
+  it.each(['buffered descriptor', 'known HTTP revision'] as const)('catches up past the snapshot from a %s', async (baseline) => {
     const conn = new FakeConnection(baseDoc())
     conn.appendForeign('peer', foreignAddNode('n9-peer'), false) // pre-join op; snapshot stays at 0
     const subscribe = conn.onEvent.bind(conn)
-    const pending: CollabConnectionEvent[] = [{ kind: 'connected', descriptor: conn.descriptor() }]
+    const pending: CollabConnectionEvent[] = baseline === 'buffered descriptor'
+      ? [{ kind: 'connected', descriptor: conn.descriptor() }] : []
     conn.onEvent = (listener) => {
       const off = subscribe(listener)
       for (const e of pending.splice(0)) listener(e)
@@ -1165,7 +1160,10 @@ describe('shared DocumentSession', () => {
       actorId: 'actorA',
       onListenerError: () => {},
     })
-    await until(() => session.revision === 1, 'catch-up to the pre-join op')
+    if (baseline === 'known HTTP revision') await session.settle(conn.descriptor().revision)
+    else await until(() => session.revision === 1 && session.status.get() === 'live', 'catch-up to the pre-join op')
+    expect(session.revision).toBe(1)
+    expect(session.status.get()).toBe('live')
     expect(nodeIds(session)).toContain('n9-peer')
     session.close()
   })
