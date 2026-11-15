@@ -50,7 +50,9 @@ same set, while legacy owner journals never acquire membership retroactively. St
 Refresh and Clear temporarily suspend event and collaboration reconnects, close
 those streams, settle reads and acknowledge the exact server census before
 requesting evaluated eligibility or cleanup. Streams resume afterward and
-invalidate that acknowledgment. Other clients, incomplete or unclassified
+invalidate that acknowledgment. This planned suspension preserves the logical
+connection and already admitted readers; an unexpected transport loss still
+invalidates them and reports reconnection. Other clients, incomplete or unclassified
 owners, and legacy observations still block collection; individual complete
 owner receipts and a saved size limit cannot enable vault cleanup. Installed
 immutable frontend modules keep their native HTTP import URLs: selected,

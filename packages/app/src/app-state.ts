@@ -4637,6 +4637,7 @@ export class AppState {
     const wire = (
       connection: DinksterConnection,
       reconcile: () => Promise<void>,
+      refreshAfterGap: () => void,
       refreshForEpoch?: (epoch: number) => void,
       onStatusChange?: (status: ConnectionStatus) => void,
     ): (() => void) => {
@@ -4649,6 +4650,10 @@ export class AppState {
         })
       }
       const unsubs = [
+        connection.onStreamResumed(() => {
+          refreshAfterGap()
+          reconcileConnected()
+        }),
         connection.onEvent((e) => {
           // Connection-level control events never reach the execution store:
           // they describe the schema surface, not a run. V1 backends never
@@ -4979,6 +4984,7 @@ export class AppState {
       const disposeConnection = wire(
         connection,
         () => reconcileDinksterExecutions(connection, this.store, prepareHydration),
+        () => startRefresh('collection resume'),
         refreshForEpoch,
         handleStatusChange,
       )
