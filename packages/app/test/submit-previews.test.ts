@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
-import { diag, type DinksterNodesPayload } from '@dinkster/core'
+import { asPromptId, diag, type DinksterNodesPayload } from '@dinkster/core'
+import { retainExecutionAssets } from '../src/workflow-asset-retention.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
@@ -71,6 +72,72 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('live preview policy on submit', () => {
+  it.each(['direct', 'consent', 'rejected', 'disconnected', 'reconnected-before-ack'] as const)(
+    'keeps cached source receipts until their own result replaces them: %s', async (route) => {
+      const { backend, tab } = await nativeSetup()
+      const digest = `blake3:${'a'.repeat(64)}`
+      vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(digest)
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
+        ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
+      let sequence = 0
+      vi.spyOn(backend.connection, 'submit').mockImplementation(async () => {
+        if (route === 'rejected') return { ok: false, diagnostics: [] }
+        if (route === 'reconnected-before-ack') {
+          ;(backend.connection.status as unknown as { set(value: string): void })
+            .set(sequence === 0 ? 'reconnecting' : 'disconnected')
+        }
+        const accepted = { ok: true as const,
+          execution: { connection: backend.id, prompt: asPromptId(`source-${++sequence}`) } }
+        return route === 'consent' ? { ok: false as const, diagnostics: [],
+          assetsMissing: { error: 'assets-missing' as const,
+            assets: [{ digest, name: 'Source', status: 'missing' as const, sources: [], fetchable: false }] },
+          retryWithAssets: async () => accepted } : accepted
+      })
+      const sources = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+        .filter((key) => key.includes('workflow-retentions.'))
+        .map((key) => ({ key, value: JSON.parse(localStorage.getItem(key)!) }))
+        .filter(({ value }) => value.owner.ownerKind === 'document' && value.digests.includes(digest))
+      for (let index = 0; index < 2; index++) {
+        await app.queue(tab)
+        if (route === 'consent') await app.assetConsent.get()!.retry([digest])
+      }
+      const captured = sources()
+      expect(captured).toHaveLength(2)
+      expect(captured.every(({ value }) => value.acknowledgedRevision === 1 && value.releaseRevision === undefined)).toBe(true)
+      const executions = [...app.store.executions.get().values()]
+      if (route === 'rejected') {
+        expect(executions).toHaveLength(0)
+        return
+      }
+      expect(executions).toHaveLength(2)
+      expect(executions.map((state) => state.sourceDocument)).toEqual([digest, digest])
+      if (route === 'disconnected') {
+        ;(backend.connection.status as unknown as { set(value: string): void }).set('reconnecting')
+      }
+      const first = executions[0]!.ref
+      const uncovered = await retainExecutionAssets(backend.connection, first, { complete: true, digests: [] })
+      app.store.recordAssetRetentions(first, [uncovered])
+      expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
+      const incomplete = await retainExecutionAssets(backend.connection, first, { complete: false, digests: [digest] })
+      app.store.recordAssetRetentions(first, [incomplete])
+      expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
+      const complete = await retainExecutionAssets(backend.connection, first, { complete: true, digests: [digest] })
+      app.store.recordAssetRetentions(first, [complete])
+      if (route === 'disconnected' || route === 'reconnected-before-ack') {
+        expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
+      } else {
+        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(captured[0]!.key)!))
+          .toMatchObject({ releaseRevision: 1, acknowledgedRevision: 2 }))
+        expect(JSON.parse(localStorage.getItem(captured[1]!.key)!).releaseRevision).toBeUndefined()
+        const second = executions[1]!.ref
+        const replacement = await retainExecutionAssets(backend.connection, second, { complete: true, digests: [digest] })
+        app.store.recordAssetRetentions(second, [replacement])
+        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(captured[1]!.key)!))
+          .toMatchObject({ releaseRevision: 1, acknowledgedRevision: 2 }))
+      }
+    },
+  )
+
   it('queues a full workflow with transient placement for selected root nodes', async () => {
     const { backend, tab } = (await nativeSetup())
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')

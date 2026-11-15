@@ -81,6 +81,14 @@ conservative. A refusal or stale acknowledgment leaves cached outputs unpublishe
 and allows a later execution update to retry. The journal is checked read-only
 on reconnect, without replaying writes or releasing owners.
 
+Live output events and mirrored submit registrations keep their interim shown-result
+holds tracked in the admitting window. Completion waits for the submit identity
+and sealed result inventory, including when live events already supplied output
+descriptors. Complete terminal admissions replace only interim references whose
+known digests they cover. Their exact same-lifetime owners can then retire;
+uncovered roots and independent result readers remain protected. A missing seal,
+refused admission or changed backend lifetime does not authorize retirement.
+
 Startup restoration uses the same independent sealed-source and snapshot
 acknowledgments after validating history, job, source document, compile proof
 and output descriptors. Every saved receipt is reconciled before publication.

@@ -128,10 +128,24 @@ Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
 connection lifetime must remain current. Refused or stale reads preserve the
 saved result for retry; malformed or absent source documents remain invalid.
+A peer's saved-result update also retries restoration after a window opens.
+A completed stream-only entry missing both its compile artifact and job identity
+can receive the validated result; registered and running entries cannot. A
+concurrent registration invalidates the pending restoration. Covered incomplete
+receipts may be replaced, while independent complete and uncovered receipts stay
+protected.
 The source owner survives proof validation, output discovery and reconciliation
 of every saved receipt. Only publication with independent acknowledged
-shown-result ownership permits its revision-bound retirement. A reused execution
+shown-result ownership permits its revision-bound retirement. A registered execution
 key, refused admission or changed registry keeps the source owner protected.
+
+Each queued source-document stamp captures its own acknowledged document
+receipt, even when unchanged source bytes reuse a cached digest. A successful
+submission, including an asset-consent retry, associates that receipt with the
+accepted execution. Complete result ownership retires it only when the new
+receipts cover every captured root. Rejected or uncertain submissions keep their
+source receipt; cached bytes never grant release authority. Project or connection
+lifetime changes prevent a later execution from retiring the earlier receipt.
 
 Retained previews carry the original stored execution for each runtime
 occurrence, including when a partial run displays outputs from several runs.
@@ -500,6 +514,18 @@ certify every optimistic rebase result. Bootstrap also confirms restored tabs an
 all valid canonical, workspace-candidate, document-recovery and operation-journal
 addition snapshots captured by the constructor, including losing versions and
 closed-lineage recovery slots. Journal additions are confirmed before worker replay.
+An explicit confirmed Close Tab ends only the captured local document lifetime,
+after closed membership is admitted at the authoritative workspace revision. It
+hands off that lifetime's receipt and retires its recovery slot only when both
+the stage ID and content digest match the stage already incorporated into the
+canonical document. Staging, acknowledgment and retirement use the same
+cross-window commit lock; retirement rechecks the exact admitted canonical
+snapshot and current recovery stage inside that lock. Without the lock, recovery
+sources stay protected. Newer, unmerged or different stages survive, as do live,
+undo, frozen, shared, restored and pending-read holders with independent receipts.
+A close does not release recovered historical receipts or grant discard authority.
+Synchronous per-window recovery retains dirty documents if teardown cannot await
+the locked document stage.
 Those sources stay captured even if local compaction retires them before the
 acknowledgment. Recovery documents use the same-origin backend, matching restored
 tabs' default target; session-only targets do not persist. Registry loading and
