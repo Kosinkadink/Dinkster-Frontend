@@ -24,8 +24,6 @@ export function VideoPreview(props: {
   let selectedUrl: string | undefined
   const [localPreferences, setLocalPreferences] = createSignal(DEFAULT_VIDEO_PREFERENCES)
   const preferences = () => props.preferences ?? localPreferences()
-  const source = createMemo(() => props.media.src)
-  const autoplay = createMemo(() => preferences().autoplay)
   const [inspection, setInspection] = createSignal<VideoInspection>()
   const [src, setSrc] = createSignal<string>()
   const [mime, setMime] = createSignal<string>()
@@ -50,6 +48,8 @@ export function VideoPreview(props: {
   const canSelectFrame = () => inspection()?.canSelectFrame === true && !busy()
   const canStep = () => canSelectFrame() && !framePending()
   const canPlay = () => mime()?.startsWith('video/') !== false && src() !== undefined
+  const source = createMemo(() => props.media.src)
+  const autoplay = createMemo(() => preferences().autoplay)
   const releaseFrame = (): void => {
     frameRequest?.abort()
     setFramePending(false)
