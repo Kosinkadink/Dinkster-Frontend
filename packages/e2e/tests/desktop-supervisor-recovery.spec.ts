@@ -26,6 +26,7 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
     nodes: {},
   } }))
   await page.route('**/api/**', (route) => route.fulfill({ json: {} }))
+  await page.route('**/api/library/retention-clients', (route) => route.fulfill({ status: 404 }))
 
   await page.goto('/')
   await expect.poll(() => probes).toBeGreaterThan(0)

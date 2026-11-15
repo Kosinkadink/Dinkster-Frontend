@@ -62,7 +62,7 @@ const openSubmenu = async (page: Page, id: string) => {
 
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-name-dispatch')) {
-    await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 1 }, nodes: {},
     } }))

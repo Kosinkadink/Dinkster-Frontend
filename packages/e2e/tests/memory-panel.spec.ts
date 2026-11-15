@@ -269,6 +269,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
 test('Memory surface remains usable on touch, narrow layout, reduced motion, and 200 percent equivalent zoom', async ({ browser, baseURL }, testInfo) => {
   const context = await browser.newContext({ baseURL: baseURL!, hasTouch: true, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
+  await page.route('**/api/library/retention-clients', (route) => route.fulfill({ status: 404 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ status: 502, body: 'no native same-origin backend' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))

@@ -232,7 +232,7 @@ test('deprecated resize imports its authored size and undoes from the migration 
 })
 
 test('only opt-in review holds a lossy migration for badge Apply', async ({ page }, testInfo) => {
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await migrationCatalog(page)
   await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))

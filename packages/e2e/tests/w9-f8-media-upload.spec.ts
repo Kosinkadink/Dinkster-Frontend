@@ -302,9 +302,11 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   await video.dispatchEvent('error')
   const fallback = page.getByTestId('asset-video-fallback')
   await expect(fallback).toContainText('Video preview unavailable.')
-  await expect(fallback.getByRole('link', { name: 'Download video' })).toHaveAttribute(
-    'href', `/api/assets/${encodeURIComponent(videoDigest)}`,
-  )
+  const videoDownload = fallback.getByRole('link', { name: 'Download video' })
+  await expect(videoDownload).toHaveAttribute('href', /^blob:/)
+  await expect(videoDownload).toHaveAttribute('download', canonicalVideo.name)
+  expect(await videoDownload.evaluate(async (element: HTMLAnchorElement) =>
+    Array.from(new Uint8Array(await (await fetch(element.href)).arrayBuffer())))).toEqual(Array.from(videoBytes))
   await page.screenshot({ path: `${PROOF}/video-fallback-1600x950.png`, fullPage: true })
 
   await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).click()

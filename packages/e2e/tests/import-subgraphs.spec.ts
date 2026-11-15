@@ -274,7 +274,7 @@ for (const name of templates) test(`imports and drills into official nested subg
 
 nativeTest.describe('native structural output boundaries', () => {
   nativeTest.beforeEach(async ({ page }) => {
-    await page.route(/\/api\/(?!library\/retentions\/)/, (route) =>
+    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) =>
       route.fulfill({ status: 503, body: 'Frontend contract fixture' }),
     )
     await page.route('/supervisor/status', (route) =>
