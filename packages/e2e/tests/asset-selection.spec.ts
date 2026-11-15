@@ -32,12 +32,17 @@ for (const accepted of [true, false]) {
       } })
     })
     await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
-    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
-      nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
-        { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
-      ] } },
-    } }))
+    await page.route('/api/nodes*', async (route) => {
+      // Startup ownership snapshots the transport after schemas load.
+      await page.waitForFunction(() =>
+        window.__dinksterTest?.app.backends.get()[0]?.connection.status.get() === 'connected')
+      return route.fulfill({ json: {
+        schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
+        nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
+          { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
+        ] } },
+      } })
+    })
     await page.route('/api/assets/media?*', (route) => {
       uploaded = route.request().postDataBuffer() ?? Buffer.alloc(0)
       return route.fulfill({ json: { kind: 'media/audio', asset: {
