@@ -1979,7 +1979,19 @@ export function App(props: {
       target.removeEventListener('click', suppressNativeClick, true)
       if (clickCleanupTimer !== undefined) clearTimeout(clickCleanupTimer)
     }
-    const invalidateSnapshot = (): void => rollback()
+    const invalidateSnapshot = (event: Event): void => {
+      const scroller = event.target
+      if (event.type === 'scroll' && scroller instanceof Element && bodyElement.contains(scroller)) {
+        const panelBody = scroller.closest('.dock-zone .product-tabpanel')
+        // Scrolling panel content cannot move its enclosing drop box. Anything
+        // containing the source or measured geometry still invalidates it.
+        if (panelBody !== null && scroller !== panelBody && !scroller.contains(target)
+          && ![...bodyElement.querySelectorAll(
+            '.canvas-pane, .editor-split-region, .dock-zone, .dock-zone-section, .product-tabpanel, .product-tablist, .product-tab, [data-testid="dock-zone-overflow-button"]',
+          )].some((element) => scroller.contains(element))) return
+      }
+      rollback()
+    }
     const cancelKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       event.preventDefault()

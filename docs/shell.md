@@ -432,8 +432,12 @@ small fixed offset from the pointer. The ghost switches to a refusal style in
 step with the target highlight whenever the current target would refuse the
 drop, ignores pointer events, and disappears on release or rollback. Geometry
 for every visible zone, tab slot, and hidden-zone edge is captured on press;
-pointer movement performs no DOM geometry reads. Scrolling, resizing, Escape,
-pointer cancellation, or capture loss rolls the session back.
+pointer movement performs no DOM geometry reads. Scrolling inside unrelated
+panel content preserves the drag when it cannot move captured geometry.
+Viewport scrolling, scrolling any element containing the source or captured
+zone, section, panel body, tab strip or tab slot, resizing, Escape, pointer
+cancellation, or capture loss rolls the session back. Unknown scroll targets
+also cancel.
 
 A tab strip selects an insertion index, a zone body appends, and the outer
 24 px screen edges target their corresponding zones. While a zone shows one
