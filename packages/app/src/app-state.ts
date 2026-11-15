@@ -4544,6 +4544,7 @@ export class AppState {
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
+    const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     const retentionProblemsOwner = Symbol(`workflow-retentions:${id}`)
     let refreshDiagnostics = (): void => {}
@@ -4656,6 +4657,9 @@ export class AppState {
           reconcileConnected()
         }),
         registry.subscribe(() => {
+          this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
+            ...problem, message: `[${label}] ${problem.message}`,
+          })))
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
           // Schema refresh can invalidate an in-flight reconnect read. The
@@ -4962,6 +4966,7 @@ export class AppState {
         refreshDiagnostics: () => refreshDiagnostics(),
         dispose: () => {
           compositionRequest += 1
+          this.clearProblems(schemaProblemsOwner)
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
           this.workflowRetentionRecoveries.get(connection)?.abort()

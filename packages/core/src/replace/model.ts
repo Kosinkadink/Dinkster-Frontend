@@ -152,6 +152,10 @@ export interface ReplacementCase {
 export interface ReplacementRule {
   /** Source node type this rule migrates away from. */
   readonly from: string
+  /** Native document identity recorded before the source node was retired. */
+  readonly fromSignature?: string
+  /** Litegraph node properties.ver, not the publishing pack's version. */
+  readonly fromVersion?: string
   /** Human note surfaced in diagnostics/review ('renamed in v0.4'). */
   readonly note?: string
   /** Marks a one-shot same-type migration from historical input or dynamic-choice paths. */
@@ -504,6 +508,9 @@ const isCase = (v: unknown): v is ReplacementCase => {
 export const isReplacementRule = (v: unknown): v is ReplacementRule => {
   if (!isObj(v)) return false
   if (typeof v.from !== 'string' || v.from.length === 0) return false
+  for (const field of ['fromSignature', 'fromVersion']) {
+    if (v[field] !== undefined && (typeof v[field] !== 'string' || v[field].length === 0)) return false
+  }
   if (v.note !== undefined && typeof v.note !== 'string') return false
   if (v.migration !== undefined) {
     if (!isObj(v.migration) || !hasExactKeys(v.migration, ['historicalInputs'])) return false

@@ -778,6 +778,14 @@ function planReplacementForCase(
       ],
     }
 
+  if (rule.fromSignature !== undefined && document.environment?.nodes[node.type]?.signature !== rule.fromSignature) {
+    return { diagnostics: [] }
+  }
+  if (rule.fromVersion !== undefined && (node.ext?.['importer.comfyNodeType'] !== node.type ||
+      node.ext?.['importer.comfyNodeVersion'] !== rule.fromVersion)) {
+    return { diagnostics: [] }
+  }
+
   const state = sourceStateOf(def, node)
   const sourceSchema = rule.migration === undefined ? resolve(node.type, 'source') : undefined
   const migrationHistoricalInputs = new Set(rule.migration?.historicalInputs ?? [])

@@ -232,6 +232,31 @@ describe('Dinkster schema wire', () => {
     expect(mixed.diagnostics.filter((item) => item.severity === 'error')).toHaveLength(1)
   })
 
+  it.each([
+    ['COMBO', 'COMBO', { options: [{ value: 'a', futureHint: true }] }, { options: [{ value: 3, label: false }] }],
+    ['COMBO', 'COMBO', { remote: { route: '/api/choices/models', futureHint: true } }, { remote: { route: false } }],
+    ['MULTI_COMBO', 'COMBO', { options: [{ value: 'a', futureHint: true }] }, { options: [{ value: false }] }],
+    ['MULTI_COMBO', 'COMBO', { remote: { route: '/api/choices/models', futureHint: true } }, { remote: { route: false } }],
+    ['STRING', 'STRING', { completions: { items: [{ value: 'name' }], futureHint: true } }, { completions: { items: false } }],
+    ['STRING', 'STRING', { completions: { items: [{ value: 'name', futureHint: true }] } }, { completions: { items: [{ value: false }] } }],
+  ])('keeps %s widgets with additive nested fields but refuses malformed known fields', (kind, type, additive, malformed) => {
+    const parse = (fields: object) => parseDinksterSchema('Additive', { interface: [{
+      role: 'input', id: 'choice', type: kind === 'MULTI_COMBO'
+        ? { kind: 'list', element: concrete(type) } : concrete(type),
+      required: true, widget: { type: kind, ...fields },
+    }] })
+    const accepted = parse(additive)
+    expect(accepted.schema).toBeDefined()
+    expect(accepted.diagnostics).toHaveLength(1)
+    expect(accepted.diagnostics[0]).toMatchObject({ severity: 'warning', code: 'schema.widget.unknownField' })
+    expect(accepted.diagnostics[0]!.message).toContain('Additive.choice')
+    expect(accepted.diagnostics[0]!.message).toContain('futureHint')
+    expect(JSON.stringify(accepted.schema)).not.toContain('futureHint')
+    const rejected = parse(malformed)
+    expect(rejected.schema).toBeUndefined()
+    expect(rejected.diagnostics.some((item) => item.severity === 'error')).toBe(true)
+  })
+
   it('preserves source selection names through import and stamps only the VAE union arm', () => {
     const fixture = JSON.parse(readFileSync(new URL('../fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
     const file = { digest: `blake3:${'a'.repeat(64)}`, name: 'vae.safetensors', size: 4,
