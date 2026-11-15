@@ -7978,14 +7978,16 @@ export class AppState {
     readonly project: string
     readonly generation: number | undefined
     readonly execution?: string
+    readonly interim?: true
     readonly reader?: RetainedAssetReader
     observed?: boolean
     drained?: boolean
   }>()
 
-  private trackResultOwner(backend: Backend, retained: RetainedAssets): void {
+  private trackResultOwner(backend: Backend, retained: RetainedAssets, ref?: ExecutionRef): void {
     this.resultAssetOwners.set(retained.ownerId, { backend, retained, project: activeProjectId(),
-      generation: this.assetConnectionGenerations.get(backend.connection) })
+      generation: this.assetConnectionGenerations.get(backend.connection),
+      ...(ref === undefined ? {} : { execution: executionKey(ref), interim: true, observed: true }) })
   }
 
   private retireUnusedResultOwners(): void {
@@ -8001,8 +8003,15 @@ export class AppState {
         this.assetConnectionGenerations.get(backend.connection) !== owner.generation) continue
       if (live.has(id) || persisted.ownerIds.has(id)) continue
       if (owner.execution !== undefined) {
-        if (this.store.executions.get().has(owner.execution) || persisted.executions.has(owner.execution) ||
-          this.pendingResultReads.has(owner.execution)) {
+        const state = this.store.executions.get().get(owner.execution)
+        const replacements = state?.assetRetentions
+        // A sealed terminal result and its producing document replace the
+        // interim declaration only when every known root remains retained.
+        const replaced = owner.interim === true && replacements !== undefined && replacements.length > 0 &&
+          replacements.every((receipt) => receipt.complete) &&
+          retained.digests.every((digest) => replacements.some((receipt) => receipt.digests.includes(digest)))
+        if (!replaced && (state !== undefined || persisted.executions.has(owner.execution) ||
+          this.pendingResultReads.has(owner.execution))) {
           owner.observed = true
           continue
         }
@@ -9517,6 +9526,7 @@ export class AppState {
         { revision: artifact.revision, undo: [], redo: [] }, this.resolverWithVirtualNodes(registry.resolve))
       const publish = (): void => {
         this.retainedRegistries.set(artifact, registry)
+        this.hydrated.delete(key)
         this.store.register(registration.ref, artifact, registration.timestamp, {
           ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
           ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
@@ -9541,8 +9551,11 @@ export class AppState {
         if (!current()) return
         const digests = [...new Set([...roots.digests,
           ...(registration.sourceDocument === undefined ? [] : [registration.sourceDocument])])].sort()
-        await retainExecutionAssets(backend.connection, registration.ref, { ...roots, complete: false, digests })
-        if (current()) publish()
+        const retained = await retainExecutionAssets(backend.connection, registration.ref, { ...roots, complete: false, digests })
+        if (current()) {
+          this.trackResultOwner(backend, retained, registration.ref)
+          publish()
+        }
       }).catch((error: unknown) => {
         if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
           'execution.registrationRetentionFailed', `Could not retain mirrored execution assets: ${error instanceof Error ? error.message : String(error)}`)])
@@ -9644,6 +9657,7 @@ export class AppState {
           executionRegistry = this.registryForExecution(event.execution)
         }
         let previewOwner: RetainedAssets | undefined
+        let resultOwner: RetainedAssets | undefined
         if (incoming !== undefined) {
           const state = this.store.get(event.execution)
           const roots = state === undefined ? incoming : executionAssetRoots(state,
@@ -9652,9 +9666,10 @@ export class AppState {
           if (event.kind === 'preview') {
             const preview = previewAssetRoots(event)
             previewOwner = await retainPreviewAssets(backend.connection, preview.complete ? preview : union)
-          } else await retainExecutionAssets(backend.connection, event.execution, union)
+          } else resultOwner = await retainExecutionAssets(backend.connection, event.execution, union)
         }
         if (!current()) continue
+        if (resultOwner !== undefined) this.trackResultOwner(backend, resultOwner, event.execution)
         if (previewOwner?.complete && event.kind === 'preview') {
           this.previewAssetOwners.set(previewOwner, { payload: event.payload, execution: key, backend, project, generation })
         }
@@ -10328,7 +10343,8 @@ export class AppState {
         if (!current()) return false
         if (job === undefined) return true
         if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
-        if (held.jobRef !== undefined && (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled')) {
+        if (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') {
+          if (held.jobRef === undefined) return false
           const receipts = await this.retainTerminalExecutionAssets(connection, held, job,
             this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)), current)
           if (receipts === undefined) return false
@@ -10345,7 +10361,7 @@ export class AppState {
         const retained = await retainExecutionAssets(connection, ref, { complete: false,
           digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
         if (!current()) return false
-        this.trackResultOwner(backend, retained)
+        this.trackResultOwner(backend, retained, ref)
         this.store.recordAssetRetentions(ref, [retained])
         return true
       }
@@ -10353,15 +10369,13 @@ export class AppState {
   }
 
   /**
-   * A fully cached execution completes without ever emitting `executed`
-   * events, so its outputs exist only in server history. Hydrate them once
-   * per completed execution that has none.
+   * Completion admits the sealed result inventory even when live events
+   * already supplied descriptors. Cached runs also fetch their outputs here.
    */
   private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
     if (this.disposed) return
     for (const state of execs.values()) {
-      if (state.status !== 'completed') continue
-      if (Object.keys(state.outputs).length > 0) continue
+      if (state.status !== 'completed' || state.artifactsHydrated) continue
       if (this.hydrated.has(state.key)) continue
       // Route by the execution's OWN connection; a removed backend's runs
       // simply stay unhydrated (retried if it is ever re-added).
@@ -10370,7 +10384,7 @@ export class AppState {
       this.hydrated.add(state.key)
       void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
         .then(() => {
-          if (Object.keys(this.store.get(state.ref)?.outputs ?? {}).length === 0) this.hydrated.delete(state.key)
+          if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
         .catch(() => this.hydrated.delete(state.key))
     }

@@ -740,6 +740,84 @@ describe('AppState multi-window workspace', () => {
     }
   })
 
+  it.each(['covered', 'uncovered', 'missing-seal'] as const)(
+    'replaces only covered interim result holds after late submit registration: %s', async (scenario) => {
+      const left = new EventChannel()
+      const right = new EventChannel()
+      left.peer = right
+      right.peer = left
+      const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
+      editableApps.push(app)
+      const backend = app.backends.get()[0]!
+      const registry = buildDinksterRegistry(backend.id, {
+        schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {
+          X: { schemaVersion: 1, displayName: 'X', outputNode: true,
+            interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }] },
+        },
+      })
+      backend.registry.set(registry)
+      const compiled = compile({ document: workflow(), revision: 0, resolve: registry.resolve,
+        scope: { kind: 'full' }, connection: backend.id, schemaHash: registry.hash })
+      if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
+      const ref = { connection: backend.id, prompt: asPromptId('late-submit') }
+      const sourceDocument = `blake3:${'a'.repeat(64)}`
+      const digest = `blake3:${'b'.repeat(64)}`
+      const extra = `blake3:${'c'.repeat(64)}`
+      const outputs = { n1: { out: { typeId: 'IMAGE', meta: { digest } } } }
+      const owners = new Map<string, import('@dinkster/client').RetainedAssets>()
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      const job = { state: 'completed' as const, jobRef: 'backend-job', attemptId: 1,
+        sourceDocument, outputs, artifacts: [] }
+      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue(job)
+      const offer = { token: 'a'.repeat(32), scope: 'local' as const, jobRef: job.jobRef,
+        attemptId: 1, nodeId: 'n1', outputId: 'out', publication: 1, complete: true, digests: [digest] }
+      vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue(scenario === 'missing-seal'
+        ? undefined : { scope: 'local', jobRef: job.jobRef, attemptId: 1, state: 'completed', complete: true, offers: [offer] })
+      vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) => {
+        const receipt = { ...owner, sourceToken, revision: 1, complete: true, digests: [digest] }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      const send = (event: unknown) => left.postMessage({ source: 'peer', kind: 'event', event })
+      send({ kind: 'started', execution: ref, timestamp: 1 })
+      send({ kind: 'nodeOutput', execution: ref, timestamp: 2, runtimeNodeId: 'n1',
+        output: scenario === 'uncovered' ? { ...outputs.n1, extra: { digest: extra } } : outputs.n1 })
+      send({ kind: 'completed', execution: ref, timestamp: 3 })
+      await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('completed'))
+      await drainTasks()
+      expect(app.store.get(ref)?.artifactsHydrated).toBe(false)
+      const interim = [...owners.values()].filter((receipt) => receipt.ownerKind === 'shown-result' && !receipt.complete)
+      expect(interim.length).toBeGreaterThan(0)
+      left.postMessage({ source: 'peer', kind: 'register', ref, artifact: compiled.artifact, timestamp: 0,
+        jobRef: job.jobRef, sourceDocument })
+      if (scenario === 'missing-seal') {
+        await drainTasks()
+        expect(app.store.get(ref)?.artifactsHydrated).toBe(false)
+        for (const receipt of interim) expect(owners.get(receipt.ownerId)).toEqual(receipt)
+        return
+      }
+      await vi.waitFor(() => expect(app.store.get(ref)?.artifactsHydrated).toBe(true))
+      if (scenario === 'covered') {
+        await vi.waitFor(() => expect([...owners.values()].filter((receipt) =>
+          receipt.ownerKind === 'shown-result').every((receipt) => receipt.complete)).toBe(true))
+        expect(app.store.get(ref)?.outputs).toEqual(outputs)
+      } else {
+        expect(owners.get(interim[0]!.ownerId)).toEqual(interim[0])
+        expect(owners.get(interim[0]!.ownerId)?.digests).toContain(extra)
+      }
+    },
+  )
+
   it('rebuilds valid registrations and rejects malformed peer artifacts', () => {
     const left = new EventChannel()
     const right = new EventChannel()

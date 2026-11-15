@@ -841,6 +841,25 @@ describe('recorded stream replay', () => {
 })
 
 describe('bounded execution retention', () => {
+  it('supersedes covered interim references without dropping complete or uncovered receipts', () => {
+    const store = new ExecutionStore()
+    const execution = { connection: asConnectionId('local'), prompt: asPromptId('admitted-result') }
+    store.apply({ kind: 'started', execution, timestamp: 1 })
+    const receipt = (ownerId: string, complete: boolean, digests: string[]) => ({
+      scope: 'local' as const, ownerKind: 'shown-result' as const, ownerId, revision: 1, complete, digests,
+    })
+    const interim = receipt('interim', false, ['input', 'output'])
+    const uncovered = receipt('unknown', false, ['extra'])
+    const independent = receipt('independent', true, ['input'])
+    store.recordAssetRetentions(execution, [interim, uncovered, independent])
+    const incomplete = receipt('incomplete-replacement', false, ['input', 'output'])
+    store.recordAssetRetentions(execution, [incomplete])
+    expect(store.get(execution)?.assetRetentions).toEqual([interim, uncovered, independent, incomplete])
+    const input = receipt('sealed-input', true, ['input'])
+    const output = receipt('sealed-output', true, ['output'])
+    store.recordAssetRetentions(execution, [input, output])
+    expect(store.get(execution)?.assetRetentions).toEqual([uncovered, independent, input, output])
+  })
   const C0 = asConnectionId('c0')
   const exec = (prompt: string, connection = C0) => ({ connection, prompt: asPromptId(prompt) })
 

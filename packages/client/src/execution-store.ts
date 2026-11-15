@@ -829,11 +829,15 @@ export class ExecutionStore {
     this.put({ ...state, artifacts: [...artifacts], artifactsHydrated: true })
   }
 
-  /** Recording a new acknowledgment never retires an earlier owner. */
+  /** Complete result admissions supersede covered interim references, not their owners. */
   recordAssetRetentions(ref: ExecutionRef, retained: readonly RetainedAssets[]): void {
     const state = this.map.get(executionKey(ref))
     if (!state || retained.length === 0) return
-    this.put({ ...state, assetRetentions: [...state.assetRetentions ?? [], ...retained] })
+    const covered = retained.every((receipt) => receipt.complete)
+      ? new Set(retained.flatMap((receipt) => receipt.digests)) : undefined
+    const previous = (state.assetRetentions ?? []).filter((receipt) => receipt.complete ||
+      covered === undefined || !receipt.digests.every((digest) => covered.has(digest)))
+    this.put({ ...state, assetRetentions: [...previous, ...retained] })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */
