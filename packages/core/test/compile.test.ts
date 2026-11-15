@@ -39,6 +39,23 @@ const compileInput = (
 })
 
 describe('golden pairs', () => {
+  it('preserves a host refusal and anchors the unavailable node before submit', () => {
+    const reason = "Pack 'example' requires a writable mount that was not granted."
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      return schema === undefined ? undefined : {
+        ...schema,
+        ...(type === 'CLIPTextEncode' ? { unavailableReason: reason } : {}),
+      }
+    }
+    const result = compile({ ...compileInput(loadWorkflow('minimal'), { kind: 'full' }, resolve), graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      const problem = result.diagnostics.find((diagnostic) => diagnostic.code === 'dinksterGraph.nodeUnavailable')
+      expect(problem?.message).toBe(reason)
+      expect(problem?.anchor?.occurrence?.node).toBe('n1')
+    }
+  })
   it.each([false, true])('checks resident process affinity before submit (shared=%s)', (shared) => {
     const document = loadWorkflow('minimal')
     const resolve: CompileInput['resolve'] = (type) => {

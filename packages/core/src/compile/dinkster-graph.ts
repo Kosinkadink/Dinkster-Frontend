@@ -276,6 +276,7 @@ export interface DinksterGraphValidationNode {
   readonly outputTypes: Readonly<Record<string, TypeExpr>>
   readonly outputPorts: Readonly<Record<string, PortRef>>
   readonly residentAffinity?: NodeSchema['residentAffinity']
+  readonly unavailableReason?: string
 }
 
 export type DinksterGraphValidationContext = ReadonlyMap<string, DinksterGraphValidationNode>
@@ -381,6 +382,10 @@ function validateScope(
     if (isDinksterRegionEntry(entry)) validateRegion(entry.region, path, context, out)
 
     const nodeContext = context?.get(path)
+    if (nodeContext?.unavailableReason !== undefined) {
+      out.push(diag('error', 'compile', 'dinksterGraph.nodeUnavailable',
+        nodeContext.unavailableReason, anchorData(context, path)))
+    }
 
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {

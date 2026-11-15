@@ -198,6 +198,7 @@ export interface DinksterWireSchema {
   /** Host-normalized execution implementations (not worker lane names). */
   readonly executionArms?: unknown
   readonly residentAffinity?: unknown
+  readonly unavailableReason?: unknown
   /** Explicit default-target hint (true only, omitted when false). */
   readonly outputNode?: unknown
   /** Live-preview capability flag (true only, omitted when false). */
@@ -2034,6 +2035,8 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(typeof wire.signature === 'string' && wire.signature !== '' ? { signature: wire.signature } : {}),
       ...(executionArms.length > 0 ? { executionArms: [...new Set(executionArms)] } : {}),
       ...(residentAffinity !== undefined ? { residentAffinity } : {}),
+      ...(typeof wire.unavailableReason === 'string' && wire.unavailableReason !== ''
+        ? { unavailableReason: wire.unavailableReason } : {}),
       ...(typeof wire.description === 'string' && wire.description !== '' ? { description: wire.description } : {}),
       source: 'v3',
       items: [],
