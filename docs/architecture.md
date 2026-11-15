@@ -448,7 +448,9 @@ not discard this window's admitted receipts; canonical compaction retries withou
 staging another workspace candidate, before the same-lifetime replacement retires
 them. Journal changes from peers and completed local persisted-owner retirements
 reschedule read-only ownership checks, so a transient observation does not leave
-a stale warning. These checks never replay admission or release commands.
+a stale warning. Scheduling a replacement check immediately cancels the older
+observation; its response cannot publish a warning during the refresh debounce.
+These checks never replay admission or release commands.
 Recovered receipts from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
