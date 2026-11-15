@@ -1136,10 +1136,17 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it.each(['resolved', 'during-admission', 'unresolved', 'different-document', 'refused'] as const)(
+  it.each(['resolved', 'during-admission', 'locked-candidate', 'locked-unresolved', 'locked-refused', 'unresolved', 'different-document', 'refused'] as const)(
     'hands off a schema-absent persisted snapshot only to an acknowledged exact replacement: %s', async (scenario) => {
     vi.useFakeTimers()
     try {
+      const locks: (() => void)[] = []
+      const locked = scenario.startsWith('locked-')
+      if (locked) vi.stubGlobal('navigator', { locks: {
+        request: (_name: string, _options: unknown, callback: () => void) => new Promise<void>((resolve) => {
+          locks.push(() => { callback(); resolve() })
+        }),
+      } })
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp(null, session().doc)
       const owners = new Map<string, RetainedAssets>()
@@ -1160,7 +1167,7 @@ describe('retained app dispatch', () => {
       const incomplete = [...owners.values()].filter((owner) => !owner.complete)
       expect(incomplete.length).toBeGreaterThan(0)
       expect(incomplete.every((owner) => owner.digests.includes(asset('a').digest))).toBe(true)
-      const schemas = new Map(scenario === 'unresolved' ? [] : [[schema.type, schema]])
+      const schemas = new Map(scenario === 'unresolved' || scenario === 'locked-unresolved' ? [] : [[schema.type, schema]])
       app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'arrived',
         resolve: (type) => schemas.get(type) })
       if (scenario === 'different-document') expect(app.activeTab()!.store.dispatch({
@@ -1169,18 +1176,26 @@ describe('retained app dispatch', () => {
       const acknowledgment = deferred<void>()
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         await acknowledgment.promise
-        const receipt = { ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 }
+        const receipt = { ...owner, ...declaration, revision: scenario === 'refused' || scenario === 'locked-refused' ? 2 : 1 }
         owners.set(owner.ownerId, receipt)
         return receipt
       })
       vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
       if (scenario === 'during-admission') firstAcknowledgment.resolve()
+      else if (locked) locks.shift()!()
       else if (scenario !== 'resolved') app.flushPersistTabs(true)
       await vi.advanceTimersByTimeAsync(scenario === 'resolved' ? 500 : 0)
       expect(incomplete.map((owner) => owners.get(owner.ownerId)?.revision)).toEqual(incomplete.map(() => 1))
       acknowledgment.resolve()
       await vi.advanceTimersByTimeAsync(0)
-      if (scenario === 'resolved' || scenario === 'during-admission' || scenario === 'different-document') {
+      if (locked) {
+        for (let turn = 0; turn < 10 && locks.length > 0; turn++) {
+          locks.shift()!()
+          await vi.advanceTimersByTimeAsync(0)
+        }
+        expect(locks).toHaveLength(0)
+      }
+      if (scenario === 'resolved' || scenario === 'during-admission' || scenario === 'locked-candidate' || scenario === 'different-document') {
         const canonical = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
         expect(canonical.assetRetention.complete).toBe(true)
         expect(canonical.assetRetention.owners.some((entry: { retained: RetainedAssets }) =>
@@ -1188,7 +1203,7 @@ describe('retained app dispatch', () => {
         for (const entry of canonical.assetRetention.owners) expect(entry.retained.holderClasses).toEqual([1, 2, 3])
       }
       expect(incomplete.map((owner) => owners.get(owner.ownerId)?.revision))
-        .toEqual(incomplete.map(() => scenario === 'resolved' || scenario === 'during-admission' ? 2 : 1))
+        .toEqual(incomplete.map(() => scenario === 'resolved' || scenario === 'during-admission' || scenario === 'locked-candidate' ? 2 : 1))
     } finally { vi.useRealTimers() }
     },
   )
