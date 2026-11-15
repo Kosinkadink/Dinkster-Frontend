@@ -23,12 +23,13 @@ class FakeWS implements WebSocketLike {
   }
 }
 
-function harness() {
+function harness(resolveUrl?: () => Promise<string>) {
   const sockets: FakeWS[] = []
   const scheduled: (() => void)[] = []
   const received: unknown[] = []
   const socket = new ReconnectingSocket({
     url: 'ws://test',
+    ...(resolveUrl === undefined ? {} : { resolveUrl }),
     webSocketFactory: () => {
       const s = new FakeWS()
       sockets.push(s)
@@ -45,6 +46,29 @@ function harness() {
 }
 
 describe('CL3 socket identity guards', () => {
+  it.each([false, true])('preserves the connected lifetime across suspension, but reports real loss (resolved URL: %s)', async (resolvedUrl) => {
+    const { socket, sockets, scheduled } = harness(resolvedUrl ? async () => 'ws://test' : undefined)
+    const statuses: string[] = []
+    socket.status.subscribe((status) => statuses.push(status))
+    socket.connect()
+    await Promise.resolve()
+    sockets[0]!.onopen?.({})
+    expect(statuses).toEqual(['connecting', 'connected'])
+    statuses.length = 0
+    const resume = socket.suspend()
+    resume()
+    await Promise.resolve()
+    sockets[1]!.onopen?.({})
+    expect(statuses).toEqual([])
+    expect(socket.status.get()).toBe('connected')
+    sockets[1]!.onclose?.({})
+    expect(socket.status.get()).toBe('reconnecting')
+    scheduled.shift()!()
+    await Promise.resolve()
+    sockets[2]!.onopen?.({})
+    expect(statuses).toEqual(['reconnecting', 'connected'])
+  })
+
   it('suspends delivery and reconnects until resumed, without reviving a disconnected lifetime', () => {
     const { socket, sockets, scheduled, received } = harness()
     socket.connect()

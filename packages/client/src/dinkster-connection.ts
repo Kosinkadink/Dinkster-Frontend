@@ -1813,6 +1813,7 @@ export class DinksterConnection {
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
+  private readonly resumedListeners = new Set<() => void>()
   private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
   private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
@@ -1900,6 +1901,7 @@ export class DinksterConnection {
       ...(config.scheduleFn ? { scheduleFn: config.scheduleFn } : {}),
       ...(config.cancelFn ? { cancelFn: config.cancelFn } : {}),
       onData: (data) => this.handleWsData(data),
+      onResumed: () => { for (const listener of [...this.resumedListeners]) listener() },
     })
     this.status = this.socket.status
   }
@@ -1910,6 +1912,12 @@ export class DinksterConnection {
     return () => {
       this.listeners.delete(listener)
     }
+  }
+
+  /** Catch up after a planned stream gap without retiring admitted asset readers. */
+  onStreamResumed(listener: () => void): () => void {
+    this.resumedListeners.add(listener)
+    return () => { this.resumedListeners.delete(listener) }
   }
 
   onProblem(listener: (problem: Diagnostic) => void): () => void {
