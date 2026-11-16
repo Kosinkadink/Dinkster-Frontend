@@ -115,7 +115,7 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
           source: { id: 'source', type: 'proof.model', values: {} },
           target: { id: 'target', type: 'proof.modify', values: {} },
         }, links: { model: { id: 'model', from: { node: 'source', port: 'model' }, to: { node: 'target', port: 'model' } } }, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-        view: { graphs: { g0: { nodes: { source: { position: { x: 80, y: 160 } }, target: { position: { x: 500, y: 160 } } } } } },
+        view: { graphs: { g0: { nodes: { source: { position: { x: 80, y: 160 } }, target: { position: { x: 380, y: 160 } } } } } },
       }, 'Resident model')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
@@ -141,6 +141,27 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
     const path = test.info().outputPath(`resident-${state}.png`)
     await page.screenshot({ path, fullPage: true, animations: 'disabled' })
     await test.info().attach(`resident-${state}`, { path, contentType: 'image/png' })
+    if (state !== 'shared') {
+      expect(await page.evaluate(async () => {
+        const app = window.__dinksterTest!.app
+        return (await app.dispatchTo(app.activeTab()!, { command: 'node.move', params: {
+          graphId: 'g0', positions: { target: { x: 520, y: 180 } },
+        } })).ok
+      })).toBe(true)
+      await expect(panel).toContainText(reason)
+      expect(await page.evaluate(async () => {
+        const app = window.__dinksterTest!.app
+        return (await app.dispatchTo(app.activeTab()!, { command: 'link.disconnect', params: {
+          graphId: 'g0', linkId: 'model',
+        } })).ok
+      })).toBe(true)
+      if (state === 'isolated') {
+        await expect(panel).not.toContainText(reason)
+        expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+        await expect(panel).toContainText(reason)
+      } else await expect(panel).toContainText(reason)
+      expect(submissions).toBe(0)
+    }
   })
 }
 

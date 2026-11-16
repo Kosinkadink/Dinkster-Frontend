@@ -4163,6 +4163,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
     let sceneKey = ''
+    let availabilityDiags: readonly Diagnostic[] = []
     let sceneBuildContext: {
       readonly document: WorkflowDocument
       readonly graphNodes: ReadonlyMap<string, NonNullable<WorkflowDocument['graphs'][string]>['nodes'][string]>
@@ -4301,13 +4302,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // validation runs AFTER refreshSceneOverlays so companion-driven rows
       // are excluded against this build's sources, not the previous one's.
       const widgetDiags = widgetValueDiagnostics()
-      const hasResidentMetadata = scene.nodes.some(({ node }) => {
-        const schema = reg?.resolve(node.type)
-        return node.type.startsWith('#') || schema?.residentAffinity !== undefined || schema?.unavailableReason !== undefined
-      })
-      const preflight = tab.execution || !hasResidentMetadata ? undefined : untrack(() => props.app.compileTabCached(tab))
-      const availabilityDiags = preflight?.ok === false ? preflight.diagnostics.filter((diagnostic) =>
-        diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable') : []
+      // Position-only updates cannot change process affinity or node admission.
+      if (repositioned === undefined || tab.execution) {
+        const hasResidentMetadata = scene.nodes.some(({ node }) => {
+          const schema = reg?.resolve(node.type)
+          return node.type.startsWith('#') || schema?.residentAffinity !== undefined || schema?.unavailableReason !== undefined
+        })
+        const preflight = tab.execution || !hasResidentMetadata ? undefined : untrack(() => props.app.compileTabCached(tab))
+        availabilityDiags = preflight?.ok === false ? preflight.diagnostics.filter((diagnostic) =>
+          diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable') : []
+      }
       const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (untrack(hostFocused)) props.app.solveDiagnostics.set(sceneDiags)
