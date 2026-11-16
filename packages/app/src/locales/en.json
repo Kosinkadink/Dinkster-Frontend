@@ -1452,6 +1452,8 @@
   "shell.applicationControls": "Application controls",
   "shell.applicationStatus": "Application status",
   "shell.applicationTitle": "Dinkster",
+  "shell.services.qa": "QA services",
+  "shell.services.custom": "Custom services",
   "shell.backend.assetsRequireNative": "Asset browsing requires a native Dinkster backend.",
   "shell.backend.noneNative": "No native Dinkster backend is connected.",
   "shell.bottomPanels": "Bottom panels",

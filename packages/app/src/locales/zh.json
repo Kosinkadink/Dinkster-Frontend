@@ -1452,6 +1452,8 @@
   "shell.applicationControls": "应用程序控制",
   "shell.applicationStatus": "应用程序状态",
   "shell.applicationTitle": "Dinkster",
+  "shell.services.qa": "QA 服务",
+  "shell.services.custom": "自定义服务",
   "shell.backend.assetsRequireNative": "资产浏览需要原生 Dinkster 后端。",
   "shell.backend.noneNative": "没有连接原生 Dinkster 后端。",
   "shell.bottomPanels": "底部面板",
