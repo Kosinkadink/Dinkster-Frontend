@@ -222,6 +222,84 @@ describe('AppState multi-window workspace', () => {
     for (const receipt of independent) expect(receipts.get(receipt.ownerId)).toEqual(receipt)
   })
 
+  it.each(['settled', 'before-persistence', 'document-observer'] as const)(
+    'retires remote-edit owners after close from %s without releasing an independent workflow', async (scenario) => {
+      let lock = Promise.resolve()
+      vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
+        const next = lock.then(callback)
+        lock = next.then(() => undefined, () => undefined)
+        return next
+      } } })
+      const factory = authorityFactories()
+      const author = createEditableApp()
+      const viewer = createEditableApp()
+      const independentApp = createEditableApp()
+      const digest = `blake3:${'b'.repeat(64)}`
+      const asset = { digest, name: 'remote.bin', size: 13, mediaType: 'application/octet-stream', virtualPath: '' }
+      const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'held', optional: true,
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
+      const receipts = new Map<string, RetainedAssets>()
+      const viewerOwners = new Set<string>()
+      const independentOwners = new Set<string>()
+      for (const app of [author, viewer, independentApp]) {
+        app.registerSchemas([schema])
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const retained = { ...owner, ...declaration, revision: 1 }
+          receipts.set(owner.ownerId, retained)
+          if (app === viewer) viewerOwners.add(owner.ownerId)
+          if (app === independentApp) independentOwners.add(owner.ownerId)
+          return retained
+        })
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const retained = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+          receipts.set(owner.ownerId, retained)
+          return retained
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+      }
+      const document = workflow()
+      await author.openDocument(document, 'Author')
+      await viewer.openDocument(document, 'Viewer')
+      await author.enableWorkspaceAuthority(factory.document, factory.workspace)
+      await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
+      await independentApp.openDocument({ ...document, lineage: asLineageId('independent-remote-edit'), graphs: {
+        g0: { ...document.graphs.g0!, nodes: { n1: { ...document.graphs.g0!.nodes.n1!, values: { held: asset } } } },
+      } }, 'Independent workflow')
+      const independent = [...independentOwners].map((id) => receipts.get(id)!).filter((receipt) => receipt.digests.includes(digest))
+      expect(independent.length).toBeGreaterThan(0)
+      let closed = false
+      const received = viewer.tabs.get().find((tab) => tab.id === document.lineage)!
+      const stop = received.store.document.subscribe((incoming) => {
+        if (scenario === 'document-observer' && !closed && incoming.graphs.g0!.nodes.n1!.values.held !== undefined) {
+          closed = viewer.requestCloseTab(document.lineage, () => true)
+        }
+      })
+      const authorTab = author.tabs.get().find((tab) => tab.id === document.lineage)!
+      expect((await author.dispatchRetainedTo(authorTab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n1', inputId: 'held', value: asset,
+      } })).ok).toBe(true)
+      await (authorTab.store as unknown as { settle(): Promise<void> }).settle()
+      if (scenario === 'document-observer') await vi.waitFor(() => expect(closed).toBe(true))
+      else {
+        await vi.waitFor(() => expect(received.store.doc.graphs.g0!.nodes.n1!.values.held).toEqual(asset))
+        await (received.store as unknown as { settle(): Promise<void> }).settle()
+        if (scenario === 'settled') await vi.waitFor(() => {
+          const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+          expect(canonical.assetRetention.complete).toBe(true)
+          expect(canonical.tabs.find((tab: { doc: WorkflowDocument }) => tab.doc.lineage === document.lineage)
+            ?.doc.graphs.g0.nodes.n1.values.held).toEqual(asset)
+        })
+        expect(viewer.requestCloseTab(document.lineage, () => true)).toBe(true)
+      }
+      stop()
+      await vi.waitFor(() => expect(author.tabs.get().some((tab) => tab.id === document.lineage)).toBe(false))
+      await vi.waitFor(() => expect([...viewerOwners].filter((id) => receipts.get(id)?.digests.includes(digest))).toEqual([]))
+      expect(independentApp.tabs.get().some((tab) => tab.id === 'independent-remote-edit')).toBe(true)
+      for (const receipt of independent) expect(receipts.get(receipt.ownerId)).toEqual(receipt)
+    },
+  )
+
   it.each(['accepted', 'refused', 'retargeted', 'registry', 'disposed'] as const)(
     'retains incoming shared edits before publishing confirmed ground: %s', async (scenario) => {
       const factory = authorityFactories()

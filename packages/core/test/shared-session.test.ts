@@ -468,7 +468,11 @@ describe('shared DocumentSession', () => {
       })
       const original = session.doc
       const observed: string[] = []
-      session.document.subscribe((document) => observed.push(document.graphs.g0!.nodes.n1!.title ?? 'original'))
+      const observedBeforeReceipt: string[] = []
+      session.document.subscribe((document) => {
+        if (document.graphs.g0!.nodes.n1!.title === 'Incoming' && committed.length === 0) observedBeforeReceipt.push('Incoming')
+        observed.push(document.graphs.g0!.nodes.n1!.title ?? 'original')
+      })
       if (scenario.startsWith('resync-')) {
         conn.snapshotDoc = { ...baseDoc(), graphs: { g0: { ...baseDoc().graphs.g0!, nodes: {
           ...baseDoc().graphs.g0!.nodes, n1: { ...node('n1'), title: 'Incoming' },
@@ -505,9 +509,39 @@ describe('shared DocumentSession', () => {
           expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('Kept locally')
         } else expect(committed).toEqual([1])
       }
+      expect(observedBeforeReceipt).toEqual([])
       session.close()
     },
   )
+
+  it.each(['op', 'resync'] as const)('publishes committed state before reporting a throwing receipt handoff: %s', async (scenario) => {
+    const conn = new FakeConnection(baseDoc())
+    const errors: string[] = []
+    const session = await connectSharedSession(conn, coreCommandRegistry(), {
+      beforeRemoteDocument: async () => () => { throw new Error('Receipt handoff failed') },
+      onError: (message) => errors.push(message), onListenerError: () => {},
+    })
+    const documents: WorkflowDocument[] = []
+    const ops: SessionOp[] = []
+    session.document.subscribe((document) => documents.push(document))
+    session.onOp((op) => ops.push(op))
+    if (scenario === 'resync') {
+      conn.snapshotDoc = { ...baseDoc(), graphs: { g0: { ...baseDoc().graphs.g0!, nodes: {
+        ...baseDoc().graphs.g0!.nodes, n1: { ...node('n1'), title: 'Incoming' },
+      } } } }
+      conn.snapshotRevision = 2
+      conn.revision = 2
+      conn.retentionFloor = 1
+      conn.emit({ kind: 'connected', descriptor: conn.descriptor() })
+    } else conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'Incoming' }])
+    await until(() => session.status.get() === 'error')
+    expect(errors.join(' ')).toContain('Receipt handoff failed')
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('Incoming')
+    expect(session.document.get()).toBe(session.doc)
+    expect(documents).toEqual([session.doc])
+    if (scenario === 'op') expect(ops).toHaveLength(1)
+    session.close()
+  })
 
   it('stages a shared command without publication and commits it once through shared history', async () => {
     const { session, conn } = await makeShared()
