@@ -522,7 +522,12 @@ that lifetime to the promoted store, and acknowledged close retires it through
 the ordinary local document lifecycle. Rejected or historical admissions remain
 protected. Reentrant local tab changes during publication are submitted after the
 incoming inventory is applied, without waiting for another tab change. Existing-tab
-metadata updates do not wait for another ownership request. Subsequent ordered shared documents and
+metadata updates do not wait for another ownership request. A refused local tab
+addition stays open with its current document and a shared-tab failure diagnostic;
+a later accepted focus or metadata change does not discard it. Admission is still
+required before sharing that addition. Once shared membership acknowledges the
+tab, later shared removals apply normally; an explicit local close also removes
+an unacknowledged tab. Independent newer operations continue after a refusal. Subsequent ordered shared documents and
 resync snapshots await ownership before confirmed-ground publication; this does not
 certify every optimistic rebase result. Bootstrap also confirms restored tabs and
 all valid canonical, workspace-candidate, document-recovery and operation-journal
