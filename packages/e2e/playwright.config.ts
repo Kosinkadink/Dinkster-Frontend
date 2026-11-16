@@ -96,7 +96,7 @@ export default defineConfig({
   snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
   timeout: 60_000,
   reporter: [
-    [process.env['CI'] ? 'dot' : 'list'],
+    [process.env['CI'] ? 'line' : 'list'],
     ['./custom-widget-server-reporter.ts'],
   ],
   // Workers share one dev server and live backend per protocol. Client-only
