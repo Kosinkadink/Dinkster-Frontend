@@ -1,5 +1,7 @@
 import { expect, nativeTest as test, type Page } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 async function preview(page: Page, nodeId: string) {
   return page.evaluate((id) => {
     const value = window.__dinksterTest!.renderer!.getNodePreviews()[id]
