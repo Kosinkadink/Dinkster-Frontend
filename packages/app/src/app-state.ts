@@ -3954,6 +3954,11 @@ export class AppState {
         // Admit this renderer's own roots without replacing an identical peer
         // generation; otherwise storage notifications make peers displace forever.
         if (assetRetention?.acknowledged === true && assetRetention.complete === true &&
+          Array.isArray(assetRetention.owners) && assetRetention.owners.length === native.length &&
+          assetRetention.owners.every((receipt: { connectionId?: string; assetBaseUrl?: string; documentLineage?: string }, index: number) =>
+            receipt.connectionId === native[index]!.backend.connection.id &&
+            receipt.assetBaseUrl === native[index]!.backend.connection.assetUrl('') &&
+            receipt.documentLineage === native[index]!.document.lineage) &&
           canonicalJson(committed) === canonicalJson(incoming)) {
           pending = current
           reuseCanonical = true
