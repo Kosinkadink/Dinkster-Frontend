@@ -1,5 +1,7 @@
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 async function openCrop(page: Page): Promise<void> {
   const point = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((entry) => entry.id === 'crop')!
