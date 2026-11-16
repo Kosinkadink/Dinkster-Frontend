@@ -11,6 +11,8 @@ import { deflateSync } from 'node:zlib'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
+test.use({ retentionApi: false })
+
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 /** Deterministic 64x48 solid-red png, built raw (no canvas, no deps). */
