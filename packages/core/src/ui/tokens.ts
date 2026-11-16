@@ -1,4 +1,5 @@
 import palette from '@dinkster/branding/palette' with { type: 'json' }
+import components from '@dinkster/branding/components' with { type: 'json' }
 
 export interface TypeToken {
   readonly fontSize: number
@@ -114,23 +115,8 @@ export const semanticTokensForTheme = (
     border: foreground,
   })
   return deepFreeze({
-    space: {
-      4: 4,
-      8: 8,
-      12: 12,
-      16: 16,
-      24: 24,
-      32: 32,
-    },
-    type: {
-      fontFamily: '"Noto Sans", sans-serif',
-      fontMono: '"Noto Sans Mono", monospace',
-      metadata: { fontSize: 11, lineHeight: 16, fontWeight: 400 },
-      body: { fontSize: 13, lineHeight: 20, fontWeight: 400 },
-      section: { fontSize: 15, lineHeight: 20, fontWeight: 500 },
-      title: { fontSize: 18, lineHeight: 24, fontWeight: 600 },
-      weight: { regular: 400, medium: 500, semibold: 600 },
-    },
+    space: components.space,
+    type: components.type as SemanticDesignTokens['type'],
     surface: {
       canvas: colors.bg.canvas,
       panel: colors.bg.surface,
@@ -160,31 +146,15 @@ export const semanticTokensForTheme = (
       info: meaning(colors.status.info),
     },
     action: colors.action,
-    shape: {
-      small: 4,
-      control: 6,
-      card: 8,
-      capsule: 999,
-    },
+    shape: components.shape,
     interaction: {
-      compactControlHeight: 32,
-      primaryInputHeight: 40,
-      focusRingWidth: 2,
+      ...components.interaction,
       hoverOverlay: colors.bg.hover,
       pressedOverlay: colors.bg.raised,
       selectedOverlay: colors.bg.hover,
-      disabledOpacity: 0.45,
     },
-    motion: {
-      fast: 120,
-      standard: 180,
-      reduced: 0,
-      easing: 'cubic-bezier(0.2, 0, 0, 1)',
-    },
-    elevation: {
-      low: '0 4px 12px rgba(0, 0, 0, 0.28)',
-      high: '0 12px 32px rgba(0, 0, 0, 0.42)',
-    },
+    motion: components.motion,
+    elevation: components.elevation,
   } as const satisfies SemanticDesignTokens)
 }
 

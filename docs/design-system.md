@@ -141,6 +141,260 @@ wrapping footer that stacks at narrow widths. These primitives own structure
 and semantic-token styling only; callers retain value, validation, command,
 and request lifecycle ownership.
 
+## Shared Screen Patterns
+
+These contracts apply to Desktop, the web app, identity and registry sites.
+They define new and rebuilt screens, not a claim that every existing screen
+already conforms. Use the Product primitives below in the frontend; other
+products implement the same contracts using the portable tokens, not copied
+prototype code. Existing-screen repairs are separate product changes.
+
+### Portable Values And Reference Use
+
+[Component tokens](../branding/tokens/dinkster-components.json), exported as
+`@dinkster/branding/components`, own spacing, typography, shape, interaction,
+motion, elevation and page geometry. Core projects the same values into its
+semantic tokens without changing existing rendering. The palette remains
+[the color source](../branding/tokens/dinkster-colors.json), exported as
+`@dinkster/branding/palette`. Other products consume these JSON sources at a
+pinned landed revision rather than maintaining hand-written copies.
+
+All dimensions below are CSS pixels. `space.16` means that token's value,
+not a separately authored literal. `layout` values define page/site geometry;
+they do not resize the app's resizable dock regions or canvas.
+
+| Role | Portable source |
+| --- | --- |
+| Font | `type.fontFamily` / `type.fontMono`; bundle Noto Sans / Noto Sans Mono and their OFL license, wait for fonts before measuring |
+| Metadata, body, section, title | `type.metadata`, `type.body`, `type.section`, `type.title` (size, line height and weight together) |
+| Canvas, panel, raised, hover | Palette `<theme>.bg.canvas`, `.surface`, `.raised`, `.hover` |
+| Primary, secondary, disabled text | Palette `<theme>.text.primary`, `.secondary`, `.muted` |
+| Divider, focus, selection | Palette `<theme>.border.default`, `<theme>.status.info`, `<theme>.text.primary` |
+| Main action | Palette `<theme>.action.primaryBg` and `.primaryText` |
+| Remove, revoke, Sign out | Palette `brand.coral`; never a neutral Sign out |
+| Success, error, info | Palette `<theme>.status.success`, `.danger`, `.info`, with matching icon and text |
+
+The [reference captures attached to the component-standard issue](https://github.com/Kosinkadink/comfy-vibe-station/issues/1007#issuecomment-6925833532)
+are from GitHub and GitHub's Primer product system, captured in Chromium at
+1440 x 1000, device scale 1. Images stay on that issue, not in this repository.
+Each section names its capture and the region to compare. References supply
+hierarchy and composition, not foreign branding or values. Dinkster's Noto
+faces, palette, denser token scale, Title Case headings, invariant label weight,
+and coral Sign out override the references. Do not copy Primer's bold-on-select
+navigation or sentence-case headings. A border around a Primer documentation
+example is its demo frame, not sidebar chrome. Cropped examples retain their
+original pixel scale.
+
+Common state contract for all eight patterns: default text is primary on
+panel, secondary text is secondary, and structural dividers use the divider
+role. Interactive children use hover background, pressed raised background,
+and a visible `interaction.focusRingWidth` focus ring in the focus color;
+focus must not depend on hover or color alone. Selection uses hover background
+and a persistent marker with `aria-current`/`aria-selected`, never a weight or
+width change. Disabled controls remain identifiable and cannot activate.
+Noninteractive headings and empty-state copy have no selected/hover/focus
+state; their links and actions use the common interactive contract.
+
+Navigation and control labels are single line and invariant in width across
+states. Use `white-space: nowrap`, constant weight and a nonshrinking label
+slot. Prefer a shorter approved label such as Security over clipping.
+User-authored names, descriptions, identifiers and validation messages may wrap
+within their content column. Do not apply the navigation no-wrap rule to prose.
+Navigation items, page titles and section headings use Title Case; descriptions
+and messages use sentence case. Preserve product names and user-authored case.
+
+### Sidebar
+
+Reference: [github-navigation.png](https://ampcode.com/user-content/artifacts/b2f5909cafe8371c179acf38697dd6fa1f7ab52b7f6d1eedc00bbf85afd40b4d-file.png), the page's full-height left navigation
+and divider; the Default NavList example shows current-item marking only.
+
+- A fixed `layout.sidebarWidth` column starts flush with the left viewport
+  edge immediately below the top bar and fills the remaining viewport height.
+  Use panel background and a `layout.borderWidth` right divider. No enclosing
+  card, outer margin, rounded outline or shadow. Scroll its contents, not the
+  whole shell, when navigation exceeds the available height.
+- Pad navigation by `space.16`; rows are at least
+  `interaction.compactControlHeight`, with `space.8` icon/label gap,
+  `space.12` horizontal inset and `shape.control` row corners. Groups have
+  `space.24` separation. Labels use `type.body` and `type.weight.medium`
+  in every state. Group headings use `type.metadata` and medium weight.
+- Selected rows retain identical text metrics and width, use the common
+  selected surface and a `layout.borderWidth` current marker. Hover and focus
+  follow the common contract. Navigation is links in a named landmark;
+  clicking immediately changes current page and shows loading while data arrives.
+- Below `layout.sidebarBreakpoint`, replace the column with a dismissible
+  navigation sheet of the same sidebar width, bounded by the viewport. Keep
+  labels intact; do not squeeze or wrap them. The trigger stays in the top bar.
+  Escape/outside click close the sheet and restore trigger focus.
+
+### Top Bar
+
+Reference: [github-repository.png](https://ampcode.com/user-content/artifacts/1f3ef3b4b89e835c147ff69cf219f72da20cba4abf96645f429d636302557f69-file.png), GitHub's topmost global header; also
+[github-navigation.png](https://ampcode.com/user-content/artifacts/b2f5909cafe8371c179acf38697dd6fa1f7ab52b7f6d1eedc00bbf85afd40b4d-file.png), Primer's brand-left and utility-right header.
+
+- Span the viewport at `layout.topBarHeight`, panel background, with a bottom
+  divider of `layout.borderWidth`. Align brand and primary navigation left,
+  account/utilities right, vertically centered; horizontal inset `space.24`,
+  child gap `space.16`. It touches the sidebar with no intervening gutter.
+- Labels use `type.body` with medium weight in all states; brand artwork keeps
+  its approved aspect ratio. Controls are at least compact-control height.
+  Use neutral text, not accent-filled navigation. Current, hover and focus
+  follow the common contract; no header-wide selected state.
+- Never wrap utility/control labels or let them collide. At the sidebar
+  breakpoint use `space.16` inset, move secondary navigation into the sheet,
+  and keep the account trigger reachable. No horizontal page overflow.
+
+### Account Menu
+
+Reference: [github-menu.png](https://ampcode.com/user-content/artifacts/5673388bf639ef4fe74378b98f1a019bdc05a9f27afeae93f244070096ef50cf-file.png), the open Default ActionMenu's plain item panel.
+This is a menu-structure reference, not an account-content prescription.
+
+- Anchor a `layout.menuWidth` panel to the account trigger's trailing edge
+  with `space.8` separation, clamped inside the viewport by `space.8`.
+  Use panel background, one divider-colored border of `layout.borderWidth`,
+  `shape.card` corners and `elevation.low`; internal padding is `space.4`.
+  Scroll internally if available height is smaller than its content.
+- Items are plain full-width rows of at least compact-control height,
+  `space.12` horizontal padding, `space.8` icon gap, `type.body` regular,
+  `shape.small` hover corners. No bordered or filled button inside the menu.
+  Account identity may be secondary metadata above a divider with `space.8`
+  block spacing. Long identity text wraps separately, never widens menu items.
+- Sign out is coral text from `brand.coral`, including its icon, on the same
+  plain row geometry. It acts immediately without confirmation. Other items
+  use primary text. Hover/focus use the common contract; account navigation
+  may indicate the current destination without changing label metrics.
+- Trigger text cannot be selected. Click toggles; outside click, Escape and
+  item choice dismiss. Keyboard users reach every item and Escape restores
+  trigger focus. Use menu semantics only with matching arrow-key behavior;
+  a navigation popover otherwise contains ordinary links and a Sign out button
+  styled as a plain item, with normal Tab order.
+
+### Page Heading
+
+Reference: [github-navigation.png](https://ampcode.com/user-content/artifacts/b2f5909cafe8371c179acf38697dd6fa1f7ab52b7f6d1eedc00bbf85afd40b4d-file.png), the NavList page heading above its description.
+
+- One h1 per page, `type.title`, primary text, Title Case. The content column
+  is at most `layout.contentMaxWidth` with `space.32` outer padding
+  (`space.16` below the sidebar breakpoint). The h1 has no card or shadow.
+- Description follows with `space.8` gap, `type.body` regular and secondary
+  text. Leave `space.24` before the first section. Optional heading actions
+  align at the trailing edge with `space.16` gap and move below the title at
+  narrow widths; do not compress the title to make a button fit.
+- Navigation-derived titles stay on one line. Long user-authored document
+  titles may wrap; action labels never wrap. Headings have no selected,
+  hover or focus styling; interactive children use the common contract.
+
+### Section Heading
+
+Reference: [github-navigation.png](https://ampcode.com/user-content/artifacts/b2f5909cafe8371c179acf38697dd6fa1f7ab52b7f6d1eedc00bbf85afd40b4d-file.png), React examples and Default headings with
+consistent content-column alignment and separation.
+
+- Use an h2 (`ProductPanelHeader` in app panels) in `type.section` with its
+  medium weight, primary color and Title Case. Subsections retain logical
+  heading levels without inventing a new type size.
+- Separate sections by `space.32`; leave `space.12` below the heading and
+  `space.8` between heading and optional body-size secondary description.
+  Optional trailing count uses metadata type; actions have `space.12` gap.
+  A divider uses `layout.borderWidth`, never an extra boxed heading.
+- Headings and action labels stay single line. Move actions to a following
+  row on narrow screens. No selected/hover/focus state on the heading itself;
+  child actions retain the common contract.
+
+### List And Row
+
+Reference: [github-repository.png](https://ampcode.com/user-content/artifacts/1f3ef3b4b89e835c147ff69cf219f72da20cba4abf96645f429d636302557f69-file.png), the file list's aligned leading icons,
+primary names, secondary facts, separators and bounded list surface.
+
+- A data list is one visible panel-surface container with divider border of
+  `layout.borderWidth` and `shape.card` corners. Do not box each row separately.
+  Rows have at least primary-input height, `space.12` vertical and `space.16`
+  horizontal padding, `space.12` column gaps, and divider-colored separators.
+  Use `ProductListRow` with leading, primary, secondary and action slots.
+  Use table/list semantics appropriate to the data.
+- Primary content uses `type.body` regular and primary text; secondary facts
+  use metadata type and secondary text. Title Case applies to section headings,
+  not user-authored row values or explanatory status messages.
+- A selectable row uses the common marker/surface, hover and focus contract
+  without bolding or resizing. A read-only row has no artificial hover/focus
+  state. Buttons/links keep their own focus and accessible names; overflow
+  menus are keyboard reachable.
+- Keep control labels single line. Let long data wrap in a `min-width: 0`
+  column; at narrow widths stack metadata and actions below the primary label
+  rather than hiding identity or creating page overflow. Active items precede
+  collapsed revoked/expired history where that history exists.
+
+### Empty State
+
+Reference: [github-empty.png](https://ampcode.com/user-content/artifacts/51e8b38386ffb458925f38af8870cd702cb69ec250622eac79f1c617000a386d-file.png), Default Blankslate's icon, short title,
+explanation and next action grouped as one centered unit.
+
+- Use `ProductEmptyState`: panel surface, divider border, `shape.card` corners,
+  `space.24` padding and `space.12` internal gaps. Center the group in its
+  region, at most `layout.emptyStateMaxWidth`; do not stretch short copy
+  across a page.
+- Title uses `type.section`, primary text and Title Case; explanation uses
+  body regular, secondary text and sentence case. Decorative icon uses the
+  secondary role; loading, error and info use their matching semantic role
+  plus label/icon, not color alone. Explanation wraps; action labels do not.
+- Empty, loading, unavailable and error are distinct. Loading is a polite
+  status; error is an alert with enabled Retry once its request settles.
+  No selection, hover or focus on the card itself; actions use the common
+  contract. Hide unconfigured services from navigation rather than showing
+  them as empty/error pages.
+
+### Form
+
+Reference: [github-form.png](https://ampcode.com/user-content/artifacts/f6c1de9b0fc8c99b85919469bc1fd76a867e608973ea141d8992585dd8aa383a-file.png), Default FormControl's label above input.
+
+- A form column is at most `layout.formMaxWidth`. Field groups have
+  `space.24` gap. `ProductField` uses a visible body-medium label,
+  `space.8` label/control gap and `space.4` control/help gap. Text inputs use
+  primary-input height, `space.12` horizontal padding, `shape.control` corners,
+  inset surface and a divider border of `layout.borderWidth`. Textareas grow
+  vertically; do not force prose into a single-line control.
+- Input content uses body regular, primary text; help/validation uses metadata
+  type. Labels and button labels never wrap. Help, field errors and entered
+  text may wrap without clipping controls. Narrow actions stack with `space.12`
+  gap rather than shrinking labels.
+- Normal, hover and focus use the common contract. Invalid controls add the
+  semantic danger border and an associated under-field error with an icon.
+  Disabled controls use raised background and secondary text, no primary fill.
+  Inputs have no selected-row state; native text selection remains available.
+- Save starts disabled, enables only when saved values differ, and disables
+  on undo or successful save. A failed save preserves the draft.
+  `ProductActionFooter` has `space.24` separation from fields. At most one
+  solid action per screen: final primary is cyan with dark text, final removal
+  is coral, next-step/secondary actions are outlined.
+- Field problems stay under the field. Success is a dismissible, auto-hiding
+  corner toast with success icon. Non-field errors are dismissible top-content
+  banners with error icon, retained until dismissed or the next success.
+  Standing info is an info-icon banner without a close button. These message
+  rules and button roles also apply outside forms.
+
+### Design Review Before Landing
+
+1. Capture actual built screens at supported wide and narrow widths with fonts
+   loaded, and every changed state (current, hover/focus, open menu,
+   empty/loading/error, clean/dirty/saved form as applicable). Record source
+   revision, viewport, browser, theme, fixture and substituted services.
+   Execute menu, navigation/loading and Save browser checks separately;
+   screenshots alone cannot establish interactions.
+2. Place captures beside the named issue-attached references. Inspect images,
+   not only DOM/CSS or screenshot-success exit codes. Compare every visible
+   pattern and sibling controls for layout, type/weight, case, wrapping,
+   spacing and menu style.
+3. Post a difference list on the implementing issue and link it in the PR.
+   Each entry names pattern, visible difference, token/rule and disposition:
+   fix, or a specific justified difference (branding, responsive layout or
+   domain content). Expected departures above are allowed; wrapping navigation
+   or boxed Sign out is not. A different reference product is not a generic
+   justification for defects.
+4. The fresh verifier includes its own side-by-side inspection and difference
+   list in its verdict. Landing requires an empty list or an explicit PR
+   justification for each remaining difference. This standard's existing-screen
+   demonstration records defects without rebuilding that screen; adopting
+   product changes must resolve their own unjustified differences.
+
 ## Product primitive catalog
 
 Every host control uses one of these primitives. A native control or styling
