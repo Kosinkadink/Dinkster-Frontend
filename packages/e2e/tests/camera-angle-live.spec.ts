@@ -1,5 +1,7 @@
 import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 test('camera composer writes real siblings, executes orbit coordinates and preserves undo', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
