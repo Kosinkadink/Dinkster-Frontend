@@ -197,6 +197,8 @@ export interface DinksterWireSchema {
   readonly signature?: unknown
   /** Host-normalized execution implementations (not worker lane names). */
   readonly executionArms?: unknown
+  readonly residentAffinity?: unknown
+  readonly unavailableReason?: unknown
   /** Explicit default-target hint (true only, omitted when false). */
   readonly outputNode?: unknown
   /** Live-preview capability flag (true only, omitted when false). */
@@ -2008,6 +2010,25 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     const executionArms = Array.isArray(wire.executionArms)
       ? wire.executionArms.filter((arm): arm is 'native' | 'comfyui' => arm === 'native' || arm === 'comfyui')
       : []
+    let residentAffinity: NodeSchema['residentAffinity']
+    if (wire.residentAffinity !== undefined) {
+      const affinity = wireObject(wire.residentAffinity, 'residentAffinity')
+      if (!Array.isArray(affinity['types']) || !affinity['types'].every((type) => typeof type === 'string') ||
+        !Array.isArray(affinity['routes'])) throw new Error('residentAffinity requires types and routes lists')
+      residentAffinity = {
+        types: [...affinity['types']] as string[],
+        routes: affinity['routes'].map((value: unknown) => {
+          const route = wireObject(value, 'residentAffinity.routes')
+          if (typeof route['process'] !== 'string' || typeof route['pack'] !== 'string' || typeof route['worker'] !== 'string') {
+            throw new Error('residentAffinity route requires process, pack and worker strings')
+          }
+          return { process: route['process'], pack: route['pack'], worker: route['worker'],
+            unplaced: route['unplaced'] !== false,
+            ...(typeof route['provider'] === 'string' ? { provider: route['provider'] } : {}),
+          }
+        }),
+      }
+    }
     const baseSchema: NodeSchema = {
       type: nodeType,
       displayName: typeof wire.displayName === 'string' && wire.displayName !== '' ? wire.displayName : nodeType,
@@ -2016,6 +2037,9 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(typeof wire.pack === 'string' && wire.pack !== '' ? { pack: wire.pack } : {}),
       ...(typeof wire.signature === 'string' && wire.signature !== '' ? { signature: wire.signature } : {}),
       ...(executionArms.length > 0 ? { executionArms: [...new Set(executionArms)] } : {}),
+      ...(residentAffinity !== undefined ? { residentAffinity } : {}),
+      ...(typeof wire.unavailableReason === 'string' && wire.unavailableReason !== ''
+        ? { unavailableReason: wire.unavailableReason } : {}),
       ...(typeof wire.description === 'string' && wire.description !== '' ? { description: wire.description } : {}),
       source: 'v3',
       items: [],

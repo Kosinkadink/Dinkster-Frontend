@@ -968,6 +968,13 @@ export interface NodeSchema {
   readonly signature?: string
   /** User-facing execution implementations available for this node type. */
   readonly executionArms?: readonly ExecutionArm[]
+  /** Host-declared refusal; absent means no node-wide execution restriction. */
+  readonly unavailableReason?: string
+  /** Host-declared process affinity; opaque process keys are only compared for equality. */
+  readonly residentAffinity?: {
+    readonly types: readonly string[]
+    readonly routes: readonly { readonly process: string; readonly pack: string; readonly worker: string; readonly unplaced?: boolean; readonly provider?: string }[]
+  }
   readonly description?: string
   readonly source: SchemaSource
   /** Ordered as declared. Inputs, outputs, sections - any order. */

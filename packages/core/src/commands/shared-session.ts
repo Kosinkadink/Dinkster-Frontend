@@ -155,7 +155,7 @@ export interface SharedSessionOptions {
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
-  /** Confirm ownership before adoption; an optional receipt callback runs only after commit. */
+  /** Confirm ownership before adoption; the receipt callback runs after commit, before observers. */
   readonly beforeRemoteDocument?: (
     document: WorkflowDocument,
     revision: number,
@@ -926,7 +926,7 @@ class SharedDocumentSession implements DocumentSession {
    * divergence reason when the caller must request a resync - never resyncs
    * itself, because the right entry point differs per caller.
    */
-  private ingestOrdered(op: CollabServerOp): string | null {
+  private ingestOrdered(op: CollabServerOp, committed?: () => void): string | null {
     if (op.revision !== this.confirmedRevision + 1) {
       return `ordered ingress: revision ${op.revision} at confirmed ${this.confirmedRevision}`
     }
@@ -935,7 +935,7 @@ class SharedDocumentSession implements DocumentSession {
       const head = this.pending[0]
       if (head !== undefined && head.opId === op.opId) {
         if (jsonSameValue(op.patch as unknown as Json, head.predicted as unknown as Json)) {
-          return this.ack(op)
+          return this.ack(op, committed)
         }
         // Same opId, different patch: the server committed something we did
         // not submit under our id. Never trust it into confirmed state.
@@ -956,7 +956,7 @@ class SharedDocumentSession implements DocumentSession {
           // The server committed something under our id that we never sent.
           return 'own op patch mismatch'
         }
-        return this.confirmPending(idx, op)
+        return this.confirmPending(idx, op, committed)
       }
       // An own op this incarnation no longer claims (previous incarnation's
       // tail after a reconnect, or bookkeeping lost to a resync). The
@@ -965,13 +965,13 @@ class SharedDocumentSession implements DocumentSession {
       // report it as divergence - a resync cannot remove it from the log,
       // so that would loop forever.
       this.safeSink(new Error(`own op ${op.opId} adopted as external (not the pending head)`), 'own op adopt')
-      return this.applyForeign(op)
+      return this.applyForeign(op, committed)
     }
-    return this.applyForeign(op)
+    return this.applyForeign(op, committed)
   }
 
   /** Head pending op accepted: confirmed catches up to what optimistic already shows. */
-  private ack(op: CollabServerOp): string | null {
+  private ack(op: CollabServerOp, committed?: () => void): string | null {
     let next: WorkflowDocument
     try {
       // With no later optimistic intentions, exact patch equality above
@@ -992,6 +992,7 @@ class SharedDocumentSession implements DocumentSession {
     this.confirmedRevision = op.revision
     this.snapshotPolicy.observeConfirmed(op.revision)
     const entry = this.pending.shift()
+    committed?.()
     this.emitOp(op, entry?.origin ?? op.opId)
     this.considerSnapshotPublication()
     return null
@@ -1006,7 +1007,7 @@ class SharedDocumentSession implements DocumentSession {
    * history record reflects the re-executed - not the committed - patches,
    * so it is conservatively dropped rather than trusted.
    */
-  private confirmPending(idx: number, op: CollabServerOp): string | null {
+  private confirmPending(idx: number, op: CollabServerOp, committed?: () => void): string | null {
     const oldGround = this.confirmed
     let next: WorkflowDocument
     try {
@@ -1021,13 +1022,13 @@ class SharedDocumentSession implements DocumentSession {
     this.snapshotPolicy.observeConfirmed(op.revision)
     const entry = this.pending[idx]!
     if (entry.record) this.removeRecord(entry.record)
-    this.rebase(oldGround, new Set([entry]))
+    this.rebase(oldGround, new Set([entry]), committed)
     this.emitOp(op, entry.origin)
     this.considerSnapshotPublication()
     return null
   }
 
-  private applyForeign(op: CollabServerOp): string | null {
+  private applyForeign(op: CollabServerOp, committed?: () => void): string | null {
     const oldGround = this.confirmed
     let next: WorkflowDocument
     try {
@@ -1042,7 +1043,7 @@ class SharedDocumentSession implements DocumentSession {
     this.snapshotPolicy.observeConfirmed(op.revision)
     // Rebase FIRST, emit after: listeners must never observe a server
     // revision the optimistic document does not contain yet.
-    this.rebase(oldGround)
+    this.rebase(oldGround, undefined, committed)
     this.emitOp(op, 'remote')
     this.considerSnapshotPublication()
     return null
@@ -1056,12 +1057,14 @@ class SharedDocumentSession implements DocumentSession {
    * casualty is dropped WITH its record (a stale record could undo foreign
    * state) and a conflict notification.
    *
-   * Reentrancy: the queue is detached before rebuilding, the new state is
-   * published before any callback fires, and conflict notifications are
-   * fenced - a dispatching or throwing onConflict sees (and cannot corrupt)
-   * a fully consistent session.
+   * Reentrancy: the queue is detached before rebuilding. The receipt handoff
+   * sees committed state before publication; conflict notifications follow
+   * publication, so a dispatching or throwing onConflict sees (and cannot
+   * corrupt) a fully consistent session.
    */
-  private rebase(oldGround: WorkflowDocument, skipped: ReadonlySet<PendingEntry> = new Set()): void {
+  private rebase(
+    oldGround: WorkflowDocument, skipped: ReadonlySet<PendingEntry> = new Set(), committed?: () => void,
+  ): void {
     const retainedDocuments = this.validateCommit === undefined ? undefined
       : sharedRetainedDocuments(this.store.doc, oldGround, this.pending.map((entry) => entry.predicted))
     const entries = this.pending.splice(0)
@@ -1147,6 +1150,7 @@ class SharedDocumentSession implements DocumentSession {
       this.rebasing = false
     }
     this.pending.push(...survivors)
+    committed?.()
     this.docSignal.set(this.store.doc)
     for (const conflict of conflicts) this.notifyConflict(conflict)
   }
@@ -1171,7 +1175,14 @@ class SharedDocumentSession implements DocumentSession {
       if (this.store.doc === current && this.revision === history.revision &&
         ([['undo', this.undoStack], ['redo', this.redoStack]] as const).every(([key, records]) =>
           records.length === history[key].length && records.every((record, index) =>
-            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return committed ?? (() => {})
+            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return () => {
+        try {
+          committed?.()
+        } catch (error) {
+          // Finish publishing the already committed state before entering error.
+          queueMicrotask(() => this.fail(`receipt handoff failed: ${error instanceof Error ? error.message : String(error)}`))
+        }
+      }
       // Local editing stays synchronous; confirm its new holders before releasing remote ground.
     }
     return false
@@ -1281,8 +1292,7 @@ class SharedDocumentSession implements DocumentSession {
             ambiguous.push(entry)
           }
         }
-        this.rebase(oldGround, new Set(ambiguous))
-        committed?.()
+        this.rebase(oldGround, new Set(ambiguous), committed)
         for (const entry of ambiguous) {
           this.notifyConflict({
             invocation: entry.invocation,
@@ -1337,14 +1347,13 @@ class SharedDocumentSession implements DocumentSession {
           if (admitted === false) return
           committed = admitted
         }
-        const failure = this.ingestOrdered(op)
+        const failure = this.ingestOrdered(op, committed)
         if (failure !== null) {
           if (op.revision > this.syncTarget) this.syncTarget = op.revision
           this.safeSink(new Error(failure), 'resync')
           this.resyncRequested = true
           break
         }
-        committed?.()
         progressed = true
       }
       if (!progressed && !this.resyncRequested && this.confirmedRevision < this.syncTarget) {

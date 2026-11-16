@@ -83,6 +83,88 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
 })
 
+for (const state of ['shared', 'isolated', 'host-refused'] as const) {
+  test(`resident process availability is visible before Run (${state})`, async ({ page }) => {
+    let submissions = 0
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs') submissions++
+    })
+    const reason = state === 'host-refused'
+      ? "Pack 'modifier' requires a writable mount that was not granted."
+      : "Pack 'modifier' cannot receive a resident value from pack 'models' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference."
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1,
+      dinkster: { version: 'resident-process-test', schemaWire: 1, graphFeatures: ['regions', 'typedLiteral'] },
+      nodes: {
+        'proof.model': { displayName: 'Loaded model', pack: 'models', interface: [
+          { role: 'output', id: 'model', type: { kind: 'concrete', types: ['MODEL'] } },
+        ], residentAffinity: { types: ['MODEL'], routes: [{ process: 'models', pack: 'models', worker: 'local' }] } },
+        'proof.modify': { displayName: 'Model modifier', pack: 'modifier', outputNode: true, interface: [
+          { role: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['MODEL'] } },
+        ], ...(state === 'host-refused' ? { unavailableReason: reason } : {}),
+        residentAffinity: { types: ['MODEL'], routes: [{ process: state === 'isolated' ? 'isolated' : 'models', pack: 'modifier', worker: 'local' }] } },
+      },
+    } }))
+    await page.reload()
+    await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
+    await waitForStartupOwnership(page)
+    await page.evaluate(async () => {
+      await window.__dinksterTest!.app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'resident-process', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Resident model', nodes: {
+          source: { id: 'source', type: 'proof.model', values: {} },
+          target: { id: 'target', type: 'proof.modify', values: {} },
+        }, links: { model: { id: 'model', from: { node: 'source', port: 'model' }, to: { node: 'target', port: 'model' } } }, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        view: { graphs: { g0: { nodes: { source: { position: { x: 80, y: 160 } }, target: { position: { x: 380, y: 160 } } } } } },
+      }, 'Resident model')
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    })
+    await widenRail(page)
+    await railTab(page, 'problems').click()
+    const panel = page.getByTestId('problems-panel')
+    await expect.poll(() => page.evaluate(() =>
+      window.__dinksterTest!.renderer!.getBadges()['target']?.some((badge) => 'glyph' in badge && badge.glyph === 'Unavailable') ?? false)).toBe(state !== 'shared')
+    if (state !== 'shared') {
+      await expect(panel).toContainText(reason)
+      const point = await page.evaluate(() => {
+        const renderer = window.__dinksterTest!.renderer!
+        const node = renderer.getScene().nodes.find((node) => node.id === 'target')!
+        const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+        const viewport = renderer.getViewport()
+        return { x: rect.left + (node.x + node.layout.width - 12) * viewport.scale + viewport.x,
+          y: rect.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y }
+      })
+      await page.mouse.click(point.x, point.y)
+      await expect(page.getByTestId('badge-problem-detail')).toContainText(reason)
+    } else await expect(panel).not.toContainText('residentProcessBoundary')
+    expect(submissions).toBe(0)
+    const path = test.info().outputPath(`resident-${state}.png`)
+    await page.screenshot({ path, fullPage: true, animations: 'disabled' })
+    await test.info().attach(`resident-${state}`, { path, contentType: 'image/png' })
+    if (state !== 'shared') {
+      expect(await page.evaluate(async () => {
+        const app = window.__dinksterTest!.app
+        return (await app.dispatchTo(app.activeTab()!, { command: 'node.move', params: {
+          graphId: 'g0', positions: { target: { x: 520, y: 180 } },
+        } })).ok
+      })).toBe(true)
+      await expect(panel).toContainText(reason)
+      expect(await page.evaluate(async () => {
+        const app = window.__dinksterTest!.app
+        return (await app.dispatchTo(app.activeTab()!, { command: 'link.disconnect', params: {
+          graphId: 'g0', linkId: 'model',
+        } })).ok
+      })).toBe(true)
+      if (state === 'isolated') {
+        await expect(panel).not.toContainText(reason)
+        expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+        await expect(panel).toContainText(reason)
+      } else await expect(panel).toContainText(reason)
+      expect(submissions).toBe(0)
+    }
+  })
+}
+
 test('the Focused tab follows canvas focus and shows only that context\'s problems', async ({ page }) => {
   await reportTwoProblems(page)
   await widenRail(page)

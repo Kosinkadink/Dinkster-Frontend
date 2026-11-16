@@ -295,6 +295,8 @@ export interface CompileInput {
    * = oldest wire, emit no negotiated forms.
    */
   readonly graphFeatures?: readonly string[]
+  /** Submission-only worker hints, keyed by root runtime node id. */
+  readonly placement?: Readonly<Record<string, string>>
 }
 
 interface FlatNode {
@@ -2704,6 +2706,10 @@ function compileImpl(
 
   for (const fn of flat.values()) {
     if (!validatesNode(fn.runtimeId)) continue
+    const unavailableReason = resolveNode(fn.graphId, fn.node)?.unavailableReason
+    if (unavailableReason !== undefined) {
+      diags.push(diag('error', 'compile', 'dinksterGraph.nodeUnavailable', unavailableReason, { anchor: { occurrence: fn.occ } }))
+    }
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue // never reaches the prompt
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
@@ -3112,6 +3118,10 @@ function compileImpl(
       inputPorts,
       outputTypes,
       outputPorts,
+      ...(resolveNode(fn.graphId, fn.node)?.unavailableReason !== undefined
+        ? { unavailableReason: resolveNode(fn.graphId, fn.node)!.unavailableReason } : {}),
+      ...(resolveNode(fn.graphId, fn.node)?.residentAffinity !== undefined
+        ? { residentAffinity: resolveNode(fn.graphId, fn.node)!.residentAffinity } : {}),
     }
   }
   const buildNativeGraph = (scopeRegion?: RegionLowering, prefix = ''): DinksterGraphWire => {
@@ -3184,7 +3194,7 @@ function compileImpl(
     return { nodes }
   }
   const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
-  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext))
+  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
