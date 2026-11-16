@@ -1290,6 +1290,16 @@ describe('retained app dispatch', () => {
     const local = app.activeTab()!
     expect((await app.dispatchRetainedTo(local, replace('b'))).ok).toBe(true)
     const original = [...owners.values()].at(-1)!
+    const reader = app.workflowAssetReader(local, asset('b').digest)!
+    const unadmitted = app.workflowAssetReader(local, asset('a').digest)!
+    const started = deferred<void>()
+    const decoded = deferred<void>()
+    const reading = reader.read(async () => {
+      started.resolve()
+      await decoded.promise
+      return new Uint8Array([7, 19, 23])
+    })
+    await started.promise
     const documents = new SharedWorkerDocumentAuthority()
     const workspace = new SharedWorkerTabAuthority()
     const channels: MessageChannel[] = []
@@ -1303,10 +1313,17 @@ describe('retained app dispatch', () => {
       await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
       const shared = app.activeTab()!
       expect(shared.store).not.toBe(local.store)
+      decoded.resolve()
+      await expect(reading).resolves.toEqual(new Uint8Array([7, 19, 23]))
+      expect(reader.current()).toBe(true)
+      await expect(reader.read(async () => 'continued')).resolves.toBe('continued')
       await vi.waitFor(() => expect(owners.get(original.ownerId)?.revision).toBe(2))
       const promoted = [...owners.values()].at(-1)!
       expect(promoted.digests).toEqual([asset('a').digest, asset('b').digest])
+      await expect(unadmitted.read(async () => 'admitted after promotion')).resolves.toBe('admitted after promotion')
       expect((await app.dispatchRetainedTo(shared, replace('c'))).ok).toBe(true)
+      expect(reader.current()).toBe(false)
+      await expect(reader.read(async () => 'stale')).rejects.toThrow('no longer current')
       await vi.waitFor(() => expect(owners.get(promoted.ownerId)?.revision).toBe(2))
       expect([...owners.values()].at(-1)?.digests).toEqual([asset('a').digest, asset('b').digest, asset('c').digest])
       expect(shared.store.undo()).toBe(true)

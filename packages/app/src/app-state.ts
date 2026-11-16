@@ -5404,8 +5404,10 @@ export class AppState {
     // This reader owns only the selected bytes, not the opaque workflow that names them.
     const roots = { complete: true, digests }
     const current = (): boolean => {
-      const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
-      return !this.disposed && activeProjectId() === project && live?.store === session && session.doc === document && session.revision === revision &&
+      const live = this.tabs.get().find((candidate) => candidate.id === tab.id && candidate.store === session) ?? this.liveTabContinuing(session)
+      return !this.disposed && activeProjectId() === project && live?.id === tab.id && session.doc === document && session.revision === revision &&
+        // Promotion can replace the store without changing the document or its history.
+        (live.store === session || (live.store.revision === revision && canonicalJson(live.store.doc) === canonicalJson(document))) &&
         this.backendForTab(live) === backend && this.registryForTab(live) === registry &&
         generation === this.assetConnectionGenerations.get(backend.connection)
     }

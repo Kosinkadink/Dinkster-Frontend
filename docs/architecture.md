@@ -188,10 +188,12 @@ backend and observed connection lifetime before loading. The document and its
 history roots receive acknowledged ownership before native image decode or model
 poster work begins, including time waiting in the shared renderer queue.
 Only identities present in that captured census can use the reader. Decoded
-cache keys are partitioned by the captured owner, and changed documents, closed
-tabs, backend switches or connection transitions refuse stale reads and cache
-publication. A failed ownership request permits a later attempt; it is not a
-permanent missing-image result. Input-model sources also carry that reader into
+cache keys are partitioned by the captured owner. Recorded session continuations
+keep pending reads valid across local-to-shared promotion only while the document
+and revision remain unchanged. Changed documents, closed or reopened tabs, backend
+switches or connection transitions refuse stale reads and cache publication.
+A failed ownership request permits a later attempt; it is not a permanent
+missing-image result. Input-model sources also carry that reader into
 the orbit overlay. Its independent read covers pending mount and the mounted
 handle until disposal; closing during mount waits for actual mount completion
 and disposes the late handle. A different captured owner closes the old viewer
