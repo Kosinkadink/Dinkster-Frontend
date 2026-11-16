@@ -468,7 +468,10 @@ them. Journal changes from peers and completed local persisted-owner retirements
 reschedule read-only ownership checks, so a transient observation does not leave
 a stale warning. Scheduling a replacement check immediately cancels the older
 observation; its response cannot publish a warning during the refresh debounce.
-These checks never replay admission or release commands.
+Recording a matching admission or release acknowledgment during a check does not
+change the intent's authority or produce an ownership warning. Any other journal
+change, or a mismatched backend receipt, remains unconfirmed. These checks never
+replay admission or release commands.
 Recovered receipts from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
