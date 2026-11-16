@@ -1,5 +1,27 @@
 # Missing asset consent
 
+## Model-job client transport
+
+The native connection exposes metadata-only `planModelDownload`, explicit
+`startModelDownload`, owned-job list/status and `cancelModelDownload` operations.
+Planning sends only the model name, kind and connection's captured project.
+Starting sends only the opaque plan id and `consent: true`; it does not accept
+client-supplied provider URLs, hashes or destinations. These methods do not
+submit a workflow or retry a failed side effect automatically.
+
+Plans keep local, disabled-folder, picker-required, destination-required and
+consent-required states distinct. Immutable consent metadata includes the
+provider revision, SHA-256, size, reported license and full destination, without
+inventing an asset digest. Job progress retains received/total bytes and phase.
+Completed results retain verified BLAKE3 identity, actual physical path, reuse,
+rename and indexing-pending fields. Malformed counts, mutable revisions and
+incomplete verified results are rejected. The engine instance id on the job
+list distinguishes restart from reconnect; an unavailable job returns no status
+rather than implicitly starting another transfer. Cancelling an HTTP read does
+not cancel a transfer; cancellation is a separate explicit job operation.
+
+## Captured-submission asset consent
+
 Native job preflight can reject a submission before anything is queued or downloaded. Dinkster then opens the queue-blocking Acquire missing assets decision. The plan is not derived from visible asset widgets: backend preflight may report node-triggered requirements in any graph.
 
 The summary separates required, available, and selected counts. Each row shows the exact name and digest plus optional kind, binary size, status, and source. Packaged assets say `Ships with pack <id>` without implying a network download. Fetchable remote assets say `Download from <host>`. Assets without a downloadable source are marked unresolvable and cannot be selected. Backend detail remains visible on its asset.

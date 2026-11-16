@@ -26,6 +26,8 @@
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
 import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
+  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
 import {
   asPromptId,
   createSignal,
@@ -3446,6 +3448,41 @@ export class DinksterConnection {
 
   assetUrl(digest: string): string {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
+  }
+
+  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal): Promise<ModelDownloadPlan> {
+    return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
+      name: requirement.name, kind: requirement.kind, project: this.project ?? 'default',
+    }, signal))
+  }
+
+  async startModelDownload(planId: string, signal?: AbortSignal): Promise<ModelDownloadJob> {
+    return decodeModelDownloadJob(await this.modelDownloadRequest('start', 'POST', { planId, consent: true }, signal))
+  }
+
+  async fetchModelDownloads(signal?: AbortSignal): Promise<{ readonly instance: string; readonly jobs: readonly ModelDownloadJob[] }> {
+    return decodeModelDownloadJobs(await this.modelDownloadRequest('', 'GET', undefined, signal))
+  }
+
+  async fetchModelDownload(jobId: string, signal?: AbortSignal): Promise<ModelDownloadJob | undefined> {
+    const raw = await this.modelDownloadRequest(encodeURIComponent(jobId), 'GET', undefined, signal)
+    return raw === undefined ? undefined : decodeModelDownloadJob(raw)
+  }
+
+  async cancelModelDownload(jobId: string, signal?: AbortSignal): Promise<ModelDownloadJob> {
+    return decodeModelDownloadJob(await this.modelDownloadRequest(encodeURIComponent(jobId), 'DELETE', undefined, signal))
+  }
+
+  private async modelDownloadRequest(path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return requestWithDeadline(async (deadline) => {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/downloads${path ? `/${path}` : ''}`, {
+        method, signal: deadline, cache: 'no-store',
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      })
+      if (res.status === 404 && method === 'GET' && path) return undefined
+      if (!res.ok) throw new Error(`Model download ${method} failed: ${res.status}`)
+      return res.json() as Promise<unknown>
+    }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
   }
 
   async fetchModelSettings(): Promise<ModelSettingsState> {
