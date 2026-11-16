@@ -2291,6 +2291,7 @@ describe('submit', () => {
               assets: [
                 { digest: `blake3:${'a'.repeat(64)}`, name: 'portrait.png', status: 'missing', sources: ['https://one', 'https://two'], fetchable: true, kind: 'image/reference', size: 2048, unknownFutureField: true },
                 { digest: `blake3:${'b'.repeat(64)}`, name: 'broken.vae', status: 'failed', sources: [], fetchable: true, destination: '/home/user/Dinkster/Models/vae', detail: 'checksum mismatch', packagedFrom: ['models.base'] },
+                { digest: `blake3:${'c'.repeat(64)}`, name: 'disabled.safetensors', status: 'missing', sources: [], fetchable: false, disabledLocations: ['studio'] },
               ],
             })
           : undefined),
@@ -2306,7 +2307,8 @@ describe('submit', () => {
     expect(diagnostic.message).toContain('broken.vae (bbbbbbbbbbbb, failed)')
     expect(diagnostic.message).toContain('ships with pack models.base')
     expect(diagnostic.message).not.toContain('not yet implemented')
-    expect((diagnostic.data?.['assets'] as unknown[])).toHaveLength(2)
+    expect((diagnostic.data?.['assets'] as unknown[])).toHaveLength(3)
+    expect((diagnostic.data?.['assets'] as { disabledLocations?: string[] }[])[2]?.disabledLocations).toEqual(['studio'])
     expect((diagnostic.data?.['assets'] as { kind?: string; size?: number; packagedFrom?: string[] }[])[0]).toMatchObject({ kind: 'image/reference', size: 2048 })
     expect((diagnostic.data?.['assets'] as { packagedFrom?: string[]; destination?: string }[])[1]).toMatchObject({ packagedFrom: ['models.base'], destination: '/home/user/Dinkster/Models/vae' })
   })

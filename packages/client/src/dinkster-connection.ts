@@ -935,6 +935,7 @@ export interface MissingAsset {
   readonly sources: readonly string[]
   readonly fetchable: boolean
   readonly destination?: string
+  readonly disabledLocations?: readonly string[]
   readonly detail?: string
   readonly kind?: string
   readonly size?: number
@@ -1275,6 +1276,7 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
       !asset['sources'].every((source) => typeof source === 'string') ||
       typeof asset['fetchable'] !== 'boolean' ||
       (asset['destination'] !== undefined && typeof asset['destination'] !== 'string') ||
+      (asset['disabledLocations'] !== undefined && (!Array.isArray(asset['disabledLocations']) || asset['disabledLocations'].length === 0 || asset['fetchable'] !== false || !asset['disabledLocations'].every((id) => typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id)))) ||
       (asset['detail'] !== undefined && typeof asset['detail'] !== 'string') ||
       (asset['kind'] !== undefined && typeof asset['kind'] !== 'string') ||
       (asset['size'] !== undefined && (typeof asset['size'] !== 'number' || !Number.isInteger(asset['size']) || asset['size'] < 0)) ||
@@ -1287,6 +1289,7 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
       sources: asset['sources'] as string[],
       fetchable: asset['fetchable'],
       ...(typeof asset['destination'] === 'string' ? { destination: asset['destination'] } : {}),
+      ...(Array.isArray(asset['disabledLocations']) ? { disabledLocations: asset['disabledLocations'] as string[] } : {}),
       ...(typeof asset['detail'] === 'string' ? { detail: asset['detail'] } : {}),
       ...(typeof asset['kind'] === 'string' ? { kind: asset['kind'] } : {}),
       ...(typeof asset['size'] === 'number' ? { size: asset['size'] } : {}),

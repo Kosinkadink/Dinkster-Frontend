@@ -202,6 +202,10 @@ local folder chooser can fill the path without submitting the form; cancel
 preserves it. Reveal is offered only by a supporting local Desktop shell and
 sends a registered location id, never a renderer path; the shell verifies the
 location with the operator backend before opening the file manager.
+A workflow referencing indexed bytes held only in disabled shared folders shows
+Folder not enabled in the asset dialog. Enable folder enables that location for
+this project and retries without consenting to a download. The action is busy-
+guarded; dismissing before the enable completes prevents the retry.
 
 Backend status refreshes and canceling the native chooser preserve an unsaved
 folder choice. Folder controls and configured folders load independently of

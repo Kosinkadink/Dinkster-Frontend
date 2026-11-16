@@ -198,6 +198,19 @@ describe('asset modal surfaces', () => {
     mounted.dispose()
   })
 
+  it('offers enable for a disabled folder without selecting a download and blocks it while busy', () => {
+    const enableLocation = vi.fn()
+    const mounted = mountConsent({ assets: [{ ...asset, fetchable: false, sources: [], disabledLocations: ['studio'] }], busy: false, retry: vi.fn(), enableLocation })
+    const enable = () => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Enable folder: studio')!
+    expect(mounted.root.textContent).toContain('Folder not enabled for this project')
+    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.disabled).toBe(true)
+    enable().click()
+    expect(enableLocation).toHaveBeenCalledWith('studio')
+    mounted.app.assetConsent.set({ ...mounted.app.assetConsent.get()!, busy: true })
+    expect(enable().disabled).toBe(true)
+    mounted.dispose()
+  })
+
   it('uses shared modal chrome and blocks incidental dismissal while acquisition is busy', () => {
     const mounted = mountConsent({ assets: [asset], busy: true, retry: vi.fn() })
     const dialog = mounted.root.querySelector<HTMLDialogElement>('[data-testid="asset-consent-dialog"]')!
