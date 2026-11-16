@@ -4316,11 +4316,23 @@ export class AppState {
           !this.backends.get().includes(backend) || !stillCurrent()) {
           throw new Error('Remote workflow destination changed while ownership was being confirmed')
         }
+        // Local editing can force admission to retry without committing this receipt.
+        // Keep it protected until a remote handoff or the exact document Close.
+        if (session !== undefined && retained.complete) {
+          this.supersededWorkflowOwners.set(retained, { session, backend, project, generation, awaitingRemoteCommit: true })
+        }
         // A refreshed schema can expose new roots; its own acknowledgment must precede publication.
         if (backend.registry.get() !== registry) continue
         this.reportIncompleteOwnership(document.lineage, roots, retained)
         return () => {
           if (session !== undefined && !connectionChanged && stillCurrent() && backend.registry.get() === registry) {
+            if (retained.complete) {
+              for (const pending of this.supersededWorkflowOwners.values()) {
+                if (pending.session === session && pending.backend === backend && pending.project === project &&
+                  pending.generation === generation) pending.awaitingRemoteCommit = false
+              }
+            }
+            this.supersededWorkflowOwners.delete(retained)
             this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
           }
         }
@@ -8092,6 +8104,7 @@ export class AppState {
   }>()
   private readonly supersededWorkflowOwners = new Map<RetainedAssets, {
     session: DocumentSession
+    awaitingRemoteCommit?: boolean
     readonly backend: Backend
     readonly project: string
     readonly generation: number | undefined
@@ -8143,7 +8156,7 @@ export class AppState {
     for (const [retained, pending] of this.supersededWorkflowOwners) {
       const { session, backend, project, generation } = pending
       const current = this.workflowAssetOwners.get(session)
-      if (!current?.retained.complete || current.backend !== backend || current.project !== project ||
+      if (pending.awaitingRemoteCommit || !current?.retained.complete || current.backend !== backend || current.project !== project ||
         current.generation !== generation || activeProjectId() !== project || !this.backends.get().includes(backend) ||
         this.assetConnectionGenerations.get(backend.connection) !== generation ||
         !this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === backend)) continue

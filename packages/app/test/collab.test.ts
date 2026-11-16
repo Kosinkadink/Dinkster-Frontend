@@ -452,7 +452,11 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
-  it.each([false, true])('retires settled document receipts after End and Close, another workflow=%s', async (keepWorkflow) => {
+  it.each([
+    { keepWorkflow: false, ordered: true },
+    { keepWorkflow: true, ordered: true },
+    { keepWorkflow: true, ordered: false },
+  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered', async ({ keepWorkflow, ordered }) => {
     let lock = Promise.resolve()
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
       const next = lock.then(callback)
@@ -504,7 +508,7 @@ describe('share', () => {
       expect((await app.dispatchRetainedTo(shared, { command: 'node.remove', params: {
         graphId: shared.store.doc.root, nodeIds: [node.id],
       } })).ok).toBe(true)
-      await sharedSession(app, shared.id).settle()
+      if (ordered) await sharedSession(app, shared.id).settle()
       expect(shared.store.undo()).toBe(true)
       await sharedSession(app, shared.id).settle()
       await tick()
