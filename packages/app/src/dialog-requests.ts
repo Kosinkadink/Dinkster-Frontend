@@ -35,6 +35,8 @@ export interface AssetConsentRequest {
   readonly assets: readonly MissingAsset[]
   readonly busy: boolean
   readonly retry: (digests: readonly string[]) => Promise<void>
+  readonly enableLocation?: (location: string) => Promise<void>
+  readonly enablingLocation?: string
 }
 
 export interface ImportAssetReference {
@@ -100,6 +102,7 @@ export function installAssetConsent(p: {
   readonly onSettled?: () => void
   /** Final app-owned safety check run before every captured-body retry. */
   readonly beforeRetry?: () => boolean
+  readonly enableLocation?: (location: string) => Promise<void>
   readonly onSubmitted: (submitted: SubmitOk) => void
   readonly onRejected: (diagnostics: readonly Diagnostic[]) => void
   readonly onTransportError: (message: string) => void
@@ -134,15 +137,16 @@ export function installAssetConsent(p: {
     // retry with ITS captured result. Each stage may only act through the
     // request object it installed itself.
     let owner: AssetConsentRequest
-    const retry = async (digests: readonly string[]): Promise<void> => {
+    const retry = async (digests: readonly string[], location?: string): Promise<void> => {
       // Only this stage's CURRENT request may start a retry, and only once:
       // a stale closure (dialog replaced between render and click, or a
       // reopened stage of this same chain) or a double-click during flight
       // is a no-op.
       const current = p.slot.get()
       if (settled || p.signal?.aborted || current === undefined || current !== owner || current !== chain || current.busy) return
+      if (location !== undefined && (!p.enableLocation || !current.assets.some((asset) => asset.disabledLocations?.includes(location)))) return
       inFlight = true
-      const busy: AssetConsentRequest = { ...current, busy: true }
+      const busy: AssetConsentRequest = { ...current, busy: true, ...(location !== undefined ? { enablingLocation: location } : {}) }
       owner = busy
       chain = busy
       p.slot.set(busy)
@@ -150,6 +154,11 @@ export function installAssetConsent(p: {
         if (p.beforeRetry !== undefined && !p.beforeRetry()) {
           clearIfOwned()
           return
+        }
+        if (location !== undefined) {
+          await p.enableLocation!(location)
+          if (!owned() || p.signal?.aborted) return
+          if (p.beforeRetry !== undefined && !p.beforeRetry()) { clearIfOwned(); return }
         }
         const retried = await result.retryWithAssets(digests)
         if (retried.ok) {
@@ -174,7 +183,9 @@ export function installAssetConsent(p: {
         if (!owned()) settle()
       }
     }
-    const request: AssetConsentRequest = { assets: result.assetsMissing.assets, busy: false, retry }
+    const request: AssetConsentRequest = { assets: result.assetsMissing.assets, busy: false, retry,
+      ...(p.enableLocation ? { enableLocation: (location: string) => retry([], location) } : {}),
+    }
     owner = request
     chain = request
     p.slot.set(request)

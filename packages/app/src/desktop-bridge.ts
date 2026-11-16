@@ -104,6 +104,7 @@ export interface DinksterDesktopBridge {
   fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean; readonly resolvePath?: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
   revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
+  revealModelLocation?(backendUrl: string, location: string): Promise<void>
   resolveDroppedFile?(backendUrl: string, file: File): Promise<
     | { readonly status: 'resolved'; readonly asset: AssetRef }
     | { readonly status: 'refused'; readonly reason: 'not-resolvable' | 'not-native-file' | 'unsupported-backend' }
@@ -159,7 +160,7 @@ declare global {
   }
 }
 
-export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'resolveDroppedFile'>
+export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile'>
 
 export function desktopBridge(): DinksterDesktopBridge | undefined {
   const bridge = window.dinksterDesktop

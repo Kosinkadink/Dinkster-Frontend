@@ -61,6 +61,34 @@ const flush = async (): Promise<void> => { await Promise.resolve(); await Promis
 
 describe('installAssetConsent ownership', () => {
 
+  it('enables only a returned folder and retries without consenting to downloads', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const { result, retries } = rejection([{ ...missing('blake3:a'), fetchable: false, disabledLocations: ['studio'] }])
+    let finish!: () => void
+    const enabled: string[] = []
+    const enableLocation = async (location: string) => { enabled.push(location); await new Promise<void>((resolve) => { finish = resolve }) }
+    const cb = consentCallbacks()
+    installAssetConsent({ result, slot, enableLocation, ...cb })
+    await slot.value!.enableLocation!('unrelated')
+    expect(enabled).toEqual([])
+    const action = slot.value!.enableLocation!('studio')
+    expect(slot.value?.busy).toBe(true)
+    expect(retries).toHaveLength(0)
+    finish(); await flush()
+    expect(enabled).toEqual(['studio'])
+    expect(retries[0]!.digests).toEqual([])
+    retries[0]!.resolve(submitOk)
+    await action
+    expect(slot.value).toBeUndefined()
+    expect(cb.onSubmitted).toHaveBeenCalledWith(submitOk)
+
+    installAssetConsent({ result, slot, enableLocation, ...cb })
+    const canceled = slot.value!.enableLocation!('studio')
+    slot.set(undefined)
+    finish(); await canceled
+    expect(retries).toHaveLength(1)
+  })
+
   it('successful retry clears its own dialog and reports the run', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const { result, retries } = rejection([missing('blake3:a')])
