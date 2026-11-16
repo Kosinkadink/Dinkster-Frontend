@@ -39,6 +39,64 @@ const compileInput = (
 })
 
 describe('golden pairs', () => {
+  it('preserves a host refusal and anchors the unavailable node before submit', () => {
+    const reason = "Pack 'example' requires a writable mount that was not granted."
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      return schema === undefined ? undefined : {
+        ...schema,
+        ...(type === 'CLIPTextEncode' ? { unavailableReason: reason } : {}),
+      }
+    }
+    const result = compile({ ...compileInput(loadWorkflow('minimal'), { kind: 'full' }, resolve), graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      const problem = result.diagnostics.find((diagnostic) => diagnostic.code === 'dinksterGraph.nodeUnavailable')
+      expect(problem?.message).toBe(reason)
+      expect(problem?.anchor?.occurrence?.node).toBe('n1')
+    }
+  })
+  it.each([false, true])('checks resident process affinity before submit (shared=%s)', (shared) => {
+    const document = loadWorkflow('minimal')
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (!schema) return undefined
+      return {
+        ...schema,
+        residentAffinity: {
+          types: ['MODEL', 'CLIP', 'VAE', 'CONDITIONING'],
+          routes: [{ process: shared || type === 'CheckpointLoaderSimple' ? 'shared' : 'isolated',
+            pack: type === 'CheckpointLoaderSimple' ? 'models' : 'conditioning', worker: 'local' }],
+        },
+      }
+    }
+    const result = compile({ ...compileInput(document, { kind: 'full' }, resolve), graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok).toBe(shared)
+    if (!result.ok) {
+      const problem = result.diagnostics.find((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary')
+      expect(problem?.message).toBe("Pack 'conditioning' cannot receive a resident value from pack 'models' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference.")
+      expect(problem?.anchor?.occurrence?.node).toBe('n1')
+      expect(problem?.anchor?.port?.port).toBe('clip')
+    }
+  })
+  it.each([false, true])('honors explicit producer placement instead of an unused compatible route (placed=%s)', (placed) => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (!schema) return undefined
+      return { ...schema, residentAffinity: {
+        types: ['MODEL', 'CLIP', 'VAE', 'CONDITIONING'],
+        routes: type === 'CheckpointLoaderSimple' ? [
+          { process: 'isolated', pack: 'models', worker: 'local' },
+          { process: 'shared', pack: 'models', worker: 'remote', unplaced: false },
+        ] : [{ process: 'shared', pack: 'conditioning', worker: 'local' }],
+      } }
+    }
+    const result = compile({ ...compileInput(loadWorkflow('minimal'), { kind: 'full' }, resolve),
+      graphFeatures: ['regions', 'typedLiteral'], ...(placed ? { placement: { n0: 'remote' } } : {}),
+    })
+    expect(result.ok).toBe(placed)
+    if (!result.ok) expect(result.diagnostics.some((problem) => problem.code === 'dinksterGraph.residentProcessBoundary')).toBe(true)
+  })
   it.each([25, 29.97, undefined])('stamps numeric-union widget value %s without changing concrete numerics', (value) => {
     const schema = parseDinksterSchema('Numeric', {
       outputNode: true,

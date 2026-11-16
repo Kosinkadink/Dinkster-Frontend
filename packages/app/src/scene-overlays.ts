@@ -802,7 +802,9 @@ export function deriveSceneOverlays(args: {
       if (runErrorsByNode.has(n.id) && problem.kind === 'error' &&
         problem.diagnostics.length > 0 && problem.diagnostics.every((d) => d.origin === 'runtime')) continue
       list.push(problem.kind === 'error'
-        ? PROBLEM_ERROR_BADGE
+        ? problem.diagnostics.some((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable')
+          ? { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable' }
+          : PROBLEM_ERROR_BADGE
         : problem.kind === 'blocking-warning'
           ? PROBLEM_BLOCKING_WARNING_BADGE
           : PROBLEM_WARNING_BADGE)

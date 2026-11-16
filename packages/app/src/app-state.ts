@@ -9294,7 +9294,7 @@ export class AppState {
   }
 
   /** Compile against the tab's TARGET backend: its registry, its identity. */
-  compileTab(tab: Tab, scope: ExecutionScope = { kind: 'full' }, choices?: readonly SelectorChoice[]): CompileResult | undefined {
+  compileTab(tab: Tab, scope: ExecutionScope = { kind: 'full' }, choices?: readonly SelectorChoice[], placement?: Readonly<Record<string, string>>): CompileResult | undefined {
     // Same registry read compileInputForTab makes (signals are synchronous):
     // captured here so the retained-registry association below is exact.
     const registry = this.backendForTab(tab).registry.get()
@@ -9302,6 +9302,7 @@ export class AppState {
     if (!registry || !input) return undefined
     const result = compile({
       ...input,
+      ...(placement === undefined ? {} : { placement }),
       ...(choices === undefined ? {} : {
         candidateOverride: ({ graph, selector }: { graph: string; selector: string }) =>
           choices.find((choice) => choice.graph === graph && choice.selector === selector)?.candidate,
@@ -10262,7 +10263,7 @@ export class AppState {
     const requestedPlacement = placement === undefined ? undefined : { ...placement }
     let compiledDocument = tab.store.doc
     const registry = this.registryForTab(tab)
-    let result = this.compileTab(tab, scope)
+    let result = this.compileTab(tab, scope, undefined, requestedPlacement)
     if (!result || !registry) return
     if (!result.ok) {
       // Queueing refreshes THIS tab's Problems entries (compile results
@@ -10316,7 +10317,7 @@ export class AppState {
       }
       if (capturedDocument !== compiledDocument) {
         compiledDocument = capturedDocument
-        result = this.compileTab(tab, scope, choices)
+        result = this.compileTab(tab, scope, choices, requestedPlacement)
         if (result === undefined || lease.signal.aborted) return
         if (!result.ok) {
           this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))

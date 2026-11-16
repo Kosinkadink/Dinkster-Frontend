@@ -1843,3 +1843,23 @@ network latency, rendering or a causal application speed improvement. Direct
 dispatch pays the document census cost relative to the unguarded baseline
 above; only candidates introducing an identity absent from the current
 document need the additional history census.
+
+## Live resident availability (2026-11-15, X570)
+
+Chromium through Playwright, Node 26.12.1, 1200 resident-output nodes. A probe
+alternated 24 node moves with live compilation enabled and bypassed, discarding
+the first two samples of each mode and reporting medians. Each edit awaited
+two animation frames. The fixture asserted its node count and successful moves.
+
+| Position edit | Live compile bypassed (ms) | Live availability enabled (ms) | Compile time per edit (ms) |
+| --- | ---: | ---: | ---: |
+| Before position-only reuse | 32.7 | 60.6 | 27.9 |
+| With position-only reuse | 33.4 | 33.5 | 0.0 |
+
+The optimized probe observed zero compile calls for position-only edits;
+availability still recompiles when graph semantics or schemas change. These
+shared-host observations include frame scheduling and do not establish a
+causal speed improvement, an absolute frame budget or backend execution cost.
+The browser problem-surface cases separately check that moving a refused node
+retains its reason, disconnecting clears a graph-specific refusal and undo
+restores it, while host-declared unavailability survives disconnection.
