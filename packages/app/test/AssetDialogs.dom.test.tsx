@@ -172,7 +172,7 @@ describe('asset modal surfaces', () => {
   it('presents exact consent facts, availability, staged counts, and exact selected digests', () => {
     const retry = vi.fn()
     const blocked = { ...asset, digest: digest('c'), name: 'Private model', sources: [], fetchable: false, detail: 'No provider source.' }
-    const mounted = mountConsent({ assets: [{ ...asset, size: 1_572_864, kind: 'model/checkpoint' }, blocked], busy: false, retry })
+    const mounted = mountConsent({ assets: [{ ...asset, size: 1_572_864, kind: 'model/checkpoint', destination: '/home/user/Dinkster/Models/checkpoints' }, blocked], busy: false, retry })
     const rows = mounted.root.querySelectorAll<HTMLElement>('[data-testid="asset-consent-row"]')
     const choices = mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="asset-consent-checkbox"]')
 
@@ -180,6 +180,9 @@ describe('asset modal surfaces', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]!.textContent).toContain(digest('a'))
     expect(rows[0]!.textContent).toContain('Download from models.example')
+    expect(rows[0]!.querySelector('.asset-decision-source code')?.textContent).toBe('https://models.example/fixture')
+    expect(rows[0]!.querySelector('[data-testid="asset-consent-destination"]')?.textContent).toBe('Download folder/home/user/Dinkster/Models/checkpoints')
+    expect(rows[1]!.querySelector('[data-testid="asset-consent-destination"]')).toBeNull()
     expect(rows[1]!.dataset['state']).toBe('unresolvable')
     expect(rows[1]!.textContent).toContain(digest('c'))
     expect(choices[0]!.getAttribute('aria-checked')).toBe('true')

@@ -75,7 +75,10 @@ test.beforeEach(async ({ page }) => {
   await mockBackend(page)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest?.app.backends.get()[0]
+    return backend?.connection.status.get() === 'connected' && backend.schemaState.get().status === 'ready'
+  })).toBe(true)
   await installExecution(page)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Outputs' }).click()
   await expect(page.locator('.output-thumbnail')).toHaveCount(3)

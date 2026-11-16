@@ -15,7 +15,11 @@ async function openDescriptors(page: Page): Promise<void> {
 
 async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
+  await page.route('/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/library/retention-clients' || path.startsWith('/api/library/retentions/')) return route.fallback()
+    return route.fulfill({ status: 502, body: 'isolated mock' })
+  })
   await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
     const declaration = route.request().postDataJSON()

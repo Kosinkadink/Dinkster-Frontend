@@ -300,6 +300,47 @@ describe('startup result source admission', () => {
     } finally { finishRead(test.source); test.app.dispose() }
   })
 
+  it.each(['unregistered', 'registered', 'running', 'missing-seal', 'completion-later', 'registration-during-read'] as const)('reconciles a peer result saved after this window opened: %s', async (mode) => {
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+    const test = setup()
+    clearExecutionResults()
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+    try {
+      await test.app.start()
+      test.app.store.apply({ kind: 'started', execution: test.ref, timestamp: 1 })
+      if (mode !== 'running' && mode !== 'completion-later') test.app.store.apply({ kind: 'completed', execution: test.ref, timestamp: 2 })
+      if (mode === 'registered') test.app.store.register(test.ref, test.saved.artifact!)
+      if (mode === 'missing-seal') vi.mocked(test.backend.connection.fetchTerminalResultAssets).mockResolvedValue(undefined)
+      let finishRead: ((source: string) => void) | undefined
+      if (mode === 'registration-during-read') test.fetchSource.mockImplementation(() => new Promise((resolve) => { finishRead = resolve }))
+      let before = test.app.store.get(test.ref)
+      saveExecutionResult(test.saved, test.backendIdentity)
+      events.dispatchEvent(Object.assign(new Event('storage'), {
+        key: scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY),
+        newValue: globalThis.localStorage.getItem(scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY)),
+      }))
+      if (mode === 'registration-during-read') {
+        await vi.waitFor(() => expect(finishRead).toBeDefined())
+        test.app.store.register(test.ref, test.saved.artifact!)
+        before = test.app.store.get(test.ref)
+        finishRead!(test.source)
+      }
+      if (mode === 'completion-later') test.app.store.apply({ kind: 'completed', execution: test.ref, timestamp: 3 })
+      if (mode === 'unregistered' || mode === 'completion-later') {
+        await vi.waitFor(() => expect(test.app.store.get(test.ref)?.jobRef).toBe(test.saved.jobRef))
+        expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toEqual({ typeId: 'INT', fingerprint: 'sum-seven', value: 7 })
+        expect(test.app.store.get(test.ref)?.assetRetentions?.every((receipt) => receipt.complete)).toBe(true)
+      } else {
+        if (mode === 'missing-seal') await vi.waitFor(() => expect(test.backend.connection.fetchTerminalResultAssets).toHaveBeenCalled())
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(test.app.store.get(test.ref)).toBe(before)
+      }
+    } finally { test.app.dispose() }
+  })
+
   it.each(['accepted', 'saved-extra', 'missing-seal', 'wrong-attempt', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
     const test = setup()
     try {

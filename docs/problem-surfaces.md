@@ -48,6 +48,16 @@ Native backend pack failures are restored from the process-lifetime
 healthy snapshot clears only that backend's pack failures, leaving unrelated
 app and document problems intact.
 
+A resident-value connection between packs in different processes marks the
+consumer node Unavailable before Run. Its problem names both packs and offers
+admission to the shared inference process or an engine-run owner node on a
+reference. Connections within one process and transferable asset references
+remain available. Process affinity comes from the current backend catalog,
+not the saved workflow. A host-declared `unavailableReason` also marks the node
+Unavailable and blocks submission, preserving the exact reason in its problem.
+The live canvas derives these availability problems without queueing a job;
+region ports, state feedback and exports retain their original producer affinity.
+
 Node badge popovers stay open through background overlay updates while the
 same document, graph occurrence, badge and on-screen anchor remain valid.
 This applies to expanded and minimized nodes. Moving or removing the badge,
@@ -80,6 +90,23 @@ provider ids), and the Problems tab shows each pack and its reason under
 Packs and backend, with provider ids in the expanded detail. The notice
 is advisory: those ids are refused when a plan references them, and the
 advisory disappears once the pack composes with a live worker.
+
+## Missing model downloads
+
+When submission needs a digest-backed model, the acquisition consent dialog
+shows its name, source host and full declared source URLs, size when known, and
+the backend's planned **Download folder** when provided. Review the repository,
+revision and file in a provider URL as well as its host before consenting.
+The folder remains visible while acquisition and the captured submission retry
+are busy. Choose only the exact assets to acquire;
+closing the busy view does not cancel the active retry. Successful acquisition
+closes the dialog and continues submission. Failed acquisition returns its
+updated plan or reports the refusal in Problems. Older backends and packaged
+assets without a destination keep their existing presentation.
+
+The displayed folder belongs to the serving backend, which can be another
+machine. It is not a browser download directory and is not saved into the
+workflow.
 
 ## Focus-to-context ownership
 

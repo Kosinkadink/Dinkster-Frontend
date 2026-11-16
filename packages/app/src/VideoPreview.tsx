@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
 import { ProductSlider } from './ProductSlider.js'
 import { DEFAULT_VIDEO_PREFERENCES, videoInspectionOf, type VideoInspection, type VideoPreferences } from './video-preview.js'
@@ -48,6 +48,8 @@ export function VideoPreview(props: {
   const canSelectFrame = () => inspection()?.canSelectFrame === true && !busy()
   const canStep = () => canSelectFrame() && !framePending()
   const canPlay = () => mime()?.startsWith('video/') !== false && src() !== undefined
+  const source = createMemo(() => props.media.src)
+  const autoplay = createMemo(() => preferences().autoplay)
   const releaseFrame = (): void => {
     frameRequest?.abort()
     setFramePending(false)
@@ -81,7 +83,7 @@ export function VideoPreview(props: {
     setLocalPreferences(next)
     props.onPreferences?.(next)
   }
-  createEffect(on(() => props.media.src, () => {
+  createEffect(on(source, () => {
     selection++
     selectionRequest?.abort()
     releaseFrame()
@@ -104,7 +106,7 @@ export function VideoPreview(props: {
     video.loop = preferences().loop
     video.muted = props.overview === true || preferences().muted
   })
-  createEffect(on(() => preferences().autoplay, (autoplay) => {
+  createEffect(on(autoplay, (autoplay) => {
     if (autoplay && canPlay()) void play()
     else video?.pause()
   }))

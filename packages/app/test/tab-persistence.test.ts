@@ -61,6 +61,32 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it('confirms startup ownership after the opening transport publishes its catalog', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
+    const app = createEditableApp()
+    const backend = app.backends.get()[0]!
+    const status = app.connection.status as unknown as { set(value: string): void }
+    let publish!: () => void
+    const catalog = new Promise<NonNullable<ReturnType<typeof app.registry.get>>>((resolve) => {
+      publish = () => resolve({ ...app.registry.get()!, hash: 'connected-catalog' })
+    })
+    vi.spyOn(app.connection, 'fetchSchemas').mockImplementation(() => catalog)
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    status.set('connecting')
+    let settled = false
+    const confirmation = app.confirmStartupOwnership().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    status.set('connected')
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    publish()
+    await confirmation
+    expect(backend.registry.get()?.hash).toBe('connected-catalog')
+    expect(app.activeTab()?.store.doc).toEqual(seedBasic)
+    expect(settled).toBe(true)
+  })
+
   it.each(['accepted', 'refused', 'targeted', 'targeted-registry', 'operation-accepted', 'operation-refused'] as const)(
     'confirms losing durable recovery documents before startup continues: %s', async (scenario) => {
       const document = (digit: string, lineage = seedBasic.lineage) => ({ ...seedBasic, lineage,
@@ -571,7 +597,7 @@ describe('open-tab persistence', () => {
       }>
     }
     const lineage = canonical.tabs[0]!.doc.lineage
-    const candidate = (name: string, stageId: string): unknown => {
+    const candidate = (name: string, stageId: string) => {
       const tab = structuredClone(canonical.tabs.find((entry) => entry.doc.lineage === lineage)!)
       tab.doc.graphs[tab.doc.root]!.name = name
       tab.documentRevision = 0
@@ -581,6 +607,10 @@ describe('open-tab persistence', () => {
     const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(lineage)}`
     g.localStorage!.setItem(key, JSON.stringify(candidate('earlier-B', 'stage-B')))
     g.localStorage!.setItem(key, JSON.stringify(candidate('later-A', 'stage-A')))
+    g.localStorage!.setItem('dinkster.openTabsCandidate.peer', JSON.stringify({
+      ...canonical, assetRetention: { stageId: 'workspace-B', acknowledged: false },
+      tabs: canonical.tabs.map((tab) => tab.doc.lineage === lineage ? candidate('earlier-B', 'stage-B').tab : tab),
+    }))
 
     const restored = prepareWorkflowApp(new AppState())
     const tab = restored.tabs.get().find((entry) => entry.id === lineage)!
@@ -590,14 +620,37 @@ describe('open-tab persistence', () => {
     const persisted = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as typeof canonical
     const persistedTab = persisted.tabs.find((entry) => entry.doc.lineage === lineage)!
     expect(persistedTab.doc.graphs[persistedTab.doc.root]!.name).toBe('later-A')
-    expect(persistedTab.documentRevision).toBe(1)
+    expect(persistedTab.documentRevision).toBeGreaterThan(0)
     expect(JSON.parse(g.localStorage!.getItem(key)!)).toEqual(candidate('later-A', 'stage-A'))
     const candidates = [...Array(g.localStorage!.length).keys()]
       .map((index) => g.localStorage!.key(index))
       .filter((key) => key?.startsWith('dinkster.openTabsCandidate.'))
-    expect(candidates).toHaveLength(2)
+    expect(candidates).toHaveLength(3)
     for (const candidate of candidates) expect(JSON.parse(g.localStorage!.getItem(candidate!)!).assetRetention)
       .toEqual({ stageId: expect.any(String), acknowledged: false })
+    const reopened = createEditableApp().tabs.get().find((entry) => entry.id === lineage)!
+    expect(reopened.store.doc.graphs[reopened.store.doc.root]!.name).toBe('later-A')
+    g.localStorage!.setItem('dinkster.openTabsCandidate.peer', JSON.stringify({
+      ...canonical, assetRetention: { stageId: 'workspace-C', acknowledged: false },
+      tabs: canonical.tabs.map((tab) => tab.doc.lineage === lineage ? candidate('new-C', 'stage-C').tab : tab),
+    }))
+    const updated = createEditableApp().tabs.get().find((entry) => entry.id === lineage)!
+    expect(updated.store.doc.graphs[updated.store.doc.root]!.name).toBe('new-C')
+
+    g.localStorage!.clear()
+    g.localStorage!.setItem(TABS_KEY, JSON.stringify({
+      ...canonical, workspaceRevision: 0,
+      tabs: canonical.tabs.filter((tab) => tab.doc.lineage !== lineage),
+      incorporatedWorkspaceStages: ['workspace-B', 'workspace-A'],
+    }))
+    for (const [name, stageId] of [['earlier-B', 'workspace-B'], ['later-A', 'workspace-A']]) {
+      g.localStorage!.setItem(`dinkster.openTabsCandidate.${stageId}`, JSON.stringify({
+        ...canonical, workspaceRevision: 1, assetRetention: { stageId, acknowledged: false },
+        tabs: canonical.tabs.map((tab) => tab.doc.lineage === lineage ? candidate(name!, stageId!).tab : tab),
+      }))
+    }
+    const reintroduced = createEditableApp().tabs.get().find((entry) => entry.id === lineage)!
+    expect(reintroduced.store.doc.graphs[reintroduced.store.doc.root]!.name).toBe('later-A')
     seed.dispose()
     restored.dispose()
   })

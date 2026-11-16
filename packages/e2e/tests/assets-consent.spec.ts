@@ -5,7 +5,7 @@ import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 const digest = (character: string) => `blake3:${character.repeat(64)}`
 const plans = {
   fetchable: [
-    { digest: digest('a'), name: 'A very long production checkpoint filename that must remain readable at every viewport size.safetensors', status: 'missing', sources: ['https://models.example/collections/production/first'], fetchable: true, kind: 'model/checkpoint', size: 7_654_321_098 },
+    { digest: digest('a'), name: 'A very long production checkpoint filename that must remain readable at every viewport size.safetensors', status: 'missing', sources: ['https://models.example/collections/production/first'], fetchable: true, kind: 'model/checkpoint', size: 7_654_321_098, destination: '/home/user/Dinkster/Models/checkpoints' },
     { digest: digest('b'), name: 'Second model', status: 'missing', sources: ['https://cdn.example/second'], fetchable: true, packagedFrom: ['RAW Pack ID'], detail: 'The backend will verify this exact digest after download.' },
   ],
   blocked: [{ digest: digest('c'), name: 'Private unresolvable model', status: 'missing', sources: [], fetchable: false, kind: 'model/checkpoint', detail: 'No provider declared a downloadable source for this exact digest.' }],
@@ -76,6 +76,7 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   await expect(page.getByTestId('asset-consent-selection-status')).toHaveText('1 of 2 available assets selected.')
   await expect(page.getByTestId('asset-consent-dialog')).toContainText(digest('a'))
   const dialog = page.getByTestId('asset-consent-dialog')
+  await expect(dialog.getByTestId('asset-consent-destination')).toHaveText('Download folder/home/user/Dinkster/Models/checkpoints')
   const first = page.getByTestId('asset-consent-checkbox').first()
   await first.evaluate((element) => { element.dataset['localeIdentity'] = 'retained' })
   await first.focus()
@@ -94,6 +95,7 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   await expect(dialog).toContainText('\u968f\u5305 RAW Pack ID \u63d0\u4f9b')
   await expect(dialog).toContainText(plans.fetchable[0].name)
   await expect(dialog).toContainText('model/checkpoint')
+  await expect(dialog.getByTestId('asset-consent-destination')).toHaveText('\u4e0b\u8f7d\u6587\u4ef6\u5939/home/user/Dinkster/Models/checkpoints')
   await expect(dialog).toContainText('missing')
   await expect(dialog).toContainText('RAW Pack ID')
   await expect(dialog).toContainText('The backend will verify this exact digest after download.')

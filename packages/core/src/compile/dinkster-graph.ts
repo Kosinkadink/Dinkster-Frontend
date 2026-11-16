@@ -41,7 +41,7 @@
 import { diag, type Diagnostic, type DiagnosticAnchor } from '../diagnostics.js'
 import type { Json } from '../format/document.js'
 import type { PortRef } from '../ids.js'
-import { canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, type TypeExpr } from '../schema/model.js'
+import { canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, type NodeSchema, type TypeExpr } from '../schema/model.js'
 import { typeExprFromDinksterWire } from '../schema/dinkster-wire.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 
@@ -275,6 +275,8 @@ export interface DinksterGraphValidationNode {
   readonly inputPorts: Readonly<Record<string, PortRef>>
   readonly outputTypes: Readonly<Record<string, TypeExpr>>
   readonly outputPorts: Readonly<Record<string, PortRef>>
+  readonly residentAffinity?: NodeSchema['residentAffinity']
+  readonly unavailableReason?: string
 }
 
 export type DinksterGraphValidationContext = ReadonlyMap<string, DinksterGraphValidationNode>
@@ -333,10 +335,119 @@ const anchorData = (
 export function validateDinksterGraph(
   graph: DinksterGraphWire,
   context?: DinksterGraphValidationContext,
+  placement: Readonly<Record<string, string>> = {},
 ): readonly Diagnostic[] {
   const out: Diagnostic[] = []
   validateScope(graph, '', undefined, context, out)
+  if (context !== undefined) validateResidency(graph, context, out, placement)
   return out
+}
+
+function mayHoldResident(type: TypeExpr, types: readonly string[]): boolean {
+  switch (type.kind) {
+    case 'concrete': return types.includes(type.name)
+    case 'union': return type.names.some((name) => types.includes(name))
+    case 'list':
+    case 'stream': return mayHoldResident(type.element, types)
+    case 'tuple': return type.elements.some((element) => mayHoldResident(element, types))
+    case 'variable': return type.allowedTypes?.some((element) => mayHoldResident(element, types)) ?? false
+    case 'tuple_element': return type.element !== undefined && mayHoldResident(type.element, types)
+    default: return false
+  }
+}
+
+function validateResidency(
+  graph: DinksterGraphWire,
+  context: DinksterGraphValidationContext,
+  out: Diagnostic[],
+  placement: Readonly<Record<string, string>>,
+): void {
+  type Endpoint = { node: string; output: string }
+  const key = (source: Endpoint): string => JSON.stringify([source.node, source.output])
+  const aliases = new Map<string, Endpoint[]>()
+  const inputs: { consumer: string; input: string; source: Endpoint }[] = []
+  const nodes = new Map<string, DinksterNodeEntryWire>()
+  const collect = (current: DinksterGraphWire, prefix: string): void => {
+    const sourceAt = (source: Endpoint): Endpoint => ({ ...source, node: joinPath(prefix, source.node) })
+    for (const [id, entry] of Object.entries(current.nodes)) {
+      const path = joinPath(prefix, id)
+      if (isDinksterRegionEntry(entry)) {
+        const region = entry.region
+        const bodySource = (source: Endpoint): Endpoint => ({ ...source, node: joinPath(path, source.node) })
+        for (const port of Object.keys(region.ports)) {
+          const sources: Endpoint[] = []
+          const initial = asDinksterLink(region.inputs[port] ?? null)
+          if (initial !== undefined) sources.push(sourceAt(initial))
+          const state = region.outputs[port]
+          if (region.statePorts?.includes(port) && state !== undefined) sources.push(bodySource(state.source))
+          aliases.set(key({ node: joinPath(path, DINKSTER_REGION_PSEUDO_NODE), output: port }), sources)
+        }
+        for (const [output, exported] of Object.entries(region.outputs)) {
+          const sources = [bodySource(exported.source)]
+          const initial = asDinksterLink(region.inputs[output] ?? null)
+          if (exported.mode === 'state' && initial !== undefined) sources.push(sourceAt(initial))
+          aliases.set(key({ node: path, output }), sources)
+        }
+        collect(region.body, path)
+      } else {
+        nodes.set(path, entry)
+        for (const [input, value] of Object.entries(entry.inputs)) {
+          const source = asDinksterLink(value)
+          if (source !== undefined) inputs.push({ consumer: path, input, source: sourceAt(source) })
+        }
+      }
+    }
+  }
+  collect(graph, '')
+  const producers = (source: Endpoint, seen: ReadonlySet<string> = new Set()): Endpoint[] => {
+    const id = key(source)
+    if (seen.has(id)) return []
+    const parents = aliases.get(id)
+    return parents === undefined ? nodes.has(source.node) ? [source] : []
+      : parents.flatMap((parent) => producers(parent, new Set([...seen, id])))
+  }
+  const edges = inputs.flatMap(({ consumer, input, source }) => producers(source).flatMap((origin) => {
+    const producer = context.get(origin.node)
+    const affinity = producer?.residentAffinity
+    const sourceType = producer?.outputTypes[origin.output]
+    return affinity !== undefined && sourceType !== undefined && mayHoldResident(sourceType, affinity.types)
+      ? [{ producer: origin.node, consumer, input }] : []
+  }))
+  const consumers = new Set(edges.map((edge) => edge.consumer))
+  const candidates = new Map([...nodes].map(([path, entry]) => {
+    const preferred = placement[path.split('/')[0]!]
+    let routes = (context.get(path)?.residentAffinity?.routes ?? []).filter((route) =>
+      preferred === undefined ? route.unplaced !== false : route.worker === preferred)
+    const value = entry.inputs['provider']
+    const provider = parseTypedLiteralWire(value as Json)?.value ?? value
+    if (typeof provider === 'string' && routes.some((route) => route.provider !== undefined)) {
+      routes = routes.filter((route) => route.provider === provider)
+    } else if (provider === undefined && routes.some((route) => route.provider === 'builtin')) {
+      routes = routes.filter((route) => route.provider === 'builtin')
+    }
+    return [path, consumers.has(path) ? routes : routes.slice(0, 1)] as const
+  }))
+  const components = new Map([...nodes.keys()].map((path) => [path, new Set([path])]))
+  for (const { producer, consumer, input } of edges) {
+    const sources = candidates.get(producer)!
+    const targets = candidates.get(consumer)!
+    const left = components.get(producer)!
+    const right = components.get(consumer)!
+    if (left === right || sources.length === 0 || targets.length === 0) continue
+    const members = new Set([...left, ...right])
+    let processes: Set<string> | undefined
+    for (const member of members) {
+      const choices = new Set(candidates.get(member)!.map((route) => route.process))
+      processes = processes === undefined ? choices : new Set([...processes].filter((process) => choices.has(process)))
+    }
+    if (processes?.size === 0) {
+      out.push(diag('error', 'compile', 'dinksterGraph.residentProcessBoundary',
+        `Pack '${targets[0]!.pack}' cannot receive a resident value from pack '${sources[0]!.pack}' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference.`,
+        anchorData(context, consumer, input)))
+    } else {
+      for (const member of members) components.set(member, members)
+    }
+  }
 }
 
 /** One nesting scope: a top-level graph or one region body. */
@@ -367,6 +478,10 @@ function validateScope(
     if (isDinksterRegionEntry(entry)) validateRegion(entry.region, path, context, out)
 
     const nodeContext = context?.get(path)
+    if (nodeContext?.unavailableReason !== undefined) {
+      out.push(diag('error', 'compile', 'dinksterGraph.nodeUnavailable',
+        nodeContext.unavailableReason, anchorData(context, path)))
+    }
 
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {
