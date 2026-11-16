@@ -1210,6 +1210,41 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it('retires a complete persisted snapshot after a catalog refresh and document replacement', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema], session().doc)
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(0)
+      const before = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+      const original: RetainedAssets = before.assetRetention.owners[0].retained
+      expect(original.complete).toBe(true)
+      expect(original.digests).toEqual([asset('a').digest])
+      app.registry.set({ ...app.registry.get()!, hash: 'refreshed' })
+      expect(app.activeTab()!.store.dispatch({ command: 'node.setTitle',
+        params: { graphId: 'g0', nodeId: 'n0', title: 'Changed snapshot' },
+      }).ok).toBe(true)
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(500)
+      const after = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+      expect(after.assetRetention.complete).toBe(true)
+      expect(after.tabs[0].doc.graphs.g0.nodes.n0.title).toBe('Changed snapshot')
+      expect(owners.get(original.ownerId)).toEqual({ ...original, revision: 2, complete: true, digests: [] })
+    } finally { vi.useRealTimers() }
+  })
+
   it.each(['resolved', 'during-admission', 'peer-overwrite', 'peer-during-admission', 'peer-different-document', 'locked-candidate', 'locked-unresolved', 'locked-refused', 'unresolved', 'different-document', 'refused'] as const)(
     'hands off a schema-absent persisted snapshot only to an acknowledged exact replacement: %s', async (scenario) => {
     vi.useFakeTimers()

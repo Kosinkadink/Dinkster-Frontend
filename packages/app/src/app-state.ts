@@ -3883,9 +3883,9 @@ export class AppState {
         !this.backends.get().includes(owner.backend) ||
         this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) continue
       const registry = owner.backend.registry.get()
-      // A newly resolved schema can supersede an incomplete snapshot only after
-      // the exact same document has a complete acknowledgment in this lifetime.
-      if (registry !== owner.registry && !replacements.some((replacement) =>
+      // Incomplete roots need an exact acknowledgment under the new schema.
+      // A complete receipt can retire when its captured local slot ends.
+      if (!owner.retained.complete && registry !== owner.registry && !replacements.some((replacement) =>
         replacement.backend === owner.backend && replacement.registry === registry &&
         replacement.generation === owner.generation && replacement.project === owner.project &&
         replacement.storage === owner.storage && replacement.retained.complete &&

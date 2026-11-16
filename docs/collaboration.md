@@ -63,8 +63,11 @@ Overlapping persistence admissions keep late receipts through the same complete
 replacement gate rather than dropping them when another stage publishes.
 An acknowledged empty workspace also retires its locally admitted predecessor
 receipts after the last workflow closes. Each retirement still checks the
-original project, connection generation, schema and exact durable receipt;
-independent readers and recovery sources keep their own protection.
+original project, connection generation and exact durable receipt. A complete
+local snapshot can retire after its slot ends even if the catalog refreshed;
+an incomplete snapshot still requires a complete acknowledgment for the exact
+same document under the current schema. Independent readers and recovery
+sources keep their own protection.
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
 schema and connection generation are unchanged. A changed destination or
