@@ -65,6 +65,10 @@ An acknowledged empty workspace also retires its locally admitted predecessor
 receipts after the last workflow closes. Each retirement still checks the
 original project, connection generation, schema and exact durable receipt;
 independent readers and recovery sources keep their own protection.
+Repeated peer notifications reuse this app's complete canonical workspace
+receipt only while the stored snapshot and its project, storage, backend,
+schema and connection generation are unchanged. A changed destination or
+schema requires fresh admission; another window's receipt is not adopted.
 
 The Users button in the top bar opens the Workspace state modal:
 

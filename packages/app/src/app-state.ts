@@ -3916,8 +3916,22 @@ export class AppState {
         generation: this.assetConnectionGenerations.get(backend.connection) }
     })
     const native = sources.filter(({ backend }) => backend.protocol === 'dinkster')
+    const existing = this.persistedWorkflowSlots.get(key)
+    if (key === tabsKey() && existing?.complete && storage.getItem(key) === existing.raw &&
+      existing.owners.length === sources.length && existing.owners.every((owner, index) => {
+        const source = sources[index]!
+        return owner.project === project && owner.storage === storage &&
+          this.backends.get().includes(owner.backend) && owner.backend === source.backend &&
+          owner.registry === source.registry && owner.generation === source.generation
+      })) {
+      const { assetRetention: _assetRetention, ...committed } = JSON.parse(existing.raw)
+      const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
+      // Repeated peer notifications do not require new ownership for an unchanged,
+      // completely acknowledged snapshot in the same destination lifetime.
+      if (canonicalJson(committed) === canonicalJson(incoming)) return existing.raw
+    }
     const locks = key.startsWith(documentCandidatePrefix()) ? globalThis.navigator?.locks : undefined
-    let previousOwners: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners'][number][] = []
+    let previousOwners: NonNullable<typeof existing>['owners'][number][] = []
     const writePending = (): void => {
       if (activeProjectId() !== project || globalThis.localStorage !== storage) return
       previousOwners = [...(this.persistedWorkflowSlots.get(key)?.owners ?? [])]
