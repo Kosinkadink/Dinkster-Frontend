@@ -65,6 +65,7 @@ test('served mirror estimates edited gain without submitting and yields to execu
   await queue()
   await expect.poll(() => preview(page, 'mirror')).toMatchObject({ state: null, width: 96, height: 64 })
   const initial = (await preview(page, 'mirror'))!
+  await expect.poll(() => preview(page, 'source')).toMatchObject({ width: 96, height: 64 })
   const source = (await preview(page, 'source'))!
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 0.65 }))
   await page.screenshot({ path: testInfo.outputPath('mirror-executed.png') })
