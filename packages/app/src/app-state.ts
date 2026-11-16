@@ -3985,6 +3985,9 @@ export class AppState {
           owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]), ...replacements] })
         return undefined
       }
+      // Superseded admissions can settle after this stage captured its predecessors.
+      // Keep their local receipts through the same acknowledged replacement gate.
+      previousOwners = [...new Set([...previousOwners, ...(this.persistedWorkflowSlots.get(key)?.owners ?? [])])]
       storage.setItem(key, acknowledged)
       this.persistedWorkflowSlots.set(key, { raw: acknowledged, complete, owners: [
         ...(complete ? [] : previousOwners),

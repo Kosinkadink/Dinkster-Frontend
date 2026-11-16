@@ -1175,7 +1175,14 @@ class SharedDocumentSession implements DocumentSession {
       if (this.store.doc === current && this.revision === history.revision &&
         ([['undo', this.undoStack], ['redo', this.redoStack]] as const).every(([key, records]) =>
           records.length === history[key].length && records.every((record, index) =>
-            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return committed ?? (() => {})
+            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return () => {
+        try {
+          committed?.()
+        } catch (error) {
+          // Finish publishing the already committed state before entering error.
+          queueMicrotask(() => this.fail(`receipt handoff failed: ${error instanceof Error ? error.message : String(error)}`))
+        }
+      }
       // Local editing stays synchronous; confirm its new holders before releasing remote ground.
     }
     return false
