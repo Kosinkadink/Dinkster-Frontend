@@ -7012,7 +7012,7 @@ export class AppState {
     readonly owner: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>> | undefined
   }>()
 
-  private captureClosedWorkflow(tab: Tab, revision: number): void {
+  private captureClosedWorkflow(tab: Tab, revision: number, recoveryStartedByClose = false): void {
     if (tab.execution || !this.workspaceAuthorityEnabled || this.closedWorkflowDocuments.has(tab.store)) return
     const storage = globalThis.localStorage
     if (!storage) return
@@ -7027,8 +7027,8 @@ export class AppState {
       staged.authorityGeneration === this.workspaceAuthorityGeneration ? staged : undefined
     this.closedWorkflowDocuments.set(tab.store, {
       tab, project: activeProjectId(), storage, authorityGeneration: this.workspaceAuthorityGeneration, revision,
-      stageId: digest === canonical?.documentCandidateDigests?.[tab.id]
-        ? canonical?.documentCandidateStages?.[tab.id]
+      stageId: recoveryStartedByClose && recovery !== undefined ? recovery.stageId
+        : digest === canonical?.documentCandidateDigests?.[tab.id] ? canonical?.documentCandidateStages?.[tab.id]
         : recovery !== undefined && (!recovery.pending ||
           storedCandidate?.stageId === recovery.stageId && persistedDocumentDigest(storedCandidate.tab.doc) === digest)
           ? recovery.stageId : undefined,
@@ -7097,11 +7097,17 @@ export class AppState {
 
   /** Close a tab after the caller has handled any dirty-work confirmation. */
   closeTab(id: string): void {
+    const closing = this.tabs.get().find((tab) => tab.id === id && !tab.execution)
+    const priorRecovery = closing === undefined ? undefined : this.documentRecoveryStages.get(closing.store)
     if (this.workspaceAuthorityEnabled) this.flushPersistTabs()
     this.releaseFrozenPin(id)
     for (const tab of this.tabs.get()) {
       if (tab.id === id && !tab.execution) {
-        this.captureClosedWorkflow(tab, this.workspaceTabRevision + 1)
+        // Close owns only the stage its flush first queued. An earlier queued
+        // edit still needs its written-stage barrier, even if it settles later.
+        const recoveryStartedByClose = tab === closing && !priorRecovery?.pending &&
+          this.documentRecoveryStages.get(tab.store) !== priorRecovery
+        this.captureClosedWorkflow(tab, this.workspaceTabRevision + 1, recoveryStartedByClose)
         this.endedEditorDocuments.add(tab.store)
       }
     }

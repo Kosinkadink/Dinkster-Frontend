@@ -58,7 +58,11 @@ not enable vault collection.
 A confirmed close keeps its exact locally staged recovery identity while
 admission is pending. An already-removed candidate can retire that local receipt
 only after an acknowledged canonical commit incorporates its exact stage and
-document digest. A newer unincorporated recovery edit remains protected.
+document digest. When Close itself first queues recovery, it captures that
+exact stage before removing the tab immediately; admission and canonical
+incorporation still precede recovery retirement. A recovery write already
+queued before Close keeps its written-stage barrier, protecting newer
+unincorporated edits.
 Overlapping persistence admissions keep late receipts through the same complete
 replacement gate rather than dropping them when another stage publishes.
 An acknowledged empty workspace also retires its locally admitted predecessor

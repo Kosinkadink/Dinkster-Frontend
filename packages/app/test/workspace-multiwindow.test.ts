@@ -663,6 +663,55 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
+  it('confirmed Close retires the recovery first queued by Close after admission without waiting to remove the tab', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (
+      _name: string, _options: LockOptions, callback: () => unknown,
+    ) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const app = createEditableApp()
+    const schema = primitive('X', 'FLOAT')
+    app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
+      diagnostics: [], hash: 'immediate-close', resolve: (type) => type === 'X' ? schema : undefined })
+    await app.openDocument(workflow(), 'Immediate close')
+    const factory = authorityFactories()
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    await drainTasks()
+    const tab = app.tabs.get().find((open) => open.id === 'multi-window-workflow')!
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'Saved before Close',
+    } })).ok).toBe(true)
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'Last edit before confirmed Close',
+    } })).ok).toBe(true)
+    expect(tab.store.undo()).toBe(true)
+    await tab.store.settle?.()
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    const admissions: Array<() => void> = []
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await new Promise<void>((resolve) => admissions.push(resolve))
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
+    expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
+    await drainTasks()
+    expect(JSON.parse(localStorage.getItem(key)!).assetRetention.acknowledged).toBe(false)
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+    for (const resolve of admissions) resolve()
+    await drainTasks()
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect(localStorage.getItem(key)).toBeNull()
+    expect(JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs.some(
+      (saved: { doc: WorkflowDocument }) => saved.doc.lineage === tab.id)).toBe(false)
+  })
+
   it.each(['staging-lock', 'admission'] as const)('Close distinguishes unpublished recovery edits from written stages awaiting acknowledgment: %s', async (pending) => {
     let commits = Promise.resolve<unknown>(undefined)
     const request = (_name: string, _options: LockOptions, callback: () => unknown): Promise<unknown> => {
