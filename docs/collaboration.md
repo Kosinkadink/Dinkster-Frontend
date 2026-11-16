@@ -60,7 +60,10 @@ admission is pending. An already-removed candidate can retire that local receipt
 only after an acknowledged canonical commit incorporates its exact stage and
 document digest. When Close itself first queues recovery, it captures that
 exact stage before removing the tab immediately; admission and canonical
-incorporation still precede recovery retirement. A recovery write already
+incorporation still precede recovery retirement. If canonical closure publishes
+before that stage reaches storage, the closing renderer incorporates only its
+exact completed local stage and digest into a fresh canonical admission, without
+restoring tab membership. A recovery write already
 queued before Close keeps its written-stage barrier, protecting newer
 unincorporated edits.
 Repeated notifications for an identical pending canonical snapshot share its

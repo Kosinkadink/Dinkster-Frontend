@@ -1846,6 +1846,7 @@ function mergePersistedTabs(
   states: readonly PersistedTabs[],
   documentCandidates: readonly PersistedDocumentCandidate[],
   membership?: PersistedTabs,
+  incorporatesClosedCandidate?: (candidate: PersistedDocumentCandidate, workspace: PersistedTabs) => boolean,
 ): PersistedTabs | undefined {
   let workspace = membership
   if (workspace === undefined) for (const state of states) {
@@ -1889,8 +1890,11 @@ function mergePersistedTabs(
     const id = persistedTabId(candidate.tab)
     if (!id || documentCandidateStages[id] === candidate.stageId) continue
     const current = documents.get(id)
-    if (!current || !workspace.tabs.some((tab) => persistedTabId(tab) === id)) continue
-    if (JSON.stringify(candidate.tab.doc) !== JSON.stringify(current.doc)) {
+    if (!workspace.tabs.some((tab) => persistedTabId(tab) === id)) {
+      // A late Close-owned stage contributes its identity, never tab membership.
+      if (!incorporatesClosedCandidate?.(candidate, workspace)) continue
+    } else if (!current) continue
+    if (current && JSON.stringify(candidate.tab.doc) !== JSON.stringify(current.doc)) {
       documents.set(id, committedPersistedTab(
         candidate.tab,
         Math.max(candidate.tab.documentRevision ?? 0, current.documentRevision ?? 0) + 1,
@@ -2066,6 +2070,7 @@ function commitPersistedTabs(
   onCommitted: (committed: PersistedTabs) => void,
   onRetired: (retired: readonly string[], committed: PersistedTabs) => void,
   onSlotRetired: (key: string, raw: string) => void,
+  incorporatesClosedCandidate: (candidate: PersistedDocumentCandidate, workspace: PersistedTabs) => boolean,
 ): void {
   const storage = globalThis.localStorage
   if (!storage) return
@@ -2093,7 +2098,7 @@ function commitPersistedTabs(
     try {
       if (activeProjectId() !== project || globalThis.localStorage !== storage) return
       const loaded = loadPersistedTabStates()
-      const merged = mergePersistedTabs(loaded.states, loaded.documentCandidates)
+      const merged = mergePersistedTabs(loaded.states, loaded.documentCandidates, undefined, incorporatesClosedCandidate)
       if (!merged) return
       const documents = merged.tabs.map((tab) => ({ document: loadDocument(tab.doc).document!, revision: tab.documentRevision ?? 0 }))
       if (documents.some(({ document }) => !document)) return
@@ -4811,7 +4816,20 @@ export class AppState {
         }
       }
       this.retireSupersededWorkflowOwners()
-    }, (key, raw) => this.retirePersistedWorkflowSlot(key, raw))
+    }, (key, raw) => this.retirePersistedWorkflowSlot(key, raw), (candidate, workspace) => {
+      const id = persistedTabId(candidate.tab)
+      const key = `${documentCandidatePrefix()}${encodeURIComponent(id ?? '')}`
+      const slot = this.persistedWorkflowSlots.get(key)
+      if (this.disposed || !globalThis.navigator?.locks || !this.workspaceAuthorityEnabled || !slot?.complete ||
+        parsePersistedDocumentCandidate(slot.raw)?.stageId !== candidate.stageId ||
+        globalThis.localStorage?.getItem(key) !== slot.raw || this.tabs.get().some((tab) => tab.id === id)) return false
+      const digest = persistedDocumentDigest(candidate.tab.doc)
+      return [...this.closedWorkflowDocuments.values()].some((closed) =>
+        closed.tab.id === id && closed.stageId === candidate.stageId && closed.digest === digest &&
+        closed.recovery?.pending === false && activeProjectId() === closed.project &&
+        globalThis.localStorage === closed.storage && this.workspaceAuthorityGeneration === closed.authorityGeneration &&
+        (workspace.workspaceRevision ?? 0) >= closed.revision)
+    })
   }
 
   private log(severity: AppLogEntry['severity'], source: string, message: string): void {

@@ -704,7 +704,7 @@ describe('AppState multi-window workspace', () => {
   it('uses one authoritative document with shared edit and undo visibility', async () => {
     const factory = authorityFactories()
     const first = createEditableApp()
-    const second = prepareWorkflowApp(new AppState())
+    const second = createEditableApp()
     await first.openDocument(workflow(), 'Shared workflow')
     await second.openDocument(workflow(), 'Shared workflow')
     await Promise.all([
@@ -776,7 +776,10 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
-  it('confirmed Close retires the recovery first queued by Close after admission without waiting to remove the tab', async () => {
+  it.each(['ordinary', 'canonical-first'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
     let commits = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (
       _name: string, _options: LockOptions, callback: () => unknown,
@@ -810,9 +813,27 @@ describe('AppState multi-window workspace', () => {
       await new Promise<void>((resolve) => admissions.push(resolve))
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
+    let releaseCommit = () => {}
+    if (timing === 'canonical-first') {
+      void navigator.locks.request('dinkster.openTabs.commit', {}, () => new Promise<void>((resolve) => { releaseCommit = resolve }))
+      await drainTasks()
+      events.dispatchEvent(Object.assign(new Event('storage'), {
+        key: 'dinkster.openTabs', newValue: localStorage.getItem('dinkster.openTabs'),
+      }))
+      await drainTasks()
+    }
     expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
     expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
     await drainTasks()
+    if (timing === 'canonical-first') {
+      app.flushPersistTabs(true)
+      await drainTasks()
+      releaseCommit()
+      await drainTasks()
+      const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+      expect(canonical.tabs.some((saved: { doc: WorkflowDocument }) => saved.doc.lineage === tab.id)).toBe(false)
+      expect(canonical.documentCandidateStages?.[tab.id]).not.toBe(JSON.parse(localStorage.getItem(key)!).stageId)
+    }
     expect(JSON.parse(localStorage.getItem(key)!).assetRetention.acknowledged).toBe(false)
     vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) =>
       ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
