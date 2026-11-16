@@ -431,7 +431,6 @@
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
-    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise",
     "text:props.connection) const [info, setInfo] = createSignal"
   ],
   "DesktopSetup.tsx": [
@@ -674,7 +673,7 @@
   ],
   "ModelSettings.tsx": [
     "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [id, setId] = createSignal('') const [path, setPath] = createSignal('') const [kind, setKind] = createSignal('') const [writable, setWritable] = createSignal(false) const [removing, setRemoving] = createSignal",
-    "text:() let generation = 0 let read = 0 const load = async (): Promise",
+    "text:() const [editing, setEditing] = createSignal",
     "text:): Promise",
     "text:Promise"
   ],

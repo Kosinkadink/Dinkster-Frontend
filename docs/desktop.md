@@ -192,6 +192,16 @@ download default explicitly. Removing a shared location unregisters it for all
 projects without deleting files; removing the download default selects the next
 writable location, or leaves downloads unconfigured. Concurrent edits require a
 refresh before saving. Fixed worker grants display a restart notice.
+The same Model management section appears in Desktop's Existing model folders
+area. Edit model folder changes its shared path, purpose and read/write access;
+its warning explains that every project is affected. Read-only folders are never
+upgraded implicitly. Changing the last writable location to read only leaves
+no download default. Edits opened before another shared change require a refresh.
+Copy server path works independently of native folder access. A shell-reported
+local folder chooser can fill the path without submitting the form; cancel
+preserves it. Reveal is offered only by a supporting local Desktop shell and
+sends a registered location id, never a renderer path; the shell verifies the
+location with the operator backend before opening the file manager.
 
 Backend status refreshes and canceling the native chooser preserve an unsaved
 folder choice. Folder controls and configured folders load independently of

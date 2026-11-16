@@ -4,10 +4,12 @@ import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductContr
 import { ProductField, ProductNotice } from './ProductForm.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
+import { desktopFileBridge } from './desktop-bridge.js'
 
 export function ModelSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
   readonly backendLabel: string
+  readonly backendUrl?: string
   readonly onChanged?: () => void
 }) {
   const message = useAppMessage()
@@ -19,6 +21,10 @@ export function ModelSettings(props: {
   const [kind, setKind] = createSignal('')
   const [writable, setWritable] = createSignal(false)
   const [removing, setRemoving] = createSignal<string>()
+  const [editing, setEditing] = createSignal<string>()
+  let editRevision = ''
+  const [nativeChoice, setNativeChoice] = createSignal(false)
+  const resetForm = () => { setEditing(undefined); setId(''); setPath(''); setKind(''); setWritable(false) }
   let generation = 0
   let read = 0
   const load = async (): Promise<void> => {
@@ -35,16 +41,22 @@ export function ModelSettings(props: {
   }
   createEffect(() => {
     const connection = props.connection
+    const backendUrl = props.backendUrl
     generation++
     read++
     setState(undefined)
     setBusy(false)
     setError('')
     setRemoving(undefined)
-    setId('')
-    setPath('')
-    setKind('')
-    setWritable(false)
+    resetForm()
+    setNativeChoice(false)
+    const owner = generation
+    const bridge = desktopFileBridge()
+    if (backendUrl !== undefined && bridge?.chooseDirectory) {
+      void bridge.fileCapabilities(new URL(backendUrl || '/', window.location.href).href).then((capabilities) => {
+        if (owner === generation) setNativeChoice(capabilities.nativeFolderChoice)
+      }).catch(() => undefined)
+    }
     onCleanup(connection.onMountsChanged(() => { if (!busy()) void load() }))
     onCleanup(() => { generation++; read++ })
     untrack(() => { void load() })
@@ -86,11 +98,42 @@ export function ModelSettings(props: {
   const add = async () => {
     const current = state()
     if (!current || !id().trim() || !path().trim()) return
-    const location: ModelLocation = { id: id().trim(), path: path().trim(), mode: writable() ? 'readwrite' : 'read', visibility: 'default-on',
+    if (editing() && current.revision !== editRevision) { setError(message('modelSettings.staleEdit')); return }
+    const previous = current.settings.locations.find((row) => row.id === editing())
+    const location: ModelLocation = { id: id().trim(), path: path().trim(), mode: writable() ? 'readwrite' : 'read', visibility: previous?.visibility ?? 'default-on',
       ...(kind().trim() ? { kind: kind().trim() } : {}) }
-    if (await save([...current.settings.locations, location], current.settings.downloadLocation ?? (writable() ? location.id : null))) {
-      setId(''); setPath(''); setKind(''); setWritable(false)
-    }
+    const locations = editing() ? current.settings.locations.map((row) => row.id === editing() ? location : row) : [...current.settings.locations, location]
+    const download = current.settings.downloadLocation === location.id && !writable()
+      ? locations.find((row) => row.mode === 'readwrite')?.id ?? null
+      : current.settings.downloadLocation ?? (writable() ? location.id : null)
+    if (await save(locations, download)) resetForm()
+  }
+  const choose = async () => {
+    if (busy() || !nativeChoice() || props.backendUrl === undefined) return
+    const owner = generation
+    setBusy(true)
+    setError('')
+    try {
+      const selected = await desktopFileBridge()!.chooseDirectory(new URL(props.backendUrl || '/', window.location.href).href)
+      if (owner === generation && selected) setPath(selected)
+    } catch (cause) {
+      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+    } finally { if (owner === generation) setBusy(false) }
+  }
+  const reveal = async (location: string) => {
+    const bridge = desktopFileBridge()
+    if (busy() || !nativeChoice() || props.backendUrl === undefined || !bridge?.revealModelLocation) return
+    const owner = generation
+    setBusy(true)
+    setError('')
+    try { await bridge.revealModelLocation(new URL(props.backendUrl || '/', window.location.href).href, location) }
+    catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { if (owner === generation) setBusy(false) }
+  }
+  const copy = async (value: string) => {
+    const owner = generation
+    try { await navigator.clipboard.writeText(value) }
+    catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
   }
   const disabled = () => busy() || state()?.changesAllowed !== true
   const visibilityOptions = () => (['always-on', 'default-on', 'opt-in'] as const).map((value) => ({ id: value, value, label: message(`modelSettings.${value}`) }))
@@ -99,7 +142,7 @@ export function ModelSettings(props: {
     <div class="runtime-settings-body">
       <div class="runtime-settings-toolbar">
         <div><h3>{message('modelSettings.title')}</h3><p>{message('modelSettings.description', { machine: props.backendLabel })}</p></div>
-        <ProductButton disabled={busy()} onClick={() => void load()}>{message('projectFolders.refresh')}</ProductButton>
+        <ProductButton disabled={busy()} onClick={() => { resetForm(); void load() }}>{message('projectFolders.refresh')}</ProductButton>
       </div>
       <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
       <Show when={state()}>{(current) => <>
@@ -121,7 +164,12 @@ export function ModelSettings(props: {
               </ProductField>
               <label class="project-folder-shared"><ProductCheckbox checked={location.enabled} disabled={disabled() || location.visibility === 'always-on'} ariaLabel={message('modelSettings.enabled', { folder: location.id })} onChange={(enabled) => void perform(() => props.connection.setModelLocationEnabled(location.id, enabled))} />{message('modelSettings.enabled', { folder: location.id })}</label>
             </div>
-            <div class="project-folder-actions"><ProductButton disabled={disabled()} onClick={() => setRemoving(location.id)}>{message('modelSettings.remove')}</ProductButton></div>
+            <div class="project-folder-actions">
+              <ProductButton disabled={busy()} onClick={() => void copy(location.path)}>{message('assetLocation.copy')}</ProductButton>
+              <Show when={nativeChoice() && desktopFileBridge()?.revealModelLocation}><ProductButton disabled={busy()} onClick={() => void reveal(location.id)}>{message('modelSettings.reveal')}</ProductButton></Show>
+              <ProductButton disabled={disabled()} onClick={() => { setEditing(location.id); editRevision = current().revision; setId(location.id); setPath(location.path); setKind(location.kind ?? ''); setWritable(location.mode === 'readwrite'); setRemoving(undefined) }}>{message('modelSettings.edit')}</ProductButton>
+              <ProductButton disabled={disabled()} onClick={() => setRemoving(location.id)}>{message('modelSettings.remove')}</ProductButton>
+            </div>
           </li>}</For>
         </ol>
         <Show when={removing()}><div class="project-folder-removal">
@@ -131,14 +179,17 @@ export function ModelSettings(props: {
             <ProductButton variant="danger" disabled={disabled()} onClick={remove}>{message('modelSettings.remove')}</ProductButton>
           </div>
         </div></Show>
-        <form class="model-location-form" onSubmit={(event) => { event.preventDefault(); void add() }}>
-          <h4>{message('modelSettings.add')}</h4>
-          <ProductField controlId="model-location-id" label={message('desktopManagement.folders.mountName')} layout="stack"><ProductTextInput id="model-location-id" value={id()} disabled={disabled()} required onInput={(event) => setId(event.currentTarget.value)} /></ProductField>
+        <Show when={current().changesAllowed}><form class="model-location-form" onSubmit={(event) => { event.preventDefault(); void add() }}>
+          <h4>{message(editing() ? 'modelSettings.edit' : 'modelSettings.add')}</h4>
+          <Show when={editing()}><ProductNotice tone="warning">{message('modelSettings.editNotice')}</ProductNotice></Show>
+          <Show when={nativeChoice()}><ProductButton type="button" disabled={disabled()} onClick={() => void choose()}>{message('desktopManagement.folders.choose')}</ProductButton></Show>
+          <ProductField controlId="model-location-id" label={message('desktopManagement.folders.mountName')} layout="stack"><ProductTextInput id="model-location-id" value={id()} readOnly={editing() !== undefined} disabled={disabled()} required onInput={(event) => setId(event.currentTarget.value)} /></ProductField>
           <ProductField controlId="model-location-path" label={message('modelSettings.path')} layout="stack"><ProductTextInput id="model-location-path" value={path()} disabled={disabled()} required onInput={(event) => setPath(event.currentTarget.value)} /></ProductField>
           <ProductField controlId="model-location-kind" label={message('projectFolders.purpose')} description={message('modelSettings.kindHint')} layout="stack"><ProductTextInput id="model-location-kind" aria-describedby="model-location-kind-description" value={kind()} disabled={disabled()} onInput={(event) => setKind(event.currentTarget.value)} /></ProductField>
           <label class="project-folder-shared"><ProductCheckbox checked={writable()} disabled={disabled()} ariaLabel={message('modelSettings.writable')} onChange={setWritable} />{message('modelSettings.writable')}</label>
-          <ProductButton type="submit" variant="primary" disabled={disabled() || !id().trim() || !path().trim()}>{message('modelSettings.add')}</ProductButton>
-        </form>
+          <ProductButton type="submit" variant="primary" disabled={disabled() || !id().trim() || !path().trim()}>{message(editing() ? 'modelSettings.save' : 'modelSettings.add')}</ProductButton>
+          <Show when={editing()}><ProductButton type="button" disabled={busy()} onClick={resetForm}>{message('projectFolders.cancel')}</ProductButton></Show>
+        </form></Show>
       </>}</Show>
     </div>
   </section>

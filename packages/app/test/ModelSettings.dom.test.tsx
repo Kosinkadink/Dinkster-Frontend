@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ModelSettingsState } from '@dinkster/client'
 import { ModelSettings } from '../src/ModelSettings.js'
 
-afterEach(() => { document.body.replaceChildren() })
+afterEach(() => { document.body.replaceChildren(); delete window.dinksterDesktop })
 
 const initial: ModelSettingsState = {
   settings: { version: 1, downloadLocation: null, locations: [
@@ -53,11 +53,76 @@ it('switches whole locations, preserves read-only category roots, and removes re
     expect(state.settings.locations[2]).toEqual({ id: 'archive', path: '/archive/checkpoints', kind: 'model/checkpoint', mode: 'read', visibility: 'default-on' })
     expect(state.settings.downloadLocation).toBeNull()
     expect(root.textContent).toContain('Restart the engine')
-    root.querySelector<HTMLButtonElement>('[data-model-location="studio"] .project-folder-actions button')!.click()
+    const removeButton = [...root.querySelectorAll<HTMLButtonElement>('[data-model-location="studio"] .project-folder-actions button')].find((button) => button.textContent === 'Remove shared location')!
+    removeButton.click()
     expect(root.textContent).toContain('No model files will be deleted')
     const confirm = [...root.querySelectorAll<HTMLButtonElement>('.project-folder-removal button')].find((button) => button.textContent === 'Remove shared location')!
     confirm.click()
     await vi.waitFor(() => expect(state.settings.locations.map((row) => row.id)).toEqual(['required', 'archive']))
+  } finally { dispose() }
+})
+
+it('edits access explicitly, preserves the shared visibility, and ignores canceled native folder choices', async () => {
+  let state = structuredClone(initial)
+  let selected: string | undefined
+  window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: false }), chooseDirectory: async () => selected }
+  const connection: ComponentProps<typeof ModelSettings>['connection'] = {
+    onMountsChanged: () => () => {}, fetchModelSettings: async () => state,
+    setModelLocationEnabled: vi.fn(), updateModelSettings: async (settings) => {
+      state = { ...state, settings, revision: 'second', locations: settings.locations.map((row) => ({ ...row, mounts: [row.id], enabled: true, active: true })) }
+      return state
+    },
+  }
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <ModelSettings connection={connection} backendLabel="Engine" backendUrl="" />, root)
+  const button = (text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
+  const path = () => root.querySelector<HTMLInputElement>('#model-location-path')!
+  try {
+    await vi.waitFor(() => expect(button('Choose folder')).toBeDefined())
+    button('Edit model folder').click()
+    expect(path().value).toBe('/existing/checkpoints')
+    expect(root.querySelector<HTMLInputElement>('#model-location-id')!.readOnly).toBe(true)
+    button('Choose folder').click()
+    await vi.waitFor(() => expect(button('Choose folder').disabled).toBe(false))
+    expect(path().value).toBe('/existing/checkpoints')
+    selected = '/second/checkpoints'
+    button('Choose folder').click()
+    await vi.waitFor(() => expect(path().value).toBe('/second/checkpoints'))
+    root.querySelector<HTMLButtonElement>('[aria-label="Allow downloads into this folder"]')!.click()
+    button('Save model folder').click()
+    await vi.waitFor(() => expect(state.settings.downloadLocation).toBe('studio'))
+    expect(state.settings.locations[0]).toEqual({ id: 'studio', path: '/second/checkpoints', mode: 'readwrite', kind: 'model/checkpoint', visibility: 'opt-in' })
+    button('Edit model folder').click()
+    root.querySelector<HTMLButtonElement>('[aria-label="Allow downloads into this folder"]')!.click()
+    button('Save model folder').click()
+    await vi.waitFor(() => expect(state.settings.downloadLocation).toBeNull())
+    expect(state.settings.locations[0]!.mode).toBe('read')
+  } finally { dispose() }
+})
+
+it('refuses a stale open editor after a shared update and preserves its draft until refresh', async () => {
+  let state = structuredClone(initial)
+  let notify!: () => void
+  let saves = 0
+  const connection: ComponentProps<typeof ModelSettings>['connection'] = {
+    onMountsChanged: (callback) => { notify = callback; return () => {} }, fetchModelSettings: async () => state,
+    setModelLocationEnabled: vi.fn(), updateModelSettings: async () => { saves++; return state },
+  }
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <ModelSettings connection={connection} backendLabel="Engine" />, root)
+  const button = (text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
+  try {
+    await vi.waitFor(() => expect(button('Edit model folder')).toBeDefined())
+    button('Edit model folder').click()
+    state = { ...state, revision: 'changed-elsewhere' }
+    notify()
+    await Promise.resolve(); await Promise.resolve()
+    button('Save model folder').click()
+    await vi.waitFor(() => expect(root.textContent).toContain('changed while you were editing'))
+    expect(saves).toBe(0)
+    expect(root.querySelector<HTMLInputElement>('#model-location-path')!.value).toBe('/existing/checkpoints')
+    button('Refresh folders').click()
+    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#model-location-path')!.value).toBe(''))
   } finally { dispose() }
 })
 
