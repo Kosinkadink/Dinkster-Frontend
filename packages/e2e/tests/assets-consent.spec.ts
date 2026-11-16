@@ -118,6 +118,98 @@ test('selects exact digests, updates the mounted locale, and closes after succes
   expect(retryBase).toEqual(bodies[0])
 })
 
+test('model review separates download, reconnect and a single captured-body Run once', async ({ page }) => {
+  await prepare(page)
+  const bodies: Record<string, unknown>[] = []
+  let starts = 0
+  let job: Record<string, unknown> | undefined
+  const selection = {
+    name: 'requested-vae.safetensors', kind: 'model/vae', project: 'default', provider: 'huggingface',
+    source: 'https://huggingface.co/example/vae/resolve/main/weights.safetensors', repo: 'example/vae',
+    revision: 'd'.repeat(40), file: 'weights.safetensors', sha256: 'b'.repeat(64), size: 8192,
+    license: 'apache-2.0', destination: '/models/vae/requested-vae.safetensors', mount: 'models',
+  }
+  await page.route('**/api/jobs', async (route) => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>)
+    await route.fulfill({ status: bodies.length === 1 ? 409 : 200, json: bodies.length === 1
+      ? { error: 'assets-missing', assets: [{ name: selection.name, kind: selection.kind, status: 'missing' }] }
+      : { ok: true } })
+  })
+  await page.route('**/api/models/downloads**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    const project = (route.request().postDataJSON() as Record<string, unknown> | null)?.['project']
+    if (typeof project === 'string') selection.project = project
+    if (route.request().method() === 'DELETE') {
+      job = { ...job, status: 'cancelled' }
+      await route.fulfill({ json: job })
+    } else if (path.endsWith('/start')) {
+      starts++
+      expect(route.request().postDataJSON()).toEqual({ planId: 'reviewed-plan', consent: true })
+      job = { ...selection, jobId: 'owned-job', status: 'downloading', received: 3072 }
+      await route.fulfill({ json: job })
+    } else if (path.endsWith('/plan')) await route.fulfill({ json: { ...selection, planId: 'reviewed-plan', status: 'consent-required' } })
+    else if (path.endsWith('/owned-job')) await route.fulfill({ status: job ? 200 : 404, json: job ?? {} })
+    else await route.fulfill({ json: { instance: 'test-instance', jobs: job ? [job] : [] } })
+  })
+  await submitSelection(page)
+  const dialog = page.getByTestId('asset-consent-dialog')
+  await expect(dialog.getByTestId('asset-consent-acquire')).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect(dialog).toContainText(selection.sha256)
+  await expect(dialog).toContainText(selection.destination)
+  expect(starts).toBe(0)
+  const captureModel = async (name: string) => {
+    if (process.env['DINKSTER_CAPTURE_ISSUE_998'] === '1') {
+      mkdirSync(evidenceGroupDir('issue-998'), { recursive: true })
+      await page.screenshot({ path: evidencePath('issue-998', name + '.png'), animations: 'disabled' })
+    }
+  }
+  await captureModel('review')
+  await dialog.getByTestId('model-consent-download').click()
+  await expect(dialog.getByTestId('model-consent-bytes')).toHaveText('3,072 / 8,192 bytes')
+  expect(bodies).toHaveLength(1)
+  await captureModel('progress')
+  await dialog.getByTestId('model-consent-cancel').click()
+  await expect(dialog.getByTestId('model-consent-phase')).toContainText('Transfer cancelled')
+  await captureModel('cancelled')
+  expect(starts).toBe(1)
+  await dialog.getByRole('button', { name: 'Reconnect / review again', exact: true }).click()
+  await dialog.getByTestId('model-consent-download').click()
+  job = undefined
+  await expect(dialog.getByTestId('model-consent-phase')).toContainText('interrupted')
+  await captureModel('interrupted')
+  expect(starts).toBe(2)
+  await dialog.getByRole('button', { name: 'Reconnect / review again', exact: true }).click()
+  await dialog.getByTestId('model-consent-download').click()
+  await expect(dialog.getByTestId('model-consent-bytes')).toHaveText('3,072 / 8,192 bytes')
+  await dialog.getByTestId('asset-consent-cancel').click()
+  await expect(dialog).not.toBeVisible()
+  expect(starts).toBe(3)
+  // Requeue to reopen discovers the same owned job rather than starting another.
+  bodies.length = 0
+  await submitSelection(page)
+  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect(dialog.getByTestId('model-consent-bytes')).toHaveText('3,072 / 8,192 bytes')
+  job = { ...selection, jobId: 'owned-job', status: 'completed', received: 8192, path: '/models/unconventional/existing.safetensors',
+    reused: true, renamed: true, asset: { digest: digest('a'), name: 'existing.safetensors', size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: 'models/unconventional/existing.safetensors' } }
+  await expect(dialog).toContainText('/models/unconventional/existing.safetensors')
+  await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toBeEnabled()
+  await dialog.locator('.asset-decision-list').evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await captureModel('completed')
+  await page.setViewportSize({ width: 480, height: 800 })
+  await dialog.locator('.asset-decision-list').evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await captureModel('completed-narrow')
+  expect(starts).toBe(3)
+  expect(bodies).toHaveLength(1)
+  await dialog.getByRole('button', { name: 'Run once', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  expect(bodies).toHaveLength(2)
+  const { acquireAssets, ...captured } = bodies[1]!
+  expect(acquireAssets).toEqual([])
+  expect(captured).toEqual(bodies[0])
+})
+
 test('cancel dismisses without resubmitting', async ({ page }) => {
   await prepare(page)
   let requests = 0

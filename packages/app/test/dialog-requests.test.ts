@@ -61,6 +61,77 @@ const flush = async (): Promise<void> => { await Promise.resolve(); await Promis
 
 describe('installAssetConsent ownership', () => {
 
+  it('requires reviewed model consent, stops on dismissal, and retries only after verified completion', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const { result, retries } = rejection([])
+    const requirement = { name: 'requested.safetensors', kind: 'model/vae' }
+    const selection = { ...requirement, project: 'studio', provider: 'huggingface' as const,
+      source: 'https://huggingface.co/example/vae', repo: 'example/vae', revision: 'a'.repeat(40),
+      file: 'weights.safetensors', sha256: 'b'.repeat(64), size: 8192, license: 'apache-2.0',
+      destination: '/models/vae/requested.safetensors', mount: 'models' }
+    const plan = { ...selection, status: 'consent-required' as const, planId: 'opaque-plan' }
+    let job: import('@dinkster/client').ModelDownloadJob = { ...selection, jobId: 'owned', status: 'downloading', received: 2048 }
+    const connection = {
+      planModelDownload: vi.fn(async () => plan),
+      startModelDownload: vi.fn(async () => job),
+      fetchModelDownloads: vi.fn(async () => ({ instance: 'one', jobs: [] as typeof job[] })),
+      fetchModelDownload: vi.fn(async (): Promise<typeof job | undefined> => job),
+      cancelModelDownload: vi.fn(async () => ({ ...job, status: 'cancelled' as const })),
+    }
+    const input = { result: { ...result, assetsMissing: { ...result.assetsMissing, models: [requirement] } },
+      slot, modelDownloads: { project: 'studio', connection }, ...consentCallbacks() }
+    installAssetConsent(input)
+    await slot.value!.retry([])
+    expect(retries).toHaveLength(0)
+    await slot.value!.downloadModel!(0)
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    const staleDownload = slot.value!.downloadModel!
+    await slot.value!.reviewModel!(0)
+    expect(slot.value!.models![0]!.plan).toEqual(plan)
+    await staleDownload(0)
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    await slot.value!.downloadModel!(0)
+    expect(slot.value!.models![0]!.job?.received).toBe(2048)
+    await slot.value!.retry([])
+    expect(retries).toHaveLength(0)
+    await slot.value!.cancelModel!(0)
+    expect(slot.value!.models![0]!.job?.status).toBe('cancelled')
+    await slot.value!.reviewModel!(0)
+    await slot.value!.downloadModel!(0)
+    connection.fetchModelDownload.mockResolvedValueOnce(undefined)
+    await slot.value!.reviewModel!(0)
+    expect(slot.value!.models![0]!.interrupted).toBe(true)
+    expect(connection.startModelDownload).toHaveBeenCalledTimes(2)
+    await slot.value!.reviewModel!(0)
+    await slot.value!.downloadModel!(0)
+    job = { ...job, status: 'completed', received: 8192, path: '/models/odd/existing.safetensors', reused: true }
+    await slot.value!.reviewModel!(0)
+    expect(retries).toHaveLength(0)
+    const run = slot.value!.retry([])
+    expect(retries).toHaveLength(1)
+    retries[0]!.resolve(submitOk)
+    await run
+    expect(slot.value).toBeUndefined()
+    installAssetConsent(input)
+    let resolve!: (value: typeof plan) => void
+    connection.planModelDownload.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const review = slot.value!.reviewModel!(0)
+    await flush()
+    slot.set(undefined)
+    resolve(plan)
+    await review
+    expect(slot.value).toBeUndefined()
+    expect(connection.startModelDownload).toHaveBeenCalledTimes(3)
+    connection.fetchModelDownloads.mockResolvedValueOnce({ instance: 'one', jobs: [job] })
+    installAssetConsent(input)
+    await slot.value!.reviewModel!(0)
+    expect(slot.value!.models![0]!.plan).toEqual(plan)
+    expect(slot.value!.models![0]!.job).toBeUndefined()
+    await slot.value!.retry([])
+    expect(retries).toHaveLength(1)
+    slot.set(undefined)
+  })
+
   it('enables only a returned folder and retries without consenting to downloads', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const { result, retries } = rejection([{ ...missing('blake3:a'), fetchable: false, disabledLocations: ['studio'] }])

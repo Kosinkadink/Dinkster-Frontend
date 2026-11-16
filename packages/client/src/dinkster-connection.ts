@@ -26,6 +26,8 @@
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
 import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
+  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
 import {
   asPromptId,
   createSignal,
@@ -1248,6 +1250,8 @@ function parseAssetGuessMatches(value: unknown): readonly AssetGuessMatch[] {
 export interface AssetsMissingRejection {
   readonly error: 'assets-missing'
   readonly assets: readonly MissingAsset[]
+  /** Source names are requirements, not unverified asset identities. */
+  readonly models?: readonly ModelRequirement[]
 }
 
 export type DinksterSubmitResult = SubmitResult | {
@@ -1265,9 +1269,18 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
   const body = value as Record<string, unknown>
   if (body['error'] !== 'assets-missing' || !Array.isArray(body['assets'])) return undefined
   const assets: MissingAsset[] = []
+  const models: ModelRequirement[] = []
   for (const raw of body['assets']) {
     if (typeof raw !== 'object' || raw === null) return undefined
     const asset = raw as Record<string, unknown>
+    if (asset['digest'] === undefined && typeof asset['name'] === 'string' &&
+      asset['name'].length > 0 && !asset['name'].startsWith('/') && !asset['name'].includes('\\') &&
+      !asset['name'].split('/').includes('..') && typeof asset['kind'] === 'string' &&
+      /^model\/[a-z][a-z0-9-]*$/.test(asset['kind']) && asset['status'] === 'missing') {
+      if (!models.some((entry) => entry.name === asset['name'] && entry.kind === asset['kind']))
+        models.push({ name: asset['name'], kind: asset['kind'] })
+      continue
+    }
     if (
       typeof asset['digest'] !== 'string' ||
       typeof asset['name'] !== 'string' ||
@@ -1296,7 +1309,7 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
       ...(Array.isArray(asset['packagedFrom']) ? { packagedFrom: asset['packagedFrom'] as string[] } : {}),
     })
   }
-  return { error: 'assets-missing', assets }
+  return { error: 'assets-missing', assets, ...(models.length ? { models } : {}) }
 }
 
 // ---------------------------------------------------------------------------
@@ -3448,6 +3461,41 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
+  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal): Promise<ModelDownloadPlan> {
+    return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
+      name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
+    }, signal))
+  }
+
+  async startModelDownload(planId: string, signal?: AbortSignal): Promise<ModelDownloadJob> {
+    return decodeModelDownloadJob(await this.modelDownloadRequest('start', 'POST', { planId, consent: true }, signal))
+  }
+
+  async fetchModelDownloads(signal?: AbortSignal): Promise<{ readonly instance: string; readonly jobs: readonly ModelDownloadJob[] }> {
+    return decodeModelDownloadJobs(await this.modelDownloadRequest('', 'GET', undefined, signal))
+  }
+
+  async fetchModelDownload(jobId: string, signal?: AbortSignal): Promise<ModelDownloadJob | undefined> {
+    const raw = await this.modelDownloadRequest(encodeURIComponent(jobId), 'GET', undefined, signal)
+    return raw === undefined ? undefined : decodeModelDownloadJob(raw)
+  }
+
+  async cancelModelDownload(jobId: string, signal?: AbortSignal): Promise<ModelDownloadJob> {
+    return decodeModelDownloadJob(await this.modelDownloadRequest(encodeURIComponent(jobId), 'DELETE', undefined, signal))
+  }
+
+  private async modelDownloadRequest(path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return requestWithDeadline(async (deadline) => {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/downloads${path ? `/${path}` : ''}?scope=local`, {
+        method, signal: deadline, cache: 'no-store',
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      })
+      if (res.status === 404 && method === 'GET' && path) return undefined
+      if (!res.ok) throw new Error(`Model download ${method} failed: ${res.status}`)
+      return res.json() as Promise<unknown>
+    }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
+  }
+
   async fetchModelSettings(): Promise<ModelSettingsState> {
     return requestWithDeadline(async (signal) => {
       const query = new URLSearchParams({ project: this.project ?? 'default' })
@@ -4168,7 +4216,7 @@ async function rejectionDetails(
     payload = undefined
   }
   const assetsMissing = res.status === 409 ? parseAssetsMissingRejection(payload) : undefined
-  if (assetsMissing !== undefined) {
+  if (assetsMissing !== undefined && assetsMissing.assets.length > 0) {
     const lines = assetsMissing.assets.map((asset) => {
       const digest = asset.digest.includes(':') ? asset.digest.split(':', 2)[1]! : asset.digest
       const sourceNote = asset.packagedFrom !== undefined && asset.packagedFrom.length > 0
@@ -4187,7 +4235,7 @@ async function rejectionDetails(
       { data: { assets: assetsMissing.assets } },
     )] }
   }
-  // Unbound source names have no digest and cannot enter acquisition consent.
+  // Preserve source anchors while planning names separately from exact assets.
   const nameRefusals = res.status === 409 && payload?.['error'] === 'assets-missing' && Array.isArray(payload['assets'])
     ? payload['assets'].flatMap((raw: unknown) => {
         if (typeof raw !== 'object' || raw === null) return []
@@ -4205,7 +4253,7 @@ async function rejectionDetails(
   // Structured diagnostics (validation-shaped errors), anchored via provenance.
   const rawDiags = nameRefusals.length > 0 ? nameRefusals : payload?.['diagnostics']
   if (Array.isArray(rawDiags) && rawDiags.length > 0) {
-    return { diagnostics: rawDiags.map((d) => {
+    return { ...(assetsMissing === undefined ? {} : { assetsMissing }), diagnostics: rawDiags.map((d) => {
       const entry = (typeof d === 'object' && d !== null ? d : {}) as Record<string, unknown>
       const runtimeId = typeof entry['nodeId'] === 'string' ? entry['nodeId'] : undefined
       // Consumer-side input id the diagnostic anchors to (a link is addressed

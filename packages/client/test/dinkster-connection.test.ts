@@ -307,6 +307,94 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
   return { body, digest: `sha256:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}` }
 }
 
+describe('model download planning and owned jobs', () => {
+  const selected = {
+    name: 'renamed-source.safetensors', kind: 'model/vae', project: 'work / client',
+    provider: 'huggingface', source: `https://huggingface.co/org/repo/resolve/${'b'.repeat(40)}/file.safetensors`,
+    repo: 'org/repo', revision: 'b'.repeat(40), file: 'file.safetensors', sha256: 'c'.repeat(64),
+    size: 1031, license: 'apache-2.0', destination: '/models/vae/file.safetensors', mount: 'studio-vae',
+  }
+  const active = { ...selected, jobId: 'owned / job', status: 'downloading', received: 307 }
+
+  it('keeps immutable planning separate from explicit consent and recovers existing jobs without starting them', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = []
+    let payload: unknown = { ...selected, status: 'consent-required', planId: 'opaque-plan' }
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test', project: selected.project,
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined })
+        return jsonResponse(status, payload)
+      } })
+    const plan = await connection.planModelDownload({ name: selected.name, kind: selected.kind })
+    expect(plan).toEqual({ ...selected, status: 'consent-required', planId: 'opaque-plan' })
+    expect(plan).not.toHaveProperty('digest')
+    expect(calls).toEqual([{ url: '/engine/api/models/downloads/plan?scope=local', method: 'POST',
+      body: { name: selected.name, kind: selected.kind, project: selected.project, scope: 'local' } }])
+    payload = active
+    const started = await connection.startModelDownload('opaque-plan')
+    expect(started).toEqual(active)
+    expect(calls.at(-1)?.body).toEqual({ planId: 'opaque-plan', consent: true })
+    payload = { instance: 'server-one', jobs: [active] }
+    expect(await connection.fetchModelDownloads()).toEqual({ instance: 'server-one', jobs: [active] })
+    payload = { ...active, received: 601 }
+    expect(await connection.fetchModelDownload(active.jobId)).toMatchObject({ received: 601, size: 1031 })
+    expect(calls.at(-1)?.url).toBe('/engine/api/models/downloads/owned%20%2F%20job?scope=local')
+    payload = { ...active, status: 'cancelling' }
+    expect(await connection.cancelModelDownload(active.jobId)).toMatchObject({ status: 'cancelling' })
+    expect(calls.at(-1)?.method).toBe('DELETE')
+    status = 404
+    expect(await connection.fetchModelDownload(active.jobId)).toBeUndefined()
+    status = 200
+    payload = { instance: 'server-two', jobs: [] }
+    expect(await connection.fetchModelDownloads()).toEqual({ instance: 'server-two', jobs: [] })
+    expect(calls.filter((call) => call.url.endsWith('/start?scope=local'))).toHaveLength(1)
+  })
+
+  it('retains verified actual paths and reuse independently of collision renaming', async () => {
+    const asset = { digest: `blake3:${'d'.repeat(64)}`, name: 'existing.safetensors', size: selected.size,
+      mediaType: 'application/octet-stream', virtualPath: 'model-files/studio-vae/unconventional/existing.safetensors' }
+    const payload = { ...active, received: selected.size, status: 'completed', asset,
+      path: '/models/unconventional/existing.safetensors', reused: true, renamed: false, indexingPending: true }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
+    expect(await connection.fetchModelDownload('job')).toEqual(payload)
+  })
+
+  it.each([
+    { status: 'local', name: selected.name, kind: selected.kind },
+    { status: 'destination-required' },
+    { status: 'folder-disabled', disabledLocations: ['studio'], detail: 'Folder not enabled for this project' },
+    { status: 'picker-required', sources: ['https://huggingface.co/first', 'https://huggingface.co/second'] },
+  ])('preserves distinct no-download plan states: $status', async (payload) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
+    expect(await connection.planModelDownload(selected)).toEqual(payload)
+  })
+
+  it.each([
+    { ...active, received: -1 }, { ...active, received: selected.size + 1 },
+    { ...active, size: 1.5 }, { ...active, status: 'invented' },
+    { ...active, sha256: 'short' }, { ...active, revision: 'main' },
+    { ...active, reused: 'true' }, { ...active, status: 'completed', path: '/models/partial' },
+  ])('rejects malformed progress or unverified completion %#', async (payload) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
+    await expect(connection.fetchModelDownload('job')).rejects.toThrow()
+  })
+
+  it('does not retry failed side-effecting requests and honors aborted metadata reads', async () => {
+    let calls = 0
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => { calls++; return jsonResponse(409, {}) } })
+    await expect(connection.startModelDownload('expired')).rejects.toThrow('409')
+    expect(calls).toBe(1)
+    const abort = new AbortController()
+    abort.abort(new Error('closed submission'))
+    await expect(connection.fetchModelDownloads(abort.signal)).rejects.toThrow('closed submission')
+    expect(calls).toBe(1)
+  })
+})
+
 describe('shared model management', () => {
   const folder = { id: 'studio', path: '/models/checkpoints', mode: 'read' as const, visibility: 'opt-in' as const, kind: 'model/checkpoint' }
   const state = { settings: { version: 1 as const, locations: [folder], downloadLocation: null },
@@ -2313,7 +2401,7 @@ describe('submit', () => {
     expect((diagnostic.data?.['assets'] as { packagedFrom?: string[]; destination?: string }[])[1]).toMatchObject({ packagedFrom: ['models.base'], destination: '/home/user/Dinkster/Models/vae' })
   })
 
-  it('reports name-only asset refusals with their original node and input, without acquisition consent', async () => {
+  it('retains name-only model requirements separately from digests with their original diagnostic anchor', async () => {
     const { conn } = submitHarness(
       (url, init) => nodesRoute(url) ??
         (url.endsWith('/api/jobs') && init?.method === 'POST'
@@ -2337,7 +2425,9 @@ describe('submit', () => {
     expect(result.diagnostics[0]!.message).toContain('wan_2.1_vae.safetensors')
     expect(result.diagnostics[0]!.message).toContain('model/vae')
     expect(result.diagnostics[0]!.message).toContain('mounted folder')
-    expect(result).not.toHaveProperty('retryWithAssets')
+    expect(result).toHaveProperty('retryWithAssets')
+    expect(result).toHaveProperty('assetsMissing', { error: 'assets-missing', assets: [],
+      models: [{ name: 'wan_2.1_vae.safetensors', kind: 'model/vae' }] })
   })
 
 })
