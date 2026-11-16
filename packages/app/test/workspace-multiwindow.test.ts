@@ -1288,6 +1288,51 @@ describe('AppState multi-window workspace', () => {
     expect((right.store as unknown as { status: { get(): string } }).status.get()).toBe('live')
   })
 
+  it('resolves imported assets in the promoted document without stranding its local session', async () => {
+    const app = createEditableApp()
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1,
+      nodes: { AssetLoader: { interface: [
+        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
+      ] } },
+    }))
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'known.png',
+      virtualPath: 'imports/known.png', size: 17, mediaType: 'image/png' }
+    vi.spyOn(backend.connection, 'guessAssets').mockImplementation(async (names) => names.map((query) => ({
+      query, candidates: [{ ...asset, confidence: 'path' as const, held: true }],
+    })))
+    const factory = authorityFactories()
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    let incomplete = 0
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      if (!declaration.complete && ++incomplete > 1) await held
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    try {
+      expect(await app.openDocument({ version: 0.4, nodes: [
+        { id: 1, type: 'AssetLoader', pos: [100, 100], widgets_values: [asset.name] },
+      ], links: [] }, 'Imported asset')).toEqual([])
+      const id = app.activeTab()!.id
+      await vi.waitFor(() => expect(incomplete).toBeGreaterThan(1))
+      await drainTasks()
+      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.file).toBe(asset.name)
+      release()
+      await vi.waitFor(() => {
+        const tab = app.tabs.get().find((candidate) => candidate.id === id)!
+        expect('status' in tab.store).toBe(true)
+        expect(tab.store.doc.graphs.g0!.nodes.n1!.values.file).toEqual(asset)
+      })
+      expect(app.problems.get().filter((problem) => problem.code === 'workspace.authority.failed')).toEqual([])
+      expect(await app.activeTab()!.store.undo()).toBe(true)
+      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.file).toBe(asset.name)
+    } finally {
+      release()
+    }
+  })
+
   it('confirms ownership on the current target after authority promotion opens', async () => {
     const authority = new SharedWorkerDocumentAuthority()
     const renderers: MemoryPort[] = []
