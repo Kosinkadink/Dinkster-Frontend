@@ -57,6 +57,10 @@ only after an acknowledged canonical commit incorporates its exact stage and
 document digest. A newer unincorporated recovery edit remains protected.
 Overlapping persistence admissions keep late receipts through the same complete
 replacement gate rather than dropping them when another stage publishes.
+An acknowledged empty workspace also retires its locally admitted predecessor
+receipts after the last workflow closes. Each retirement still checks the
+original project, connection generation, schema and exact durable receipt;
+independent readers and recovery sources keep their own protection.
 
 The Users button in the top bar opens the Workspace state modal:
 

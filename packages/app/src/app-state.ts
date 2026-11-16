@@ -3995,8 +3995,7 @@ export class AppState {
       ] })
       // Only this app's exact staged generations confer release authority.
       // Stored receipts from another window or lifetime remain observation-only.
-      if (complete) this.retirePersistedWorkflowOwners(previousOwners.filter((owner) =>
-        native.some(({ backend, generation }) => owner.backend === backend && owner.generation === generation)), replacements)
+      if (complete) this.retirePersistedWorkflowOwners(previousOwners, replacements)
       return complete ? acknowledged : undefined
     }
     return locks
