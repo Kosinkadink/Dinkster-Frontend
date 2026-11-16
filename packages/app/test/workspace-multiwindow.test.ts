@@ -611,7 +611,7 @@ describe('AppState multi-window workspace', () => {
     expect(secondTab.store.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
   })
 
-  it.each(['covered', 'newer', 'different-content', 'refused'] as const)(
+  it.each(['covered', 'incorporated-after-close', 'newer', 'different-content', 'refused'] as const)(
     'confirmed close retires only the incorporated recovery stage: %s', async (scenario) => {
       let commits = Promise.resolve<unknown>(undefined)
       vi.stubGlobal('navigator', { locks: { request: (
@@ -646,13 +646,19 @@ describe('AppState multi-window workspace', () => {
         ...candidate.tab.doc, ext: { unsaved: 'keep this recovery source' },
       }
       if (scenario !== 'covered') localStorage.setItem(key, JSON.stringify(candidate))
+      if (scenario === 'incorporated-after-close') {
+        localStorage.setItem('dinkster.openTabs', JSON.stringify({ ...canonical,
+          documentCandidateStages: {}, documentCandidateDigests: {},
+        }))
+      }
       if (scenario === 'refused') vi.spyOn(app.connection, 'retainAssets').mockRejectedValue(new Error('Admission refused'))
       app.closeTab(tab.id)
+      if (scenario === 'incorporated-after-close') localStorage.setItem('dinkster.openTabs', JSON.stringify(canonical))
       await drainTasks()
       app.flushPersistTabs(true)
       await drainTasks()
       expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
-      if (scenario === 'covered') expect(localStorage.getItem(key)).toBeNull()
+      if (scenario === 'covered' || scenario === 'incorporated-after-close') expect(localStorage.getItem(key)).toBeNull()
       else expect(localStorage.getItem(key)).toBe(JSON.stringify(candidate))
     },
   )

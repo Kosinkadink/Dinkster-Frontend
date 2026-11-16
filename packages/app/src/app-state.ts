@@ -7026,7 +7026,8 @@ export class AppState {
     this.closedWorkflowDocuments.set(tab.store, {
       tab, project: activeProjectId(), storage, authorityGeneration: this.workspaceAuthorityGeneration, revision,
       stageId: digest === canonical?.documentCandidateDigests?.[tab.id]
-        ? canonical?.documentCandidateStages?.[tab.id] : undefined,
+        ? canonical?.documentCandidateStages?.[tab.id]
+        : recovery !== undefined && !recovery.pending ? recovery.stageId : undefined,
       localStageId: localSlot?.complete && localCandidate !== undefined &&
         persistedDocumentDigest(localCandidate.tab.doc) === digest ? localCandidate.stageId : undefined,
       digest, recovery, owner: this.workflowAssetOwners.get(tab.store),
@@ -7783,8 +7784,9 @@ export class AppState {
       if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
         !this.backends.get().includes(destination) || !registryUnchanged(registry, backend.registry.get()) ||
         !registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
+      const previous = this.tabs.get().find((tab) => !tab.execution && tab.id === prepared.document.lineage)
       const tab = prepared.publish(target ?? undefined)
-      this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation)
+      this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation, previous?.store ?? tab.store)
       this.reportIncompleteOwnership(tab.id, roots, retained)
       if (!awaitPromotion) return tab
       // Complete authority adoption before the next open captures the workspace.
