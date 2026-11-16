@@ -65,8 +65,10 @@ queued before Close keeps its written-stage barrier, protecting newer
 unincorporated edits.
 Repeated notifications for an identical pending canonical snapshot share its
 publication barrier instead of invalidating admissions already in flight.
-Every renderer still admits its own roots before cleanup; a changed snapshot
-starts a separate generation. If an incomplete renderer publishes first, a
+Each renderer shares its own identical in-flight canonical admission only while
+the exact stored generation, tabs, destinations and schema lifetimes remain
+current. Other renderers still admit their own roots before cleanup; a changed
+snapshot starts a separate generation. If an incomplete renderer publishes first, a
 complete renderer retries the identical snapshot through admission rather than
 publishing against stale bytes.
 Overlapping persistence admissions keep late receipts through the same complete

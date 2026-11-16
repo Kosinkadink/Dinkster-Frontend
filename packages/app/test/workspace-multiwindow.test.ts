@@ -191,8 +191,14 @@ describe('AppState multi-window workspace', () => {
       workspaceRevision: peer.workspaceRevision + 1,
       tabs: peer.tabs.map((tab: { title: string }) => ({ ...tab, title: 'Newer peer snapshot' })),
     }))
-    notify()
-    await drainTasks()
+    const intents = (): string[] => [...Array(localStorage.length)].map((_, index) => localStorage.key(index)!)
+      .filter((entry) => entry.startsWith('dinkster.workflow-retentions.')).sort()
+    const pendingIntents = intents()
+    for (let repeat = 0; repeat < 12; repeat += 1) {
+      notify()
+      await drainTasks()
+    }
+    if (scenario === 'unchanged') expect(intents()).toEqual(pendingIntents)
     for (const release of first) release()
     await drainTasks()
     try {

@@ -3906,7 +3906,45 @@ export class AppState {
     }
   }
 
+  private canonicalWorkflowAdmission: {
+    readonly value: string
+    readonly current: () => boolean
+    readonly promise: Promise<string | undefined>
+  } | undefined
+
   private async stagePersistedWorkflowSlot(
+    key: string, value: object,
+    documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[],
+  ): Promise<string | undefined> {
+    if (key !== tabsKey()) return this.admitPersistedWorkflowSlot(key, value, documents)
+    const snapshot = canonicalJson(value)
+    const previous = this.canonicalWorkflowAdmission
+    if (previous?.value === snapshot && previous.current()) return previous.promise
+    const storage = globalThis.localStorage
+    const project = activeProjectId()
+    const tabs = this.tabs.get()
+    const targets = tabs.map((tab) => this.backendForTab(tab))
+    const backends = this.backends.get()
+    const registries = backends.map((backend) => backend.registry.get())
+    const generations = backends.map((backend) => this.assetConnectionGenerations.get(backend.connection))
+    const admission = this.admitPersistedWorkflowSlot(key, value, documents)
+    const raw = storage?.getItem(key)
+    // Share only this renderer's exact pending work, never peer receipts or
+    // admissions captured under another registry, destination or tab lifetime.
+    this.canonicalWorkflowAdmission = { value: snapshot, promise: admission, current: () =>
+      !this.disposed && globalThis.localStorage === storage && activeProjectId() === project &&
+      storage?.getItem(key) === raw && this.tabs.get() === tabs && this.backends.get() === backends &&
+      tabs.every((tab, index) => this.backendForTab(tab) === targets[index]) &&
+      backends.every((backend, index) => backend.registry.get() === registries[index] &&
+        this.assetConnectionGenerations.get(backend.connection) === generations[index]),
+    }
+    void admission.finally(() => {
+      if (this.canonicalWorkflowAdmission?.promise === admission) this.canonicalWorkflowAdmission = undefined
+    }).catch(() => undefined)
+    return admission
+  }
+
+  private async admitPersistedWorkflowSlot(
     key: string, value: object,
     documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[],
   ): Promise<string | undefined> {
