@@ -27,9 +27,14 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
       ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
   })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'descriptor-fixture', schemaWire: 1 }, nodes: {},
-  } }))
+  await page.route('/api/nodes*', async (route) => {
+    // Startup ownership snapshots the transport after schemas load.
+    await page.waitForFunction(() =>
+      window.__dinksterTest?.app.backends.get()[0]?.connection.status.get() === 'connected')
+    return route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'descriptor-fixture', schemaWire: 1 }, nodes: {},
+    } })
+  })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })

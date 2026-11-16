@@ -14,7 +14,7 @@ const workflow = {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route('/api/**', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
+  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'app-view-flag-test', schemaWire: 1 }, packs: {}, nodes: {},
   } }))

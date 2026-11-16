@@ -32,12 +32,17 @@ for (const accepted of [true, false]) {
       } })
     })
     await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
-    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
-      nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
-        { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
-      ] } },
-    } }))
+    await page.route('/api/nodes*', async (route) => {
+      // Startup ownership snapshots the transport after schemas load.
+      await page.waitForFunction(() =>
+        window.__dinksterTest?.app.backends.get()[0]?.connection.status.get() === 'connected')
+      return route.fulfill({ json: {
+        schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
+        nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
+          { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
+        ] } },
+      } })
+    })
     await page.route('/api/assets/media?*', (route) => {
       uploaded = route.request().postDataBuffer() ?? Buffer.alloc(0)
       return route.fulfill({ json: { kind: 'media/audio', asset: {
@@ -114,7 +119,7 @@ for (const accepted of [true, false]) {
     let release!: () => void
     let started = false
     const gate = new Promise<void>((resolve) => { release = resolve })
-    await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'picker-ownership', schemaWire: 1 },
       nodes: { Picker: { schemaVersion: 1, displayName: 'Asset picker', interface: [
@@ -178,7 +183,7 @@ for (const accepted of [true, false]) {
 test('native source choices preserve names, cancel, unavailable values and backend failures', async ({ page }, testInfo) => {
   let fail = false
   const queries: string[] = []
-  await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'source-choice-contract', schemaWire: 1 },
     nodes: { SourceChoice: { schemaVersion: 1, displayName: 'Source choice', interface: [
@@ -254,7 +259,7 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
   let staleStarted = false
   let closedFinished = false
   let staleFinished = false
-  await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'vae-source-contract', schemaWire: 1 },
     nodes: { VaeSource: { schemaVersion: 1, displayName: 'VAE source', interface: [
