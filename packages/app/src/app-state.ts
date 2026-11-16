@@ -4299,6 +4299,7 @@ export class AppState {
     const generation = this.workspaceAuthorityGeneration
     const promise = this.promoteWorkspaceTab(tab, generation, controller.signal).finally(() => {
       if (this.workspacePromotions.get(tab.id)?.promise === promise) this.workspacePromotions.delete(tab.id)
+      if (this.closedWorkflowDocuments.has(tab.store)) this.schedulePersistTabs()
     })
     this.workspacePromotions.set(tab.id, { tab, promise, controller })
     return promise
@@ -4439,6 +4440,14 @@ export class AppState {
           const roots = workflowAssetRoots(document, session.historySnapshot(),
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
           retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+          // Closing during admission still ends this locally captured lifetime.
+          if (retained.complete && !this.disposed && !connectionChanged && activeProjectId() === project &&
+            this.backends.get().includes(backend) &&
+            this.assetConnectionGenerations.get(backend.connection) === connectionGeneration) {
+            this.supersededWorkflowOwners.set(retained, {
+              session: tab.store, backend, project, generation: connectionGeneration, awaitingRemoteCommit: true,
+            })
+          }
           const latest = this.tabs.get().find((candidate) => candidate.id === tab.id)
           const currentRegistry = backend.registry.get()
           if (this.disposed || generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
@@ -4470,7 +4479,10 @@ export class AppState {
       this.workspaceSessions.set(tab.id, { tab: replacement, session })
       this.tabs.set(this.tabs.get().map((candidate) => candidate === current ? replacement : candidate))
       if (sameDocument) this.continueWorkflowAssetOwner(tab.store, session)
-      if (retained !== undefined) this.replaceWorkflowAssetOwner(session, backend, retained, project, connectionGeneration)
+      if (retained !== undefined) {
+        this.supersededWorkflowOwners.delete(retained)
+        this.replaceWorkflowAssetOwner(session, backend, retained, project, connectionGeneration)
+      }
     } catch (error) {
       session?.close()
       this.reportProblems(tab.id, [diag(
@@ -6999,6 +7011,7 @@ export class AppState {
         committed.documentCandidateDigests?.[closed.tab.id] === closed.digest) {
         this.retirePersistedWorkflowSlot(key, localSlot.raw)
       }
+      if (this.workspacePromotions.get(closed.tab.id)?.tab.store === session) continue
       const owner = closed.owner
       if (owner !== undefined && this.workflowAssetOwners.get(session) === owner &&
         activeProjectId() === owner.project && this.backends.get().includes(owner.backend) &&

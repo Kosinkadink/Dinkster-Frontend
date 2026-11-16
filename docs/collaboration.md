@@ -67,7 +67,9 @@ original project, connection generation and exact durable receipt. A complete
 local snapshot can retire after its slot ends even if the catalog refreshed;
 an incomplete snapshot still requires a complete acknowledgment for the exact
 same document under the current schema. Independent readers and recovery
-sources keep their own protection.
+sources keep their own protection. Close also waits for pending workspace
+promotion acknowledgments, then retires their complete local receipts through
+the same captured document lifetime and canonical close checks.
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
 schema and connection generation are unchanged. A changed destination or

@@ -456,7 +456,8 @@ describe('share', () => {
     { keepWorkflow: false, ordered: true },
     { keepWorkflow: true, ordered: true },
     { keepWorkflow: true, ordered: false },
-  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered', async ({ keepWorkflow, ordered }) => {
+    { keepWorkflow: true, ordered: true, pendingAdmission: true },
+  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered, pending=$pendingAdmission', async ({ keepWorkflow, ordered, pendingAdmission }) => {
     let lock = Promise.resolve()
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
       const next = lock.then(callback)
@@ -476,10 +477,13 @@ describe('share', () => {
       return channel.port2
     }
     const receipts = new Map<string, RetainedAssets>()
+    let holdAdmissions = false
+    const pendingAdmissions: Array<() => void> = []
     for (const backend of app.backends.get()) {
       vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         const receipt = { ...owner, ...declaration, revision: 1 }
         receipts.set(owner.ownerId, receipt)
+        if (holdAdmissions && declaration.digests.length > 0) await new Promise<void>((resolve) => pendingAdmissions.push(resolve))
         return receipt
       })
       vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
@@ -518,9 +522,13 @@ describe('share', () => {
         return canonical.assetRetention?.complete === true && canonical.tabs?.some((entry: { doc: WorkflowDocument }) =>
           JSON.stringify(entry.doc) === JSON.stringify(shared.store.doc))
       }, 'settled shared recovery')
+      holdAdmissions = pendingAdmission === true
       expect(await app.endCollabSession(shared.id)).toBeUndefined()
+      if (pendingAdmission) await until(() => pendingAdmissions.length > 0, 'pending ownership admission')
       if (keepWorkflow) app.createWorkflow()
       expect(app.requestCloseTab(prior.id, () => true)).toBe(true)
+      holdAdmissions = false
+      for (const resolve of pendingAdmissions) resolve()
       await vi.waitFor(() => expect([...receipts.values()].filter((receipt) => receipt.digests.includes(digest))).toEqual([]))
     } finally {
       app.dispose()
