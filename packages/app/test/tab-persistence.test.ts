@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_SCALE, MIN_SCALE } from '@dinkster/canvas'
 import { AppState } from '../src/app-state.js'
+import type { RetainedAssets } from '@dinkster/client'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
@@ -120,6 +121,52 @@ describe('open-tab persistence', () => {
     expect(JSON.parse(localStorage.getItem(TABS_KEY)!).assetRetention.owners[0].connectionId)
       .toBe(other.connection.id)
   })
+
+  it.each(['closed', 'durable', 'disconnected', 'disposed'] as const)(
+    'retires an interrupted startup receipt only after its captured sources end: %s', async (scenario) => {
+      const digest = `blake3:${'c'.repeat(64)}`
+      const document = { ...seedBasic, ext: { held: { digest, name: 'restored.bin', size: 7,
+        mediaType: 'application/octet-stream', virtualPath: '' } } }
+      localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+        tabs: [{ title: 'Restored', doc: document }] }))
+      const app = createEditableApp()
+      const receipts = new Map<string, RetainedAssets>()
+      let acknowledge!: () => void
+      let requested!: () => void
+      let captured: RetainedAssets | undefined
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+        receipts.set(owner.ownerId, receipt)
+        if (!captured && declaration.digests.includes(digest)) {
+          captured = receipt
+          requested()
+          await new Promise<void>((resolve) => { acknowledge = resolve })
+        }
+        return receipt
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
+      const startup = app.confirmStartupOwnership().then(() => true, () => false)
+      await request
+      if (scenario === 'durable') localStorage.setItem('dinkster.openTabsDocumentCandidate.independent-recovery',
+        JSON.stringify({ v: 1, stageId: 'independent', tab: {
+          title: 'Recovery', doc: { ...document, lineage: 'independent-recovery' },
+        } }))
+      app.closeTab(document.lineage)
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      expect(await startup).toBe(false)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(receipts.get(captured!.ownerId)).toEqual(scenario === 'closed'
+        ? { ...captured!, revision: captured!.revision + 1, complete: true, digests: [] } : captured)
+    },
+  )
 
   it('confirms startup ownership after the opening transport publishes its catalog', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))

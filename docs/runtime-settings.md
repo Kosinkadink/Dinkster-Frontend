@@ -46,7 +46,11 @@ New owners record immutable holder membership with their durable intent: workflo
 literals, undo/compile history and restored/shared documents; typed editor resources;
 shown results and persisted history; live previews; or pending reads and caches.
 A shared receipt declares all lifetimes it protects. Exact releases carry that
-same set, while legacy owner journals never acquire membership retroactively. Storage
+same set, while legacy owner journals never acquire membership retroactively.
+Startup and incoming-tab admissions that acknowledge ownership but cannot publish
+remain protected until admission settles and complete live and durable recovery
+inventories no longer name their roots. Disconnect or application disposal does
+not authorize releasing these receipts. Storage
 Refresh and Clear temporarily suspend event and collaboration reconnects, close
 those streams, settle reads and acknowledge the exact server census before
 requesting evaluated eligibility or cleanup. Streams resume afterward and

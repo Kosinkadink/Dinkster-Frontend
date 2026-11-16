@@ -411,6 +411,12 @@ describe('AppState multi-window workspace', () => {
       const previous = viewer.tabs.get()
       const active = viewer.activeTabId.get()
       let released = false
+      const incomingReceipts = new Map<string, RetainedAssets>()
+      vi.spyOn(viewer.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...incomingReceipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        incomingReceipts.set(owner.ownerId, receipt)
+        return receipt
+      })
       const acknowledgments: (() => void)[] = []
       let requested!: () => void
       const request = new Promise<void>((resolve) => { requested = resolve })
@@ -419,7 +425,9 @@ describe('AppState multi-window workspace', () => {
         expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
         expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
         if (!released) await new Promise<void>((resolve) => { acknowledgments.push(resolve); requested() })
-        return { ...owner, ...declaration, revision: scenario.endsWith('refused') ? 2 : 1 }
+        const receipt = { ...owner, ...declaration, revision: scenario.endsWith('refused') ? 2 : 1 }
+        incomingReceipts.set(owner.ownerId, receipt)
+        return receipt
       })
       vi.spyOn(viewer.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
       const opening = running
@@ -451,6 +459,9 @@ describe('AppState multi-window workspace', () => {
       } else if (scenario === 'superseded') {
         expect(incoming).toBeUndefined()
         expect(viewer.tabs.get().map((tab) => tab.id)).toEqual(author.tabs.get().map((tab) => tab.id))
+        expect(incomingReceipts.size).toBeGreaterThan(0)
+        await vi.waitFor(() => expect([...incomingReceipts.values()].every((receipt) =>
+          receipt.revision === 2 && receipt.complete && receipt.digests.length === 0)).toBe(true))
       } else {
         expect(incoming).toBeUndefined()
         expect(viewer.tabs.get().map((tab) => tab.id)).toEqual(previous.map((tab) => tab.id))

@@ -3679,6 +3679,8 @@ export class AppState {
         ownershipRegistry: registry && (this.packLocaleSources.get(registry) ?? registry),
         project: activeProjectId(), generation: this.assetConnectionGenerations.get(backend.connection) }
     })
+    const admission = { pending: true }
+    const storage = globalThis.localStorage
     try {
       if (this.disposed) throw new Error('The application closed before startup ownership could be confirmed')
       const retained = await Promise.all(candidates.filter(({ backend }) => backend.protocol === 'dinkster')
@@ -3687,6 +3689,9 @@ export class AppState {
           const roots = workflowAssetRoots(document, history,
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
           const receipt = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+          this.unpublishedWorkflowOwners.set(receipt, { backend, registry, storage, admission,
+            project: candidate.project, generation: candidate.generation, lineage: document.lineage })
+          if (!admission.pending) this.retireUnpublishedWorkflowOwners()
           return { candidate, receipt, roots }
         }))
       const latest = this.tabs.get()
@@ -3702,12 +3707,15 @@ export class AppState {
       }
       for (const { candidate, receipt, roots } of retained) {
         if (candidate.tab && !candidate.tab.execution && candidate.tab.store.doc === candidate.document &&
-          candidate.tab.store.revision === candidate.revision) this.replaceWorkflowAssetOwner(candidate.tab.store,
-          candidate.backend, receipt, candidate.project, candidate.generation)
+          candidate.tab.store.revision === candidate.revision) {
+          this.replaceWorkflowAssetOwner(candidate.tab.store, candidate.backend, receipt, candidate.project, candidate.generation)
+        }
         this.reportIncompleteOwnership(candidate.document.lineage, roots, receipt)
       }
     } finally {
+      admission.pending = false
       for (const candidate of candidates) candidate.unsubscribe()
+      this.retireUnpublishedWorkflowOwners()
     }
   }
 
@@ -4086,6 +4094,8 @@ export class AppState {
         ? { ...record, document: recovery.document } : record
     })
     const project = activeProjectId()
+    const storage = globalThis.localStorage
+    const admission = { pending: true }
     const receipts = new Map<Tab, RetainedAssets>()
     const candidates = incoming.map((record) => {
       const tab = this.makeTab(record.document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
@@ -4100,10 +4110,13 @@ export class AppState {
       const local = current.map((tab) => ({ tab, document: tab.store.doc, revision: tab.store.revision, backend: this.backendForTab(tab) }))
       try {
         const native = candidates.filter(({ backend }) => backend.protocol === 'dinkster')
-        const retained = await Promise.all(native.map(async ({ tab, backend, registry }) => {
+        const retained = await Promise.all(native.map(async ({ tab, backend, registry, connectionGeneration }) => {
           const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
           const receipt = await retainWorkflowAssets(backend.connection, tab.id, tab.store.revision, roots)
+          this.unpublishedWorkflowOwners.set(receipt, { backend, registry, storage, admission, project,
+            generation: connectionGeneration, lineage: tab.id })
+          if (!admission.pending) this.retireUnpublishedWorkflowOwners()
           return { tab, roots, receipt }
         }))
         const latest = this.tabs.get()
@@ -4128,7 +4141,9 @@ export class AppState {
         )])
         return
       } finally {
+        admission.pending = false
         for (const candidate of candidates) candidate.unsubscribe()
+        queueMicrotask(() => this.retireUnpublishedWorkflowOwners())
       }
     }
     const opening = this.workspaceTabRevision < 0
@@ -8148,6 +8163,50 @@ export class AppState {
     readonly project: string
     readonly generation: number | undefined
   }>()
+  private readonly unpublishedWorkflowOwners = new Map<RetainedAssets, {
+    readonly backend: Backend
+    readonly registry: SchemaRegistry | undefined
+    readonly project: string
+    readonly storage: Storage
+    readonly generation: number | undefined
+    readonly lineage: string
+    readonly admission: { pending: boolean }
+  }>()
+
+  private persistedWorkflowRoots(backend: Backend, project: string, generation: number | undefined): ReadonlySet<string> | undefined {
+    return persistedWorkflowAssetRoots(
+      this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined)), (key, raw) => {
+        const slot = this.persistedWorkflowSlots.get(key)
+        // Only this lifetime's exact acknowledged slot certifies resolved roots.
+        if (!slot?.complete || slot.raw !== raw || slot.owners.length === 0 || slot.owners.some((owner) =>
+          owner.backend !== backend || owner.registry !== backend.registry.get() || owner.generation !== generation ||
+          owner.project !== project || owner.storage !== globalThis.localStorage || !owner.retained.complete)) return undefined
+        return new Set(slot.owners.flatMap((owner) => owner.retained.digests))
+      })
+  }
+
+  private retireUnpublishedWorkflowOwners(): void {
+    for (const [retained, owner] of this.unpublishedWorkflowOwners) {
+      const { backend, project, generation } = owner
+      if (owner.admission.pending || this.disposed || activeProjectId() !== project ||
+        globalThis.localStorage !== owner.storage || !this.backends.get().includes(backend) ||
+        this.assetConnectionGenerations.get(backend.connection) !== generation ||
+        (!retained.complete && backend.registry.get() !== owner.registry) ||
+        this.tabs.get().some((tab) => !tab.execution && tab.id === owner.lineage)) continue
+      const resolve = this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined))
+      const live = this.tabs.get().filter((tab) => !tab.execution && this.backendForTab(tab) === backend)
+        .map((tab) => workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), resolve, [], 'admission'))
+      if (live.some((roots) => !roots.complete || roots.refusal !== undefined)) continue
+      const persisted = this.persistedWorkflowRoots(backend, project, generation)
+      if (persisted === undefined || retained.digests.some((digest) => persisted.has(digest) ||
+        live.some((roots) => roots.digests.includes(digest)))) continue
+      // A rejected admission is not a published document lifetime. Its exact
+      // receipt ends only after all live and durable recovery roots are known.
+      this.unpublishedWorkflowOwners.delete(retained)
+      void retireAssetOwner(backend.connection, retained)
+    }
+  }
+
   private readonly supersededWorkflowOwners = new Map<RetainedAssets, {
     session: DocumentSession
     awaitingRemoteCommit?: boolean
@@ -8185,6 +8244,7 @@ export class AppState {
     const previous = this.workflowAssetOwners.get(previousSession)
     const owner = { backend, retained, project, generation }
     this.workflowAssetOwners.set(session, owner)
+    this.unpublishedWorkflowOwners.delete(retained)
     // The acknowledged replacement covers the committed document and its history.
     // Unknown inventories and disconnected lifetimes are not release authority.
     if (!previous || previous.backend !== backend || previous.project !== project || previous.generation !== generation ||
@@ -8207,6 +8267,7 @@ export class AppState {
 
   private retireSupersededWorkflowOwners(): void {
     if (this.disposed) return
+    this.retireUnpublishedWorkflowOwners()
     const durableRoots = new Map<Backend, ReadonlySet<string> | undefined>()
     for (const [retained, pending] of this.supersededWorkflowOwners) {
       const { session, backend, project, generation } = pending
@@ -8218,16 +8279,7 @@ export class AppState {
       const covered = new Set(current.retained.digests)
       const removed = retained.digests.filter((digest) => !covered.has(digest))
       if (removed.length > 0) {
-        if (!durableRoots.has(backend)) durableRoots.set(backend, persistedWorkflowAssetRoots(
-          this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined)), (key, raw) => {
-            const slot = this.persistedWorkflowSlots.get(key)
-            // Recovered receipts cannot certify a configured recipe. Only this
-            // lifetime's exact acknowledged slot has a resolved inventory.
-            if (!slot?.complete || slot.raw !== raw || slot.owners.length === 0 || slot.owners.some((owner) =>
-              owner.backend !== backend || owner.registry !== backend.registry.get() || owner.generation !== generation ||
-              owner.project !== project || owner.storage !== globalThis.localStorage || !owner.retained.complete)) return undefined
-            return new Set(slot.owners.flatMap((owner) => owner.retained.digests))
-          }))
+        if (!durableRoots.has(backend)) durableRoots.set(backend, this.persistedWorkflowRoots(backend, project, generation))
         const persisted = durableRoots.get(backend)
         if (persisted === undefined || removed.some((digest) => persisted.has(digest))) continue
       }
