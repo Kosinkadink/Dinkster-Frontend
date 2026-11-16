@@ -4314,6 +4314,7 @@ export class AppState {
     retainedDocuments: readonly WorkflowDocument[],
     stillCurrent: () => boolean,
     session: DocumentSession | undefined,
+    pendingOwners?: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>>[],
   ): Promise<() => void> {
     if (backend === undefined || this.disposed || !stillCurrent()) throw new Error('Remote workflow destination is unavailable')
     const project = activeProjectId()
@@ -4333,8 +4334,10 @@ export class AppState {
         }
         // Local editing can force admission to retry without committing this receipt.
         // Keep it protected until a remote handoff or the exact document Close.
-        if (session !== undefined && retained.complete) {
-          this.supersededWorkflowOwners.set(retained, { session, backend, project, generation, awaitingRemoteCommit: true })
+        if (retained.complete) {
+          if (session !== undefined) {
+            this.supersededWorkflowOwners.set(retained, { session, backend, project, generation, awaitingRemoteCommit: true })
+          } else pendingOwners?.push({ retained, backend, project, generation })
         }
         // A refreshed schema can expose new roots; its own acknowledgment must precede publication.
         if (backend.registry.get() !== registry) continue
@@ -7331,6 +7334,7 @@ export class AppState {
       }),
     )
     let session: SharedDocumentSession
+    const pendingRemoteOwners: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>>[] = []
     let adopted = false
     try {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
@@ -7355,7 +7359,7 @@ export class AppState {
               return pending?.store === priorStore && pending?.store.doc === priorDocument &&
                 pending?.store.revision === priorRevision &&
                 (pending === undefined || this.backendForTab(pending) === priorTarget)
-            }, adopted ? session : undefined)
+            }, adopted ? session : undefined, pendingRemoteOwners)
         },
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
@@ -7452,6 +7456,12 @@ export class AppState {
     adopted = true
     if (preservesHistory && prior !== undefined) this.continueWorkflowAssetOwner(prior.store, session)
     this.replaceWorkflowAssetOwner(session, backend, retained, project, generation, preservesHistory ? session : prior?.store)
+    for (const pending of pendingRemoteOwners) {
+      if (pending.backend === backend && pending.project === project && pending.generation === generation) {
+        this.supersededWorkflowOwners.set(pending.retained, { session, backend, project, generation })
+      }
+    }
+    this.retireSupersededWorkflowOwners()
     if (opts?.activate !== false) this.activeTabId.set(tab.id)
     const presence = new PresenceChannel(session, actorId)
     // A session that ends REMOTELY (session_closed, terminal error) never

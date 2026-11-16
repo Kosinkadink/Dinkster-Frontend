@@ -74,6 +74,10 @@ or joining replaces a local session with a different document snapshot, its
 complete local predecessor receipt follows the replacement's retirement gates;
 it is not forgotten with the displaced session. This does not carry editor
 history across different documents or release independent recovery holders.
+Complete catch-up receipts admitted before joining finishes stay attached to
+that join attempt. Successful adoption carries matching local receipts into
+the adopted session's ordinary replacement and Close checks; failed joins do
+not grant retirement authority.
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
 schema and connection generation are unchanged. A changed destination or

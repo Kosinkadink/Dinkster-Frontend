@@ -458,7 +458,8 @@ describe('share', () => {
     { keepWorkflow: true, ordered: false },
     { keepWorkflow: true, ordered: true, pendingAdmission: true },
     { keepWorkflow: true, ordered: true, peerWindow: true },
-  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered, pending=$pendingAdmission, peer=$peerWindow', async ({ keepWorkflow, ordered, pendingAdmission, peerWindow }) => {
+    { keepWorkflow: true, ordered: true, peerWindow: true, peerJoin: true },
+  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered, pending=$pendingAdmission, peer=$peerWindow, joined=$peerJoin', async ({ keepWorkflow, ordered, pendingAdmission, peerWindow, peerJoin }) => {
     let lock = Promise.resolve()
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
       const next = lock.then(callback)
@@ -529,6 +530,7 @@ describe('share', () => {
       if (peer !== undefined) {
         await peer.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
         await until(() => peer.tabs.get().some((entry) => entry.id === shared.id && 'status' in entry.store), 'peer promotion')
+        if (peerJoin) expect(await peer.joinCollabSession(app.collabFor(shared.id)!.descriptor.sessionId)).toBeUndefined()
         peer.flushPersistTabs(true)
         await tick()
       }
@@ -541,7 +543,7 @@ describe('share', () => {
         await until(() => peer.tabs.get().some((entry) => entry.id === nextId), 'peer new workflow')
         app.flushPersistTabs(true)
         await tick()
-        holdAdmissions = true
+        holdAdmissions = !peerJoin
       }
       expect(app.requestCloseTab(prior.id, () => true)).toBe(true)
       if (peer !== undefined) {
