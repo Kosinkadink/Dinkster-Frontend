@@ -710,7 +710,7 @@ describe('AppState multi-window workspace', () => {
       .toBe('New edit while another renderer holds the lock')
   })
 
-  it('confirmed close retires its live receipt without releasing another workflow of the same asset', async () => {
+  it.each(['settled', 'peer-canonical'] as const)('confirmed close retires its live receipt without releasing another workflow of the same asset: %s', async (scenario) => {
     let commits = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (
       _name: string, _options: LockOptions, callback: () => unknown,
@@ -719,6 +719,9 @@ describe('AppState multi-window workspace', () => {
       commits = next.catch(() => undefined)
       return next
     } } })
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
     const app = createEditableApp()
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'shared.png', size: 17,
       mediaType: 'image/png', virtualPath: '' }
@@ -776,10 +779,29 @@ describe('AppState multi-window workspace', () => {
     await drainTasks()
     const readOwners = [...receipts].filter(([id]) => !beforeRead.has(id))
     expect(readOwners).toHaveLength(1)
+    const write = localStorage.setItem.bind(localStorage)
+    let peerCanonical: string | undefined
+    if (scenario === 'peer-canonical') vi.spyOn(localStorage, 'setItem').mockImplementation((key, raw) => {
+      if (key === 'dinkster.openTabs' && JSON.parse(raw).assetRetention?.complete === true) {
+        const snapshot = JSON.parse(raw)
+        snapshot.assetRetention.stageId = 'peer-canonical-stage'
+        peerCanonical = JSON.stringify(snapshot)
+        write(key, peerCanonical)
+      } else write(key, raw)
+    })
     app.closeTab(closing.id)
     await drainTasks()
     app.flushPersistTabs(true)
     await drainTasks()
+    if (scenario === 'peer-canonical') {
+      expect(peerCanonical).toBeDefined()
+      vi.mocked(localStorage.setItem).mockImplementation(write)
+      events.dispatchEvent(Object.assign(new Event('storage'), {
+        key: 'dinkster.openTabs', newValue: peerCanonical,
+      }))
+      await drainTasks()
+      expect(localStorage.getItem('dinkster.openTabs')).toBe(peerCanonical)
+    }
     expect(localStorage.getItem(candidateKey)).toBeNull()
     for (const id of liveOwners) expect(receipts.get(id)).toMatchObject({ revision: 2, digests: [] })
     for (const entry of recovery) expect(receipts.get(entry.retained.ownerId)).toMatchObject({ revision: 2, digests: [] })

@@ -3062,7 +3062,10 @@ export class AppState {
     }
     // A closed renderer leaves recovery data, not permission to finish its
     // network work. A live peer admits the stored roots before compaction.
-    if (!this.disposed && ((event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) ||
+    const canonical = event.key === tabsKey() && event.newValue !== null && parsePersistedTabs(event.newValue) !== undefined
+      ? JSON.parse(event.newValue) : undefined
+    if (!this.disposed && ((canonical?.assetRetention?.acknowledged === true && canonical.assetRetention.complete === true) ||
+      (event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) ||
       event.key?.startsWith(documentCandidatePrefix()))) {
       this.reconcilePersistedTabs()
     }
@@ -3915,7 +3918,8 @@ export class AppState {
     const stageId = randomWorkspaceId('stage')
     // Teardown cannot wait for the network. This generation is recovery data,
     // not acknowledged ownership, until its exact captured roots are retained.
-    const pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
+    let pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
+    let reuseCanonical = false
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const sources = documents.map(({ document, revision }) => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.id === document.lineage)
@@ -3943,7 +3947,19 @@ export class AppState {
     const writePending = (): void => {
       if (activeProjectId() !== project || globalThis.localStorage !== storage) return
       previousOwners = [...(this.persistedWorkflowSlots.get(key)?.owners ?? [])]
-      storage.setItem(key, pending)
+      const current = key === tabsKey() ? storage.getItem(key) : null
+      if (current !== null && parsePersistedTabs(current) !== undefined) {
+        const { assetRetention, ...committed } = JSON.parse(current)
+        const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
+        // Admit this renderer's own roots without replacing an identical peer
+        // generation; otherwise storage notifications make peers displace forever.
+        if (assetRetention?.acknowledged === true && assetRetention.complete === true &&
+          canonicalJson(committed) === canonicalJson(incoming)) {
+          pending = current
+          reuseCanonical = true
+        }
+      }
+      if (!reuseCanonical) storage.setItem(key, pending)
       if (!this.disposed) this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
     }
     if (locks) await locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, writePending)
@@ -4010,15 +4026,16 @@ export class AppState {
       // Superseded admissions can settle after this stage captured its predecessors.
       // Keep their local receipts through the same acknowledged replacement gate.
       previousOwners = [...new Set([...previousOwners, ...(this.persistedWorkflowSlots.get(key)?.owners ?? [])])]
-      storage.setItem(key, acknowledged)
-      this.persistedWorkflowSlots.set(key, { raw: acknowledged, complete, owners: [
+      const committed = reuseCanonical ? pending : acknowledged
+      if (!reuseCanonical) storage.setItem(key, committed)
+      this.persistedWorkflowSlots.set(key, { raw: committed, complete, owners: [
         ...(complete ? [] : previousOwners),
         ...replacements,
       ] })
       // Only this app's exact staged generations confer release authority.
       // Stored receipts from another window or lifetime remain observation-only.
       if (complete) this.retirePersistedWorkflowOwners(previousOwners, replacements)
-      return complete ? acknowledged : undefined
+      return complete ? committed : undefined
     }
     return locks
       ? locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, publish)

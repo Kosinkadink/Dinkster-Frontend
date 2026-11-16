@@ -339,8 +339,12 @@ owners. Exact complete acknowledgment precedes retiring covered candidate and
 operation slots. A registry refresh during slot admission recomputes the captured
 document's roots and requires a fresh acknowledgment before publishing the slot
 or its shared-tab operation; later tab changes cannot skip that admission.
-A live window reconciles newly staged workspace candidates from
-its peers, retaining their captured roots before compaction. A disposed window
+A live window reconciles newly staged workspace candidates and canonical commits
+from its peers, retaining their captured roots before compaction. An identical
+complete canonical snapshot stays byte-identical while each window admits its own
+owners; peer receipts never replace local admission. The acknowledged snapshot
+then permits retirement of that window's captured closed documents and superseded
+slots without repeated cross-window writes. A disposed window
 only stages recovery data and cannot finish network admission or release owners.
 A local slot replacement retires its previous owners only after
 complete acknowledgment on the same backend/catalog lifetime; incomplete or
