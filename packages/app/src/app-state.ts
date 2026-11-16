@@ -3951,6 +3951,11 @@ export class AppState {
       if (current !== null && parsePersistedTabs(current) !== undefined) {
         const { assetRetention, ...committed } = JSON.parse(current)
         const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
+        // Identical pending snapshots share the publication barrier. Replacing
+        // its bytes would invalidate admissions already waiting for the network.
+        if (assetRetention?.acknowledged !== true && canonicalJson(committed) === canonicalJson(incoming)) {
+          pending = current
+        }
         // Admit this renderer's own roots without replacing an identical peer
         // generation; otherwise storage notifications make peers displace forever.
         if (assetRetention?.acknowledged === true && assetRetention.complete === true &&
@@ -3998,9 +4003,18 @@ export class AppState {
             ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
           ],
         })
+        const currentRaw = key === tabsKey() ? storage.getItem(key) : null
+        const current = currentRaw !== null && parsePersistedTabs(currentRaw) !== undefined ? JSON.parse(currentRaw) : undefined
+        const { assetRetention: currentRetention, ...currentValue } = current ?? {}
+        const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
+        // A complete admission can lose the shared pending barrier to an
+        // incomplete peer. Retry normally rather than publishing stale bytes.
         if (previousOwners.some((previous) => !previous.retained.complete && owners.some((retained, index) =>
           retained.complete && native[index]!.backend === previous.backend &&
-          JSON.stringify(native[index]!.document) === JSON.stringify(previous.document)))) this.reconcilePersistedTabs()
+          JSON.stringify(native[index]!.document) === JSON.stringify(previous.document))) ||
+          currentRetention?.acknowledged === true && currentRetention.complete === false &&
+          native.length === sources.length && owners.every((retained) => retained.complete) &&
+          canonicalJson(currentValue) === canonicalJson(incoming)) this.reconcilePersistedTabs()
         throw new Error('Workspace recovery changed during asset admission')
       }
       // A refreshed schema may reveal different roots; admit them before publishing the operation.

@@ -63,6 +63,12 @@ exact stage before removing the tab immediately; admission and canonical
 incorporation still precede recovery retirement. A recovery write already
 queued before Close keeps its written-stage barrier, protecting newer
 unincorporated edits.
+Repeated notifications for an identical pending canonical snapshot share its
+publication barrier instead of invalidating admissions already in flight.
+Every renderer still admits its own roots before cleanup; a changed snapshot
+starts a separate generation. If an incomplete renderer publishes first, a
+complete renderer retries the identical snapshot through admission rather than
+publishing against stale bytes.
 Overlapping persistence admissions keep late receipts through the same complete
 replacement gate rather than dropping them when another stage publishes.
 An acknowledged empty workspace also retires its locally admitted predecessor
