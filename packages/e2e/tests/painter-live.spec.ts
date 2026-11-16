@@ -1,5 +1,7 @@
 import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
   const point = await page.evaluate((nodeId) => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((entry) => entry.id === nodeId)!
