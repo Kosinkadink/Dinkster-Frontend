@@ -17,7 +17,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 1 }, nodes: {},
   } }))
-  await page.route('**/api/assets/*', (route) => {
+  await page.route('**/api/assets/*', async (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
     if (digest === `blake3:${'c'.repeat(64)}`) {
       void route.fulfill({ status: 404, body: 'missing proof image' })
@@ -25,10 +25,20 @@ async function mockBackend(page: Page): Promise<void> {
     }
     const filename = digest === `blake3:${'b'.repeat(64)}` ? longIdentityName : 'first.png'
     const color = filename === 'first.png' ? '#3b82f6' : filename.startsWith('middle-') ? '#a855f7' : '#22c55e'
-    void route.fulfill({
-      contentType: 'image/svg+xml',
-      body: `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640"><rect width="960" height="640" fill="${color}"/><text x="480" y="330" text-anchor="middle" fill="white" font-size="72">${filename.startsWith('middle-') ? 'long identity image' : filename}</text></svg>`,
-    })
+    const png = await page.evaluate(({ color, filename }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 960
+      canvas.height = 640
+      const context = canvas.getContext('2d')!
+      context.fillStyle = color
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      context.fillStyle = 'white'
+      context.font = '72px sans-serif'
+      context.textAlign = 'center'
+      context.fillText(filename.startsWith('middle-') ? 'long identity image' : filename, 480, 330)
+      return canvas.toDataURL('image/png').split(',')[1]!
+    }, { color, filename })
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') })
   })
 }
 
@@ -65,7 +75,10 @@ test.beforeEach(async ({ page }) => {
   await mockBackend(page)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest?.app.backends.get()[0]
+    return backend?.connection.status.get() === 'connected' && backend.schemaState.get().status === 'ready'
+  })).toBe(true)
   await installExecution(page)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Outputs' }).click()
   await expect(page.locator('.output-thumbnail')).toHaveCount(3)
@@ -217,7 +230,7 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   await page.screenshot({ path: `${proofDir}/07-canvas-last-unavailable-1920.png`, animations: 'disabled' })
   await pager.getByRole('button', { name: /Open image 3 of 3/ }).click()
   await expect(page.getByTestId('output-viewer-position')).toHaveText('3 / 3')
-  await expect(page.getByTestId('output-viewer').getByRole('alert')).toContainText('Image unavailable')
+  await expect(page.getByTestId('output-viewer').getByRole('alert')).toContainText('Image asset is unavailable')
   await page.screenshot({ path: `${proofDir}/08-viewer-unavailable-1920.png`, animations: 'disabled' })
   await page.getByTestId('output-viewer').getByRole('button', { name: /Close/ }).click()
 
@@ -272,7 +285,10 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   }, imageOutput(['first.png']))
   await expect(page.getByTestId('output-viewer')).toHaveCount(1)
   await expect(page.getByTestId('output-viewer-position')).toHaveText('1 / 1')
-  await expect(page.getByTestId('node-output-pager')).toHaveCount(0)
+  await expect(pager.getByRole('button', { name: /Previous image/ })).toHaveCount(0)
+  await expect(pager.getByRole('button', { name: /Next image/ })).toHaveCount(0)
+  await expect(pager.getByRole('button', { name: 'Open image 1 of 1 for Save Image', exact: true })).toBeVisible()
+  await expect(pager.getByRole('link', { name: 'Download', exact: true })).toHaveAttribute('download', 'first.png')
   await expect.poll(() => page.evaluate(() => {
     const preview = window.__dinksterTest!.renderer!.getNodePreviews()['save'] as { index?: number; count?: number } | undefined
     return [preview?.index, preview?.count]
