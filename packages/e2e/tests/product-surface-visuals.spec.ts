@@ -156,6 +156,12 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
       dinkster: { version: 'visual-fixture', schemaWire: 1 },
       nodes: {},
     } })
+  } else if (path.endsWith('/api/models/settings')) {
+    await route.fulfill({ json: {
+      settings: { version: 1, downloadLocation: null, locations: [] },
+      locations: [], revision: 'visual', project: 'default', changesAllowed: true,
+      restartRequired: false, pendingRemovals: [],
+    } })
   } else if (path.endsWith('/api/mounts')) {
     await route.fulfill({ json: { mounts: [] } })
   } else if (path.endsWith('/api/assets/catalog')) {

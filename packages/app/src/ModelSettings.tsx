@@ -154,23 +154,26 @@ export function ModelSettings(props: {
         </ProductField>
         <Show when={current().settings.downloadLocation === null}><ProductNotice tone="info">{message('modelSettings.noDownload')}</ProductNotice></Show>
         <ol class="project-folder-list">
-          <For each={current().locations}>{(location) => <li data-model-location={location.id}>
-            <div class="project-folder-facts">
-              <strong>{location.id}</strong><code>{location.path}</code>
-              <span>{location.kind || message('modelSettings.layout')} - {message(location.mode === 'read' ? 'projectFolders.read' : 'projectFolders.readwrite')}</span>
-              <Show when={!location.active}><span>{message('modelSettings.inactive')}</span></Show>
-              <ProductField controlId={`model-visibility-${location.id}`} label={message('modelSettings.visibility')} layout="stack">
-                <ProductSelect id={`model-visibility-${location.id}`} selectedId={location.visibility} disabled={disabled()} options={visibilityOptions()} onSelect={(option) => update({ id: location.id, path: location.path, mode: location.mode, visibility: option.value, ...(location.kind === undefined ? {} : { kind: location.kind }) })} />
-              </ProductField>
-              <label class="project-folder-shared"><ProductCheckbox checked={location.enabled} disabled={disabled() || location.visibility === 'always-on'} ariaLabel={message('modelSettings.enabled', { folder: location.id })} onChange={(enabled) => void perform(() => props.connection.setModelLocationEnabled(location.id, enabled))} />{message('modelSettings.enabled', { folder: location.id })}</label>
-            </div>
-            <div class="project-folder-actions">
-              <ProductButton disabled={busy()} onClick={() => void copy(location.path)}>{message('assetLocation.copy')}</ProductButton>
-              <Show when={nativeChoice() && desktopFileBridge()?.revealModelLocation}><ProductButton disabled={busy()} onClick={() => void reveal(location.id)}>{message('modelSettings.reveal')}</ProductButton></Show>
-              <ProductButton disabled={disabled()} onClick={() => { setEditing(location.id); editRevision = current().revision; setId(location.id); setPath(location.path); setKind(location.kind ?? ''); setWritable(location.mode === 'readwrite'); setRemoving(undefined) }}>{message('modelSettings.edit')}</ProductButton>
-              <ProductButton disabled={disabled()} onClick={() => setRemoving(location.id)}>{message('modelSettings.remove')}</ProductButton>
-            </div>
-          </li>}</For>
+          <For each={current().locations.map((row) => row.id)}>{(locationId) => {
+            const location = () => current().locations.find((row) => row.id === locationId)!
+            return <li data-model-location={locationId}>
+              <div class="project-folder-facts">
+                <strong>{locationId}</strong><code>{location().path}</code>
+                <span>{location().kind || message('modelSettings.layout')} - {message(location().mode === 'read' ? 'projectFolders.read' : 'projectFolders.readwrite')}</span>
+                <Show when={!location().active}><span>{message('modelSettings.inactive')}</span></Show>
+                <ProductField controlId={`model-visibility-${locationId}`} label={message('modelSettings.visibility')} layout="stack">
+                  <ProductSelect id={`model-visibility-${locationId}`} selectedId={location().visibility} disabled={disabled()} options={visibilityOptions()} onSelect={(option) => update({ id: locationId, path: location().path, mode: location().mode, visibility: option.value, ...(location().kind === undefined ? {} : { kind: location().kind! }) })} />
+                </ProductField>
+                <label class="project-folder-shared"><ProductCheckbox checked={location().enabled} disabled={disabled() || location().visibility === 'always-on'} ariaLabel={message('modelSettings.enabled', { folder: locationId })} onChange={(enabled) => void perform(() => props.connection.setModelLocationEnabled(locationId, enabled))} />{message('modelSettings.enabled', { folder: locationId })}</label>
+              </div>
+              <div class="project-folder-actions">
+                <ProductButton disabled={busy()} onClick={() => void copy(location().path)}>{message('assetLocation.copy')}</ProductButton>
+                <Show when={nativeChoice() && desktopFileBridge()?.revealModelLocation}><ProductButton disabled={busy()} onClick={() => void reveal(locationId)}>{message('modelSettings.reveal')}</ProductButton></Show>
+                <ProductButton disabled={disabled()} onClick={() => { setEditing(locationId); editRevision = current().revision; setId(locationId); setPath(location().path); setKind(location().kind ?? ''); setWritable(location().mode === 'readwrite'); setRemoving(undefined) }}>{message('modelSettings.edit')}</ProductButton>
+                <ProductButton disabled={disabled()} onClick={() => setRemoving(locationId)}>{message('modelSettings.remove')}</ProductButton>
+              </div>
+            </li>
+          }}</For>
         </ol>
         <Show when={removing()}><div class="project-folder-removal">
           <ProductNotice tone="warning">{message('modelSettings.removeNotice', { folder: removing()! })}</ProductNotice>

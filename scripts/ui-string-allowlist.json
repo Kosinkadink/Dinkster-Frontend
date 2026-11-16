@@ -675,7 +675,8 @@
     "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [id, setId] = createSignal('') const [path, setPath] = createSignal('') const [kind, setKind] = createSignal('') const [writable, setWritable] = createSignal(false) const [removing, setRemoving] = createSignal",
     "text:() const [editing, setEditing] = createSignal",
     "text:): Promise",
-    "text:Promise"
+    "text:Promise",
+    "text:row.id === locationId)! return"
   ],
   "MountFolderForm.tsx": [
     "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",

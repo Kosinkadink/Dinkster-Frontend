@@ -113,6 +113,13 @@ it('refuses a stale open editor after a shared update and preserves its draft un
   const button = (text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
   try {
     await vi.waitFor(() => expect(button('Edit model folder')).toBeDefined())
+    root.querySelector<HTMLButtonElement>('#model-visibility-studio')!.click()
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+    state = structuredClone(state)
+    notify()
+    await Promise.resolve(); await Promise.resolve()
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     button('Edit model folder').click()
     state = { ...state, revision: 'changed-elsewhere' }
     notify()
