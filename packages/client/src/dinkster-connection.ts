@@ -3463,7 +3463,7 @@ export class DinksterConnection {
 
   async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
-      name: requirement.name, kind: requirement.kind, project: this.project ?? 'default',
+      name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
     }, signal))
   }
 
@@ -3486,7 +3486,7 @@ export class DinksterConnection {
 
   private async modelDownloadRequest(path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     return requestWithDeadline(async (deadline) => {
-      const res = await this.fetchFn(`${this.baseUrl}/api/models/downloads${path ? `/${path}` : ''}`, {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/downloads${path ? `/${path}` : ''}?scope=local`, {
         method, signal: deadline, cache: 'no-store',
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       })

@@ -328,8 +328,8 @@ describe('model download planning and owned jobs', () => {
     const plan = await connection.planModelDownload({ name: selected.name, kind: selected.kind })
     expect(plan).toEqual({ ...selected, status: 'consent-required', planId: 'opaque-plan' })
     expect(plan).not.toHaveProperty('digest')
-    expect(calls).toEqual([{ url: '/engine/api/models/downloads/plan', method: 'POST',
-      body: { name: selected.name, kind: selected.kind, project: selected.project } }])
+    expect(calls).toEqual([{ url: '/engine/api/models/downloads/plan?scope=local', method: 'POST',
+      body: { name: selected.name, kind: selected.kind, project: selected.project, scope: 'local' } }])
     payload = active
     const started = await connection.startModelDownload('opaque-plan')
     expect(started).toEqual(active)
@@ -338,7 +338,7 @@ describe('model download planning and owned jobs', () => {
     expect(await connection.fetchModelDownloads()).toEqual({ instance: 'server-one', jobs: [active] })
     payload = { ...active, received: 601 }
     expect(await connection.fetchModelDownload(active.jobId)).toMatchObject({ received: 601, size: 1031 })
-    expect(calls.at(-1)?.url).toBe('/engine/api/models/downloads/owned%20%2F%20job')
+    expect(calls.at(-1)?.url).toBe('/engine/api/models/downloads/owned%20%2F%20job?scope=local')
     payload = { ...active, status: 'cancelling' }
     expect(await connection.cancelModelDownload(active.jobId)).toMatchObject({ status: 'cancelling' })
     expect(calls.at(-1)?.method).toBe('DELETE')
@@ -347,7 +347,7 @@ describe('model download planning and owned jobs', () => {
     status = 200
     payload = { instance: 'server-two', jobs: [] }
     expect(await connection.fetchModelDownloads()).toEqual({ instance: 'server-two', jobs: [] })
-    expect(calls.filter((call) => call.url.endsWith('/start'))).toHaveLength(1)
+    expect(calls.filter((call) => call.url.endsWith('/start?scope=local'))).toHaveLength(1)
   })
 
   it('retains verified actual paths and reuse independently of collision renaming', async () => {
