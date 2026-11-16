@@ -8196,7 +8196,8 @@ export class AppState {
       // A complete replacement protects live consumers; durable sources must
       // independently stop naming every root that replacement no longer holds.
       this.supersededWorkflowOwners.delete(retained)
-      void retireAssetOwner(backend.connection, retained)
+      void retireAssetOwner(backend.connection, retained).finally(() =>
+        this.workflowRetentionRefreshes.get(backend.connection)?.())
     }
   }
 
