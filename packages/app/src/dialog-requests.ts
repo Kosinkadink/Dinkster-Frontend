@@ -202,7 +202,7 @@ export function installAssetConsent(p: {
           next = { ...next, ...(job ? { job } : { interrupted: true }) }
         } else {
           const { jobs } = await scope.connection.fetchModelDownloads(observation.signal)
-          const job = [...jobs].reverse().find((entry) => matches(entry) && (active(entry) || entry.status === 'completed'))
+          const job = [...jobs].reverse().find((entry) => matches(entry) && active(entry))
           if (job) next = { ...next, job }
           else {
             const plan = await scope.connection.planModelDownload(state.requirement, observation.signal)

@@ -122,6 +122,14 @@ describe('installAssetConsent ownership', () => {
     await review
     expect(slot.value).toBeUndefined()
     expect(connection.startModelDownload).toHaveBeenCalledTimes(3)
+    connection.fetchModelDownloads.mockResolvedValueOnce({ instance: 'one', jobs: [job] })
+    installAssetConsent(input)
+    await slot.value!.reviewModel!(0)
+    expect(slot.value!.models![0]!.plan).toEqual(plan)
+    expect(slot.value!.models![0]!.job).toBeUndefined()
+    await slot.value!.retry([])
+    expect(retries).toHaveLength(1)
+    slot.set(undefined)
   })
 
   it('enables only a returned folder and retries without consenting to downloads', async () => {
