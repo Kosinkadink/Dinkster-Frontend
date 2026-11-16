@@ -538,10 +538,12 @@ An explicit confirmed Close Tab ends only the captured local document lifetime,
 after closed membership is admitted at the authoritative workspace revision. It
 hands off that lifetime's receipt and retires its recovery slot only when both
 the stage ID and content digest match the stage incorporated into the
-canonical document. A stage acknowledged before Close may finish canonical
-incorporation after Close; a still-pending edit cannot gain discard authority
-by acknowledging later. Reopening the same lineage hands its displaced live
-receipt to the new document's ordinary complete-replacement checks.
+canonical document. A stage acknowledged or durably written with the exact
+closing document before Close may finish acknowledgment and canonical
+incorporation after Close. An edit still waiting to write its recovery stage
+cannot gain discard authority by acknowledging later. Reopening the same
+lineage hands its displaced live receipt to the new document's ordinary
+complete-replacement checks.
 Staging, acknowledgment and retirement use the same
 cross-window commit lock; retirement rechecks the exact admitted canonical
 snapshot and current recovery stage inside that lock. Without the lock, recovery

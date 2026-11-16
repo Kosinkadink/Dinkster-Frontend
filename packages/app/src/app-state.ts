@@ -7019,15 +7019,19 @@ export class AppState {
     const canonical = parsePersistedTabs(storage.getItem(tabsKey()))
     const digest = persistedDocumentDigest(tab.store.doc)
     const staged = this.documentRecoveryStages.get(tab.store)
-    const localSlot = this.persistedWorkflowSlots.get(`${documentCandidatePrefix()}${encodeURIComponent(tab.id)}`)
+    const key = `${documentCandidatePrefix()}${encodeURIComponent(tab.id)}`
+    const localSlot = this.persistedWorkflowSlots.get(key)
     const localCandidate = parsePersistedDocumentCandidate(localSlot?.raw ?? null)
+    const storedCandidate = parsePersistedDocumentCandidate(storage.getItem(key))
     const recovery = staged?.digest === digest && staged.project === activeProjectId() && staged.storage === storage &&
       staged.authorityGeneration === this.workspaceAuthorityGeneration ? staged : undefined
     this.closedWorkflowDocuments.set(tab.store, {
       tab, project: activeProjectId(), storage, authorityGeneration: this.workspaceAuthorityGeneration, revision,
       stageId: digest === canonical?.documentCandidateDigests?.[tab.id]
         ? canonical?.documentCandidateStages?.[tab.id]
-        : recovery !== undefined && !recovery.pending ? recovery.stageId : undefined,
+        : recovery !== undefined && (!recovery.pending ||
+          storedCandidate?.stageId === recovery.stageId && persistedDocumentDigest(storedCandidate.tab.doc) === digest)
+          ? recovery.stageId : undefined,
       localStageId: localSlot?.complete && localCandidate !== undefined &&
         persistedDocumentDigest(localCandidate.tab.doc) === digest ? localCandidate.stageId : undefined,
       digest, recovery, owner: this.workflowAssetOwners.get(tab.store),

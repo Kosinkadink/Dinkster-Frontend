@@ -663,7 +663,7 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
-  it('keeps a newer recovery edit when close races the document staging lock', async () => {
+  it.each(['staging-lock', 'admission'] as const)('Close distinguishes unpublished recovery edits from written stages awaiting acknowledgment: %s', async (pending) => {
     let commits = Promise.resolve<unknown>(undefined)
     const request = (_name: string, _options: LockOptions, callback: () => unknown): Promise<unknown> => {
       const next = commits.then(callback)
@@ -688,16 +688,27 @@ describe('AppState multi-window workspace', () => {
     const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
     const before = localStorage.getItem(key)
     expect(before).not.toBeNull()
-    let release!: () => void
-    void request('dinkster.openTabs.commit', { mode: 'exclusive' }, () =>
-      new Promise<void>((resolve) => { release = resolve }))
-    await drainTasks()
+    let release: () => void = () => {}
+    if (pending === 'staging-lock') {
+      void request('dinkster.openTabs.commit', { mode: 'exclusive' }, () =>
+        new Promise<void>((resolve) => { release = resolve }))
+      await drainTasks()
+    }
     expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
       graphId: 'g0', nodeId: 'n1', title: 'New edit while another renderer holds the lock',
     } })).ok).toBe(true)
+    const admissions: Array<() => void> = []
+    if (pending === 'admission') vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await new Promise<void>((resolve) => admissions.push(resolve))
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
     app.flushPersistTabs(true)
     await drainTasks()
-    expect(localStorage.getItem(key)).toBe(before)
+    if (pending === 'staging-lock') expect(localStorage.getItem(key)).toBe(before)
+    else {
+      expect(localStorage.getItem(key)).not.toBe(before)
+      expect(JSON.parse(localStorage.getItem(key)!).assetRetention.acknowledged).toBe(false)
+    }
     const recoveryKeys: string[] = []
     for (let index = 0; index < localStorage.length; index++) {
       const candidate = localStorage.key(index)!
@@ -706,13 +717,25 @@ describe('AppState multi-window workspace', () => {
     expect(recoveryKeys.some((candidate) => JSON.parse(localStorage.getItem(candidate)!).tabs.some(
       (saved: { doc: WorkflowDocument; documentDirty?: boolean }) => saved.documentDirty === true &&
         saved.doc.graphs.g0?.nodes.n1?.title === 'New edit while another renderer holds the lock'))).toBe(true)
+    if (pending === 'admission') {
+      const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+      localStorage.setItem('dinkster.openTabs', JSON.stringify({ ...canonical,
+        documentCandidateStages: {}, documentCandidateDigests: {},
+      }))
+    }
     app.closeTab(tab.id)
+    if (pending === 'admission') {
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+      for (const resolve of admissions) resolve()
+    }
     release()
     await drainTasks()
     app.flushPersistTabs(true)
     await drainTasks()
     expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
-    expect(JSON.parse(localStorage.getItem(key)!).tab.doc.graphs.g0.nodes.n1.title)
+    if (pending === 'admission') expect(localStorage.getItem(key)).toBeNull()
+    else expect(JSON.parse(localStorage.getItem(key)!).tab.doc.graphs.g0.nodes.n1.title)
       .toBe('New edit while another renderer holds the lock')
   })
 
