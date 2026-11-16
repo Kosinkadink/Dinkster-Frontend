@@ -6824,6 +6824,8 @@ export class AppState {
     const registry = this.registryForTab(tab)
     const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(backend.connection)
+    const storage = globalThis.localStorage
+    const admission = { pending: true }
     let connectionChanged = false
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     try {
@@ -6845,7 +6847,7 @@ export class AppState {
             live !== undefined && live.store === session && !live.execution &&
             this.backendForTab(live) === backend && this.registryForTab(live) === registry && stillWanted()
         },
-        undefined,
+        storage,
         'admission',
         (retained) => {
           if (!connectionChanged && this.registryForTab(tab) === registry &&
@@ -6854,6 +6856,10 @@ export class AppState {
             this.reportIncompleteOwnership(tab.id, workflowAssetRoots(prepared.currentDocument, prepared.currentHistory,
               this.resolverWithVirtualNodes(registry.resolve), [prepared.document, ...(prepared.retainedDocuments ?? [])], 'admission'), retained)
           }
+        },
+        (retained) => {
+          this.unpublishedWorkflowOwners.set(retained, { backend, registry, storage, admission, project,
+            generation, lineage: prepared.document.lineage })
         },
       )
       if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
@@ -6865,7 +6871,9 @@ export class AppState {
       this.reportProblems(tab.id, outcome.diagnostics)
       return outcome
     } finally {
+      admission.pending = false
       unsubscribe()
+      queueMicrotask(() => this.retireUnpublishedWorkflowOwners())
     }
   }
 

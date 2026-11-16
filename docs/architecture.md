@@ -323,6 +323,10 @@ The previous complete receipt retires only after the new complete inventory is
 acknowledged and committed on the same backend connection generation. Unknown
 inventories, failed candidates and superseded sessions keep their protection;
 another session's receipt is independent even when it holds the same digests.
+Acknowledged command candidates remain tracked even when their destination changes
+or their commit is stale. A rejected candidate retires only after its admission
+settles and no live document or completely resolved durable recovery source names
+its roots, on the same backend connection generation.
 Superseded receipts also protect roots still named by canonical tab snapshots,
 workspace candidates, document recovery slots and operation-journal additions.
 If the replacement no longer covers a root, retirement waits for a complete

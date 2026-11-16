@@ -994,6 +994,68 @@ describe('retained app dispatch', () => {
     expect(tab.store.historySnapshot()).toEqual(history)
   })
 
+  it.each(['stale', 'closed', 'independent', 'durable', 'disconnected', 'disposed'] as const)(
+    'ends rejected command ownership only after its live and durable sources end: %s', async (scenario) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp([schema], session().doc)
+        const receipts = new Map<string, RetainedAssets>()
+        const requested = deferred<RetainedAssets>()
+        const acknowledge = deferred<void>()
+        let rejected: RetainedAssets | undefined
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+          receipts.set(owner.ownerId, receipt)
+          if (!rejected && declaration.digests.includes(asset('b').digest)) {
+            rejected = receipt
+            requested.resolve(receipt)
+            await acknowledge.promise
+          }
+          return receipt
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+          receipts.set(owner.ownerId, receipt)
+          return receipt
+        })
+        await vi.advanceTimersByTimeAsync(500)
+        const tab = app.activeTab()!
+        const operation = app.dispatchRetainedTo(tab, replace('b'))
+        const candidate = await requested.promise
+        if (scenario === 'closed') app.closeTab(tab.id)
+        else expect((await app.dispatchRetainedTo(tab, replace('c'))).ok).toBe(true)
+        acknowledge.resolve()
+        expect((await operation).ok).toBe(false)
+        let independent: string | undefined
+        if (scenario === 'independent') {
+          const document = { ...session([asset('b')]).doc, lineage: asLineageId('independent') }
+          expect(await app.openDocument(document, 'Independent holder')).toEqual([])
+          independent = app.activeTab()!.id
+        }
+        if (scenario === 'durable') localStorage.setItem('dinkster.openTabsDocumentCandidate.independent-recovery',
+          JSON.stringify({ v: 1, stageId: 'independent', tab: {
+            title: 'Recovery', doc: { ...session([asset('b')]).doc, lineage: 'independent-recovery' },
+          } }))
+        if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+        if (scenario === 'disposed') app.dispose()
+        if (scenario !== 'closed') app.closeTab(tab.id)
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(receipts.get(candidate.ownerId)).toEqual(
+          ['independent', 'durable', 'disconnected', 'disposed'].includes(scenario) ? candidate
+            : { ...candidate, revision: candidate.revision + 1, complete: true, digests: [] })
+        if (independent !== undefined) {
+          app.closeTab(independent)
+          await vi.advanceTimersByTimeAsync(1000)
+          expect(receipts.get(candidate.ownerId)).toEqual({
+            ...candidate, revision: candidate.revision + 1, complete: true, digests: [],
+          })
+        }
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it.each((['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused', 'disconnected', 'disposed'] as const)
     .flatMap((scenario) => (['explicit', 'ordinary'] as const).map((route) => ({ scenario, route }))))(
     'publishes only a current acknowledged candidate: $route $scenario', async ({ scenario, route }) => {
