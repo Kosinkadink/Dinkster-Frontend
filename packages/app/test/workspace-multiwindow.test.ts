@@ -222,7 +222,7 @@ describe('AppState multi-window workspace', () => {
     for (const receipt of independent) expect(receipts.get(receipt.ownerId)).toEqual(receipt)
   })
 
-  it.each(['settled', 'before-persistence', 'document-observer'] as const)(
+  it.each(['settled', 'before-persistence', 'document-observer', 'local-retry'] as const)(
     'retires remote-edit owners after close from %s without releasing an independent workflow', async (scenario) => {
       let lock = Promise.resolve()
       vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
@@ -242,6 +242,8 @@ describe('AppState multi-window workspace', () => {
       const receipts = new Map<string, RetainedAssets>()
       const viewerOwners = new Set<string>()
       const independentOwners = new Set<string>()
+      let holdConfirmations = scenario === 'local-retry'
+      const confirmations: { retained: RetainedAssets; acknowledge: () => void }[] = []
       for (const app of [author, viewer, independentApp]) {
         app.registerSchemas([schema])
         vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
@@ -249,6 +251,9 @@ describe('AppState multi-window workspace', () => {
           receipts.set(owner.ownerId, retained)
           if (app === viewer) viewerOwners.add(owner.ownerId)
           if (app === independentApp) independentOwners.add(owner.ownerId)
+          if (app === viewer && holdConfirmations && declaration.digests.includes(digest)) {
+            await new Promise<void>((resolve) => { confirmations.push({ retained, acknowledge: resolve }) })
+          }
           return retained
         })
         vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
@@ -280,6 +285,22 @@ describe('AppState multi-window workspace', () => {
         graphId: 'g0', nodeId: 'n1', inputId: 'held', value: asset,
       } })).ok).toBe(true)
       await (authorTab.store as unknown as { settle(): Promise<void> }).settle()
+      if (scenario === 'local-retry') {
+        await vi.waitFor(() => expect(confirmations.length).toBeGreaterThan(0))
+        const first = confirmations[0]!
+        expect((await viewer.dispatchTo(received, { command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n1', title: 'Local edit during remote admission',
+        } })).ok).toBe(true)
+        first.acknowledge()
+        await vi.waitFor(() => expect(confirmations.length).toBeGreaterThan(1))
+        expect((await viewer.dispatchRetainedTo(received, { command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n1', title: 'Acknowledged local replacement',
+        } })).ok).toBe(true)
+        await drainTasks()
+        expect(receipts.get(first.retained.ownerId)).toEqual(first.retained)
+        holdConfirmations = false
+        for (const confirmation of confirmations) confirmation.acknowledge()
+      }
       if (scenario === 'document-observer') await vi.waitFor(() => expect(closed).toBe(true))
       else {
         await vi.waitFor(() => expect(received.store.doc.graphs.g0!.nodes.n1!.values.held).toEqual(asset))

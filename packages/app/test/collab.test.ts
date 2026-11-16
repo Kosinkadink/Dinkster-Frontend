@@ -28,7 +28,9 @@ import {
   type SharedDocumentSession,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
+import { DinksterConnection, buildDinksterRegistry, type RetainedAssets } from '@dinkster/client'
+import { SharedWorkerDocumentAuthority } from '../src/shared-worker-authority.js'
+import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
@@ -450,6 +452,81 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
+  it.each([
+    { keepWorkflow: false, ordered: true },
+    { keepWorkflow: true, ordered: true },
+    { keepWorkflow: true, ordered: false },
+  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered', async ({ keepWorkflow, ordered }) => {
+    let lock = Promise.resolve()
+    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
+      const next = lock.then(callback)
+      lock = next.then(() => undefined, () => undefined)
+      return next
+    } } })
+    const server = new FakeCollabServer()
+    const app = makeApp(server, false)
+    const documents = new SharedWorkerDocumentAuthority()
+    const workspace = new SharedWorkerTabAuthority()
+    const channels: MessageChannel[] = []
+    const connect = (authority: SharedWorkerDocumentAuthority | SharedWorkerTabAuthority): MessagePort => {
+      const channel = new MessageChannel()
+      channels.push(channel)
+      authority.connect(channel.port1)
+      channel.port1.start()
+      return channel.port2
+    }
+    const receipts = new Map<string, RetainedAssets>()
+    for (const backend of app.backends.get()) {
+      vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    }
+    const digest = `blake3:${'e'.repeat(64)}`
+    try {
+      await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
+      const prior = activeTab(app)
+      await until(() => 'status' in activeTab(app).store, 'initial promotion')
+      const tab = activeTab(app)
+      expect((await app.dispatchRetainedTo(tab, { command: 'node.add', params: {
+        graphId: tab.store.doc.root, type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
+          held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
+        },
+      } })).ok).toBe(true)
+      await (tab.store as SharedDocumentSession).settle()
+      expect(await app.shareActiveTab()).toBeUndefined()
+      const shared = activeTab(app)
+      expect([...receipts.values()].some((receipt) => receipt.digests.includes(digest))).toBe(true)
+      const node = Object.values(shared.store.doc.graphs[shared.store.doc.root]!.nodes).find((entry) => entry.type === 'AssetHolder')!
+      expect((await app.dispatchRetainedTo(shared, { command: 'node.remove', params: {
+        graphId: shared.store.doc.root, nodeIds: [node.id],
+      } })).ok).toBe(true)
+      if (ordered) await sharedSession(app, shared.id).settle()
+      expect(shared.store.undo()).toBe(true)
+      await sharedSession(app, shared.id).settle()
+      await tick()
+      app.flushPersistTabs(true)
+      await until(() => {
+        const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? '{}')
+        return canonical.assetRetention?.complete === true && canonical.tabs?.some((entry: { doc: WorkflowDocument }) =>
+          JSON.stringify(entry.doc) === JSON.stringify(shared.store.doc))
+      }, 'settled shared recovery')
+      expect(await app.endCollabSession(shared.id)).toBeUndefined()
+      if (keepWorkflow) app.createWorkflow()
+      expect(app.requestCloseTab(prior.id, () => true)).toBe(true)
+      await vi.waitFor(() => expect([...receipts.values()].filter((receipt) => receipt.digests.includes(digest))).toEqual([]))
+    } finally {
+      app.dispose()
+      for (const channel of channels) { channel.port1.close(); channel.port2.close() }
+    }
+  })
 
   it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
     const server = new FakeCollabServer()
