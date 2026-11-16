@@ -690,7 +690,7 @@ describe('AppState multi-window workspace', () => {
       graphId: 'g0', nodeId: 'n1', title: 'Last edit before confirmed Close',
     } })).ok).toBe(true)
     expect(tab.store.undo()).toBe(true)
-    await tab.store.settle?.()
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
     const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
     const admissions: Array<() => void> = []
     vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
