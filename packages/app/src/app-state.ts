@@ -7867,6 +7867,7 @@ export class AppState {
     try {
       const matches = await backend.connection.guessAssets(names, importAssetDigestHintsForNames(names, digestHints))
       const basenameMatches = basenameNames.length > 0 ? await backend.connection.guessAssets(basenameNames) : []
+      await this.workspacePromotions.get(tab.id)?.promise
       const current = liveTab()
       if (current === undefined || this.backendForTab(current) !== backend || backend.registry.get() !== registry) return
       const liveRefs = refs.filter((ref) =>
