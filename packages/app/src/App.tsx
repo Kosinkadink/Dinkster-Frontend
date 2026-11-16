@@ -418,7 +418,7 @@ export function App(props: {
   }
   const tooltips = new TooltipController(() => app.settings.get<number>('tooltips.delayMs'))
   const [tooltip, setTooltip] = createSolidSignal(tooltips.visible)
-  let shellEl!: HTMLDivElement
+  let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
     return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
@@ -1197,6 +1197,16 @@ export function App(props: {
     return tab ? app.backendForTab(tab) : backends()[0]!
   }
 
+  const servicesLabel = (): string | undefined => {
+    backendsTick()
+    const name = activeBackend().registry.get()?.server?.services?.name
+    return name === 'qa' ? message('shell.services.qa')
+      : name === 'custom' ? message('shell.services.custom') : undefined
+  }
+  const ServicesBadge = () => <Show when={servicesLabel()}>
+    {(label) => <span class="services-badge" data-testid="services-badge">{label()}</span>}
+  </Show>
+
   /** The active live tab's target backend (drives the topbar selector). */
   const activeTarget = (): Backend | undefined => {
     backendsTick()
@@ -1812,6 +1822,7 @@ export function App(props: {
   let bodyElement!: HTMLDivElement
   const [sideSpace, setSideSpace] = createSolidSignal<number>()
   onMount(() => {
+    if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
     const measure = (): void => {
       setSideSpace(bodyElement.clientWidth <= 520
@@ -2529,7 +2540,10 @@ export function App(props: {
         when={nativePanelDescriptor()}
         keyed
         fallback={<Show when={managedContext().kind === 'panel'}>
-          <section class="native-panel-window native-panel-window-missing" data-testid="native-panel-window-missing">
+          <section class="native-panel-window native-panel-window-missing" data-testid="native-panel-window-missing" ref={shellEl}>
+            <Show when={servicesLabel()}>
+              <header class="native-panel-window-header"><div class="topbar-group"><BrandMark symbol /><ServicesBadge /></div></header>
+            </Show>
             <h1>{message('shell.panel.unavailable.title')}</h1>
             <p>{message('shell.panel.unavailable.description')}</p>
             <ProductButton type="button" data-testid="redock-window" onClick={redockCurrentWindow}>
@@ -2538,8 +2552,9 @@ export function App(props: {
           </section>
         </Show>}
       >{(panel) => (
-        <section class="native-panel-window" data-testid="native-panel-window" data-panel={panel.id}>
+        <section class="native-panel-window" data-testid="native-panel-window" data-panel={panel.id} ref={shellEl}>
           <header class="native-panel-window-header">
+            <Show when={servicesLabel()}><div class="topbar-group"><BrandMark symbol /><ServicesBadge /></div></Show>
             <h1>
               {panel.title}
               <Show when={activePanelIndicator(panel)} keyed>
@@ -2557,7 +2572,7 @@ export function App(props: {
         </section>
       )}</Show>
       <Show when={managedContext().kind !== 'panel'}>
-      <div class="shell" ref={shellEl}>
+      <div class="shell" ref={(el) => { shellEl = el }}>
       <AssetConsentDialog app={app} />
       <ImportAssetResolutionDialog app={app} />
       <Show when={pendingClose()} keyed>
@@ -2596,6 +2611,7 @@ export function App(props: {
               ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
             ]}
           />
+          <ServicesBadge />
           <Show when={managedContext().kind === 'workflow'}>
             <ProductButton size="compact" class="redock-workflow" data-testid="redock-workflow" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
           </Show>

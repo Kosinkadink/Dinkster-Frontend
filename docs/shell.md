@@ -27,6 +27,15 @@ and a danger action for discarding a dirty tab. Menu refs, autofocus,
 disabled state, keyboard handling, and native button activation remain on the
 underlying button. Surface CSS supplies layout, not a separate control skin.
 
+## Hosted services marker
+
+The engine's nodes header names the services used by the active backend.
+QA services and Custom services appear beside the brand in the top bar,
+including workflow and panel windows. Production shows no services badge.
+The marker remains visible with the status bar hidden and has no hide control.
+Service addresses belong to the engine; the Frontend does not select or save
+an environment.
+
 ## Layout
 
 ```diagram
