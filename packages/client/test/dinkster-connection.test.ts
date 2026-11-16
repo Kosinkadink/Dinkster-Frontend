@@ -307,6 +307,62 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
   return { body, digest: `sha256:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}` }
 }
 
+describe('shared model management', () => {
+  const folder = { id: 'studio', path: '/models/checkpoints', mode: 'read' as const, visibility: 'opt-in' as const, kind: 'model/checkpoint' }
+  const state = { settings: { version: 1 as const, locations: [folder], downloadLocation: null },
+    locations: [{ ...folder, mounts: ['studio-checkpoint'], enabled: false, active: true }],
+    revision: 'revision-one', project: 'work / client', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+
+  it('preserves shared configuration separately from project state and sends revision-checked edits', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    let status = 200
+    let payload: unknown = state
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test', project: state.project,
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined })
+        return jsonResponse(status, payload)
+      } })
+    await expect(connection.fetchModelSettings()).resolves.toEqual(state)
+    expect(calls.at(-1)?.url).toBe('/engine/api/models/settings?project=work+%2F+client')
+    await expect(connection.updateModelSettings(state.settings, state.revision)).resolves.toEqual(state)
+    expect(calls.at(-1)?.body).toEqual({ settings: state.settings, revision: 'revision-one' })
+    payload = { ...state, locations: [{ ...state.locations[0], enabled: true }], restartRequired: true }
+    await expect(connection.setModelLocationEnabled('studio / second', true)).resolves.toMatchObject({ restartRequired: true, locations: [{ enabled: true }] })
+    expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
+    status = 409
+    await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('Refresh before saving')
+    status = 403
+    await expect(connection.fetchModelSettings()).rejects.toThrow('403')
+  })
+
+  it.each([
+    { ...state, changesAllowed: 'true' },
+    { ...state, locations: [{ ...state.locations[0], enabled: 'false' }] },
+    { ...state, locations: [{ ...state.locations[0], path: '/another/folder' }] },
+    { ...state, locations: [] },
+    { ...state, settings: { ...state.settings, downloadLocation: 'studio' } },
+    { ...state, settings: { ...state.settings, locations: [{ ...folder, visibility: 'hidden' }] } },
+  ])('rejects malformed or contradictory management state %#', async (payload) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
+    await expect(connection.fetchModelSettings()).rejects.toThrow('Malformed model settings')
+  })
+
+  it('scopes both mount browser routes and search to the selected project', async () => {
+    const urls: URL[] = []
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'https://engine.example', clientId: 'test', project: 'isolated',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url) => {
+        urls.push(new URL(url)); return jsonResponse(200, { entries: [] })
+      } })
+    await connection.listMountEntries('studio-checkpoint', { q: 'asymmetric', recursive: false, path: 'nested' })
+    await connection.listMountFolder('studio-checkpoint', 'nested')
+    expect(urls.map((url) => url.searchParams.get('project'))).toEqual(['isolated', 'isolated'])
+    expect(urls[0]?.searchParams.get('q')).toBe('asymmetric')
+    expect(urls[0]?.searchParams.get('recursive')).toBe('false')
+    expect(urls[1]?.searchParams.get('path')).toBe('nested')
+  })
+})
+
 describe('mount listing decode', () => {
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })

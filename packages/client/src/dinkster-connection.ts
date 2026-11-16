@@ -1039,6 +1039,65 @@ export interface MountSettings {
   readonly mountChangesAllowed: boolean
 }
 
+export type ModelFolderVisibility = 'always-on' | 'default-on' | 'opt-in'
+
+export interface ModelLocation {
+  readonly id: string
+  readonly path: string
+  readonly mode: 'read' | 'readwrite'
+  readonly visibility: ModelFolderVisibility
+  readonly kind?: string
+}
+
+export interface ModelSettings {
+  readonly version: 1
+  readonly downloadLocation: string | null
+  readonly locations: readonly ModelLocation[]
+}
+
+export interface ModelSettingsState {
+  readonly settings: ModelSettings
+  readonly locations: readonly (ModelLocation & { readonly mounts: readonly string[]; readonly enabled: boolean; readonly active: boolean })[]
+  readonly revision: string
+  readonly project: string
+  readonly changesAllowed: boolean
+  readonly restartRequired: boolean
+  readonly pendingRemovals: readonly string[]
+}
+
+function decodeModelSettingsState(value: unknown): ModelSettingsState {
+  const invalid = (): never => { throw new Error('Malformed model settings') }
+  if (!record(value) || !record(value['settings'])) return invalid()
+  const settings = value['settings']
+  const location = (raw: unknown): ModelLocation => {
+    if (!record(raw) || !nonemptyString(raw['id']) || !nonemptyString(raw['path']) ||
+      !oneOf(raw['mode'], ['read', 'readwrite']) || !oneOf(raw['visibility'], ['always-on', 'default-on', 'opt-in']) ||
+      (raw['kind'] !== undefined && typeof raw['kind'] !== 'string')) return invalid()
+    return { id: raw['id'], path: raw['path'], mode: raw['mode'], visibility: raw['visibility'],
+      ...(typeof raw['kind'] === 'string' ? { kind: raw['kind'] } : {}) }
+  }
+  if (settings['version'] !== 1 || (settings['downloadLocation'] !== null && !nonemptyString(settings['downloadLocation'])) ||
+    !Array.isArray(settings['locations']) || !Array.isArray(value['locations']) || !nonemptyString(value['revision']) ||
+    !nonemptyString(value['project']) || typeof value['changesAllowed'] !== 'boolean' || typeof value['restartRequired'] !== 'boolean' ||
+    !Array.isArray(value['pendingRemovals']) || !value['pendingRemovals'].every((id) => typeof id === 'string')) return invalid()
+  const locations = settings['locations'].map(location)
+  if (new Set(locations.map((row) => row.id)).size !== locations.length ||
+    (settings['downloadLocation'] !== null && !locations.some((row) => row.id === settings['downloadLocation'] && row.mode === 'readwrite'))) return invalid()
+  const facts = value['locations'].map((raw: unknown) => {
+    const parsed = location(raw)
+    if (!record(raw) || !Array.isArray(raw['mounts']) || !raw['mounts'].every(nonemptyString) ||
+      typeof raw['enabled'] !== 'boolean' || typeof raw['active'] !== 'boolean') return invalid()
+    const configured = locations.find((row) => row.id === parsed.id)
+    if (configured === undefined || configured.path !== parsed.path || configured.mode !== parsed.mode ||
+      configured.visibility !== parsed.visibility || configured.kind !== parsed.kind) return invalid()
+    return { ...parsed, mounts: raw['mounts'], enabled: raw['enabled'], active: raw['active'] }
+  })
+  if (facts.length !== locations.length || new Set(facts.map((row) => row.id)).size !== facts.length) return invalid()
+  return { settings: { version: 1, downloadLocation: settings['downloadLocation'], locations }, locations: facts,
+    revision: value['revision'], project: value['project'], changesAllowed: value['changesAllowed'],
+    restartRequired: value['restartRequired'], pendingRemovals: value['pendingRemovals'] }
+}
+
 export interface MountScanProgress {
   readonly filesDone: number
   readonly filesTotal: number
@@ -3386,6 +3445,33 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
+  async fetchModelSettings(): Promise<ModelSettingsState> {
+    return requestWithDeadline(async (signal) => {
+      const query = new URLSearchParams({ project: this.project ?? 'default' })
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/settings?${query}`, { signal, cache: 'no-store' })
+      if (!res.ok) throw new Error(`GET model settings failed: ${res.status}`)
+      return decodeModelSettingsState(await res.json())
+    })
+  }
+
+  async updateModelSettings(settings: ModelSettings, revision: string): Promise<ModelSettingsState> {
+    const query = new URLSearchParams({ project: this.project ?? 'default' })
+    const res = await this.fetchFn(`${this.baseUrl}/api/models/settings?${query}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ settings, revision }),
+    })
+    if (res.status === 409) throw new Error('Model folders changed in another project. Refresh before saving.')
+    if (!res.ok) throw new Error(`PUT model settings failed: ${res.status}`)
+    return decodeModelSettingsState(await res.json())
+  }
+
+  async setModelLocationEnabled(location: string, enabled: boolean): Promise<ModelSettingsState> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/models/locations/${encodeURIComponent(location)}/projects/${encodeURIComponent(this.project ?? 'default')}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
+    })
+    if (!res.ok) throw new Error(`PUT model project folder failed: ${res.status}`)
+    return decodeModelSettingsState(await res.json())
+  }
+
   async fetchMountSettings(): Promise<MountSettings> {
     const generation = ++this.mountRequestGeneration
     const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
@@ -3570,7 +3656,7 @@ export class DinksterConnection {
   }
 
   async listMountEntries(mountId: string, req: { readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams({ project: this.project ?? 'default' })
     if (req.q) params.set('q', req.q)
     if (req.path !== undefined) params.set('path', req.path)
     if (req.recursive !== undefined) params.set('recursive', req.recursive ? 'true' : 'false')
@@ -3596,7 +3682,7 @@ export class DinksterConnection {
   }
 
   async listMountFolder(mountId: string, path = ''): Promise<readonly MountFolderEntry[]> {
-    const params = new URLSearchParams({ path })
+    const params = new URLSearchParams({ path, project: this.project ?? 'default' })
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/list?${params}`)
     if (!res.ok) throw new Error(`GET mount folder failed: ${res.status}`)
     const payload = await res.json() as { entries?: unknown }
