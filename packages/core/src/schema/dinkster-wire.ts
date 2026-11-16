@@ -2768,12 +2768,19 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
  * malformed -> undefined (older backend); never a diagnostic - the header
  * only feeds advisory environment stamps.
  */
-export function serverInfoFromDinksterWire(payload: DinksterNodesPayload): { readonly version: string; readonly schemaWire: number } | undefined {
+export function serverInfoFromDinksterWire(payload: DinksterNodesPayload): {
+  readonly version: string
+  readonly schemaWire: number
+  readonly services?: { readonly name: 'production' | 'qa' | 'custom' }
+} | undefined {
   const d = payload.dinkster
   if (typeof d !== 'object' || d === null || Array.isArray(d)) return undefined
-  const h = d as { version?: unknown; schemaWire?: unknown }
+  const h = d as { version?: unknown; schemaWire?: unknown; services?: unknown }
   if (typeof h.version !== 'string' || h.version === '' || typeof h.schemaWire !== 'number') return undefined
-  return { version: h.version, schemaWire: h.schemaWire }
+  const name = h.services && typeof h.services === 'object' && !Array.isArray(h.services)
+    ? (h.services as { name?: unknown }).name : undefined
+  return { version: h.version, schemaWire: h.schemaWire,
+    ...(name === 'production' || name === 'qa' || name === 'custom' ? { services: { name } } : {}) }
 }
 
 /**

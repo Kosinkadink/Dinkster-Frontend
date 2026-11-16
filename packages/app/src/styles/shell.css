@@ -18,6 +18,17 @@
   gap: var(--dinkster-space-4);
 }
 
+.services-badge {
+  flex-shrink: 0;
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: var(--dinkster-radius-small);
+  color: var(--dinkster-text-primary);
+  background: var(--dinkster-surface-panel);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .topbar-group-left { justify-self: start; }
 .topbar-group-right { justify-self: end; }
 
