@@ -69,7 +69,11 @@ an incomplete snapshot still requires a complete acknowledgment for the exact
 same document under the current schema. Independent readers and recovery
 sources keep their own protection. Close also waits for pending workspace
 promotion acknowledgments, then retires their complete local receipts through
-the same captured document lifetime and canonical close checks.
+the same captured document lifetime and canonical close checks. When promotion
+or joining replaces a local session with a different document snapshot, its
+complete local predecessor receipt follows the replacement's retirement gates;
+it is not forgotten with the displaced session. This does not carry editor
+history across different documents or release independent recovery holders.
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
 schema and connection generation are unchanged. A changed destination or

@@ -4481,7 +4481,7 @@ export class AppState {
       if (sameDocument) this.continueWorkflowAssetOwner(tab.store, session)
       if (retained !== undefined) {
         this.supersededWorkflowOwners.delete(retained)
-        this.replaceWorkflowAssetOwner(session, backend, retained, project, connectionGeneration)
+        this.replaceWorkflowAssetOwner(session, backend, retained, project, connectionGeneration, sameDocument ? session : tab.store)
       }
     } catch (error) {
       session?.close()
@@ -7451,7 +7451,7 @@ export class AppState {
     )
     adopted = true
     if (preservesHistory && prior !== undefined) this.continueWorkflowAssetOwner(prior.store, session)
-    this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
+    this.replaceWorkflowAssetOwner(session, backend, retained, project, generation, preservesHistory ? session : prior?.store)
     if (opts?.activate !== false) this.activeTabId.set(tab.id)
     const presence = new PresenceChannel(session, actorId)
     // A session that ends REMOTELY (session_closed, terminal error) never
@@ -8159,18 +8159,27 @@ export class AppState {
   private replaceWorkflowAssetOwner(
     session: DocumentSession, backend: Backend, retained: RetainedAssets,
     project: string, generation: number | undefined,
+    previousSession: DocumentSession = session,
   ): void {
     const current = (): boolean => !this.disposed && activeProjectId() === project &&
       this.backends.get().includes(backend) && this.assetConnectionGenerations.get(backend.connection) === generation &&
       this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === backend)
     if (!current()) return
-    const previous = this.workflowAssetOwners.get(session)
+    const previous = this.workflowAssetOwners.get(previousSession)
     const owner = { backend, retained, project, generation }
     this.workflowAssetOwners.set(session, owner)
     // The acknowledged replacement covers the committed document and its history.
     // Unknown inventories and disconnected lifetimes are not release authority.
     if (!previous || previous.backend !== backend || previous.project !== project || previous.generation !== generation ||
       !previous.retained.complete || !retained.complete) return
+    if (previousSession !== session) {
+      if (this.tabs.get().some((tab) => !tab.execution && tab.store === previousSession)) return
+      this.workflowAssetOwners.delete(previousSession)
+      for (const pending of this.supersededWorkflowOwners.values()) {
+        if (pending.session === previousSession && pending.backend === backend && pending.project === project &&
+          pending.generation === generation) pending.session = session
+      }
+    }
     this.supersededWorkflowOwners.set(previous.retained, { session, backend, project, generation })
     queueMicrotask(() => {
       if (current() && this.workflowAssetOwners.get(session) === owner) {
