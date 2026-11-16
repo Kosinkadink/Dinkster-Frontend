@@ -1,5 +1,7 @@
 import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 test('resolution composer previews and executes asymmetric dimensions with atomic undo', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
