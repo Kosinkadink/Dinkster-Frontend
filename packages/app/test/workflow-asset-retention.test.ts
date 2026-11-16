@@ -1330,6 +1330,14 @@ describe('retained app dispatch', () => {
       expect(shared.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
       expect(shared.store.undo()).toBe(true)
       expect(shared.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+      expect(reader.current()).toBe(false)
+      const reopenedReader = app.workflowAssetReader(shared, asset('a').digest)!
+      expect(reopenedReader.current()).toBe(true)
+      app.closeTab(shared.id)
+      expect(reopenedReader.current()).toBe(false)
+      expect(await app.openDocument(shared.store.doc, 'Reopened workflow')).toEqual([])
+      expect(app.activeTab()!.id).toBe(shared.id)
+      expect(reopenedReader.current()).toBe(false)
     } finally {
       app.dispose()
       for (const channel of channels) { channel.port1.close(); channel.port2.close() }
