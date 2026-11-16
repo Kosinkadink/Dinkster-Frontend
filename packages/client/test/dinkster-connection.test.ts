@@ -2401,7 +2401,7 @@ describe('submit', () => {
     expect((diagnostic.data?.['assets'] as { packagedFrom?: string[]; destination?: string }[])[1]).toMatchObject({ packagedFrom: ['models.base'], destination: '/home/user/Dinkster/Models/vae' })
   })
 
-  it('reports name-only asset refusals with their original node and input, without acquisition consent', async () => {
+  it('retains name-only model requirements separately from digests with their original diagnostic anchor', async () => {
     const { conn } = submitHarness(
       (url, init) => nodesRoute(url) ??
         (url.endsWith('/api/jobs') && init?.method === 'POST'
@@ -2425,7 +2425,9 @@ describe('submit', () => {
     expect(result.diagnostics[0]!.message).toContain('wan_2.1_vae.safetensors')
     expect(result.diagnostics[0]!.message).toContain('model/vae')
     expect(result.diagnostics[0]!.message).toContain('mounted folder')
-    expect(result).not.toHaveProperty('retryWithAssets')
+    expect(result).toHaveProperty('retryWithAssets')
+    expect(result).toHaveProperty('assetsMissing', { error: 'assets-missing', assets: [],
+      models: [{ name: 'wan_2.1_vae.safetensors', kind: 'model/vae' }] })
   })
 
 })

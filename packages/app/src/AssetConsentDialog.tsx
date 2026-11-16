@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, Index, Show } from 'solid-js'
 import type { MissingAsset } from '@dinkster/client'
 import type { AppState } from './app-state.js'
 import { useAssetDecisionViewport } from './asset-decision-viewport.js'
@@ -16,6 +16,7 @@ export interface AssetPlanPresentation {
 }
 
 type Message = ReturnType<typeof useAppMessage>
+const cancellableModelPhases = new Set(['starting', 'checking-existing', 'downloading', 'verifying'])
 
 export function presentAssetPlan(asset: MissingAsset, message: Message): AssetPlanPresentation {
   const packaged = asset.packagedFrom?.length
@@ -40,9 +41,11 @@ export function AssetConsentDialog(props: { app: AppState }) {
   useAssetDecisionViewport(() => decisionEl)
   const request = useSignal(props.app.assetConsent)
   const [selected, setSelected] = createSignal<ReadonlySet<string>>(new Set())
+  let previousAssets: readonly MissingAsset[] | undefined
   createEffect(() => {
     const current = request()
-    if (current?.busy) return
+    if (current?.busy || current?.assets === previousAssets) return
+    previousAssets = current?.assets
     const assets = current?.assets ?? []
     setSelected(new Set(assets.filter((asset) => asset.fetchable).map((asset) => asset.digest)))
   })
@@ -57,11 +60,15 @@ export function AssetConsentDialog(props: { app: AppState }) {
     setSelected(next)
   }
   const selectable = () => (request()?.assets ?? []).filter((asset) => asset.fetchable)
+  const models = () => request()?.models ?? []
+  const nextDownload = () => models().findIndex((entry) => entry.plan?.status === 'consent-required' && !entry.pending)
+  const modelsReady = () => models().every((entry) => !entry.pending && (entry.plan?.status === 'local' || entry.job?.status === 'completed'))
+  const canRun = () => modelsReady() && (models().length > 0 || selected().size > 0)
   const selectionStatus = () => {
     const count = selected().size
     if (request()?.enablingLocation) return message('assetConsent.enablingFolder', { folder: request()!.enablingLocation! })
     if (request()?.busy) return message('assetConsent.selection.busy', { count })
-    return message('assetConsent.selection.ready', { selected: count, available: selectable().length })
+    return models().length ? message('modelConsent.footer') : message('assetConsent.selection.ready', { selected: count, available: selectable().length })
   }
   return <Show when={request()}>
     <ModalSurface
@@ -77,11 +84,11 @@ export function AssetConsentDialog(props: { app: AppState }) {
         <section class="asset-decision-intro">
           <span class="asset-decision-eyebrow">{message('assetConsent.eyebrow')}</span>
           <p id="asset-consent-intro">{message('assetConsent.intro')}</p>
-          <dl class="asset-decision-summary" aria-label={message('assetConsent.summary')}>
-            <div><dt>{message('assetConsent.summary.required')}</dt><dd data-testid="asset-consent-required-count">{request()?.assets.length ?? 0}</dd></div>
+          <Show when={models().length === 0 || (request()?.assets.length ?? 0) > 0}><dl class="asset-decision-summary" aria-label={message('assetConsent.summary')}>
+            <div><dt>{message('assetConsent.summary.required')}</dt><dd data-testid="asset-consent-required-count">{(request()?.assets.length ?? 0) + models().length}</dd></div>
             <div><dt>{message('assetConsent.summary.available')}</dt><dd data-testid="asset-consent-available-count">{selectable().length}</dd></div>
             <div><dt>{message('assetConsent.summary.selected')}</dt><dd data-testid="asset-consent-selected-count">{selected().size}</dd></div>
-          </dl>
+          </dl></Show>
         </section>
         <Show when={selectable().length > 0 && !request()?.busy}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.available')}</ProductNotice>
@@ -132,6 +139,55 @@ export function AssetConsentDialog(props: { app: AppState }) {
               </Show></div>
             </li>
           }}</For>
+          <Index each={models()}>{(state, index) => {
+            const metadata = () => {
+              const plan = state().plan
+              return state().job ?? (plan?.status === 'consent-required' ? plan : undefined)
+            }
+            const phase = () => {
+              const job = state().job
+              if (state().interrupted) return message('modelConsent.interrupted')
+              if (job) return message(`modelConsent.phase.${job.status}`)
+              const plan = state().plan
+              if (plan) return message(`modelConsent.plan.${plan.status}`)
+              return message('modelConsent.reviewFirst')
+            }
+            const cancellable = () => { return cancellableModelPhases.has(state().job?.status ?? '') }
+            return <li class="asset-decision-row" data-testid="model-consent-row">
+              <div class="asset-decision-row-copy">
+                <strong>{state().requirement.name}</strong>
+                <span class="asset-kind">{state().requirement.kind}</span>
+                <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
+                <Show when={metadata()}>{(selection) => <>
+                  <For each={[
+                    ['modelConsent.provider', selection().provider], ['modelConsent.project', selection().project],
+                    ['assetConsent.fact.source', selection().source], ['modelConsent.repository', selection().repo],
+                    ['modelConsent.revision', selection().revision], ['modelConsent.file', selection().file],
+                    ['modelConsent.sha256', selection().sha256], ['modelConsent.license', selection().license],
+                    ['assetConsent.fact.destination', selection().destination],
+                  ] as const}>{([label, value]) => <span class="asset-decision-fact"><span>{message(label)}</span><code>{value}</code></span>}</For>
+                  <span class="asset-decision-source">{formatByteSize(selection().size)}</span>
+                </>}</Show>
+                <Show when={state().job}>{(job) => <>
+                  <span role="status" data-testid="model-consent-bytes">{message('modelConsent.bytes', { received: job().received, total: job().size })}</span>
+                  <Show when={job().path}>{(path) => <span class="asset-decision-fact"><span>{message('modelConsent.actualPath')}</span><code>{path()}</code></span>}</Show>
+                  <Show when={job().reused}><span>{message('modelConsent.reused')}</span></Show>
+                  <Show when={job().renamed}><span>{message('modelConsent.renamed')}</span></Show>
+                  <Show when={job().indexingPending}><ProductNotice tone="info">{message('modelConsent.indexingPending')}</ProductNotice></Show>
+                  <Show when={job().error}><ProductNotice tone="error">{job().error}</ProductNotice></Show>
+                </>}</Show>
+                <Show when={state().error}><ProductNotice tone="error">{state().error}</ProductNotice></Show>
+                <Show when={state().plan?.status === 'folder-disabled'}><ProductNotice tone="warning">{message('assetConsent.folderDisabled')}</ProductNotice></Show>
+                <div class="asset-decision-source-details">
+                  <ProductButton disabled={state().pending || request()?.busy} onClick={() => void request()?.reviewModel?.(index)}>{message(state().job || state().interrupted ? 'modelConsent.reconnect' : 'modelConsent.review')}</ProductButton>
+                  <Show when={nextDownload() === index}>
+                    <ProductButton variant="primary" disabled={state().pending || request()?.busy} data-testid="model-consent-download" onClick={() => void request()?.downloadModel?.(index)}>{message('modelConsent.download')}</ProductButton>
+                  </Show>
+                  <Show when={cancellable()}><ProductButton disabled={state().pending || request()?.busy} data-testid="model-consent-cancel" onClick={() => void request()?.cancelModel?.(index)}>{message('modelConsent.cancel')}</ProductButton></Show>
+                </div>
+              </div>
+            </li>
+          }}</Index>
         </ul>
         <Show when={selectable().length === 0 && request()?.assets.some((asset) => !asset.disabledLocations?.length)}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.unresolvable')}</ProductNotice>
@@ -140,10 +196,12 @@ export function AssetConsentDialog(props: { app: AppState }) {
           <ProductNotice tone="status" class="asset-decision-notice" testId="asset-consent-progress">{request()?.enablingLocation ? message('assetConsent.enablingFolder', { folder: request()!.enablingLocation! }) : message('assetConsent.notice.busy')}</ProductNotice>
         </Show>
         <ProductActionFooter status={<span role="status" aria-live="polite" data-testid="asset-consent-selection-status">{selectionStatus()}</span>}>
-          <button type="button" data-testid="asset-consent-cancel" onClick={dismiss}>{message(request()?.busy ? 'assetConsent.action.dismiss' : 'assetConsent.action.cancel')}</button>
-          <button type="button" class="primary" data-testid="asset-consent-acquire" disabled={request()?.busy === true || selected().size === 0} onClick={() => void request()?.retry([...selected()])}>
-            {message(request()?.enablingLocation ? 'assetConsent.action.enabling' : request()?.busy ? 'assetConsent.action.acquiring' : 'assetConsent.action.acquire')}
-          </button>
+          <ProductButton data-testid="asset-consent-cancel" onClick={dismiss}>{message(request()?.busy || models().length ? 'assetConsent.action.dismiss' : 'assetConsent.action.cancel')}</ProductButton>
+          <Show when={nextDownload() < 0}>
+            <ProductButton variant="primary" data-testid="asset-consent-acquire" disabled={request()?.busy === true || !canRun()} onClick={() => void request()?.retry([...selected()])}>
+              {message(request()?.enablingLocation ? 'assetConsent.action.enabling' : request()?.busy ? 'assetConsent.action.acquiring' : models().length ? 'modelConsent.runOnce' : 'assetConsent.action.acquire')}
+            </ProductButton>
+          </Show>
         </ProductActionFooter>
       </div>
     </ModalSurface>

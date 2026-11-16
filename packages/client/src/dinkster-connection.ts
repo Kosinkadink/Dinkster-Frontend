@@ -1250,6 +1250,8 @@ function parseAssetGuessMatches(value: unknown): readonly AssetGuessMatch[] {
 export interface AssetsMissingRejection {
   readonly error: 'assets-missing'
   readonly assets: readonly MissingAsset[]
+  /** Source names are requirements, not unverified asset identities. */
+  readonly models?: readonly ModelRequirement[]
 }
 
 export type DinksterSubmitResult = SubmitResult | {
@@ -1267,9 +1269,18 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
   const body = value as Record<string, unknown>
   if (body['error'] !== 'assets-missing' || !Array.isArray(body['assets'])) return undefined
   const assets: MissingAsset[] = []
+  const models: ModelRequirement[] = []
   for (const raw of body['assets']) {
     if (typeof raw !== 'object' || raw === null) return undefined
     const asset = raw as Record<string, unknown>
+    if (asset['digest'] === undefined && typeof asset['name'] === 'string' &&
+      asset['name'].length > 0 && !asset['name'].startsWith('/') && !asset['name'].includes('\\') &&
+      !asset['name'].split('/').includes('..') && typeof asset['kind'] === 'string' &&
+      /^model\/[a-z][a-z0-9-]*$/.test(asset['kind']) && asset['status'] === 'missing') {
+      if (!models.some((entry) => entry.name === asset['name'] && entry.kind === asset['kind']))
+        models.push({ name: asset['name'], kind: asset['kind'] })
+      continue
+    }
     if (
       typeof asset['digest'] !== 'string' ||
       typeof asset['name'] !== 'string' ||
@@ -1298,7 +1309,7 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
       ...(Array.isArray(asset['packagedFrom']) ? { packagedFrom: asset['packagedFrom'] as string[] } : {}),
     })
   }
-  return { error: 'assets-missing', assets }
+  return { error: 'assets-missing', assets, ...(models.length ? { models } : {}) }
 }
 
 // ---------------------------------------------------------------------------
@@ -4205,7 +4216,7 @@ async function rejectionDetails(
     payload = undefined
   }
   const assetsMissing = res.status === 409 ? parseAssetsMissingRejection(payload) : undefined
-  if (assetsMissing !== undefined) {
+  if (assetsMissing !== undefined && assetsMissing.assets.length > 0) {
     const lines = assetsMissing.assets.map((asset) => {
       const digest = asset.digest.includes(':') ? asset.digest.split(':', 2)[1]! : asset.digest
       const sourceNote = asset.packagedFrom !== undefined && asset.packagedFrom.length > 0
@@ -4224,7 +4235,7 @@ async function rejectionDetails(
       { data: { assets: assetsMissing.assets } },
     )] }
   }
-  // Unbound source names have no digest and cannot enter acquisition consent.
+  // Preserve source anchors while planning names separately from exact assets.
   const nameRefusals = res.status === 409 && payload?.['error'] === 'assets-missing' && Array.isArray(payload['assets'])
     ? payload['assets'].flatMap((raw: unknown) => {
         if (typeof raw !== 'object' || raw === null) return []
@@ -4242,7 +4253,7 @@ async function rejectionDetails(
   // Structured diagnostics (validation-shaped errors), anchored via provenance.
   const rawDiags = nameRefusals.length > 0 ? nameRefusals : payload?.['diagnostics']
   if (Array.isArray(rawDiags) && rawDiags.length > 0) {
-    return { diagnostics: rawDiags.map((d) => {
+    return { ...(assetsMissing === undefined ? {} : { assetsMissing }), diagnostics: rawDiags.map((d) => {
       const entry = (typeof d === 'object' && d !== null ? d : {}) as Record<string, unknown>
       const runtimeId = typeof entry['nodeId'] === 'string' ? entry['nodeId'] : undefined
       // Consumer-side input id the diagnostic anchors to (a link is addressed

@@ -10529,6 +10529,7 @@ export class AppState {
     installAssetConsent({
       result: submitted,
       slot: this.assetConsent,
+      modelDownloads: { connection: backend.connection, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       signal: lease.signal,
       onSettled: lease.release,
@@ -10536,6 +10537,8 @@ export class AppState {
       // the same document and placement safety gates before every retry stage.
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
+        this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
+        (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument) &&
         (placement === undefined || this.placementStillAvailable(
           tab,
