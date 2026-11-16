@@ -6961,6 +6961,7 @@ export class AppState {
     readonly authorityGeneration: number
     readonly revision: number
     readonly stageId: string | undefined
+    readonly localStageId: string | undefined
     readonly digest: string | undefined
     readonly recovery: { readonly stageId: string; readonly pending: boolean } | undefined
     readonly owner: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>> | undefined
@@ -6973,12 +6974,16 @@ export class AppState {
     const canonical = parsePersistedTabs(storage.getItem(tabsKey()))
     const digest = persistedDocumentDigest(tab.store.doc)
     const staged = this.documentRecoveryStages.get(tab.store)
+    const localSlot = this.persistedWorkflowSlots.get(`${documentCandidatePrefix()}${encodeURIComponent(tab.id)}`)
+    const localCandidate = parsePersistedDocumentCandidate(localSlot?.raw ?? null)
     const recovery = staged?.digest === digest && staged.project === activeProjectId() && staged.storage === storage &&
       staged.authorityGeneration === this.workspaceAuthorityGeneration ? staged : undefined
     this.closedWorkflowDocuments.set(tab.store, {
       tab, project: activeProjectId(), storage, authorityGeneration: this.workspaceAuthorityGeneration, revision,
       stageId: digest === canonical?.documentCandidateDigests?.[tab.id]
         ? canonical?.documentCandidateStages?.[tab.id] : undefined,
+      localStageId: localSlot?.complete && localCandidate !== undefined &&
+        persistedDocumentDigest(localCandidate.tab.doc) === digest ? localCandidate.stageId : undefined,
       digest, recovery, owner: this.workflowAssetOwners.get(tab.store),
     })
   }
@@ -7006,11 +7011,13 @@ export class AppState {
       }
       const localSlot = this.persistedWorkflowSlots.get(key)
       const localCandidate = parsePersistedDocumentCandidate(localSlot?.raw ?? null)
-      const localStageId = closed.recovery?.stageId ?? closed.stageId
+      // A peer may supersede our stage with the same document before Close.
+      // Capture both identities rather than treating the peer stage as ours.
+      const localStageId = closed.recovery?.stageId ?? closed.localStageId ?? closed.stageId
       if (!closed.recovery?.pending && closed.storage.getItem(key) === null && localSlot?.complete && localCandidate !== undefined &&
         localStageId !== undefined && closed.digest !== undefined && localCandidate.stageId === localStageId &&
         persistedDocumentDigest(localCandidate.tab.doc) === closed.digest &&
-        committed.documentCandidateStages?.[closed.tab.id] === localStageId &&
+        committed.documentCandidateStages?.[closed.tab.id] === (closed.recovery?.stageId ?? closed.stageId ?? localStageId) &&
         committed.documentCandidateDigests?.[closed.tab.id] === closed.digest) {
         this.retirePersistedWorkflowSlot(key, localSlot.raw)
       }

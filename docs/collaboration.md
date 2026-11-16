@@ -77,7 +77,11 @@ history across different documents or release independent recovery holders.
 Complete catch-up receipts admitted before joining finishes stay attached to
 that join attempt. Successful adoption carries matching local receipts into
 the adopted session's ordinary replacement and Close checks; failed joins do
-not grant retirement authority.
+not grant retirement authority. Close captures a complete locally owned
+recovery candidate separately from the canonical stage: a peer may have
+superseded it with the same document. The local receipt retires only after
+synchronized canonical Close, matching captured stages and document digest,
+and removal of the physical recovery candidate.
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
 schema and connection generation are unchanged. A changed destination or
