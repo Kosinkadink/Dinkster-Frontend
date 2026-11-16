@@ -431,7 +431,6 @@
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
-    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise",
     "text:props.connection) const [info, setInfo] = createSignal"
   ],
   "DesktopSetup.tsx": [
@@ -671,6 +670,13 @@
     "text:3D preview unavailable.",
     "text:Download model",
     "text:Rendering 3D preview..."
+  ],
+  "ModelSettings.tsx": [
+    "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [id, setId] = createSignal('') const [path, setPath] = createSignal('') const [kind, setKind] = createSignal('') const [writable, setWritable] = createSignal(false) const [removing, setRemoving] = createSignal",
+    "text:() const [editing, setEditing] = createSignal",
+    "text:): Promise",
+    "text:Promise",
+    "text:row.id === locationId)! return"
   ],
   "MountFolderForm.tsx": [
     "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",

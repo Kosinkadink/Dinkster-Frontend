@@ -25,7 +25,7 @@ export interface SchemaRegistry {
    * affordances whether the backend declares schema capabilities such as
    * `emitsPreviews` (wire 24+); it never gates decoding.
    */
-  readonly server?: { readonly version: string; readonly schemaWire: number }
+  readonly server?: ReturnType<typeof import('@dinkster/core').serverInfoFromDinksterWire>
   /**
    * Graph document wire feature flags from /api/nodes "dinkster.graphFeatures"
    * (Dinkster native only; additive, absent on older backends). LOAD-BEARING,

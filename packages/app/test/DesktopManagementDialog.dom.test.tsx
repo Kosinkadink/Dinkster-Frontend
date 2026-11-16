@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { createSignal } from 'solid-js'
+import { createMemo, createSignal } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, setLocale } from '@dinkster/core'
 import { DinksterConnection, type FetchLike, type WebSocketLike } from '@dinkster/client'
@@ -23,7 +23,7 @@ const info: DesktopInfo = {
   update: { state: 'current', detail: 'Dinkster Desktop is up to date' },
 }
 
-function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterDesktopBridge> = {}, backendUrl = 'http://managed.test') {
+function mount(connection?: Pick<DesktopMountConnection, 'fetchMountSettings' | 'addMount'> & Partial<DesktopMountConnection>, overrides: Partial<DinksterDesktopBridge> = {}, backendUrl = 'http://managed.test') {
   const [currentConnection, setConnection] = createSignal(connection)
   const [connectionRevision, setConnectionRevision] = createSignal(0)
   const selectEngine = vi.fn(async () => undefined)
@@ -74,7 +74,16 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
   window.dinksterDesktop = bridge
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <DesktopManagementDialog connection={(connectionRevision(), currentConnection())} backendUrl={(connectionRevision(), backendUrl)} />, root)
+  const modelState = { settings: { version: 1 as const, downloadLocation: null, locations: [] }, locations: [], revision: 'first', project: 'default', changesAllowed: false, restartRequired: false, pendingRemovals: [] }
+  const unmount = render(() => {
+    const fullConnection = createMemo(() => {
+      const current = currentConnection()
+      if (!current) return undefined
+      if (current.fetchModelSettings) return current as DesktopMountConnection
+      return { fetchModelSettings: async () => modelState, updateModelSettings: async () => modelState, setModelLocationEnabled: async () => modelState, onMountsChanged: () => () => {}, ...current }
+    })
+    return <DesktopManagementDialog connection={(connectionRevision(), fullConnection())} backendUrl={(connectionRevision(), backendUrl)} />
+  }, root)
   return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, bridge, unmount, setConnection, refreshConnection: () => setConnectionRevision((value) => value + 1) }
 }
 

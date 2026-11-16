@@ -48,6 +48,12 @@
   gap: 8px;
   margin-top: 8px;
 }
+.model-location-form {
+  display: grid;
+  gap: var(--dinkster-space-12);
+  min-width: 0;
+  margin-top: var(--dinkster-space-16);
+}
 .project-folder-grant-options, .project-folder-removal {
   display: grid;
   gap: 8px;

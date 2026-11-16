@@ -10504,6 +10504,7 @@ export class AppState {
     // Problems callbacks re-prove exact-object tab liveness at fire time: a
     // retried submit that reached the server still installs its run, but a
     // closed/replaced tab owns no further diagnostics.
+    const project = activeProjectId()
     const tabLive = (): boolean => this.tabs.get().includes(tab)
     // The whole retry conversation is owner-checked - a superseded
     // chain (newer submit claimed the dialog, or the user dismissed it)
@@ -10513,11 +10514,13 @@ export class AppState {
     installAssetConsent({
       result: submitted,
       slot: this.assetConsent,
+      enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply
       // the same document and placement safety gates before every retry stage.
       beforeRetry: () =>
+        activeProjectId() === project && tabLive() &&
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument) &&
         (placement === undefined || this.placementStillAvailable(
           tab,

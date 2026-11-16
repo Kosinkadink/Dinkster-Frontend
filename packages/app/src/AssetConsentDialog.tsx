@@ -5,7 +5,7 @@ import { useAssetDecisionViewport } from './asset-decision-viewport.js'
 import { formatByteSize } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ModalSurface } from './ModalSurface.js'
-import { ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -26,7 +26,7 @@ export function presentAssetPlan(asset: MissingAsset, message: Message): AssetPl
     catch { return source }
   }))]
   return {
-    source: packaged ?? (asset.fetchable && hosts.length > 0
+    source: asset.disabledLocations?.length ? message('assetConsent.folderDisabled') : packaged ?? (asset.fetchable && hosts.length > 0
       ? message('assetConsent.source.download', { hosts: hosts.join(', ') })
       : message('assetConsent.source.unresolvable')),
     ...(asset.size !== undefined ? { size: formatByteSize(asset.size) } : {}),
@@ -59,6 +59,7 @@ export function AssetConsentDialog(props: { app: AppState }) {
   const selectable = () => (request()?.assets ?? []).filter((asset) => asset.fetchable)
   const selectionStatus = () => {
     const count = selected().size
+    if (request()?.enablingLocation) return message('assetConsent.enablingFolder', { folder: request()!.enablingLocation! })
     if (request()?.busy) return message('assetConsent.selection.busy', { count })
     return message('assetConsent.selection.ready', { selected: count, available: selectable().length })
   }
@@ -107,11 +108,11 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 checked={selected().has(asset.digest)}
                 onChange={(checked) => toggle(asset.digest, checked)}
               />
-              <label class="asset-decision-row-copy" for={controlId}>
+              <div class="asset-decision-row-copy"><label class="asset-decision-row-copy" for={controlId}>
                 <span class="asset-decision-row-heading">
                   <strong id={nameId}>{asset.name}</strong>
                   <span class="asset-decision-state" data-state={display().consentable ? 'available' : 'unresolvable'}>
-                    {message(display().consentable ? 'assetConsent.state.available' : 'assetConsent.state.unresolvable')}
+                    {message(asset.disabledLocations?.length ? 'assetConsent.state.folderDisabled' : display().consentable ? 'assetConsent.state.available' : 'assetConsent.state.unresolvable')}
                   </span>
                 </span>
                 <span class="asset-decision-tags">
@@ -124,19 +125,24 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 <Show when={asset.destination}>{(destination) => <span class="asset-decision-fact" data-testid="asset-consent-destination"><span>{message('assetConsent.fact.destination')}</span><code>{destination()}</code></span>}</Show>
                 <Show when={asset.detail}><small class="asset-decision-warning">{asset.detail}</small></Show>
               </label>
+              <Show when={asset.disabledLocations?.length}>
+                <div class="asset-decision-source-details">
+                  <For each={asset.disabledLocations}>{(location) => <ProductButton disabled={request()?.busy === true || !request()?.enableLocation} onClick={() => void request()?.enableLocation?.(location)}>{message('assetConsent.enableFolder', { folder: location })}</ProductButton>}</For>
+                </div>
+              </Show></div>
             </li>
           }}</For>
         </ul>
-        <Show when={selectable().length === 0}>
+        <Show when={selectable().length === 0 && request()?.assets.some((asset) => !asset.disabledLocations?.length)}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.unresolvable')}</ProductNotice>
         </Show>
         <Show when={request()?.busy}>
-          <ProductNotice tone="status" class="asset-decision-notice" testId="asset-consent-progress">{message('assetConsent.notice.busy')}</ProductNotice>
+          <ProductNotice tone="status" class="asset-decision-notice" testId="asset-consent-progress">{request()?.enablingLocation ? message('assetConsent.enablingFolder', { folder: request()!.enablingLocation! }) : message('assetConsent.notice.busy')}</ProductNotice>
         </Show>
         <ProductActionFooter status={<span role="status" aria-live="polite" data-testid="asset-consent-selection-status">{selectionStatus()}</span>}>
           <button type="button" data-testid="asset-consent-cancel" onClick={dismiss}>{message(request()?.busy ? 'assetConsent.action.dismiss' : 'assetConsent.action.cancel')}</button>
           <button type="button" class="primary" data-testid="asset-consent-acquire" disabled={request()?.busy === true || selected().size === 0} onClick={() => void request()?.retry([...selected()])}>
-            {message(request()?.busy ? 'assetConsent.action.acquiring' : 'assetConsent.action.acquire')}
+            {message(request()?.enablingLocation ? 'assetConsent.action.enabling' : request()?.busy ? 'assetConsent.action.acquiring' : 'assetConsent.action.acquire')}
           </button>
         </ProductActionFooter>
       </div>
