@@ -6,6 +6,8 @@
  */
 import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })

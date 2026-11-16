@@ -1,5 +1,7 @@
 import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 test('save destination writes the selected relative prefix through the real backend', async ({ page, request }, testInfo) => {
   const mountsResponse = await request.get(`${process.env['DINKSTER_NATIVE_BACKEND']}/api/mounts`)
   expect(mountsResponse.ok()).toBe(true)
