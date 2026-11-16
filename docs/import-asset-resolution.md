@@ -133,9 +133,10 @@ An unresolved row preselects its first candidate only for `path` and `name` conf
 
 Candidate rows also show held status, declaring pack IDs, and size when supplied. Accept selected replaces each chosen string with the complete `{digest, name, size, mediaType, virtualPath}` ASSET value. Descriptor fields are never invented. All replacements are one command batch and therefore one undo step. Unselected and unmatched names keep their imported string values. Normal execution preflight and asset acquisition consent are unchanged.
 
-Automatic resolution waits for final command acceptance before recording
-provenance or offering leftover names. Closed or replaced stores and changed
-backend registries cannot receive a stale completion prompt. Manual Accept
+Automatic resolution waits for an in-progress workspace promotion before
+applying matches to the current document session. It then waits for final command
+acceptance before recording provenance or offering leftover names. Closed or
+replaced stores and changed backend registries cannot receive a stale completion prompt. Manual Accept
 keeps the dialog and exact choices while pending, disables candidate changes
 and duplicate acceptance, and closes only on acceptance. Refusal leaves the
 choices available for retry. Dismissing a pending dialog does not cancel the
