@@ -9058,7 +9058,7 @@ export class AppState {
       if (!stillCurrent()) return null
       if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
     }
-    const admitted = await this.retainTerminalExecutionAssets(backend.connection,
+    const admitted = await this.retainTerminalExecutionAssets(backend,
       { ref: result.ref, artifact: compiled.artifact, jobRef: result.jobRef, sourceDocument: result.sourceDocument },
       job, this.resolverWithVirtualNodes(registry.resolve), stillCurrent)
     if (admitted === undefined) return null
@@ -10617,13 +10617,16 @@ export class AppState {
   private readonly hydrated = new Set<string>()
 
   private async retainTerminalExecutionAssets(
-    connection: DinksterConnection,
+    backend: Backend,
     state: Pick<ExecutionState, 'ref' | 'artifact' | 'jobRef' | 'sourceDocument'>,
     job: DinksterJobRecord,
     resolve: SchemaResolver,
     current: () => boolean,
   ): Promise<readonly RetainedAssets[] | undefined> {
     if (state.jobRef === undefined || job.jobRef !== state.jobRef || job.sourceDocument !== state.sourceDocument) return undefined
+    const connection = backend.connection
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(connection)
     const terminal = await connection.fetchTerminalResultAssets(state.jobRef, state.ref.prompt)
     if (!current() || terminal === undefined || terminal.state !== job.state || terminal.attemptId !== job.attemptId) return undefined
     const outputs = job.outputs ?? {}
@@ -10643,17 +10646,33 @@ export class AppState {
       }
     }
     const retained: RetainedAssets[] = []
-    for (const offer of terminal.offers) {
-      retained.push(await retainExecutionAssets(connection, state.ref, offer))
+    let complete = false
+    try {
+      for (const offer of terminal.offers) {
+        retained.push(await retainExecutionAssets(connection, state.ref, offer))
+        if (!current()) return undefined
+      }
+      // Runtime source claims certify the outputs, not the producing document.
+      const roots = state.artifact === undefined
+        ? executionAssetRoots({ ...state, outputs: outputs as ExecutionState['outputs'], artifacts: job.artifacts ?? [] }, resolve)
+        : workflowAssetRoots(state.artifact.snapshot, { revision: state.artifact.revision, undo: [], redo: [] },
+          resolve, [], 'publication', state.sourceDocument)
+      retained.push(await retainExecutionAssets(connection, state.ref, roots))
       if (!current()) return undefined
+      complete = true
+      return retained
+    } finally {
+      // Cancelled publication does not end claims already admitted locally.
+      // Keep them through ordinary replacement and result-lifetime checks.
+      if (!complete && !this.disposed && activeProjectId() === project && this.backendFor(backend.id) === backend &&
+        this.assetConnectionGenerations.get(connection) === generation) {
+        for (const receipt of retained) this.resultAssetOwners.set(receipt.ownerId, {
+          backend, retained: receipt, project, generation, execution: executionKey(state.ref),
+          interim: true, observed: this.store.get(state.ref) !== undefined,
+        })
+        this.retireUnusedResultOwners()
+      }
     }
-    // Runtime source claims certify the outputs, not the producing document.
-    const roots = state.artifact === undefined
-      ? executionAssetRoots({ ...state, outputs: outputs as ExecutionState['outputs'], artifacts: job.artifacts ?? [] }, resolve)
-      : workflowAssetRoots(state.artifact.snapshot, { revision: state.artifact.revision, undo: [], redo: [] },
-        resolve, [], 'publication', state.sourceDocument)
-    retained.push(await retainExecutionAssets(connection, state.ref, roots))
-    return current() ? retained : undefined
   }
 
   private prepareExecutionHydration(backend: Backend): PrepareExecutionHydration {
@@ -10676,7 +10695,7 @@ export class AppState {
         if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
         if (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') {
           if (held.jobRef === undefined) return false
-          const receipts = await this.retainTerminalExecutionAssets(connection, held, job,
+          const receipts = await this.retainTerminalExecutionAssets(backend, held, job,
             this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)), current)
           if (receipts === undefined) return false
           for (const retained of receipts) this.trackResultOwner(backend, retained)

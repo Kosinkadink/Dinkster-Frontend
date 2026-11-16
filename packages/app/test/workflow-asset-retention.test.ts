@@ -330,7 +330,7 @@ describe('retained app dispatch', () => {
   })
 
   it.each(['acknowledged', 'lost', 'rejected', 'removed', 'missing-seal', 'unoffered-output',
-    'unoffered-artifact', 'foreign-artifact', 'intermediate-offer', 'foreign-attempt'] as const)(
+    'unoffered-artifact', 'foreign-artifact', 'intermediate-offer', 'foreign-attempt', 'registry-refresh'] as const)(
     'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
@@ -373,6 +373,11 @@ describe('retained app dispatch', () => {
         return receipt
       })
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...saved.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        saved.set(owner.ownerId, receipt)
+        return receipt
+      })
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
       backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
       if (['missing-seal', 'unoffered-output', 'unoffered-artifact', 'foreign-artifact', 'foreign-attempt'].includes(scenario)) {
@@ -386,8 +391,17 @@ describe('retained app dispatch', () => {
       expect(app.store.get(ref)?.outputs).toEqual({})
       expect(app.store.get(ref)?.artifacts).toEqual([])
       if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'registry-refresh') backend.registry.set({ ...backend.registry.get()!, hash: 'refreshed' })
       admitted.resolve()
-      if (scenario === 'acknowledged' || scenario === 'lost' || scenario === 'intermediate-offer') {
+      if (scenario === 'registry-refresh') {
+        await new Promise<void>((done) => setImmediate(done))
+        backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+        await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
+        await vi.waitFor(() => {
+          const current = new Set(app!.store.get(ref)?.assetRetentions?.map((receipt) => receipt.ownerId))
+          expect([...saved.values()].filter((receipt) => !current.has(receipt.ownerId) && receipt.digests.length > 0)).toEqual([])
+        })
+      } else if (scenario === 'acknowledged' || scenario === 'lost' || scenario === 'intermediate-offer') {
         await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
