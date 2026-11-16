@@ -198,7 +198,8 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
-  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending'] as const)(
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending',
+    'acknowledgment', 'release-acknowledgment', 'changed-roots', 'removed-intent', 'mismatched-receipt'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -234,7 +235,8 @@ describe('workflow retention recovery', () => {
       const app = prepareWorkflowApp(new AppState())
       try {
         const backend = app.addBackend('http://native:8000', 'Recovery native', false, 'dinkster')!
-        const intent = { ...f.intent, connectionId: backend.id, assetBaseUrl: backend.connection.assetUrl('') }
+        const intent = { ...f.intent, connectionId: backend.id, assetBaseUrl: backend.connection.assetUrl(''),
+          ...(scenario === 'release-acknowledgment' ? { acknowledgedRevision: 1, releaseRevision: 1 } : {}) }
         const bytes = JSON.stringify(intent)
         f.entries.set(f.key, bytes)
         const notices = () => app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')
@@ -242,6 +244,20 @@ describe('workflow retention recovery', () => {
         await vi.waitFor(() => expect(sockets).toHaveLength(1))
         sockets.at(-1)!.onopen?.({})
         await vi.waitFor(() => expect(requests).toHaveLength(1))
+        if (scenario === 'acknowledgment' || scenario === 'release-acknowledgment' || scenario === 'changed-roots' ||
+          scenario === 'removed-intent' || scenario === 'mismatched-receipt') {
+          const current = JSON.stringify({ ...intent, acknowledgedRevision: scenario === 'release-acknowledgment' ? 2 : 1,
+            ...(scenario === 'changed-roots' ? { digests: [asset('b').digest] } : {}) })
+          if (scenario === 'removed-intent') f.entries.delete(f.key)
+          else f.entries.set(f.key, current)
+          requests[0]!.result.resolve(new Response(JSON.stringify({ ...f.acknowledgment,
+            ...(scenario === 'release-acknowledgment' ? { revision: 2, complete: true, digests: [] }
+              : scenario === 'mismatched-receipt' ? { revision: 3 } : {}) })))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(scenario === 'acknowledgment' || scenario === 'release-acknowledgment' ? 0 : 1)
+          expect(f.entries.get(f.key)).toBe(scenario === 'removed-intent' ? undefined : current)
+          return
+        }
         if (scenario === 'journal-change-pending') {
           events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
           requests[0]!.result.resolve(new Response('{}', { status: 404 }))
