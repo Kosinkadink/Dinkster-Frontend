@@ -55,12 +55,72 @@ afterEach(() => {
   vi.useRealTimers()
   delete g.localStorage
   Reflect.deleteProperty(globalThis.navigator, 'locks')
+  vi.unstubAllGlobals()
 })
 
 /** Flush the debounced persistence write. */
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it('reuses acknowledged ownership when a peer repeats an incorporated document stage', async () => {
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    const receipts = new Map<string, unknown>()
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    await vi.advanceTimersByTimeAsync(500)
+    const tab = app.activeTab()!
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    const candidate = JSON.stringify({ v: 1, stageId: 'peer-edit', tab: {
+      title: 'Peer title', doc: tab.store.doc, documentRevision: 0,
+    } })
+    localStorage.setItem(key, candidate)
+    const notify = () => events.dispatchEvent(Object.assign(new Event('storage'), {
+      key, oldValue: null, newValue: candidate,
+    }))
+    notify()
+    await vi.advanceTimersByTimeAsync(0)
+    const canonical = localStorage.getItem(TABS_KEY)
+    expect(JSON.parse(canonical!).assetRetention.complete).toBe(true)
+    const admitted = receipts.size
+    expect(admitted).toBeGreaterThan(0)
+    for (let count = 0; count < 4; count += 1) {
+      notify()
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    expect(localStorage.getItem(TABS_KEY)).toBe(canonical)
+    expect(receipts.size).toBe(admitted)
+
+    app.registry.set({ ...app.registry.get()! })
+    notify()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(receipts.size).toBeGreaterThan(admitted)
+    const refreshed = receipts.size
+    const other = app.addBackend('http://other.test', 'Other', false, 'dinkster')!
+    other.registry.set(app.registry.get())
+    vi.spyOn(other.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(other.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    app.setTabTarget(tab.id, other.id)
+    notify()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(receipts.size).toBeGreaterThan(refreshed)
+    expect(JSON.parse(localStorage.getItem(TABS_KEY)!).assetRetention.owners[0].connectionId)
+      .toBe(other.connection.id)
+  })
+
   it('confirms startup ownership after the opening transport publishes its catalog', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
     const app = createEditableApp()
