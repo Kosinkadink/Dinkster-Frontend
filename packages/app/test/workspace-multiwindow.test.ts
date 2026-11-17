@@ -155,6 +155,112 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it('keeps a reused source receipt live when an older canonical admission publishes first', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+    const app = createEditableApp()
+    app.registerSchemas([primitive('X', 'FLOAT')])
+    const local = app.tabs.get()[0]!
+    const peer = { v: 1, active: local.id, workspaceRevision: 1, incorporatedWorkspaceStages: [], tabs: [
+      { title: local.title, doc: local.store.doc, documentRevision: 0 },
+      { title: 'Peer workflow', doc: workflow(), documentRevision: 0 },
+    ], assetRetention: { stageId: 'peer-stage', acknowledged: true, complete: true, owners: [local.store.doc, workflow()].map((doc) => ({
+      connectionId: app.connection.id, assetBaseUrl: app.connection.assetUrl(''), documentLineage: doc.lineage,
+      retained: { scope: 'local', ownerKind: 'document', ownerId: `peer-${doc.lineage}`, revision: 1, complete: true, digests: [] },
+    })) } }
+    const canonical = JSON.stringify(peer)
+    localStorage.setItem('dinkster.openTabs', canonical)
+    const receipts = new Map<string, RetainedAssets>()
+    const held: { readonly receipt: RetainedAssets; readonly finish: () => void }[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      receipts.set(owner.ownerId, receipt)
+      await new Promise<void>((finish) => held.push({ receipt, finish }))
+      return receipt
+    })
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect(held).toHaveLength(3)
+    expect(localStorage.getItem('dinkster.openTabs')).toBe(canonical)
+    const source = held[0]!
+    source.finish()
+    await drainTasks()
+    const sourceKey = [...Array(localStorage.length)].map((_, index) => localStorage.key(index)!)
+      .find((key) => key.startsWith('dinkster.openTabsCandidate.'))!
+    expect(JSON.parse(localStorage.getItem(sourceKey)!).assetRetention).toMatchObject({ acknowledged: true, complete: true })
+    app.tabs.set([...app.tabs.get()])
+    events.dispatchEvent(Object.assign(new Event('storage'), { key: 'dinkster.openTabs', newValue: canonical }))
+    await drainTasks()
+    expect(held).toHaveLength(4)
+    held[1]!.finish()
+    held[2]!.finish()
+    await drainTasks()
+    expect(localStorage.getItem(sourceKey)).toBeNull()
+    expect(receipts.get(source.receipt.ownerId)).toEqual(source.receipt)
+    held[3]!.finish()
+    await drainTasks()
+    expect(receipts.get(source.receipt.ownerId)).toEqual(source.receipt)
+    expect(localStorage.getItem('dinkster.openTabs')).toBe(canonical)
+  })
+
+  it('keeps a quota-blocked edit in memory, reports recovery failure, and saves it on retry', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const app = createEditableApp()
+    app.registerSchemas([primitive('X', 'FLOAT')])
+    await app.openDocument(workflow(), 'Quota workflow')
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const original = localStorage.getItem('dinkster.openTabs')!
+    const tab = app.tabs.get().find((open) => open.id === 'multi-window-workflow')!
+    const title = `Unsaved edit ${'x'.repeat(4096)}`
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title,
+    } })).ok).toBe(true)
+    const size = (): number => [...Array(localStorage.length)].reduce((sum, _, index) => {
+      const key = localStorage.key(index)!
+      return sum + key.length + localStorage.getItem(key)!.length
+    }, 0)
+    let capacity = size() + 128
+    const write = localStorage.setItem.bind(localStorage)
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      const previous = localStorage.getItem(key)
+      const next = size() - (previous === null ? 0 : key.length + previous.length) + key.length + value.length
+      if (next > capacity) throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+      write(key, value)
+    })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      app.flushPersistTabs(true)
+      await drainTasks()
+      expect(localStorage.getItem('dinkster.openTabs')).toBe(original)
+      expect(tab.store.doc.graphs.g0!.nodes.n1!.title).toBe(title)
+      expect(app.problems.get().some((problem) => problem.code === 'workspace.recovery.storageFailed')).toBe(true)
+    }
+    capacity = Infinity
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const saved = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+    expect(saved.assetRetention).toMatchObject({ acknowledged: true, complete: true })
+    expect(saved.tabs.find((entry: { doc: WorkflowDocument }) => entry.doc.lineage === tab.id).doc).toEqual(tab.store.doc)
+    expect(app.problems.get().some((problem) => problem.code === 'workspace.recovery.storageFailed')).toBe(false)
+  })
+
   it('keeps settled unchanged document ownership stable across persistence flushes', async () => {
     let commits = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (
@@ -192,6 +298,90 @@ describe('AppState multi-window workspace', () => {
       .toMatchObject({ acknowledged: true, complete: true })
   })
 
+  it.each(['covered', 'newer-document'] as const)('Close reuses unchanged surviving ownership without losing recovery: %s', async (scenario) => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const app = createEditableApp()
+    const schema = primitive('X', 'FLOAT')
+    app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
+      diagnostics: [], hash: 'close-unchanged', resolve: (type) => type === 'X' ? schema : undefined })
+    await app.openDocument(workflow(), 'Closing workflow')
+    const factory = authorityFactories()
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const tab = app.tabs.get().find((open) => open.id === 'multi-window-workflow')!
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n1', title: 'Admitted before close',
+    } })).ok).toBe(true)
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    const candidate = JSON.parse(localStorage.getItem(key)!)
+    expect(candidate.assetRetention).toMatchObject({ acknowledged: true, complete: true })
+    if (scenario === 'newer-document') {
+      candidate.tab.doc.graphs.g0.nodes.n1.title = 'Independent newer recovery'
+      localStorage.setItem(key, JSON.stringify(candidate))
+    }
+    const puts: string[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner) => {
+      puts.push(owner.ownerId)
+      throw new Error('No new ownership should be needed')
+    })
+    expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
+    await drainTasks()
+    app.flushPersistTabs(true)
+    await drainTasks()
+    expect(puts).toEqual([])
+    expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
+    const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+    expect(canonical.assetRetention).toMatchObject({ acknowledged: true, complete: true })
+    expect(canonical.tabs.map((saved: { doc: WorkflowDocument }) => saved.doc))
+      .toEqual(app.tabs.get().filter((open) => !open.execution).map((open) => open.store.doc))
+    if (scenario === 'covered') expect(localStorage.getItem(key)).toBeNull()
+    else expect(localStorage.getItem(key)).toBe(JSON.stringify(candidate))
+  })
+
+  it('does not admit unchanged documents for newer peer workspace metadata', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+    const app = createEditableApp()
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const initial = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+    const puts: string[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner) => {
+      puts.push(owner.ownerId)
+      throw new Error('Unchanged roots must reuse their admission')
+    })
+    const key = 'dinkster.openTabsCandidate.peer'
+    for (let revision = 1; revision <= 3; revision += 1) {
+      const peer = { ...initial, workspaceRevision: (initial.workspaceRevision ?? 0) + revision,
+        tabs: initial.tabs.map((tab: { title: string }) => ({ ...tab, title: `Peer title ${revision}` })),
+      }
+      localStorage.setItem(key, JSON.stringify(peer))
+      for (let repeat = 0; repeat < 3; repeat += 1) events.dispatchEvent(Object.assign(new Event('storage'), {
+        key, newValue: localStorage.getItem(key),
+      }))
+      await drainTasks()
+      const committed = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+      expect(committed.workspaceRevision).toBe(peer.workspaceRevision)
+      expect(committed.tabs).toEqual(peer.tabs)
+      expect(committed.assetRetention).toMatchObject({ acknowledged: true, complete: true })
+      expect(localStorage.getItem(key)).toBeNull()
+    }
+    expect(puts).toEqual([])
+  })
+
   it.each(['unchanged', 'newer'] as const)('duplicate notifications do not block admission or replace newer data: %s', async (scenario) => {
     let lock = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
@@ -215,7 +405,13 @@ describe('AppState multi-window workspace', () => {
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
     const key = 'dinkster.openTabsCandidate.peer'
-    const peer = { ...saved, workspaceRevision: (saved.workspaceRevision ?? 0) + 1 }
+    const peer = { ...saved, workspaceRevision: (saved.workspaceRevision ?? 0) + 1,
+      tabs: saved.tabs.map((tab: { doc: WorkflowDocument; documentRevision?: number }) => ({ ...tab,
+        documentRevision: (tab.documentRevision ?? 0) + 1, doc: { ...tab.doc,
+          graphs: { ...tab.doc.graphs, [tab.doc.root]: { ...tab.doc.graphs[tab.doc.root], name: 'Changed document' } },
+        },
+      })),
+    }
     localStorage.setItem(key, JSON.stringify(peer))
     const notify = (): void => { events.dispatchEvent(Object.assign(new Event('storage'), {
       key, newValue: localStorage.getItem(key),
@@ -801,7 +997,13 @@ describe('AppState multi-window workspace', () => {
           documentCandidateStages: {}, documentCandidateDigests: {},
         }))
       }
-      if (scenario === 'refused') vi.spyOn(app.connection, 'retainAssets').mockRejectedValue(new Error('Admission refused'))
+      if (scenario === 'refused') {
+        const surviving = app.tabs.get().find((open) => !open.execution && open.id !== tab.id)!
+        await app.dispatchTo(surviving, { command: 'node.add', params: {
+          graphId: surviving.store.doc.root, type: 'X', position: { x: 13, y: 29 },
+        } })
+        vi.spyOn(app.connection, 'retainAssets').mockRejectedValue(new Error('Admission refused'))
+      }
       app.closeTab(tab.id)
       if (scenario === 'incorporated-after-close') localStorage.setItem('dinkster.openTabs', JSON.stringify(canonical))
       await drainTasks()

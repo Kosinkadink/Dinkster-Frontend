@@ -3872,6 +3872,7 @@ export class AppState {
     readonly complete: boolean
     readonly owners: readonly {
       readonly document: WorkflowDocument
+      readonly revision: number
       readonly backend: Backend
       readonly registry: SchemaRegistry | undefined
       readonly generation: number | undefined
@@ -3880,6 +3881,8 @@ export class AppState {
       readonly retained: RetainedAssets
     }[]
   }>()
+
+  private readonly persistedWorkflowAdmissions = new Set<NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners']>()
 
   private retirePersistedWorkflowSlot(key: string, raw: string): void {
     const slot = this.persistedWorkflowSlots.get(key)
@@ -3897,6 +3900,12 @@ export class AppState {
     replacements: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners'] = [],
   ): void {
     for (const owner of owners) {
+      // A receipt remains protected through both slot replacement and overlapping
+      // admissions, even if a different admission replaces the pending slot.
+      if ([...this.persistedWorkflowSlots.values()].some((slot) => slot.owners.some((held) =>
+        held.backend === owner.backend && held.retained === owner.retained)) ||
+        [...this.persistedWorkflowAdmissions].some((admission) => admission.some((held) =>
+          held.backend === owner.backend && held.retained === owner.retained))) continue
       if (this.disposed || activeProjectId() !== owner.project || globalThis.localStorage !== owner.storage ||
         !this.backends.get().includes(owner.backend) ||
         this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) continue
@@ -3989,9 +3998,23 @@ export class AppState {
     }
     const locks = key.startsWith(documentCandidatePrefix()) ? globalThis.navigator?.locks : undefined
     let previousOwners: NonNullable<typeof existing>['owners'][number][] = []
+    let reusable: (NonNullable<typeof existing>['owners'][number] | undefined)[] = []
+    const pinned: NonNullable<typeof existing>['owners'][number][] = []
     const writePending = (): void => {
       if (activeProjectId() !== project || globalThis.localStorage !== storage) return
       previousOwners = [...(this.persistedWorkflowSlots.get(key)?.owners ?? [])]
+      const admitted = [...this.persistedWorkflowSlots].filter(([slotKey, slot]) =>
+        slot.complete && storage.getItem(slotKey) === slot.raw).flatMap(([, slot]) => slot.owners)
+      reusable = native.map((source) => key.startsWith(documentCandidatePrefix()) ? undefined : admitted.find((owner) => {
+        if (!owner.retained.complete || owner.project !== project || owner.storage !== storage ||
+          owner.backend !== source.backend || owner.registry !== source.registry || owner.generation !== source.generation ||
+          owner.revision !== source.revision || canonicalJson(owner.document) !== canonicalJson(source.document)) return false
+        const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
+        return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined
+      }))
+      // Stored peer receipts never enter the local admission inventory.
+      pinned.push(...reusable.filter((owner) => owner !== undefined))
+      previousOwners = [...new Set([...previousOwners, ...pinned])]
       const current = key === tabsKey() ? storage.getItem(key) : null
       if (current !== null && parsePersistedTabs(current) !== undefined) {
         const { assetRetention, ...committed } = JSON.parse(current)
@@ -4017,93 +4040,105 @@ export class AppState {
       if (!reuseCanonical) storage.setItem(key, pending)
       if (!this.disposed) this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
     }
-    if (locks) await locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, writePending)
-    else writePending()
-    if (this.disposed || storage.getItem(key) !== pending) return undefined
-    // An opening transport will advance the connection generation before admission settles.
-    if (native.some(({ backend }) => {
-      const status = backend.connection.status.get()
-      return status === 'connecting' || status === 'reconnecting'
-    })) return undefined
-    let owners: RetainedAssets[] = []
-    for (;;) {
-      for (const source of sources) source.registry = source.backend.registry.get()
-      owners = await Promise.all(native.map(async ({ document, revision, backend, registry }) => {
-        const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
-          this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-        return retainWorkflowAssets(backend.connection, document.lineage, revision, roots, storage)
-      }))
-      if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
-        sources.some(({ tab, backend, generation }) =>
-          !this.backends.get().includes(backend) ||
-          this.assetConnectionGenerations.get(backend.connection) !== generation ||
-          (tab !== undefined && this.backendForTab(tab) !== backend))) {
-        throw new Error('Workspace recovery changed during asset admission')
+    this.persistedWorkflowAdmissions.add(pinned)
+    try {
+      if (locks) await locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, writePending)
+      else writePending()
+      if (this.disposed || storage.getItem(key) !== pending) return undefined
+      // An opening transport will advance the connection generation before admission settles.
+      if (native.some(({ backend }) => {
+        const status = backend.connection.status.get()
+        return status === 'connecting' || status === 'reconnecting'
+      })) return undefined
+      let owners: RetainedAssets[] = []
+      for (;;) {
+        for (const source of sources) source.registry = source.backend.registry.get()
+        owners = await Promise.all(native.map(async ({ document, revision, backend, registry }, index) => {
+          const reused = reusable[index]
+          if (reused?.registry === registry && reused?.retained.complete) return reused.retained
+          const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
+            this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
+          return retainWorkflowAssets(backend.connection, document.lineage, revision, roots, storage)
+        }))
+        if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
+          sources.some(({ tab, backend, generation }) =>
+            !this.backends.get().includes(backend) ||
+            this.assetConnectionGenerations.get(backend.connection) !== generation ||
+            (tab !== undefined && this.backendForTab(tab) !== backend))) {
+          throw new Error('Workspace recovery changed during asset admission')
+        }
+        if (storage.getItem(key) !== pending) {
+          // A peer's storage write supersedes publication, not our admitted owners.
+          const slot = this.persistedWorkflowSlots.get(key)
+          this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
+            owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]),
+              ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
+            ],
+          })
+          const currentRaw = key === tabsKey() ? storage.getItem(key) : null
+          const current = currentRaw !== null && parsePersistedTabs(currentRaw) !== undefined ? JSON.parse(currentRaw) : undefined
+          const { assetRetention: currentRetention, ...currentValue } = current ?? {}
+          const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
+          // A complete admission can lose the shared pending barrier to an
+          // incomplete peer. Retry normally rather than publishing stale bytes.
+          if (previousOwners.some((previous) => !previous.retained.complete && owners.some((retained, index) =>
+            retained.complete && native[index]!.backend === previous.backend &&
+            JSON.stringify(native[index]!.document) === JSON.stringify(previous.document))) ||
+            currentRetention?.acknowledged === true && currentRetention.complete === false &&
+            native.length === sources.length && owners.every((retained) => retained.complete) &&
+            canonicalJson(currentValue) === canonicalJson(incoming)) this.reconcilePersistedTabs()
+          throw new Error('Workspace recovery changed during asset admission')
+        }
+        // A refreshed schema may reveal different roots; admit them before publishing the operation.
+        if (sources.some(({ backend, registry }) => backend.registry.get() !== registry)) {
+          previousOwners.push(...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })))
+          continue
+        }
+        break
       }
-      if (storage.getItem(key) !== pending) {
-        // A peer's storage write supersedes publication, not our admitted owners.
-        const slot = this.persistedWorkflowSlots.get(key)
-        this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
-          owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]),
-            ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
-          ],
-        })
-        const currentRaw = key === tabsKey() ? storage.getItem(key) : null
-        const current = currentRaw !== null && parsePersistedTabs(currentRaw) !== undefined ? JSON.parse(currentRaw) : undefined
-        const { assetRetention: currentRetention, ...currentValue } = current ?? {}
-        const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
-        // A complete admission can lose the shared pending barrier to an
-        // incomplete peer. Retry normally rather than publishing stale bytes.
-        if (previousOwners.some((previous) => !previous.retained.complete && owners.some((retained, index) =>
-          retained.complete && native[index]!.backend === previous.backend &&
-          JSON.stringify(native[index]!.document) === JSON.stringify(previous.document))) ||
-          currentRetention?.acknowledged === true && currentRetention.complete === false &&
-          native.length === sources.length && owners.every((retained) => retained.complete) &&
-          canonicalJson(currentValue) === canonicalJson(incoming)) this.reconcilePersistedTabs()
-        throw new Error('Workspace recovery changed during asset admission')
+      const receipts = owners.map((retained, index) => ({ connectionId: native[index]!.backend.connection.id,
+        assetBaseUrl: native[index]!.backend.connection.assetUrl(''), documentLineage: native[index]!.document.lineage, retained }))
+      const complete = native.length === sources.length && owners.every((retained) => retained.complete)
+      const acknowledged = JSON.stringify({ ...value, assetRetention: {
+        stageId, acknowledged: true, complete, owners: receipts,
+      } })
+      const publish = (): string | undefined => {
+        const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
+        if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
+          storage.getItem(key) !== pending || reusable.some((owner, index) => {
+            if (owner === undefined || owners[index] !== owner.retained) return false
+            const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
+            return intent?.acknowledgedRevision !== owner.retained.revision || intent.releaseRevision !== undefined
+          }) || sources.some(({ backend, registry, generation, tab }) =>
+            !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
+            this.assetConnectionGenerations.get(backend.connection) !== generation ||
+            (tab !== undefined && this.backendForTab(tab) !== backend))) {
+          const slot = this.persistedWorkflowSlots.get(key)
+          this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
+            owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]), ...replacements] })
+          return undefined
+        }
+        // Superseded admissions can settle after this stage captured its predecessors.
+        // Keep their local receipts through the same acknowledged replacement gate.
+        previousOwners = [...new Set([...previousOwners, ...(this.persistedWorkflowSlots.get(key)?.owners ?? [])])]
+        const committed = reuseCanonical ? pending : acknowledged
+        if (!reuseCanonical) storage.setItem(key, committed)
+        this.persistedWorkflowSlots.set(key, { raw: committed, complete, owners: [
+          ...(complete ? [] : previousOwners),
+          ...replacements,
+        ] })
+        // Only this app's exact staged generations confer release authority.
+        // Stored receipts from another window or lifetime remain observation-only.
+        if (complete) this.retirePersistedWorkflowOwners(previousOwners, replacements)
+        return complete ? committed : undefined
       }
-      // A refreshed schema may reveal different roots; admit them before publishing the operation.
-      if (sources.some(({ backend, registry }) => backend.registry.get() !== registry)) {
-        previousOwners.push(...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })))
-        continue
-      }
-      break
+      return await (locks
+        ? locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, publish)
+        : publish())
+    } finally {
+      this.persistedWorkflowAdmissions.delete(pinned)
+      this.retirePersistedWorkflowOwners(pinned)
     }
-    const receipts = owners.map((retained, index) => ({ connectionId: native[index]!.backend.connection.id,
-      assetBaseUrl: native[index]!.backend.connection.assetUrl(''), documentLineage: native[index]!.document.lineage, retained }))
-    const complete = native.length === sources.length && owners.every((retained) => retained.complete)
-    const acknowledged = JSON.stringify({ ...value, assetRetention: {
-      stageId, acknowledged: true, complete, owners: receipts,
-    } })
-    const publish = (): string | undefined => {
-      const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
-      if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
-        storage.getItem(key) !== pending || sources.some(({ backend, registry, generation, tab }) =>
-          !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
-          this.assetConnectionGenerations.get(backend.connection) !== generation ||
-          (tab !== undefined && this.backendForTab(tab) !== backend))) {
-        const slot = this.persistedWorkflowSlots.get(key)
-        this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
-          owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]), ...replacements] })
-        return undefined
-      }
-      // Superseded admissions can settle after this stage captured its predecessors.
-      // Keep their local receipts through the same acknowledged replacement gate.
-      previousOwners = [...new Set([...previousOwners, ...(this.persistedWorkflowSlots.get(key)?.owners ?? [])])]
-      const committed = reuseCanonical ? pending : acknowledged
-      if (!reuseCanonical) storage.setItem(key, committed)
-      this.persistedWorkflowSlots.set(key, { raw: committed, complete, owners: [
-        ...(complete ? [] : previousOwners),
-        ...replacements,
-      ] })
-      // Only this app's exact staged generations confer release authority.
-      // Stored receipts from another window or lifetime remain observation-only.
-      if (complete) this.retirePersistedWorkflowOwners(previousOwners, replacements)
-      return complete ? committed : undefined
-    }
-    return locks
-      ? locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, publish)
-      : publish()
   }
 
   private submitWorkspaceTabMutation(mutation: WorkspaceTabMutation): void {
@@ -4784,6 +4819,7 @@ export class AppState {
   }
 
   private queuedPersistedTabsCommit: { readonly storage: Storage | undefined; readonly project: string } | undefined
+  private readonly recoveryStorageProblemsOwner = Symbol('workspace-recovery-storage')
 
   private reconcilePersistedTabs(state?: PersistedTabs): void {
     commitPersistedTabs(state, this.workspaceActorId,
@@ -4799,7 +4835,17 @@ export class AppState {
           authorityGeneration: this.workspaceAuthorityGeneration, pending: true,
         }
         if (recovery !== undefined && tab !== undefined) this.documentRecoveryStages.set(tab.store, recovery)
+        const project = activeProjectId()
+        const storage = globalThis.localStorage
         const admission = this.stagePersistedWorkflowSlot(key, value, documents)
+        void admission.catch((error: unknown) => {
+          if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
+            !(error instanceof Error) || (error.name !== 'QuotaExceededError' && error.name !== 'SecurityError')) return
+          this.reportProblems(this.recoveryStorageProblemsOwner, [diag(
+            'error', 'command', 'workspace.recovery.storageFailed',
+            'Browser recovery storage is full or unavailable. Keep this window open and export your workflow. Free browser storage, then edit or save again to retry recovery.',
+          )])
+        })
         if (candidate !== undefined) void admission.then((admitted) => {
           if (admitted !== undefined && !this.disposed) this.reconcilePersistedTabs()
         }).catch(() => undefined).finally(() => {
@@ -4820,6 +4866,10 @@ export class AppState {
       }
       this.retireSupersededWorkflowOwners()
     }, (retired, committed) => {
+      if (this.tabs.get().filter((tab) => !tab.execution).every((tab) => committed.tabs.some((saved) =>
+        persistedTabId(saved) === tab.id && canonicalJson(saved.doc) === canonicalJson(tab.store.doc)))) {
+        this.clearProblems(this.recoveryStorageProblemsOwner)
+      }
       this.retireClosedWorkflowDocuments(committed)
       for (const opId of retired) {
         if ((this.workspaceAcknowledgedOperations.get(opId) ?? Infinity) <= this.workspacePersistedRevision) {
