@@ -108,6 +108,35 @@ Chromium, with desktop/mobile screenshots and menu, form, toast, dialog and
 navigation contracts. `pnpm test:visual` includes these checks. Keyboard focus,
 hover and pressed states are real browser states, not simulated CSS classes.
 
+## Shared design build checks
+
+`pnpm check:design-system` checks the shared component source and gallery against
+`packages/ui/styles.css`. The package build runs the same check before emitting
+files, and `pnpm ci:fast` runs both the check and its command-line regression
+cases. A violation exits nonzero with its source path and line.
+
+- Colors and font sizes come from tokens, not source literals. The stylesheet
+  cannot define replacement custom properties; token definitions belong in
+  `branding/tokens`.
+- The shared stylesheet is the only CSS source. Imports of other stylesheets,
+  JSX/HTML inline styling and imperative DOM styling are rejected, except
+  measured placement geometry. Native element attribute spreads are limited
+  to the named primitive implementations; screens pass native attributes
+  explicitly so style/class props cannot bypass the check.
+- Class names must be static names defined by that stylesheet. Conditional
+  choices between shared classes are supported; caller-provided class strings
+  and `classList` are not.
+- Native buttons, inputs, selects, textareas and dialogs belong only in the
+  enumerated shared primitive implementations. Screens use Product components.
+  The check also covers imperative control creation and class/style attributes.
+
+`--source <directory>` replaces the default source roots and may be repeated
+when checking another adopter. Paths are relative to the command's working
+directory; the stylesheet and primitive identities remain repository-owned.
+The legacy app's existing `check:raw-controls` ratchet remains independent until
+its shared-system adoption. Site sources are checked where their frontend
+artifact is built; the Python service does not need Node to consume it.
+
 ## App semantic projection
 
 The document's `data-theme="light"` selects the light CSS projection; dark
