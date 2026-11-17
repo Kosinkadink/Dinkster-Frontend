@@ -21,6 +21,11 @@ import {
 } from 'lucide-solid'
 import {
   ProductAccountMenu,
+  ProductCodeBlock,
+  ProductCopyValue,
+  ProductDisclosure,
+  ProductFacts,
+  ProductQrCode,
   ProductButton,
   ProductCheckbox,
   ProductConfirmation,
@@ -59,6 +64,7 @@ const navigation = [
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
+  { label: 'Account data', href: '#account-data', icon: User },
 ]
 
 function Section(props: {
@@ -108,21 +114,25 @@ function Gallery() {
   return (
     <ProductShell
       title="Component gallery"
-      navigation={navigation}
+      navigation={route() === '#signed-out' ? [] : navigation}
       currentHref={route()}
       onNavigate={navigate}
       account={
-        <ProductAccountMenu
-          name="Alex Morgan"
-          email="alex@example.test"
-          onSignOut={() => complete('Signed out')}
-        />
+        <Show when={route() !== '#signed-out'}>
+          <ProductAccountMenu
+            name="Alex Morgan"
+            email="alex@example.test"
+            onSignOut={() => complete('Signed out')}
+          />
+        </Show>
       }
     >
       <ProductPage
         title={
-          navigation.find((item) => item.href === route())?.label ??
-          'Buttons and fields'
+          route() === '#signed-out'
+            ? 'Signed-out shell'
+            : (navigation.find((item) => item.href === route())?.label ??
+              'Buttons and fields')
         }
         description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
         table={route() === '#lists'}
@@ -626,6 +636,89 @@ function Gallery() {
                     <ProductTextInput {...attributes} value="Invalid" />
                   )}
                 </ProductField>
+              </Section>
+            </Match>
+            <Match when={route() === '#signed-out'}>
+              <ProductSection title="Page without account navigation">
+                <p class="dinkster-description">
+                  The shared shell keeps its full-width top bar without an empty
+                  sidebar or a navigation toggle when no pages are supplied.
+                </p>
+                <ProductLink href="#account-data">
+                  Return to the gallery
+                </ProductLink>
+              </ProductSection>
+            </Match>
+            <Match when={route() === '#account-data'}>
+              <Section title="Account facts" components="ProductFacts">
+                <ProductFacts
+                  label="Account details"
+                  items={[
+                    { label: 'Username', value: 'alex' },
+                    {
+                      label: 'Email',
+                      value: 'alex.with.a.long.address.for.layout@example.test',
+                    },
+                    {
+                      label: 'Verification',
+                      value: (
+                        <ProductLink href="#messages">Verify email</ProductLink>
+                      ),
+                    },
+                  ]}
+                />
+              </Section>
+              <Section
+                title="Show-once value"
+                components="ProductCopyValue with ProductCodeBlock"
+              >
+                <ProductNotice>
+                  This is a public sample, not a usable credential. A real page
+                  clears a show-once value when you leave it.
+                </ProductNotice>
+                <ProductCopyValue
+                  label="Example API key"
+                  value="dk_sample_not_a_credential_abcdefghijklmnopqrstuvwxyz0123456789_abcdefghijklmnopqrstuvwxyz0123456789"
+                  onCopied={() => complete('Copied.')}
+                />
+              </Section>
+              <Section title="Recovery codes" components="ProductCodeBlock">
+                <ProductCodeBlock
+                  label="Example recovery codes"
+                  value={'sample-1234\nsample-5678\nsample-9012'}
+                />
+              </Section>
+              <Section title="Authenticator setup" components="ProductQrCode">
+                <ProductQrCode
+                  src="./qr-example.svg"
+                  alt="Example QR code linking to dinkster.org, not an enrollment secret"
+                />
+              </Section>
+              <Section title="Inactive history" components="ProductDisclosure">
+                <ProductDisclosure title="Revoked tokens (1)">
+                  <ProductList label="Revoked tokens">
+                    <ProductListRow
+                      title="Old publishing token"
+                      description="Revoked today"
+                    />
+                  </ProductList>
+                </ProductDisclosure>
+                <ProductDisclosure title="Expired tokens (1)" open>
+                  <ProductList label="Expired tokens">
+                    <ProductListRow
+                      title="Release token"
+                      description="Expired yesterday"
+                    />
+                  </ProductList>
+                </ProductDisclosure>
+              </Section>
+              <Section
+                title="Signed-out shell"
+                components="ProductShell with empty navigation"
+              >
+                <ProductLink href="#signed-out">
+                  View shell without account navigation
+                </ProductLink>
               </Section>
             </Match>
             <Match when={route() === '#confirmations'}>
