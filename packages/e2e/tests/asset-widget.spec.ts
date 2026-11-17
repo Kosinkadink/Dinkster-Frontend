@@ -269,19 +269,17 @@ test.describe('native asset uploads', () => {
           optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
       }])
-      // The shared fixture's stored value predates virtualPath and cannot
-      // restore as staging; seed a complete AssetRef so the chip-count
-      // assertions below distinguish "batch stopped" from "nothing staged".
-      const tab = window.__dinksterTest!.app.activeTab()!
-      return (await window.__dinksterTest!.app.dispatchTo(tab, {
-        command: 'node.setValue',
-        params: { graphId: 'g0', nodeId: 'asset', inputId: 'image', value: { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' } },
-      })).ok
+      // Open a list-valued document without scalar history under the list schema.
+      const app = window.__dinksterTest!.app
+      const document = structuredClone(app.activeTab()!.store.doc)
+      document.graphs.g0!.nodes.asset!.values.image = [{ digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' }]
+      await app.openDocument(document, 'Asset Widget')
+      return Array.isArray(app.activeTab()?.store.doc.graphs.g0?.nodes.asset?.values.image)
     })
     expect(seeded).toBe(true)
     await openAsset(page)
     const editor = page.getByTestId('asset-editor')
-    // The stored scalar restores as one staged chip.
+    // The stored list restores as one staged chip.
     await expect(editor.getByTestId('asset-chip')).toHaveCount(1)
     let posts = 0
     await page.route('**/api/assets/media*', async (route) => {

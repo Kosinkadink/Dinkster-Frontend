@@ -26,6 +26,8 @@
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
 import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
+import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
+  type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
 import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
   type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
 import {
@@ -1066,6 +1068,7 @@ export interface ModelSettingsState {
   readonly changesAllowed: boolean
   readonly restartRequired: boolean
   readonly pendingRemovals: readonly string[]
+  readonly hiddenModels?: readonly { readonly name: string; readonly kind: string; readonly identities: readonly string[] }[]
 }
 
 function decodeModelSettingsState(value: unknown): ModelSettingsState {
@@ -1096,9 +1099,16 @@ function decodeModelSettingsState(value: unknown): ModelSettingsState {
     return { ...parsed, mounts: raw['mounts'], enabled: raw['enabled'], active: raw['active'] }
   })
   if (facts.length !== locations.length || new Set(facts.map((row) => row.id)).size !== facts.length) return invalid()
+  const hiddenModels = value['hiddenModels'] ?? []
+  if (!Array.isArray(hiddenModels)) return invalid()
+  const hidden = hiddenModels.map((raw: unknown) => {
+    if (!record(raw) || !nonemptyString(raw['name']) || typeof raw['kind'] !== 'string' || !raw['kind'].startsWith('model/') ||
+      !Array.isArray(raw['identities']) || raw['identities'].length === 0 || !raw['identities'].every(nonemptyString)) return invalid()
+    return { name: raw['name'], kind: raw['kind'], identities: raw['identities'] as string[] }
+  })
   return { settings: { version: 1, downloadLocation: settings['downloadLocation'], locations }, locations: facts,
     revision: value['revision'], project: value['project'], changesAllowed: value['changesAllowed'],
-    restartRequired: value['restartRequired'], pendingRemovals: value['pendingRemovals'] }
+    restartRequired: value['restartRequired'], pendingRemovals: value['pendingRemovals'], hiddenModels: hidden }
 }
 
 export interface MountScanProgress {
@@ -3206,7 +3216,7 @@ export class DinksterConnection {
       const hinted = Object.keys(batchHints).length > 0
       const request = (includeHints: boolean) => this.fetchFn(`${this.baseUrl}/api/assets/guess`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          names: batch,
+          names: batch, project: this.project ?? 'default',
           ...(includeHints ? { digestHints: batchHints } : {}),
         }),
       })
@@ -3491,9 +3501,51 @@ export class DinksterConnection {
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       })
       if (res.status === 404 && method === 'GET' && path) return undefined
-      if (!res.ok) throw new Error(`Model download ${method} failed: ${res.status}`)
+      if (!res.ok) {
+        const raw: unknown = await res.json().catch(() => undefined)
+        if (path === 'plan' && res.status === 409 && record(raw) &&
+          (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'model-hidden'))
+          return { status: raw['error'] }
+        throw new Error(`Model download ${method} failed: ${res.status}`)
+      }
       return res.json() as Promise<unknown>
     }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
+  }
+
+  async fetchModelProvider(signal?: AbortSignal): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest('', 'GET', undefined, signal))
+  }
+
+  async saveModelProviderToken(token: string, signal?: AbortSignal): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest('', 'PUT', { token }, signal))
+  }
+
+  async forgetModelProvider(signal?: AbortSignal): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest('', 'DELETE', undefined, signal))
+  }
+
+  async startModelProviderSignIn(method: 'pkce' | 'device', signal?: AbortSignal): Promise<ModelProviderSignIn> {
+    return decodeModelProviderSignIn(await this.modelProviderRequest('/sign-in', 'POST', { method }, signal))
+  }
+
+  async pollModelProviderSignIn(flowId: string, signal?: AbortSignal): Promise<ModelProviderPoll> {
+    return decodeModelProviderPoll(await this.modelProviderRequest(`/sign-in/${encodeURIComponent(flowId)}`, 'POST', undefined, signal))
+  }
+
+  async cancelModelProviderSignIn(flowId: string): Promise<ModelProviderPoll> {
+    return decodeModelProviderPoll(await this.modelProviderRequest(`/sign-in/${encodeURIComponent(flowId)}`, 'DELETE'))
+  }
+
+  private async modelProviderRequest(path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return requestWithDeadline(async (deadline) => {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/providers/huggingface${path}?scope=local`, {
+        method, signal: deadline, cache: 'no-store', redirect: 'error',
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      })
+      // Never reflect provider replies or credential-bearing bodies into errors.
+      if (!res.ok) throw new Error(`Hugging Face request failed: ${res.status}`)
+      return res.json() as Promise<unknown>
+    }, 'Hugging Face request timed out. Check sign-in status before retrying.', signal)
   }
 
   async fetchModelSettings(): Promise<ModelSettingsState> {
@@ -3521,6 +3573,24 @@ export class DinksterConnection {
     })
     if (!res.ok) throw new Error(`PUT model project folder failed: ${res.status}`)
     return decodeModelSettingsState(await res.json())
+  }
+
+  async hideModel(asset: Readonly<Record<string, unknown>>, kind: string): Promise<ModelSettingsState> {
+    return this.modelVisibilityRequest('PUT', { asset, kind })
+  }
+
+  async unhideModel(identity: string): Promise<ModelSettingsState> {
+    return this.modelVisibilityRequest('DELETE', { identity })
+  }
+
+  private async modelVisibilityRequest(method: 'PUT' | 'DELETE', body: Record<string, unknown>): Promise<ModelSettingsState> {
+    return requestWithDeadline(async (signal) => {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/hidden/${encodeURIComponent(this.project ?? 'default')}`, {
+        method, signal, cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`Model visibility request failed: ${res.status}`)
+      return decodeModelSettingsState(await res.json())
+    })
   }
 
   async fetchMountSettings(): Promise<MountSettings> {

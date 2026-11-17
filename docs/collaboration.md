@@ -36,6 +36,17 @@ session keeps its existing receipt on the local continuation without releasing
 it; a later complete acknowledged edit can replace it. A different joined
 document does not retire the displaced workflow's durable ownership.
 
+After a foreign edit, native shared sessions remove undo/redo records that
+can no longer replay without overwriting the foreign value. Other valid
+history remains available; stale history cannot block later ownership checks.
+
+If a workflow session stops, the editor offers **Open recovery copy**. This
+opens the last locally visible document under a new identity in the main
+window, with fresh history, and keeps the failed source open. A workflow
+window returns to the main window after recovery. Changes from other windows
+that have not reached this session are not included in the copy. Recovery
+still requires ownership admission; a refusal leaves the original untouched.
+
 Native shared sessions also confirm incoming server-ordered documents and
 resync snapshots before adopting that confirmed ground. Pending ownership
 keeps the previous document visible; refusal preserves it and reports a

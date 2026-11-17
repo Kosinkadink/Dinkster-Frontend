@@ -6,6 +6,7 @@ import { formatByteSize } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ModelProvider } from './ModelProvider.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -158,6 +159,7 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 <strong>{state().requirement.name}</strong>
                 <span class="asset-kind">{state().requirement.kind}</span>
                 <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
+                <Show when={state().job?.error}>{(error) => <ProductNotice tone="error">{['credential-required', 'provider-grant-required', 'model-hidden'].includes(error()) ? message(`modelConsent.plan.${error()}`) : error()}</ProductNotice>}</Show>
                 <Show when={metadata()}>{(selection) => <>
                   <For each={[
                     ['modelConsent.provider', selection().provider], ['modelConsent.project', selection().project],
@@ -174,7 +176,6 @@ export function AssetConsentDialog(props: { app: AppState }) {
                   <Show when={job().reused}><span>{message('modelConsent.reused')}</span></Show>
                   <Show when={job().renamed}><span>{message('modelConsent.renamed')}</span></Show>
                   <Show when={job().indexingPending}><ProductNotice tone="info">{message('modelConsent.indexingPending')}</ProductNotice></Show>
-                  <Show when={job().error}><ProductNotice tone="error">{job().error}</ProductNotice></Show>
                 </>}</Show>
                 <Show when={state().error}><ProductNotice tone="error">{state().error}</ProductNotice></Show>
                 <Show when={state().plan?.status === 'folder-disabled'}><ProductNotice tone="warning">{message('assetConsent.folderDisabled')}</ProductNotice></Show>
@@ -189,6 +190,12 @@ export function AssetConsentDialog(props: { app: AppState }) {
             </li>
           }}</Index>
         </ul>
+        <Show when={request()?.providerConnection && models().some((entry) =>
+          ['credential-required', 'provider-grant-required'].includes(entry.job?.error ?? entry.plan?.status ?? ''))}>
+          <ModelProvider connection={request()!.providerConnection!}
+            {...(request()?.providerBackendUrl === undefined ? {} : { backendUrl: request()!.providerBackendUrl! })}
+            onChanged={() => request()?.providerChanged?.()} />
+        </Show>
         <Show when={selectable().length === 0 && request()?.assets.some((asset) => !asset.disabledLocations?.length)}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.unresolvable')}</ProductNotice>
         </Show>

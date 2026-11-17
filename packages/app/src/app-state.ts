@@ -7884,6 +7884,29 @@ export class AppState {
     )]
   }
 
+  /** Preserve a stopped session as a new, acknowledged workspace document. */
+  async recoverWorkflow(tabId: string, title: string): Promise<boolean> {
+    const source = this.tabs.get().find((tab) => tab.id === tabId)
+    if (!source || !('status' in source.store) ||
+      !['error', 'closed'].includes((source.store as SharedDocumentSession).status.get())) return false
+    const generation = this.workspaceAuthorityGeneration
+    const project = activeProjectId()
+    const backend = this.backendForTab(source)
+    const stillWanted = this.beginWorkflowOpen()
+    const prepared = this.prepareDocumentOpen(source.store.doc, title, backend, true)
+    if (!prepared.ok) return false
+    const recovered = await this.publishRetainedDocument(prepared, backend, stillWanted, backend)
+    if (!recovered) return false
+    // A workflow window may close as soon as this returns. Its new tab must
+    // reach the authority before that close tears down the submitting port.
+    await this.workspaceOperationSubmission
+    if (this.disposed || activeProjectId() !== project || generation !== this.workspaceAuthorityGeneration ||
+      this.workspaceUnacknowledgedTabAdditions.has(recovered.id) ||
+      !this.tabs.get().some((tab) => tab.id === recovered.id)) return false
+    this.flushPersistTabs()
+    return true
+  }
+
   private beginWorkflowOpen(): () => boolean {
     const intent = ++this.workflowOpenIntent
     const tabs = this.tabs.get()
@@ -10809,7 +10832,7 @@ export class AppState {
     installAssetConsent({
       result: submitted,
       slot: this.assetConsent,
-      modelDownloads: { connection: backend.connection, project },
+      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       signal: lease.signal,
       onSettled: lease.release,

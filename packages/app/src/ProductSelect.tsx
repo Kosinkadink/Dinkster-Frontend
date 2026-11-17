@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { semanticDesignTokens } from '@dinkster/core'
-import { placeFloatingSurface } from './floating-surface.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 
 export interface ProductSelectOption<T> {
   readonly id: string

@@ -1,7 +1,7 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, onMount, Show } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { semanticDesignTokens } from '@dinkster/core'
-import { placeFloatingSurface } from './floating-surface.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 
 export interface SuggestionSurfaceItem {
   readonly id: string

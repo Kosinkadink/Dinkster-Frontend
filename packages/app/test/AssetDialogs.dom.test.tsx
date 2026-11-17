@@ -211,6 +211,24 @@ describe('asset modal surfaces', () => {
     mounted.dispose()
   })
 
+  it('explains a transfer-time provider grant refusal and offers sign-in without running', async () => {
+    const retry = vi.fn()
+    const selection = { name: 'gated.safetensors', kind: 'model/checkpoint', project: 'commercial', provider: 'huggingface' as const,
+      source: 'https://huggingface.co/fixture/gated', repo: 'fixture/gated', revision: 'a'.repeat(40), file: 'gated.safetensors',
+      sha256: 'b'.repeat(64), size: 1031, license: 'test-license', destination: '/models/gated.safetensors', mount: 'models' }
+    const provider = { fetchModelProvider: async () => ({ provider: 'huggingface' as const, configured: true }),
+      saveModelProviderToken: vi.fn(), forgetModelProvider: vi.fn(), startModelProviderSignIn: vi.fn(), pollModelProviderSignIn: vi.fn(), cancelModelProviderSignIn: vi.fn() }
+    const mounted = mountConsent({ assets: [], busy: false, retry, providerConnection: provider,
+      models: [{ requirement: selection, pending: false,
+        job: { ...selection, jobId: 'failed', received: 0, status: 'failed', error: 'provider-grant-required' } }] })
+    try {
+      await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="model-provider"]')).not.toBeNull())
+      expect(mounted.root.textContent).toContain('Hugging Face has not granted this account access')
+      expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.disabled).toBe(true)
+      expect(retry).not.toHaveBeenCalled()
+    } finally { mounted.dispose() }
+  })
+
   it('uses shared modal chrome and blocks incidental dismissal while acquisition is busy', () => {
     const mounted = mountConsent({ assets: [asset], busy: true, retry: vi.fn() })
     const dialog = mounted.root.querySelector<HTMLDialogElement>('[data-testid="asset-consent-dialog"]')!

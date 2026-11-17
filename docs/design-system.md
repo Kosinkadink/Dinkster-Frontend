@@ -43,6 +43,102 @@ padding. Below the standard breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
 CSS does not implement keyboard interaction or confirmation policy.
 
+## Shared SolidJS components and gallery
+
+`branding/tokens/design-rules.json` owns button roles/fills, message behavior,
+notification lifetime, sentence case and hidden unconfigured services. It names
+tokens rather than colors and is exported as `@dinkster/branding/rules`. The
+portable distribution includes it in the SHA-256 manifest.
+
+`@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
+They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
+alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
+component gallery on loopback port 5276 after `pnpm build:ui`; production gallery
+files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
+not an account service or a replacement for the app.
+
+- `ProductShell` owns the full-width frame and responsive navigation. Its caller
+  changes `currentHref` and content synchronously in `onNavigate`, showing
+  `ProductLoading` until data arrives. Navigation retains real link targets.
+  `ProductPage` owns headings and the normal/table content width.
+- `ProductButton` names `intent` as add/remove/neutral and `fill` as
+  solid/outline. `ProductIconButton` is the quiet icon-only control with a
+  required accessible label. Pending buttons stay disabled with a stable name.
+  The variant gallery is deliberately not a real screen's action hierarchy.
+- `ProductField` binds its label, description and error to its child control.
+  Pass its attributes to `ProductTextInput`, `ProductTextArea` or `ProductSelect`.
+  Native checkbox/radio behavior remains in `ProductCheckbox`/`ProductRadio`.
+- `ProductForm` takes an initial string-valued record once per mounted form.
+  Its render callback receives values, a field setter, dirty and pending state.
+  Save and Undo changes are disabled until the values differ from the saved
+  baseline. A successful asynchronous save updates that baseline; a failure
+  retains edits and shows a dismissible error until a later save succeeds.
+  Changing to another record mounts a new form. Page-specific API validation
+  stays with the caller and `ProductField`.
+- `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
+  keyboard item movement and opener focus restoration. Disabled items are
+  skipped; a disabled-only menu remains keyboard-dismissable. Placement uses
+  the app's unchanged viewport algorithm from `@dinkster/core/floating-surface`,
+  clamping horizontally and flipping above when needed. Scroll outside or
+  resize dismisses the menu rather than leaving a stale anchor. Item text follows its intent. Removal callbacks open a confirmation;
+  `ProductAccountMenu` displays name/email and invokes Sign out immediately.
+- `ProductNotice` is standing information without a dismiss button, including
+  its warning tone for QA environments.
+  `ProductErrorBanner` is dismissed explicitly or by the caller after success.
+  `ProductToast` is success feedback, dismissible immediately and automatically
+  after five seconds. Mount a new toast for each success notification.
+- `ProductConfirmation` orders the title, consequence, solid action and Cancel.
+  Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
+  duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
+  Escape dismissal, keyboard focus wrapping and opener restoration for apps;
+  its pending state prevents dismissal during an owned operation.
+- `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
+  `ProductEmptyState` uses the approved D mark with a sentence and optional
+  action. `ProductLoading`, `ProductSpinner` and `ProductIcon` provide status
+  and lucide icon anatomy.
+
+`reportProductEvent` is the single telemetry entry point. Its types permit only
+page views, fixed action outcomes, and load/interaction timings for named
+product routes. There is no provider, network call, storage, arbitrary string
+payload, workflow content, prompt or filename. The function currently does
+nothing; adding transport requires approval of the provider and event list.
+
+`pnpm --filter @dinkster/ui test:browser` exercises the production gallery in
+Chromium, with desktop/mobile screenshots and menu, form, toast, dialog and
+navigation contracts. `pnpm test:visual` includes these checks. Keyboard focus,
+hover and pressed states are real browser states, not simulated CSS classes.
+
+## Shared design build checks
+
+`pnpm check:design-system` checks the shared component source and gallery against
+`packages/ui/styles.css`. The package build runs the same check before emitting
+files, and `pnpm ci:fast` runs both the check and its command-line regression
+cases. A violation exits nonzero with its source path and line.
+
+- Colors and font sizes come from tokens, not source literals. The stylesheet
+  cannot define replacement custom properties; token definitions belong in
+  `branding/tokens`.
+- The shared stylesheet is the only CSS source. Imports of other stylesheets,
+  JSX/HTML inline styling and imperative DOM styling are rejected, except
+  measured placement geometry. Native element attribute spreads are limited
+  to the named primitive implementations; screens pass native attributes
+  explicitly so style/class props cannot bypass the check.
+- Class names must be static names defined by that stylesheet. Conditional
+  choices between shared classes are supported; caller-provided class strings
+  and `classList` are not.
+- Native buttons, inputs, selects, textareas and dialogs belong only in the
+  enumerated shared primitive implementations. Screens use Product components.
+  The check also covers imperative control creation and class/style attributes.
+
+`--source <directory>` replaces the default source roots and may be repeated
+when checking another adopter. Paths are relative to the command's working
+directory; the stylesheet and primitive identities remain repository-owned.
+The legacy app's existing `check:raw-controls` ratchet remains independent until
+its shared-system adoption. Site sources are checked where their frontend
+artifact is built; the Python service does not need Node to consume it.
+
+## App semantic projection
+
 The document's `data-theme="light"` selects the light CSS projection; dark
 is the default. Settings -> Dinkster -> Theme switches both DOM and canvas
 chrome immediately and persists across startup and Desktop preparation.

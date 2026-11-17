@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DinksterConnection, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
+import { AssetEntrySelection } from '../src/asset-browser/rail.js'
+import { assetEntryOf } from '../src/asset-browser/collection-adapter.js'
 import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
 
@@ -37,6 +39,58 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it.each(['selection', 'engine'])('ignores a pending hide completion after changing %s', async (change) => {
+    const item = (name: string) => assetEntryOf({ id: name, name, kind: 'model/checkpoint', digest: `blake3:${'a'.repeat(64)}`,
+      virtualPath: `mounts/models/${name}`, rawRef: { digest: `blake3:${'a'.repeat(64)}`, virtualPath: `mounts/models/${name}` }, source: { id: 'mount:models', label: 'Models' } })
+    let finish!: () => void
+    const first = { hideModel: async () => {
+      await new Promise<void>((resolve) => { finish = resolve })
+      return { settings: { version: 1 as const, locations: [], downloadLocation: null }, locations: [], revision: 'first', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+    }, fetchAssetLocations: async () => [] }
+    const second = { ...first, hideModel: vi.fn() }
+    const [connection, setConnection] = createSignal(first)
+    const [entry, setEntry] = createSignal(item('first.safetensors'))
+    const changed = vi.fn()
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetEntrySelection entry={entry()} adapters={[]} backendId="native" connection={connection()} visibilityConnection={connection()} backendUrl="" onVisibilityChanged={changed} />, root)
+    try {
+      const button = () => root.querySelector<HTMLButtonElement>('[data-testid="model-visibility-action"] button:last-child')!
+      button().click(); button().click()
+      expect(button().disabled).toBe(true)
+      if (change === 'engine') setConnection(second)
+      else setEntry(item('second.safetensors'))
+      finish(); await Promise.resolve(); await Promise.resolve()
+      expect(changed).not.toHaveBeenCalled()
+      expect(root.textContent).not.toContain('Hidden in this project.')
+      expect(second.hideModel).not.toHaveBeenCalled()
+    } finally { dispose() }
+  })
+  it('requires confirmation to hide a selected model and refreshes Browse without deleting bytes', async () => {
+    const model = { virtualPath: 'mounts/checkpoints/a.safetensors', name: 'a.safetensors', digest: `blake3:${'d'.repeat(64)}`, size: 1031, mediaType: 'application/octet-stream', kind: 'model/checkpoint' }
+    let hidden = false
+    const hideModel = vi.fn(async (asset, kind) => { expect(asset).toEqual(model); expect(kind).toBe(model.kind); hidden = true; return {} })
+    const connection = stubConnection({ hideModel, assetUrl: () => '',
+      listMounts: async () => [{ id: 'checkpoints', mode: 'read', state: 'ready', kind: model.kind }],
+      listMountEntries: async () => ({ entries: hidden ? [] : [model] }) })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      const action = () => root.querySelector<HTMLElement>('[data-testid="model-visibility-action"]')!
+      const button = (text: string) => [...action().querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
+      button('Hide in this project').click()
+      expect(action().textContent).toContain('No files will be deleted')
+      expect(hideModel).not.toHaveBeenCalled()
+      button('Cancel').click()
+      expect(hideModel).not.toHaveBeenCalled()
+      button('Hide in this project').click()
+      button('Hide in this project').click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')).toBeNull())
+      expect(hideModel).toHaveBeenCalledTimes(1)
+    } finally { dispose() }
+  })
+
   it.each(['accepted', 'refused', 'closed', 'late-body', 'stale-connection'])(
     'owns card and detail image bodies and refuses late local URLs: %s', async (scenario) => {
       const digest = `blake3:${'a'.repeat(64)}`

@@ -25,6 +25,7 @@ export type ModelDownloadPlan =
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[]; readonly detail: string }
   | { readonly status: 'picker-required'; readonly sources: readonly string[] }
   | { readonly status: 'destination-required' }
+  | { readonly status: 'credential-required' | 'provider-grant-required' | 'model-hidden' }
 
 export type ModelDownloadPhase = 'starting' | 'checking-existing' | 'downloading' | 'verifying' |
   'publishing' | 'indexing' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
@@ -84,6 +85,9 @@ export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
     case 'folder-disabled': return { status: 'folder-disabled', disabledLocations: strings(row, 'disabledLocations'), detail: text(row, 'detail') }
     case 'picker-required': return { status: 'picker-required', sources: strings(row, 'sources') }
     case 'destination-required': return { status: 'destination-required' }
+    case 'credential-required':
+    case 'provider-grant-required':
+    case 'model-hidden': return { status: row['status'] }
     default: throw new Error('Unknown model download plan state')
   }
 }

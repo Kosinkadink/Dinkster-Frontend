@@ -36,7 +36,12 @@ await cp(new URL('../app/public/fonts/', root), new URL('fonts/', dist), {
   recursive: true,
 })
 const pkg = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+await cp(
+  new URL('../../branding/tokens/design-rules.json', root),
+  new URL('design-rules.json', dist),
+)
 const files = [
+  'design-rules.json',
   'dinkster.css',
   'fonts/LICENSE',
   'fonts/NotoSans-Regular.woff2',

@@ -1588,11 +1588,34 @@ describe('shared DocumentSession', () => {
     await session.settle()
     // Peer removes n2: our undo record (un-title n2) can no longer apply.
     conn.appendForeign('peer', foreignRemoveNode('n2'))
-    expect(session.canUndo).toBe(true)
+    expect(session.canUndo).toBe(false)
+    expect(session.historySnapshot().undo).toEqual([])
     expect(session.undo()).toBe(false)
     expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]!.during).toBe('undo')
+    expect(conflicts[0]!.during).toBe('rebase')
     expect(session.canUndo).toBe(false) // consumed, not retried forever
+  })
+
+  it('keeps independent undo history and drops stale redo after foreign edits', async () => {
+    const { conn, session } = await makeShared('actorA')
+    for (const [node, title] of [['n1', 'first'], ['n2', 'mine'], ['n1', 'second']] as const) {
+      expect(session.dispatch(setTitle(node, title)).ok).toBe(true)
+      await session.settle()
+    }
+    conn.appendForeign('peer', [{ op: 'replace', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'theirs' }])
+    expect(session.historySnapshot().undo).toHaveLength(2)
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('first')
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('theirs')
+    conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'foreign' }])
+    expect(session.canRedo).toBe(false)
+    expect(session.historySnapshot().redo).toEqual([])
+    expect(session.redo()).toBe(false)
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('foreign')
   })
 
   it('adopts predecessor history across a same-document handoff: undo and redo replay', async () => {
@@ -1800,7 +1823,7 @@ describe('shared DocumentSession', () => {
     expect(session.undo()).toBe(false)
     expect((session.doc.graphs.g0!.nodes.n1 as { title?: string }).title).toBe('theirs')
     expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]!.during).toBe('undo')
+    expect(conflicts[0]!.during).toBe('rebase')
     expect(conflicts[0]!.diagnostics[0]!.code).toBe('session.history.stale')
     expect(session.canUndo).toBe(false) // dropped, not retried forever
   })
