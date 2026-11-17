@@ -204,7 +204,7 @@ const paintPin = (ctx: CanvasRenderingContext2D, pin: PinPaint): void => {
   pinOutlinePath(ctx, pin.shape, pin.x, pin.y, r)
   ctx.strokeStyle = pin.background
   ctx.lineWidth = 1
-  if (pin.any) ctx.setLineDash([2, 1.75])
+  if (pin.any) ctx.setLineDash([...canvasPaintTokens.dash.anyPin])
   ctx.stroke()
   if (pin.any) ctx.setLineDash([])
   if (pin.optional) {
@@ -671,18 +671,21 @@ const screenAwareDash = (
 
 const nodeStateDash = (state: NodeRunState | undefined, scale: number): number[] | undefined => {
   switch (state) {
-    case 'pending': return screenAwareDash([2, 3], [2, 3], scale)
-    case 'cached': return screenAwareDash([7, 3], [5, 3], scale)
-    case 'skipped': return screenAwareDash([2, 4], [2, 4], scale)
-    case 'error': return screenAwareDash([4, 2], [4, 2], scale)
+    case 'pending':
+    case 'cached':
+    case 'skipped':
+    case 'error': {
+      const dash = canvasPaintTokens.stateDash[state]
+      return screenAwareDash(dash.world, dash.screen, scale)
+    }
     default: return undefined
   }
 }
 
 const modeDash = (mode: 'active' | 'muted' | 'bypassed', scale: number): number[] | undefined => {
-  if (mode === 'muted') return screenAwareDash([2, 3], [2, 3], scale)
-  if (mode === 'bypassed') return screenAwareDash([8, 3], [5, 3], scale)
-  return undefined
+  if (mode === 'active') return undefined
+  const dash = canvasPaintTokens.stateDash[mode]
+  return screenAwareDash(dash.world, dash.screen, scale)
 }
 
 const detailRadius = (radius: number, scale: number, detailLevel: CanvasDetailLevel): number =>
@@ -1537,7 +1540,7 @@ export class CanvasRenderer {
         ctx.save()
         ctx.strokeStyle = this.tokens.colors.nodeSelectedBorder
         ctx.lineWidth = groupStroke
-        ctx.setLineDash(screenAwareDash([6, 4], [4, 3], scale))
+        ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.groupSelection.world, canvasPaintTokens.dash.groupSelection.screen, scale))
         ctx.strokeRect(gx - 2, gy - 2, group.width + 4, group.height + 4)
         ctx.restore()
       }
@@ -1617,7 +1620,7 @@ export class CanvasRenderer {
       // Maybe-absent (optional producer) links dash long-and-slow: a calm
       // "this value might legitimately not exist" cue, deliberately distinct
       // from the short [6,4] ghost-drag dash and from any error styling.
-      if (link.maybeAbsent === true) ctx.setLineDash(screenAwareDash([9, 5], [5, 3], scale))
+      if (link.maybeAbsent === true) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A PROVEN type conflict paints the noodle in error red, overriding
       // the type color: the break must be visible where it is, not hunted
       // down from a Problems entry. Slightly wider so red never hides
@@ -1853,7 +1856,7 @@ export class CanvasRenderer {
         })
       }
       ctx.save()
-      ctx.setLineDash(screenAwareDash([7, 5], [7, 5], scale))
+      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.netGuide.world, canvasPaintTokens.dash.netGuide.screen, scale))
       for (const stub of guideStubs) {
         if (stub.role !== 'sink') continue
         const source = sources.get(stub.netId)
@@ -1952,7 +1955,7 @@ export class CanvasRenderer {
     const union = this.selectionUnionOutlineRect()
     if (union) {
       ctx.beginPath()
-      ctx.setLineDash(screenAwareDash([5, 4], [4, 3], scale))
+      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.selectionUnion.world, canvasPaintTokens.dash.selectionUnion.screen, scale))
       ctx.strokeStyle = t.colors.nodeSelectedBorder
       ctx.lineWidth = MULTI_SELECTION_OUTLINE_STROKE_WIDTH / this.viewport.scale
       ctx.strokeRect(union.x, union.y, union.width, union.height)
@@ -1962,14 +1965,14 @@ export class CanvasRenderer {
     if (this.overlay.ghostLink) {
       const g = this.overlay.ghostLink
       ctx.save()
-      ctx.setLineDash(screenAwareDash([6, 4], [4, 3], scale))
+      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       ctx.restore()
     }
 
     if (this.overlay.ghostLinks) {
       ctx.save()
-      ctx.setLineDash(screenAwareDash([6, 4], [4, 3], scale))
+      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       for (const g of this.overlay.ghostLinks) {
         this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       }
@@ -1983,7 +1986,7 @@ export class CanvasRenderer {
       ctx.globalAlpha = 0.08
       ctx.fillRect(m.x1, m.y1, m.x2 - m.x1, m.y2 - m.y1)
       ctx.globalAlpha = 1
-      ctx.setLineDash(screenAwareDash([4, 3], [3, 2], scale))
+      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.marquee.world, canvasPaintTokens.dash.marquee.screen, scale))
       ctx.strokeStyle = this.tokens.colors.selection
       ctx.lineWidth = screenAwareStroke(1, scale, 1)
       ctx.strokeRect(m.x1, m.y1, m.x2 - m.x1, m.y2 - m.y1)
@@ -1995,7 +1998,7 @@ export class CanvasRenderer {
       const group = this.scene.groups.find((sg) => sg.id === g.groupId)
       if (group) {
         ctx.save()
-        ctx.setLineDash(screenAwareDash([6, 4], [4, 3], scale))
+        ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
         ctx.strokeStyle = this.tokens.colors.selection
         ctx.lineWidth = screenAwareStroke(1.5, scale, 1.5)
         ctx.beginPath()
@@ -2178,7 +2181,7 @@ export class CanvasRenderer {
           ctx.strokeStyle = actor.color
           ctx.lineWidth = 2.5
           ctx.globalAlpha = 0.55
-          ctx.setLineDash([6, 4])
+          ctx.setLineDash([...canvasPaintTokens.dash.remote])
           const inputOrigin = origin.kind !== 'widgetTap' && origin.side === 'in'
           this.drawLink(
             ctx,
@@ -2203,7 +2206,7 @@ export class CanvasRenderer {
         ctx.strokeStyle = actor.color
         ctx.lineWidth = 1.5
         ctx.globalAlpha = 0.55
-        ctx.setLineDash([6, 4])
+        ctx.setLineDash([...canvasPaintTokens.dash.remote])
         for (const node of this.scene.nodes) {
           const o = actor.drag.get(node.id)
           if (o === undefined || (o.dx === 0 && o.dy === 0)) continue
@@ -2628,7 +2631,7 @@ export class CanvasRenderer {
       : running
         ? undefined
         : hasBlockingWarning
-          ? screenAwareDash([1, 3], [1, 3], scale)
+          ? screenAwareDash(canvasPaintTokens.dash.blockingWarning.world, canvasPaintTokens.dash.blockingWarning.screen, scale)
           : nodeStateDash(progress?.state, scale)
     const outlineOwnsDash = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress !== undefined
     const dash = outlineOwnsDash ? outlineDash : modeDash(mode, scale)
@@ -2818,7 +2821,7 @@ export class CanvasRenderer {
           ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           ctx.strokeStyle = t.colors.label
           ctx.lineWidth = 1
-          ctx.setLineDash([3, 3])
+          ctx.setLineDash([...canvasPaintTokens.dash.growth])
           ctx.strokeRect(node.x + t.padX, rowY + 3, l.width - t.padX * 2, row.height - 6)
           ctx.setLineDash([])
           ctx.fillStyle = t.colors.label
@@ -3196,7 +3199,7 @@ export class CanvasRenderer {
           ctx.save()
           ctx.strokeStyle = color
           ctx.lineWidth = 1
-          ctx.setLineDash([1, 2])
+          ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
           ctx.beginPath()
           ctx.moveTo(rect.x + padding, textY + t.fontSize / 2 + 1)
           ctx.lineTo(rect.x + padding + measureWidth(ctx, line), textY + t.fontSize / 2 + 1)
@@ -3516,7 +3519,7 @@ export class CanvasRenderer {
     ctx.roundRect(x, y, width, height, this.tokens.cornerRadius)
     ctx.strokeStyle = this.tokens.progressBar
     ctx.lineWidth = screenAwareStroke(1.5, scale, 1.5)
-    ctx.setLineDash(screenAwareDash([13, 9], [9, 6], scale))
+    ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.running.world, canvasPaintTokens.dash.running.screen, scale))
     ctx.lineDashOffset = -(this.animationTimeMs * 0.032) / scale
     ctx.stroke()
     ctx.restore()
@@ -3625,7 +3628,7 @@ export class CanvasRenderer {
     ctx.fill()
     // Dashed border: the "derived, not a real node" signal.
     ctx.save()
-    ctx.setLineDash(screenAwareDash([5, 3], [4, 3], scale))
+    ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.boundary.world, canvasPaintTokens.dash.boundary.screen, scale))
     ctx.beginPath()
     ctx.roundRect(x, y, l.width, l.height, t.cornerRadius)
     ctx.strokeStyle = t.colors.nodeOutline
@@ -3743,7 +3746,7 @@ export class CanvasRenderer {
       scale,
       selected || vs.conflict ? 2 : 1,
     )
-    if (vs.conflict) ctx.setLineDash(screenAwareDash([4, 2], [4, 2], scale))
+    if (vs.conflict) ctx.setLineDash(screenAwareDash(canvasPaintTokens.stateDash.error.world, canvasPaintTokens.stateDash.error.screen, scale))
     ctx.stroke()
     if (vs.conflict) ctx.setLineDash([])
 
@@ -4088,7 +4091,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
     ctx.save()
     ctx.strokeStyle = color
     ctx.lineWidth = 1
-    ctx.setLineDash([1, 2])
+    ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
     ctx.beginPath()
     ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + 4)
     ctx.lineTo(textRight, textY + 4)

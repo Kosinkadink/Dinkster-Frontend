@@ -16,8 +16,10 @@
 
 import type { NodeRunState } from '@dinkster/core'
 import type { Viewport } from './renderer.js'
-import type { DesignTokens } from './tokens.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 import { wheelZoomScale } from './zoom.js'
+
+const paint = canvasPaintTokens.minimap
 
 /** World -> minimap transform: mini = world * scale + offset. */
 export interface MinimapTransform {
@@ -121,7 +123,7 @@ export function minimapTransform(
   boxes: readonly MinimapBox[],
   width: number,
   height: number,
-  margin = 8,
+  margin: number = paint.margin,
 ): MinimapTransform | undefined {
   if (boxes.length === 0) return undefined
   let minX = Infinity
@@ -136,7 +138,7 @@ export function minimapTransform(
   }
   const w = Math.max(1, maxX - minX)
   const h = Math.max(1, maxY - minY)
-  const scale = Math.min(0.25, (width - margin * 2) / w, (height - margin * 2) / h)
+  const scale = Math.min(paint.maxScale, (width - margin * 2) / w, (height - margin * 2) / h)
   // A panel no larger than its margins (or non-finite scene bounds) has no
   // usable drawing area: a zero/negative/non-finite scale would mirror or
   // blow up every minimap<->world mapping downstream.
@@ -177,7 +179,7 @@ export function minimapViewportRect(
   viewport: NonNullable<MinimapInput['viewport']>,
   panelWidth?: number,
   panelHeight?: number,
-  inset = 2,
+  inset: number = paint.viewportInset,
 ): MinimapBox {
   const x = (-viewport.x / viewport.scale) * t.scale + t.offsetX
   const y = (-viewport.y / viewport.scale) * t.scale + t.offsetY
@@ -238,7 +240,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
 
   ctx.strokeStyle = t.colors.linkDefault
   ctx.fillStyle = t.colors.linkDefault
-  ctx.lineWidth = 0.3
+  ctx.lineWidth = paint.linkStroke
   for (const link of input.links ?? []) {
     ctx.beginPath()
     ctx.moveTo(px(link.from.x), py(link.from.y))
@@ -246,7 +248,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
     ctx.stroke()
     for (const point of [link.from, link.to]) {
       ctx.beginPath()
-      ctx.arc(px(point.x), py(point.y), Math.max(tf.scale, 0.5), 0, Math.PI * 2)
+      ctx.arc(px(point.x), py(point.y), Math.max(tf.scale, paint.minPointRadius), 0, Math.PI * 2)
       ctx.fill()
     }
   }
@@ -256,13 +258,13 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
       ? t.colors.widgetAffordance
       : minimapNodeColor(n.color, t.colors.widgetAffordance)
     ctx.fillStyle = n.bypassed && input.renderBypassState !== false
-      ? 'rgba(75, 24, 75, 0.9)'
+      ? paint.bypassFill
       : ordinaryFill
     // Boxes stay at least 2px so no node ever vanishes at overview scale.
     const x = px(n.x)
     const y = py(n.y)
-    const w = Math.max(2, n.width * tf.scale)
-    const h = Math.max(2, n.height * tf.scale)
+    const w = Math.max(paint.minNodeSize, n.width * tf.scale)
+    const h = Math.max(paint.minNodeSize, n.height * tf.scale)
     ctx.fillRect(x, y, w, h)
     if (
       (n.state === 'error' && input.renderErrorState !== false)
@@ -270,14 +272,14 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
       || n.state === 'done'
     ) {
       ctx.strokeStyle = t.stateColors[n.state]
-      ctx.lineWidth = 0.3
+      ctx.lineWidth = paint.stateStroke
       ctx.strokeRect(x, y, w, h)
     }
   }
 
   for (const r of input.reroutes ?? []) {
     ctx.beginPath()
-    ctx.arc(px(r.x), py(r.y), Math.max(tf.scale, 0.5), 0, Math.PI * 2)
+    ctx.arc(px(r.x), py(r.y), Math.max(tf.scale, paint.minPointRadius), 0, Math.PI * 2)
     ctx.fillStyle = t.colors.linkDefault
     ctx.fill()
   }
@@ -286,8 +288,8 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
   // overlapping viewports are common, and "where am I" must stay readable.
   for (const rv of input.remoteViewports ?? []) {
     ctx.strokeStyle = rv.color
-    ctx.lineWidth = 1.5
-    ctx.globalAlpha = 0.8
+    ctx.lineWidth = paint.remoteStroke
+    ctx.globalAlpha = paint.remoteOpacity
     ctx.strokeRect(px(rv.x), py(rv.y), rv.w * tf.scale, rv.h * tf.scale)
     ctx.globalAlpha = 1
   }
@@ -297,28 +299,28 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
     const rect = minimapViewportRect(tf, vp, width, height)
     if (rect.width > 0 && rect.height > 0) {
       ctx.fillStyle = t.colors.nodeSelectedBorder
-      ctx.globalAlpha = 0.2
+      ctx.globalAlpha = paint.viewportFillOpacity
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
       ctx.strokeStyle = t.colors.nodeSelectedBorder
-      ctx.globalAlpha = 0.9
-      ctx.lineWidth = 2
+      ctx.globalAlpha = paint.viewportStrokeOpacity
+      ctx.lineWidth = paint.viewportStroke
       ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
       ctx.globalAlpha = 1
     }
   }
 
-  const R = 7
+  const R = paint.markerRadius
   for (const m of input.markers ?? []) {
     // Clamped into the panel: an off-content camera still shows AT the edge
     // in its true direction instead of silently vanishing.
-    const mx = Math.min(width - R - 1, Math.max(R + 1, px(m.x)))
-    const my = Math.min(height - R - 1, Math.max(R + 1, py(m.y)))
+    const mx = Math.min(width - R - paint.markerInset, Math.max(R + paint.markerInset, px(m.x)))
+    const my = Math.min(height - R - paint.markerInset, Math.max(R + paint.markerInset, py(m.y)))
     ctx.beginPath()
     ctx.arc(mx, my, R, 0, Math.PI * 2)
     ctx.fillStyle = t.colors.selection
     ctx.fill()
     ctx.fillStyle = t.colors.canvasBackground
-    ctx.font = `700 9px ${t.fontFamily}`
+    ctx.font = `${paint.markerFontWeight} ${paint.markerFontSize}px ${t.fontFamily}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(m.label, mx, my)
