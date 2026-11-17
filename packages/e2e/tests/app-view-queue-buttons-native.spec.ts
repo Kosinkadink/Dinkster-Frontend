@@ -13,13 +13,22 @@ test.beforeEach(async ({ page }, testInfo) => {
   requireBackendNodes(nodes!, ['dev.image.gradient'], testInfo)
 })
 
-test('an App View partial queue button completes against the native backend', async ({ page }) => {
+test('an App View partial queue button completes against the native backend', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined),
     { timeout: 15_000 }).toBe(true)
 
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  const openDiagnostics = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const backend = app.backends.get()[0]
+    const registry = backend?.registry.get()
+    const before = {
+      activeLineage: app.activeTab()?.store.doc.lineage ?? null,
+      gradientAvailable: registry?.schemas.has('dev.image.gradient') === true,
+      connectionStatus: backend?.connection.status.get() ?? null,
+      problemCodes: app.problems.get().map((problem) => problem.code),
+    }
+    const diagnostics = await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-native-queue', root: 'root',
       graphs: {
         root: {
@@ -46,11 +55,44 @@ test('an App View partial queue button completes against the native backend', as
         },
       },
     } as never, 'Native queue button')
+    return {
+      before,
+      diagnosticCount: diagnostics.length,
+      diagnosticCodes: diagnostics.flatMap((diagnostic) =>
+        typeof diagnostic === 'object' && diagnostic !== null && 'code' in diagnostic &&
+        typeof diagnostic.code === 'string' ? [diagnostic.code] : []),
+      after: {
+        activeLineage: app.activeTab()?.store.doc.lineage ?? null,
+        gradientAvailable: app.backends.get()[0]?.registry.get()?.schemas.has('dev.image.gradient') === true,
+        connectionStatus: backend?.connection.status.get() ?? null,
+        registryUnchanged: registry === backend?.registry.get(),
+        problemCodes: app.problems.get().map((problem) => problem.code),
+      },
+    }
   })
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.activeTab()?.store.doc.lineage === 'app-view-native-queue' &&
-    window.__dinksterTest!.app.backends.get()[0]?.registry.get()?.schemas.has('dev.image.gradient') === true,
-  )).toBe(true)
+  const observations: (typeof openDiagnostics.before)[] = []
+  try {
+    await expect.poll(async () => {
+      const observed = await page.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const backend = app.backends.get()[0]
+        return {
+          activeLineage: app.activeTab()?.store.doc.lineage ?? null,
+          gradientAvailable: backend?.registry.get()?.schemas.has('dev.image.gradient') === true,
+          connectionStatus: backend?.connection.status.get() ?? null,
+          problemCodes: app.problems.get().map((problem) => problem.code),
+        }
+      })
+      observations.push(observed)
+      return observed.activeLineage === 'app-view-native-queue' && observed.gradientAvailable
+    }).toBe(true)
+  } catch (error) {
+    await testInfo.attach('app-view-native-startup', {
+      body: JSON.stringify({ open: openDiagnostics, observations }, null, 2),
+      contentType: 'application/json',
+    }).catch(() => undefined)
+    throw error
+  }
 
   await page.getByTestId('views-switcher').click()
   await page.getByRole('menuitemradio', { name: 'App view' }).click()

@@ -10,6 +10,8 @@
  */
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!secondBackend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the second native frontend')
 

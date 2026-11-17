@@ -779,6 +779,66 @@ describe('AppState multi-window workspace', () => {
     await pendingRead
   })
 
+  it.each([false, true])('keeps a newly opened workflow through independent changes when addition is refused: %s', async (refuseAddition) => {
+    const initial = { ...workflow(), lineage: asLineageId('basic') }
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({ v: 1, active: initial.lineage,
+      tabs: [{ title: 'Basic', doc: initial }] }))
+    const factory = authorityFactories()
+    const app = createEditableApp()
+    app.registerSchemas([primitive('X', 'FLOAT')])
+    let refused = false
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const values = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+        .filter((key) => key.startsWith('dinkster.workflow-retentions.') || key.startsWith('dinkster.workspaceOperation.'))
+        .map((key) => ({ key, value: JSON.parse(localStorage.getItem(key)!) }))
+      const intent = values.find(({ value }) => value.owner?.ownerId === owner.ownerId)?.value
+      if (refuseAddition && !refused && intent?.documentLineage === 'opened-workflow' && values.some(({ key, value }) =>
+        key.startsWith('dinkster.workspaceOperation.') && value.assetRetention?.acknowledged === false &&
+        value.additions?.some((tab: { id: string }) => tab.id === 'opened-workflow'))) {
+        refused = true
+        throw new Error('Opened workflow addition ownership refused')
+      }
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const observer = await SharedWorkerTabConnection.open([], factory.workspace)
+    const snapshots = [observer.snapshot]
+    observer.connection.onSnapshot((snapshot) => snapshots.push(snapshot))
+    try {
+      expect(await app.openDocument({ ...initial, lineage: asLineageId('opened-workflow') }, 'Opened workflow')).toEqual([])
+      await drainTasks()
+      expect(refused).toBe(refuseAddition)
+      // The focus-only successor really reached the authority, even without the addition.
+      expect(snapshots.at(-1)!.revision).toBeGreaterThan(observer.snapshot.revision)
+      expect(snapshots.at(-1)!.tabs.some((tab) => tab.id === 'opened-workflow')).toBe(!refuseAddition)
+      expect(app.tabs.get().some((tab) => tab.id === 'opened-workflow')).toBe(true)
+      expect(app.activeTab()?.id).toBe('opened-workflow')
+      if (refuseAddition) expect(app.problems.get().some((problem) =>
+        problem.code === 'workspace.tabs.mutationFailed' && problem.message.includes('ownership refused'))).toBe(true)
+
+      expect((await app.dispatchRetainedTo(app.activeTab()!, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n1', title: 'Unsaved local edit',
+      } })).ok).toBe(true)
+      app.tabs.set(app.tabs.get().map((tab) => tab.id === 'basic' ? { ...tab, title: 'Renamed independently' } : tab))
+      await vi.waitFor(() => expect(snapshots.at(-1)!.tabs.find((tab) => tab.id === 'basic')?.title).toBe('Renamed independently'))
+      await drainTasks()
+      expect(app.tabs.get().find((tab) => tab.id === 'opened-workflow')?.store.doc.graphs.g0?.nodes.n1?.title).toBe('Unsaved local edit')
+
+      // A peer's admitted removal still removes an acknowledged tab.
+      await observer.connection.mutate({ opId: 'peer-close-basic', actorId: 'peer', sequence: 0,
+        baseRevision: snapshots.at(-1)!.revision, additions: [], removals: ['basic'], updates: [],
+        order: ['opened-workflow'], active: 'opened-workflow' })
+      await vi.waitFor(() => expect(app.tabs.get().some((tab) => tab.id === 'basic')).toBe(false))
+      expect(app.tabs.get().some((tab) => tab.id === 'opened-workflow')).toBe(true)
+      expect(app.requestCloseTab('opened-workflow', () => true)).toBe(true)
+      await drainTasks()
+      expect(app.tabs.get().some((tab) => tab.id === 'opened-workflow')).toBe(false)
+    } finally {
+      observer.connection.close()
+    }
+  })
+
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())

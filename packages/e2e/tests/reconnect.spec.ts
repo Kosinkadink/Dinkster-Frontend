@@ -10,6 +10,8 @@
  */
 import { expect, test, type Page } from './fixtures.js'
 
+test.use({ retentionApi: false })
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })

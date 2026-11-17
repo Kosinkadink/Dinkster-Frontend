@@ -3021,6 +3021,7 @@ export class AppState {
   private workspaceCausalRevision = 0
   private workspaceOperationWatermarks: Readonly<Record<string, number>> = {}
   private workspaceTabBaseline: readonly WorkspaceTabRecord[] = []
+  private readonly workspaceUnacknowledgedTabAdditions = new Set<string>()
   private workspaceActiveBaseline = ''
   private workspaceTabPending = 0
   private workspaceTabBuffered: WorkspaceTabSnapshot | undefined
@@ -3840,6 +3841,8 @@ export class AppState {
     this.workspaceTabBaseline = next
     this.workspaceActiveBaseline = synchronizedActive
     if (!mutation) return
+    for (const tab of mutation.additions) this.workspaceUnacknowledgedTabAdditions.add(tab.id)
+    for (const id of mutation.removals) this.workspaceUnacknowledgedTabAdditions.delete(id)
     if (this.workspaceTabConnection) this.submitWorkspaceTabMutation(mutation)
     else void this.persistWorkspaceOperation(mutation).catch(() => undefined)
   }
@@ -4036,6 +4039,7 @@ export class AppState {
       (snapshot) => {
         if (this.workspaceTabConnection === connection) {
           this.workspaceAcknowledgedOperations.set(mutation.opId, snapshot.revision)
+          for (const tab of snapshot.tabs) this.workspaceUnacknowledgedTabAdditions.delete(tab.id)
           this.workspaceTabBuffered = this.newerWorkspaceSnapshot(this.workspaceTabBuffered, snapshot)
         }
       },
@@ -4057,6 +4061,7 @@ export class AppState {
   }
 
   private receiveWorkspaceTabSnapshot(snapshot: WorkspaceTabSnapshot): void {
+    for (const tab of snapshot.tabs) this.workspaceUnacknowledgedTabAdditions.delete(tab.id)
     if (this.workspaceTabPending > 0) {
       this.workspaceTabBuffered = this.newerWorkspaceSnapshot(this.workspaceTabBuffered, snapshot)
     } else void this.applyWorkspaceTabSnapshot(snapshot)
@@ -4136,7 +4141,11 @@ export class AppState {
     this.workspacePersistedRevision = snapshot.revision
     this.workspaceCausalRevision = Math.max(this.workspaceCausalRevision, snapshot.revision)
     this.workspaceOperationWatermarks = snapshot.operationWatermarks
-    this.workspaceTabBaseline = snapshot.tabs
+    for (const record of snapshot.tabs) this.workspaceUnacknowledgedTabAdditions.delete(record.id)
+    // Absence cannot acknowledge an addition that never reached the authority.
+    // Keep its local document while independent accepted operations reconcile.
+    const unacknowledged = current.filter((tab) => !tab.execution && this.workspaceUnacknowledgedTabAdditions.has(tab.id))
+    this.workspaceTabBaseline = [...snapshot.tabs, ...this.workspaceTabRecords(unacknowledged)]
     this.workspaceActiveBaseline = snapshot.active
     const nextLive: Tab[] = []
     let publicationChangedTabs = false
@@ -4158,7 +4167,8 @@ export class AppState {
         }
         nextLive.push(tab)
       }
-      const retained = new Set(snapshot.tabs.map((tab) => tab.id))
+      nextLive.push(...unacknowledged)
+      const retained = new Set(nextLive.map((tab) => tab.id))
       for (const tab of current) if (!tab.execution && !retained.has(tab.id)) {
         if (!opening) this.captureClosedWorkflow(tab, snapshot.revision)
         this.cleanupClosedTab(tab.id)
@@ -8196,7 +8206,8 @@ export class AppState {
       // A complete replacement protects live consumers; durable sources must
       // independently stop naming every root that replacement no longer holds.
       this.supersededWorkflowOwners.delete(retained)
-      void retireAssetOwner(backend.connection, retained)
+      void retireAssetOwner(backend.connection, retained).finally(() =>
+        this.workflowRetentionRefreshes.get(backend.connection)?.())
     }
   }
 
