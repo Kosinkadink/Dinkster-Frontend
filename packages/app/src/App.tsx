@@ -41,6 +41,8 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductErrorBanner } from '@dinkster/ui'
+import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
@@ -2743,6 +2745,16 @@ export function App(props: {
                 {message('shell.engine.restart')}
               </ProductButton>
             </Show>
+          </div>
+        )}
+      </Show>
+
+      <Show when={problems().find((problem) => problem.code === 'workspace.recovery.storageFailed')} keyed>
+        {(problem) => (
+          <div class="dinkster-root" data-testid="recovery-storage-error">
+            <ProductErrorBanner onDismiss={() => app.clearProblems(problem.owner)}>
+              {problem.message}
+            </ProductErrorBanner>
           </div>
         )}
       </Show>

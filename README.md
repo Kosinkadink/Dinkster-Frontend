@@ -31,6 +31,10 @@ pnpm install --frozen-lockfile
 pnpm --filter @dinkster/app dev
 ```
 
+The app's development, build and test commands generate the shared UI
+stylesheet and bundled fonts before loading the app, including in a clean
+checkout.
+
 Open `http://127.0.0.1:5199`. The dev server proxies native API and event
 traffic to Dinkster on `http://127.0.0.1:3639` by default. See Dinkster's
 [browser editor quickstart](https://github.com/Kosinkadink/Dinkster/blob/main/docs/quickstart.md)

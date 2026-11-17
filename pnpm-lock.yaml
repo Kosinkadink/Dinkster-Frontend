@@ -34,6 +34,9 @@ importers:
       '@dinkster/core':
         specifier: workspace:*
         version: link:../core
+      '@dinkster/ui':
+        specifier: workspace:*
+        version: link:../ui
       '@dinkster/widgets':
         specifier: workspace:*
         version: link:../widgets
