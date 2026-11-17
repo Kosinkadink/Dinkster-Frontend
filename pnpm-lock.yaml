@@ -183,6 +183,12 @@ importers:
         specifier: ^1.9.4
         version: 1.9.14
     devDependencies:
+      '@dinkster/canvas':
+        specifier: workspace:*
+        version: link:../canvas
+      '@dinkster/widgets':
+        specifier: workspace:*
+        version: link:../widgets
       '@playwright/test':
         specifier: ^1.50.0
         version: 1.61.1

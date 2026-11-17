@@ -84,6 +84,28 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   expect(revealFile).toHaveBeenCalledTimes(1)
 })
 
+it('does not expose obsolete environment management when an older Desktop host supplies it', () => {
+  app = new AppState()
+  const host = document.createElement('div')
+  document.body.append(host)
+  const bridge = {
+    locale: async () => 'en',
+    status: async () => ({ phase: 'running' as const, detail: 'Ready' }),
+    info: vi.fn(),
+    exportSnapshot: vi.fn(),
+    importSnapshot: vi.fn(),
+    takeDeepLinks: async () => [],
+    onWindowLayout: () => () => undefined,
+    onDeepLinkPending: () => () => undefined,
+  }
+  window.dinksterDesktop = bridge as unknown as NonNullable<Window['dinksterDesktop']>
+  dispose = render(() => <App app={app} />, host)
+
+  expect(host.querySelector('[data-testid="desktop-management-button"]')).toBeNull()
+  app.modalPanel.set('desktop-management')
+  expect(host.querySelector('[data-modal="desktop-management"]')).toBeNull()
+})
+
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
   app = new AppState()
   const backend = app.backends.get()[0]!

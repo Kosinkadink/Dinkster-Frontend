@@ -22,23 +22,8 @@ test('desktop Automatic locale reaches setup and the full app without host side 
         return { phase: 'installing', detail: 'Installing locked CUDA environment', variant: 'cuda' }
       },
       retry: async () => { calls.retry += 1 },
-      info: async () => ({
-        appVersion: '0.2.0', engineCommit: 'desktop-locale-test', variant: 'cuda', storageBytes: 0,
-        releases: [], update: { state: 'current', detail: 'Current' },
-      }),
-      selectEngine: async () => undefined,
-      checkForUpdates: async () => undefined,
-      installUpdate: async () => undefined,
       chooseDirectory: async () => undefined,
       revealFile: async () => undefined,
-      exportSnapshot: async () => undefined,
-      importSnapshot: async () => undefined,
-      systemCheck: async () => ({
-        platform: 'win32', architecture: 'x64', freeBytes: 1, totalBytes: 2,
-        engineReady: true, engineDetail: 'Ready', gpu: { available: false },
-      }),
-      clearCache: async () => undefined,
-      exportSupportReport: async () => undefined,
       windowContext: async () => ({ id: 'primary', kind: 'primary' }),
       windowLayout: async () => ({ windows: [{ id: 'primary', kind: 'primary' }] }),
       openWorkflowWindow: async () => undefined,
@@ -49,17 +34,12 @@ test('desktop Automatic locale reaches setup and the full app without host side 
       setConnectionCredential: async () => undefined,
       retireConnectionProfile: async () => undefined,
       connectionCredentials: async () => ({ custody: false, profiles: [] }),
-      remoteWorkers: async () => [],
-      saveRemoteWorker: async () => undefined,
-      removeRemoteWorker: async () => undefined,
-      chooseRemoteWorkerFile: async () => undefined,
       takeDeepLinks: async () => [],
       onStatus: (listener: typeof statusListener) => {
         statusListener = listener
         return () => { statusListener = undefined }
       },
       onLog: () => () => undefined,
-      onInfo: () => () => undefined,
       onWindowLayout: () => () => undefined,
       onDeepLinkPending: () => () => undefined,
     }

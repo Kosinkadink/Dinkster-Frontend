@@ -352,6 +352,7 @@ interface DinksterTestBridge {
     shareActiveTab(): Promise<string | undefined>
     saveWorkflow(tabId: string): Promise<boolean>
     importWorkflowFile(file: Pick<File, 'name' | 'text'>): Promise<boolean>
+    selectionExecutionScopes(tab: DinksterBridgeTab, nodeIds: readonly string[]): unknown
     /** Compile a tab against its target backend (undefined: no registry). */
     compileTab(tab: DinksterBridgeTab, scope?: import('@dinkster/core').ExecutionScope):
       | { ok: true; artifact: DinksterBridgeCompileArtifact & { snapshot: DinksterBridgeTab['store']['doc']; revision: number } }
@@ -520,6 +521,7 @@ interface DinksterTestBridge {
     getOverlay(): {
       /** Selected ordinary and boundary-node scene ids. */
       selection?: ReadonlySet<string>
+      dragOffsets?: ReadonlyMap<string, { x: number; y: number }>
       ghostLink?: { x1: number; y1: number; x2: number; y2: number; typeName?: string }
       /** The reroute whose ghost in/out sockets are revealed (hover). */
       hoveredReroute?: string
