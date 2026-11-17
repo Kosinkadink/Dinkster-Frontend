@@ -194,6 +194,7 @@ export function createCanvasGalleryFixture(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
+  widgetInput: InputSpec = galleryWidgetInputs[2]!,
 ): CanvasGalleryFixture {
   const fixture: CanvasGalleryFixture = {
     scene: {
@@ -616,7 +617,7 @@ export function createCanvasGalleryFixture(
       'Invalid',
       'Empty',
     ].entries()) {
-      const value = widget('value', 'FLOAT', 0.65, { min: 0, max: 1 })
+      const value = widgetInput
       add(
         id,
         schema(id, [
@@ -633,16 +634,24 @@ export function createCanvasGalleryFixture(
                 },
               }
             : value,
-          widget('text', 'STRING', id === 'Empty' ? '' : 'A stored value'),
         ]),
-        id === 'Invalid' ? { value: 2 } : {},
+        id === 'Empty'
+          ? {
+              [value.id]:
+                typeof value.widget?.default === 'string'
+                  ? ''
+                  : Array.isArray(value.widget?.default)
+                    ? []
+                    : null,
+            }
+          : {},
         index,
       )
     }
     fixture.overlay = {
-      hoveredWidget: { nodeId: 'Hovered', valueKey: 'value' },
+      hoveredWidget: { nodeId: 'Hovered', valueKey: widgetInput.id },
     }
-    fixture.rowMarks = { Invalid: new Set(['value']) }
+    fixture.rowMarks = { Invalid: new Set([widgetInput.id]) }
     fixture.height = 850
   } else if (page === 'previews') {
     for (const id of [

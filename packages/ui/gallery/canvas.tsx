@@ -1,4 +1,4 @@
-import { For, createSignal, createEffect, onCleanup } from 'solid-js'
+import { For, Show, createSignal, createEffect, onCleanup } from 'solid-js'
 import { registerCatalog } from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import {
@@ -17,14 +17,21 @@ import {
 } from '@dinkster/widgets'
 import {
   canvasGalleryPages,
+  galleryWidgetInputs,
   createCanvasGalleryFixture,
   type CanvasGalleryPage,
 } from '../../canvas/gallery/fixtures.js'
-import { ProductButton, ProductSection } from '../src/index.js'
+import {
+  ProductButton,
+  ProductField,
+  ProductSelect,
+  ProductSection,
+} from '../src/index.js'
 
 export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
+  const [widgetId, setWidgetId] = createSignal('float')
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -32,6 +39,7 @@ export function CanvasGallery() {
   createEffect(() => {
     const currentTheme = theme()
     const currentPage = page()
+    const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
@@ -60,6 +68,7 @@ export function CanvasGallery() {
         tokens,
         measure,
         widgetMeasure,
+        galleryWidgetInputs.find((input) => input.id === currentWidget)!,
       )
       canvas.style.width = `${fixture.width}px`
       canvas.style.height = `${fixture.height}px`
@@ -152,6 +161,7 @@ export function CanvasGallery() {
         })
       }
       canvas.dataset.ready = `${currentPage}-${currentTheme}`
+      canvas.dataset.widget = currentWidget
     })
     onCleanup(() => {
       disposed = true
@@ -190,6 +200,21 @@ export function CanvasGallery() {
           )}
         </For>
       </nav>
+      <Show when={page() === 'widget-states'}>
+        <ProductField label="Widget kind">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={widgetId()}
+              onChange={(event) => setWidgetId(event.currentTarget.value)}
+            >
+              <For each={galleryWidgetInputs}>
+                {(input) => <option value={input.id}>{input.id}</option>}
+              </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+      </Show>
       <ProductSection
         title={canvasGalleryPages.find(([id]) => id === page())![1]}
       >
