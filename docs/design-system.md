@@ -730,6 +730,24 @@ The specialized asset editor shell is parked in
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.
 
+## Account site assets
+
+`packages/site` builds the SolidJS account and authorization views on
+`@dinkster/ui`, with no site-owned stylesheet or controls. The account service
+owns API calls, navigation state and show-once secret lifetime; the view accepts
+its bound screen model and exposes fields through `data-account-field`. Field
+IDs and labels remain owned by `ProductField`. The service supplies the person's
+name and email to the account menu. Authorization retains a native POST form
+with the signed consent token and explicit approve/deny submitter values.
+
+`pnpm --filter @dinkster/site build` creates the two HTML templates, renderer
+modules, one shared stylesheet, bundled fonts and a SHA-256 file manifest.
+`scripts/build_release.py` includes these under `static/site/` in the existing
+frontend wheel, covered by its version and wheel hash. Template configuration
+placeholders must be HTML-attribute escaped by the service. No Node tooling is
+required by the Python consumer. The renderer reports only fixed route/timing
+events through the shared no-send reporting function.
+
 ## Replacement rule
 
 Dinkster is unreleased. A redesigned surface deletes the superseded UI, styles,

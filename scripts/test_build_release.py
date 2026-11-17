@@ -21,6 +21,10 @@ class BuildReleaseTest(unittest.TestCase):
             assets = temporary_path / "assets"
             assets.mkdir()
             (assets / "index.html").write_text("<main>release test</main>\n")
+            site = temporary_path / "site"
+            site.mkdir()
+            for name in ("account.html", "authorization.html", "account-view.js", "authorization.js", "manifest.json"):
+                (site / name).write_text(f"site fixture: {name}\n")
             output = temporary_path / "dist"
             subprocess.run(
                 [
@@ -30,6 +34,8 @@ class BuildReleaseTest(unittest.TestCase):
                     str(assets),
                     "--output",
                     str(output),
+                    "--site-dist",
+                    str(site),
                     *args,
                 ],
                 cwd=ROOT,
@@ -52,6 +58,12 @@ class BuildReleaseTest(unittest.TestCase):
         )
         self.assertEqual(manifest["version"], version)
         self.assertEqual(manifest["commit"], commit)
+
+    def test_site_pages_and_renderer_ship_inside_the_existing_wheel(self) -> None:
+        _, payload, _ = self.build()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            for name in ("account.html", "authorization.html", "account-view.js", "authorization.js", "manifest.json"):
+                self.assertEqual(archive.read(f"dinkster_frontend/static/site/{name}"), f"site fixture: {name}\n".encode())
 
     def test_dev_build_uses_next_patch_and_monotonic_history_count(self) -> None:
         base_version = json.loads((ROOT / "package.json").read_text())["version"]

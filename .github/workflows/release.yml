@@ -39,6 +39,7 @@ jobs:
       - run: python -m unittest scripts/test_build_release.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @dinkster/app build
+      - run: pnpm --filter @dinkster/site build
       - name: Build the versioned wheel and release manifest
         env:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
