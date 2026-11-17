@@ -106,7 +106,9 @@ assets without a destination keep their existing presentation.
 
 For a filename-based model with no single known source, Review source opens
 source selection in the same dialog. Choose a suggested source or enter a
-Hugging Face HTTPS resolve URL for the required filename, then review again.
+Hugging Face HTTPS resolve URL or Civitai model/download URL for the required
+filename, then review again. Civitai model URLs can specify modelVersionId;
+ambiguous versions return individual file choices that require another review.
 Review resolves the immutable revision, hash, exact size and destination without
 downloading. Editing the source clears the previous reviewed consent; Download
 requires a fresh review. Credential changes also clear reviewed consent while
