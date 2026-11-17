@@ -7,6 +7,7 @@ import { createEffect, createMemo, createSignal as createSolidSignal, For, Index
 import { BrandMark } from './BrandMark.js'
 import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
+import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import HardDrive from 'lucide-solid/icons/hard-drive'
@@ -1657,10 +1658,8 @@ export function App(props: {
       if (!tab || recovering()) return
       setRecovering(true)
       try {
-        const diagnostics = await app.openDocument(tab.store.doc,
-          message('shell.workflow.recovery.title', { title: tab.title }), app.backendForTab(tab), true)
-        if (diagnostics.length > 0) app.reportProblems(tab.id, diagnostics)
-        else if (managedContext().kind === 'workflow') redockCurrentWindow()
+        const recovered = await app.recoverWorkflow(tab.id, message('shell.workflow.recovery.title', { title: tab.title }))
+        if (recovered && managedContext().kind === 'workflow') redockCurrentWindow()
       } finally {
         setRecovering(false)
       }
@@ -1685,7 +1684,7 @@ export function App(props: {
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
         <Show when={!sessionFailed()} fallback={
-          <ProductEmptyState tone="error" testId="workflow-session-recovery"
+          <ProductEmptyState tone="error" testId="workflow-session-recovery" icon={<Icon icon={CircleAlert} />}
             title={message('shell.workflow.recovery.failed')}
             hint={message('shell.workflow.recovery.description')}
             action={<ProductButton variant="primary" loading={recovering()} onClick={() => void recover()}>

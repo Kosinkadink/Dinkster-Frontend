@@ -1596,6 +1596,28 @@ describe('shared DocumentSession', () => {
     expect(session.canUndo).toBe(false) // consumed, not retried forever
   })
 
+  it('keeps independent undo history and drops stale redo after foreign edits', async () => {
+    const { conn, session } = await makeShared('actorA')
+    for (const [node, title] of [['n1', 'first'], ['n2', 'mine'], ['n1', 'second']] as const) {
+      expect(session.dispatch(setTitle(node, title)).ok).toBe(true)
+      await session.settle()
+    }
+    conn.appendForeign('peer', [{ op: 'replace', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'theirs' }])
+    expect(session.historySnapshot().undo).toHaveLength(2)
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('first')
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('theirs')
+    conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'foreign' }])
+    expect(session.canRedo).toBe(false)
+    expect(session.historySnapshot().redo).toEqual([])
+    expect(session.redo()).toBe(false)
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('foreign')
+  })
+
   it('adopts predecessor history across a same-document handoff: undo and redo replay', async () => {
     const local = createLocalSession(baseDoc(), coreCommandRegistry())
     expect(local.dispatch(setTitle('n1', 'first')).ok).toBe(true)
