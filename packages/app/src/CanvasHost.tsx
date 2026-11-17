@@ -1509,6 +1509,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
   const extensionRevision = useSignal(props.app.extensionRevision)
+  const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
@@ -2329,6 +2330,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly extensionsGeneration: number
   }
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
+  let refreshMenuScopes: (() => void) | undefined
+  createEffect(on(selectionScopesChanged, () => refreshMenuScopes?.(), { defer: true }))
   const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
   createEffect(() => { appViewEnabled(); setMenu(undefined) })
   const workerCatalog = (): WorkerCatalogState | undefined => {
@@ -2971,7 +2974,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         frozen: tab.execution !== undefined,
       })
       const scopes = menuNodeIds.length > 0
-        ? props.app.selectionExecutionScopes(tab, menuNodeIds)
+        ? props.app.previewSelectionExecutionScopes(tab, menuNodeIds)
         : undefined
       const hasExplicitImageEntry = additionalGroups.some((group) => group.items.some((item) => item.id === 'core.image.edit'))
       const selectionImageTarget = hasExplicitImageEntry
@@ -3039,6 +3042,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         workerCatalog: menuWorkerCatalog,
         extensionsGeneration: props.app.extensions.changed.get(),
       })
+      const opened = menu()
+      refreshMenuScopes = menuNodeIds.length === 0 ? undefined : () => {
+        if (menu() === opened && activeTab() === tab && tab.store.revision === opened?.documentRevision) {
+          openCanvasMenu(target, worldX, worldY, additionalGroups, submenuId)
+        }
+      }
     }
 
     controller = new InteractionController(canvasEl, renderer, {
@@ -3269,7 +3278,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const tab = activeTab()
         const def = tab?.store.doc.graphs[tab.store.doc.root]
         const selected = def ? [...controller.getSelection()].filter((id) => def.nodes[id]) : []
-        const scopes = tab ? props.app.selectionExecutionScopes(tab, selected) : undefined
+        const scopes = tab ? props.app.previewSelectionExecutionScopes(tab, selected) : undefined
         const scope = hit?.button.id === 'core.queueUpToHere'
           ? scopes?.upTo
           : hit?.button.id === 'core.queueBetween'
@@ -4884,6 +4893,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => {
       selVersion()
       docTick()
+      selectionScopesChanged()
       // A preview is valid only while the pointer remains over the button
       // for this exact selection/document snapshot.
       renderer.setScopeHighlight(undefined)
@@ -4913,11 +4923,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       ]
       const rows: ToolboxRow[] = []
       if (currentGraphId(tab) === tab.store.doc.root && registry()) {
-        const scopes = props.app.selectionExecutionScopes(tab, sel)
-        rows.push(partialExecutionButtons({
-          ...(scopes?.upToReason ? { upTo: scopes.upToReason } : {}),
-          ...(scopes?.betweenReason ? { between: scopes.betweenReason } : {}),
-          ...(scopes?.fromOnwardsReason ? { fromOnwards: scopes.fromOnwardsReason } : {}),
+        const scopes = props.app.previewSelectionExecutionScopes(tab, sel)
+        rows.push(partialExecutionButtons(scopes === undefined ? {
+          upTo: message('execution.scopes.checking'),
+          between: message('execution.scopes.checking'),
+          fromOnwards: message('execution.scopes.checking'),
+        } : {
+          ...(scopes.upToReason ? { upTo: scopes.upToReason } : {}),
+          ...(scopes.betweenReason ? { between: scopes.betweenReason } : {}),
+          ...(scopes.fromOnwardsReason ? { fromOnwards: scopes.fromOnwardsReason } : {}),
         }).map(toolboxButton))
       }
       if (sel.length === 1) {

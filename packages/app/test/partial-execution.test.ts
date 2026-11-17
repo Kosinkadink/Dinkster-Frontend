@@ -48,6 +48,48 @@ beforeEach(async () => {
 })
 
 describe('directed partial-execution scopes', () => {
+  it('paints selection before compiling availability and reuses it after a node move', async () => {
+    vi.useFakeTimers()
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1 })
+    vi.stubGlobal('cancelAnimationFrame', () => { frame = undefined })
+    const compileScopes = vi.spyOn(app, 'selectionExecutionScopes')
+    try {
+      // Selection and its context menu share the same pending request.
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBeUndefined()
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBeUndefined()
+      expect(compileScopes).not.toHaveBeenCalled()
+      frame!(0)
+      expect(compileScopes).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(0)
+      const ready = app.previewSelectionExecutionScopes(basic, ['n0'])!
+      expect(ready.upTo).toEqual({ kind: 'partial', targets: [{ instancePath: [], node: 'n0' }] })
+      expect(compileScopes).toHaveBeenCalledTimes(1)
+
+      const moved = await app.dispatchTo(basic, { command: 'node.move', params: {
+        graphId: basic.store.doc.root, positions: { n0: { x: 419, y: 173 } },
+      } })
+      expect(moved.ok).toBe(true)
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBe(ready)
+      expect(compileScopes).toHaveBeenCalledTimes(1)
+
+      const changed = await app.dispatchTo(basic, { command: 'node.setMode', params: {
+        graphId: basic.store.doc.root, nodeIds: ['n0'], mode: 'muted',
+      } })
+      expect(changed.ok).toBe(true)
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBeUndefined()
+      expect(compileScopes).toHaveBeenCalledTimes(1)
+      frame!(0)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(compileScopes).toHaveBeenCalledTimes(2)
+    } finally {
+      app.dispose()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
   it('offers connected workers that route every selected ordinary node', () => {
     const selectedTypes = ['n0', 'n1'].map((nodeId) => basic.store.doc.graphs[basic.store.doc.root]!.nodes[nodeId]!.type)
     const group = runOnMachineMenuGroup({

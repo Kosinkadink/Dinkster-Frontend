@@ -1,4 +1,5 @@
 {
+  "execution.scopes.checking": "正在检查可执行的选择...",
   "modelConsent.footer": "下载不会运行工作流，关闭不会取消传输。运行一次仅重试本次捕获的提交。",
   "modelConsent.review": "查看来源",
   "modelConsent.reconnect": "重新连接 / 重新查看",

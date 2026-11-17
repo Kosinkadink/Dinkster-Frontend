@@ -3611,6 +3611,9 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    if (this.selectionScopesFrame !== undefined) cancelAnimationFrame(this.selectionScopesFrame)
+    if (this.selectionScopesTimer !== undefined) clearTimeout(this.selectionScopesTimer)
+    this.pendingSelectionScopes.clear()
     for (const reader of this.valueAssetReaders.keys()) void reader.close()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
@@ -9682,6 +9685,63 @@ export class AppState {
       ...(closure ? { closure } : {}),
     })
     return closure
+  }
+
+  readonly selectionScopesChanged = createSignal(0)
+  private readonly selectionScopePreviews = new WeakMap<Tab, {
+    readonly document: WorkflowDocument
+    readonly registry: SchemaRegistry | undefined
+    readonly extensions: number
+    readonly selections: Map<string, { result?: SelectionExecutionScopes | undefined }>
+  }>()
+  private readonly pendingSelectionScopes = new Map<
+    { result?: SelectionExecutionScopes | undefined },
+    { readonly tab: Tab; readonly ids: readonly string[] }
+  >()
+  private selectionScopesFrame: number | undefined
+  private selectionScopesTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** Availability is advisory; queue actions still validate the current document. */
+  previewSelectionExecutionScopes(tab: Tab, nodeIds: readonly string[]): SelectionExecutionScopes | undefined {
+    const document = tab.store.doc
+    const registry = this.registryForTab(tab)
+    const extensions = this.extensionRevision.get()
+    const selection = JSON.stringify([...nodeIds].sort())
+    let cached = this.selectionScopePreviews.get(tab)
+    // Node positions and styling cannot change an execution closure. Keep the
+    // answer across view-only commands, but never across semantic changes.
+    const sameDocument = cached !== undefined &&
+      Object.keys(document).length === Object.keys(cached.document).length &&
+      Object.entries(document).every(([key, value]) =>
+        key === 'view' || value === cached!.document[key as keyof WorkflowDocument])
+    if (!cached || !sameDocument || cached.registry !== registry || cached.extensions !== extensions) {
+      cached = { document, registry, extensions, selections: new Map() }
+      this.selectionScopePreviews.set(tab, cached)
+    }
+    const previous = cached.selections.get(selection)
+    if (previous) return previous.result
+    const entry: { result?: SelectionExecutionScopes | undefined } = {}
+    cached.selections.set(selection, entry)
+    this.pendingSelectionScopes.set(entry, { tab, ids: [...nodeIds] })
+    if (this.selectionScopesFrame === undefined && this.selectionScopesTimer === undefined) {
+      this.selectionScopesFrame = requestAnimationFrame(() => {
+        this.selectionScopesFrame = undefined
+        // A timer posted by rAF runs after the frame containing the click.
+        this.selectionScopesTimer = setTimeout(() => {
+          this.selectionScopesTimer = undefined
+          const pending = [...this.pendingSelectionScopes]
+          this.pendingSelectionScopes.clear()
+          for (const [request, { tab: target, ids }] of pending) {
+            const current = this.selectionScopePreviews.get(target)
+            if (this.disposed || !this.tabs.get().includes(target) ||
+              current?.selections.get(JSON.stringify([...ids].sort())) !== request) continue
+            request.result = this.selectionExecutionScopes(target, ids)
+          }
+          if (!this.disposed) this.selectionScopesChanged.update((version) => version + 1)
+        }, 0)
+      })
+    }
+    return undefined
   }
 
   /**

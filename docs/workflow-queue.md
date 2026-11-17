@@ -17,6 +17,14 @@ cancelled if it finishes before the request arrives. Backend failures and
 already-finished jobs produce a plain status message; the control becomes
 available again after a failed request.
 
+## Selection execution controls
+
+Selecting or right-clicking a node shows the selection and menu before checking
+which partial execution actions are available. Those actions remain disabled
+while the check is pending. Moving or restyling a node reuses its execution
+availability; changing the workflow's execution data checks it again. Queueing
+always validates the current workflow independently of the display's cached answer.
+
 ## Queue controls
 
 Queueing is a control of the workflow currently open in the graph editor,
