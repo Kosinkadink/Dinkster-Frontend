@@ -4528,7 +4528,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setSemanticSource(undefined)
         setMediaPreviews([])
         setOutputImagePreviews([])
-        setOutputPages(new Map())
+        setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
         renderer.setBadges({})

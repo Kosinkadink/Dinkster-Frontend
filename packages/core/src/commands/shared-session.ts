@@ -1150,6 +1150,31 @@ class SharedDocumentSession implements DocumentSession {
       this.rebasing = false
     }
     this.pending.push(...survivors)
+    // A foreign edit can invalidate acknowledged history as well as pending
+    // intentions. Drop those records before observers census retained assets;
+    // their recorded values must never overwrite the foreign document.
+    for (const [records, direction] of [[this.undoStack, 'inverse'], [this.redoStack, 'forward']] as const) {
+      let document = this.store.doc
+      for (let index = records.length - 1; index >= 0; index--) {
+        const record = records[index]!
+        try {
+          const replayed = replayHistoryOps(document, record[direction], { requireRecordedValues: true })
+          if (replayed.stale === undefined) {
+            document = replayed.doc
+            continue
+          }
+        } catch {
+          // A foreign removal can make a recorded path unreachable.
+        }
+        records.splice(index, 1)
+        conflicts.push({
+          invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
+          diagnostics: [diag('warning', 'command', 'session.history.stale',
+            `${direction === 'inverse' ? 'Undo' : 'Redo'} no longer applies after a concurrent edit`)],
+          during: 'rebase',
+        })
+      }
+    }
     committed?.()
     this.docSignal.set(this.store.doc)
     for (const conflict of conflicts) this.notifyConflict(conflict)
