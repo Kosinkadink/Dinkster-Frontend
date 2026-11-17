@@ -140,6 +140,18 @@ export const canvasPaintTokens = {
     staleStroke: 1,
     staleUnderlineOffset: 1,
   },
+  dataPanel: {
+    borderInset: 1,
+    minHeight: 10,
+    minWidth: 20,
+    scrimOpacity: 0.92,
+    rowHeight: 17,
+    verticalPadding: 3,
+    horizontalPaddingReduction: 2,
+    labelRatio: 0.45,
+    staleOpacity: 0.55,
+    valueGap: canvasSemanticTokens.space[8],
+  },
   opacity: {
     ghost: canvasSemanticTokens.interaction.disabledOpacity,
     scopeDim: 0.72,

@@ -3547,30 +3547,31 @@ export class CanvasRenderer {
     rows: readonly DataPanelRow[],
   ): void {
     const t = this.tokens
-    const px = nx + 1
+    const paint = canvasPaintTokens.dataPanel
+    const px = nx + paint.borderInset
     const py = ny + l.headerHeight
-    const pw = l.width - 2
-    const ph = l.height - l.headerHeight - 1
-    if (ph < 10 || pw < 20) return
+    const pw = l.width - paint.borderInset * 2
+    const ph = l.height - l.headerHeight - paint.borderInset
+    if (ph < paint.minHeight || pw < paint.minWidth) return
     const baseAlpha = ctx.globalAlpha
     ctx.save()
     ctx.beginPath()
-    ctx.roundRect(px, py, pw, ph, [0, 0, t.cornerRadius - 1, t.cornerRadius - 1])
+    ctx.roundRect(px, py, pw, ph, [0, 0, t.cornerRadius - paint.borderInset, t.cornerRadius - paint.borderInset])
     ctx.clip()
-    ctx.globalAlpha = baseAlpha * 0.92
+    ctx.globalAlpha = baseAlpha * paint.scrimOpacity
     ctx.fillStyle = t.colors.canvasBackground
     ctx.fillRect(px, py, pw, ph)
     ctx.globalAlpha = baseAlpha
 
-    const rowH = 17
-    const maxRows = Math.max(1, Math.floor((ph - 6) / rowH))
+    const rowH = paint.rowHeight
+    const maxRows = Math.max(1, Math.floor((ph - paint.verticalPadding * 2) / rowH))
     const overflow = rows.length > maxRows
     const shown = overflow ? rows.slice(0, maxRows - 1) : rows
-    const font = `${t.fontSize - 1}px ${t.fontFamily}`
+    const font = `${t.fontSize - canvasPaintTokens.type.smallReduction}px ${t.fontFamily}`
     ctx.textBaseline = 'middle'
-    let y = py + 3 + rowH / 2
-    const innerX = px + t.padX - 2
-    const innerW = pw - (t.padX - 2) * 2
+    let y = py + paint.verticalPadding + rowH / 2
+    const innerX = px + t.padX - paint.horizontalPaddingReduction
+    const innerW = pw - (t.padX - paint.horizontalPaddingReduction) * 2
     for (const row of shown) {
       const tone = row.tone ?? 'value'
       ctx.font = font
@@ -3578,17 +3579,17 @@ export class CanvasRenderer {
       if (row.label !== '') {
         ctx.fillStyle = t.colors.label
         ctx.textAlign = 'left'
-        const maxLabel = innerW * 0.45
+        const maxLabel = innerW * paint.labelRatio
         ctx.fillText(row.label, innerX, y, maxLabel)
         labelWidth = Math.min(ctx.measureText(row.label).width, maxLabel)
       }
       // Values italicize like companions ("derived, not stored"); stale dims
       // with the same factor stale companions use.
       if (tone !== 'muted') ctx.font = `italic ${font}`
-      if (tone === 'stale') ctx.globalAlpha = baseAlpha * 0.55
+      if (tone === 'stale') ctx.globalAlpha = baseAlpha * paint.staleOpacity
       ctx.fillStyle = tone === 'muted' ? t.colors.label : t.colors.companionValue
       ctx.textAlign = 'right'
-      ctx.fillText(row.text, innerX + innerW, y, innerW - labelWidth - 8)
+      ctx.fillText(row.text, innerX + innerW, y, innerW - labelWidth - paint.valueGap)
       ctx.globalAlpha = baseAlpha
       y += rowH
     }
