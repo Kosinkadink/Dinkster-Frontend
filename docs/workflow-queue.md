@@ -17,6 +17,18 @@ cancelled if it finishes before the request arrives. Backend failures and
 already-finished jobs produce a plain status message; the control becomes
 available again after a failed request.
 
+## Background tab recovery
+
+Camera and app-scroll positions are saved separately from workflow documents.
+Moving the view does not validate, serialize or checksum the workflow. Each
+window keeps its own position record; reopening merges the newest position for
+each graph without overwriting another window's changes to a different graph.
+
+After document edits, a browser worker prepares validation, serialized document
+bytes and recovery checksums. The page commits the recovery envelope and retains
+its asset ownership as before. Closing the page still writes a synchronous
+recovery snapshot when it cannot wait for background work.
+
 ## Selection execution controls
 
 Selecting or right-clicking a node shows the selection and menu before checking

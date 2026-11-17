@@ -5,8 +5,6 @@
  * lineage id, NEVER "the active tab".
  */
 
-import { blake3 } from '@noble/hashes/blake3.js'
-import { bytesToHex } from '@noble/hashes/utils.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
@@ -175,6 +173,8 @@ import {
 import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
+import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
+import { parsePersistenceJson, persistenceJson, persistedWorkflowDigest, persistedWorkflowDocument } from './workflow-persistence-value.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
@@ -1611,6 +1611,7 @@ function saveGates(gates: GateState): void {
 const TABS_KEY = 'dinkster.openTabs'
 const TABS_CANDIDATE_PREFIX = 'dinkster.openTabsCandidate.'
 const DOCUMENT_CANDIDATE_PREFIX = 'dinkster.openTabsDocumentCandidate.'
+const TAB_VIEW_PREFIX = 'dinkster.tabView.'
 const WORKSPACE_OPERATION_PREFIX = 'dinkster.workspaceOperation.'
 const WORKSPACE_PERSISTENCE_LOCK = 'dinkster.openTabs.commit'
 
@@ -1705,6 +1706,26 @@ function mergeTabViewStates(left: TabViewState | undefined, right: TabViewState 
   }
 }
 
+function tabViewPrefix(tabId: string): string {
+  return `${scopedStorageKey(TAB_VIEW_PREFIX)}${encodeURIComponent(tabId)}/`
+}
+
+function readTabViewState(tabId: string, initial?: TabViewState): TabViewState | undefined {
+  let state = initial
+  try {
+    const storage = globalThis.localStorage
+    const prefix = tabViewPrefix(tabId)
+    for (let index = 0; storage && index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (!key?.startsWith(prefix)) continue
+      state = mergeTabViewStates(state, parseTabViewState(JSON.parse(storage.getItem(key) ?? 'null')))
+    }
+  } catch {
+    // Browser-local positions are optional when storage is unavailable.
+  }
+  return state
+}
+
 function tabViewStateForDocument(state: TabViewState | undefined, doc: unknown): TabViewState | undefined {
   if (state === undefined) return undefined
   const graphs = doc !== null && typeof doc === 'object' && !Array.isArray(doc)
@@ -1746,7 +1767,7 @@ interface PersistedTabs {
 function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
   try {
     if (!raw) return undefined
-    const parsed = JSON.parse(raw) as Partial<PersistedTabs>
+    const parsed = parsePersistenceJson(raw) as Partial<PersistedTabs>
     if (parsed.v !== 1 || !Array.isArray(parsed.tabs)) return undefined
     return {
       v: 1,
@@ -1818,7 +1839,7 @@ function committedPersistedTab(
 }
 
 function persistedDocumentDigest(document: unknown): string {
-  return bytesToHex(blake3(new TextEncoder().encode(canonicalJson(document))))
+  return persistedWorkflowDigest(document)
 }
 
 interface PersistedDocumentCandidate {
@@ -1830,10 +1851,10 @@ interface PersistedDocumentCandidate {
 function parsePersistedDocumentCandidate(raw: string | null): PersistedDocumentCandidate | undefined {
   try {
     if (!raw) return undefined
-    const parsed = JSON.parse(raw) as Partial<PersistedDocumentCandidate>
+    const parsed = parsePersistenceJson(raw) as Partial<PersistedDocumentCandidate>
     if (parsed.v !== 1 || typeof parsed.stageId !== 'string' || parsed.stageId.length === 0 ||
       typeof parsed.tab !== 'object' || parsed.tab === null) return undefined
-    const tab = parsePersistedTabs(JSON.stringify({ v: 1, active: '', tabs: [parsed.tab] }))?.tabs[0]
+    const tab = parsePersistedTabs(persistenceJson({ v: 1, active: '', tabs: [parsed.tab] }))?.tabs[0]
     if (!tab) return undefined
     if (!persistedTabId(tab)) return undefined
     return { v: 1, stageId: parsed.stageId, tab }
@@ -1878,7 +1899,7 @@ function mergePersistedTabs(
     }
     const incomingRevision = tab.documentRevision ?? 0
     const currentRevision = current.documentRevision ?? 0
-    if (tab.documentDirty === true && JSON.stringify(tab.doc) !== JSON.stringify(current.doc)) {
+    if (tab.documentDirty === true && persistenceJson(tab.doc) !== persistenceJson(current.doc)) {
       documents.set(id, committedPersistedTab(tab, currentRevision + 1))
     } else if (incomingRevision > currentRevision) {
       documents.set(id, committedPersistedTab(tab))
@@ -1894,7 +1915,7 @@ function mergePersistedTabs(
       // A late Close-owned stage contributes its identity, never tab membership.
       if (!incorporatesClosedCandidate?.(candidate, workspace)) continue
     } else if (!current) continue
-    if (current && JSON.stringify(candidate.tab.doc) !== JSON.stringify(current.doc)) {
+    if (current && persistenceJson(candidate.tab.doc) !== persistenceJson(current.doc)) {
       documents.set(id, committedPersistedTab(
         candidate.tab,
         Math.max(candidate.tab.documentRevision ?? 0, current.documentRevision ?? 0) + 1,
@@ -2052,11 +2073,11 @@ function removeWorkspaceOperation(opId: string): void {
 
 function samePersistedWorkflowStage(stagedRaw: string, currentRaw: string): boolean {
   try {
-    const staged = JSON.parse(stagedRaw)
-    const { assetRetention, ...value } = JSON.parse(currentRaw)
+    const staged = parsePersistenceJson(stagedRaw)
+    const { assetRetention, ...value } = parsePersistenceJson(currentRaw)
     return typeof staged?.assetRetention?.stageId === 'string' &&
       assetRetention?.stageId === staged.assetRetention.stageId &&
-      JSON.stringify({ ...value, assetRetention: staged.assetRetention }) === stagedRaw
+      persistenceJson({ ...value, assetRetention: staged.assetRetention }) === stagedRaw
   } catch {
     return false
   }
@@ -2082,13 +2103,13 @@ function commitPersistedTabs(
       const id = persistedTabId(tab)
       if (!id || tab.documentDirty !== true) continue
       const candidate: PersistedDocumentCandidate = { v: 1, stageId: randomWorkspaceId('stage'), tab }
-      const document = loadDocument(tab.doc).document
+      const document = persistedWorkflowDocument(tab.doc)
       if (!document) return
       void stage(`${documentCandidatePrefix()}${encodeURIComponent(id)}`, candidate,
         [{ document, revision: tab.documentRevision ?? 0 }]).catch(() => undefined)
     }
     // pagehide cannot await Web Locks, so leave a synchronous workspace recovery source too.
-    const documents = state.tabs.map((tab) => ({ document: loadDocument(tab.doc).document!, revision: tab.documentRevision ?? 0 }))
+    const documents = state.tabs.map((tab) => ({ document: persistedWorkflowDocument(tab.doc)!, revision: tab.documentRevision ?? 0 }))
     if (documents.some(({ document }) => !document)) return
     // Preserve dirty documents if pagehide prevents the locked stage from running.
     void stage(`${tabsCandidatePrefix()}${actorId}`, state, documents).catch(() => undefined)
@@ -2101,7 +2122,7 @@ function commitPersistedTabs(
       const loaded = loadPersistedTabStates()
       const merged = mergePersistedTabs(loaded.states, loaded.documentCandidates, undefined, incorporatesClosedCandidate)
       if (!merged) return
-      const documents = merged.tabs.map((tab) => ({ document: loadDocument(tab.doc).document!, revision: tab.documentRevision ?? 0 }))
+      const documents = merged.tabs.map((tab) => ({ document: persistedWorkflowDocument(tab.doc)!, revision: tab.documentRevision ?? 0 }))
       if (documents.some(({ document }) => !document)) return
       const operations = acknowledged()
         .filter(({ revision }) => revision <= (merged.workspaceRevision ?? 0))
@@ -3488,8 +3509,9 @@ export class AppState {
       const loaded = loadDocument(entry.doc)
       if (!loaded.document) continue
       const tab = this.makeTab(loaded.document, entry.title, undefined, entry.editorKind ?? GRAPH_EDITOR_KIND)
-      if (entry.viewState === undefined) tabViewStates.delete(tab.id)
-      else tabViewStates.set(tab.id, entry.viewState)
+      const viewState = tabViewStateForDocument(readTabViewState(tab.id, entry.viewState), loaded.document)
+      if (viewState === undefined) tabViewStates.delete(tab.id)
+      else tabViewStates.set(tab.id, viewState)
       this.documentPersistenceRevisions.set(tab.id, entry.documentRevision ?? 0)
       // Tab ids are lineages, and every id-keyed surface (dirty set, watchers,
       // links, active id) assumes ids are unique. Normal flow guarantees that
@@ -3624,6 +3646,7 @@ export class AppState {
     this.selectedExtensionWorld = undefined
     this.workspaceAuthorityDesired = false
     this.flushPersistTabs(true)
+    this.workflowPersistenceCodec.dispose()
     this.disableWorkspaceAuthority(false)
     if (this.persistTimer !== undefined) clearTimeout(this.persistTimer)
     this.persistTimer = undefined
@@ -3927,7 +3950,7 @@ export class AppState {
     documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[],
   ): Promise<string | undefined> {
     if (key !== tabsKey()) return this.admitPersistedWorkflowSlot(key, value, documents)
-    const snapshot = canonicalJson(value)
+    const snapshot = persistenceJson(value, true)
     const previous = this.canonicalWorkflowAdmission
     if (previous?.value === snapshot && previous.current()) return previous.promise
     const storage = globalThis.localStorage
@@ -3966,7 +3989,7 @@ export class AppState {
     const stageId = randomWorkspaceId('stage')
     // Teardown cannot wait for the network. This generation is recovery data,
     // not acknowledged ownership, until its exact captured roots are retained.
-    let pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
+    let pending = persistenceJson({ ...value, assetRetention: { stageId, acknowledged: false } })
     let reuseCanonical = false
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const sources = documents.map(({ document, revision }) => {
@@ -3984,11 +4007,11 @@ export class AppState {
           this.backends.get().includes(owner.backend) && owner.backend === source.backend &&
           owner.registry === source.registry && owner.generation === source.generation
       })) {
-      const { assetRetention: _assetRetention, ...committed } = JSON.parse(existing.raw)
+      const { assetRetention: _assetRetention, ...committed } = parsePersistenceJson(existing.raw)
       const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
       // Repeated peer notifications do not require new ownership for an unchanged,
       // completely acknowledged snapshot in the same destination lifetime.
-      if (canonicalJson(committed) === canonicalJson(incoming)) return existing.raw
+      if (persistenceJson(committed, true) === persistenceJson(incoming, true)) return existing.raw
     }
     const locks = key.startsWith(documentCandidatePrefix()) ? globalThis.navigator?.locks : undefined
     let previousOwners: NonNullable<typeof existing>['owners'][number][] = []
@@ -3997,11 +4020,11 @@ export class AppState {
       previousOwners = [...(this.persistedWorkflowSlots.get(key)?.owners ?? [])]
       const current = key === tabsKey() ? storage.getItem(key) : null
       if (current !== null && parsePersistedTabs(current) !== undefined) {
-        const { assetRetention, ...committed } = JSON.parse(current)
+        const { assetRetention, ...committed } = parsePersistenceJson(current)
         const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
         // Identical pending snapshots share the publication barrier. Replacing
         // its bytes would invalidate admissions already waiting for the network.
-        if (assetRetention?.acknowledged !== true && canonicalJson(committed) === canonicalJson(incoming)) {
+        if (assetRetention?.acknowledged !== true && persistenceJson(committed, true) === persistenceJson(incoming, true)) {
           pending = current
         }
         // Admit this renderer's own roots without replacing an identical peer
@@ -4012,7 +4035,7 @@ export class AppState {
             receipt.connectionId === native[index]!.backend.connection.id &&
             receipt.assetBaseUrl === native[index]!.backend.connection.assetUrl('') &&
             receipt.documentLineage === native[index]!.document.lineage) &&
-          canonicalJson(committed) === canonicalJson(incoming)) {
+          persistenceJson(committed, true) === persistenceJson(incoming, true)) {
           pending = current
           reuseCanonical = true
         }
@@ -4052,7 +4075,7 @@ export class AppState {
           ],
         })
         const currentRaw = key === tabsKey() ? storage.getItem(key) : null
-        const current = currentRaw !== null && parsePersistedTabs(currentRaw) !== undefined ? JSON.parse(currentRaw) : undefined
+        const current = currentRaw !== null && parsePersistedTabs(currentRaw) !== undefined ? parsePersistenceJson(currentRaw) : undefined
         const { assetRetention: currentRetention, ...currentValue } = current ?? {}
         const { assetRetention: _incomingRetention, ...incoming } = value as PersistedTabs
         // A complete admission can lose the shared pending barrier to an
@@ -4062,7 +4085,7 @@ export class AppState {
           JSON.stringify(native[index]!.document) === JSON.stringify(previous.document))) ||
           currentRetention?.acknowledged === true && currentRetention.complete === false &&
           native.length === sources.length && owners.every((retained) => retained.complete) &&
-          canonicalJson(currentValue) === canonicalJson(incoming)) this.reconcilePersistedTabs()
+          persistenceJson(currentValue, true) === persistenceJson(incoming, true)) this.reconcilePersistedTabs()
         throw new Error('Workspace recovery changed during asset admission')
       }
       // A refreshed schema may reveal different roots; admit them before publishing the operation.
@@ -4075,7 +4098,7 @@ export class AppState {
     const receipts = owners.map((retained, index) => ({ connectionId: native[index]!.backend.connection.id,
       assetBaseUrl: native[index]!.backend.connection.assetUrl(''), documentLineage: native[index]!.document.lineage, retained }))
     const complete = native.length === sources.length && owners.every((retained) => retained.complete)
-    const acknowledged = JSON.stringify({ ...value, assetRetention: {
+    const acknowledged = persistenceJson({ ...value, assetRetention: {
       stageId, acknowledged: true, complete, owners: receipts,
     } })
     const publish = (): string | undefined => {
@@ -4617,6 +4640,24 @@ export class AppState {
     unsubscribe: () => void
   }>()
   private persistTimer: ReturnType<typeof setTimeout> | undefined
+  private viewPersistTimer: ReturnType<typeof setTimeout> | undefined
+
+  private schedulePersistTabViews(): void {
+    if (this.viewPersistTimer !== undefined) clearTimeout(this.viewPersistTimer)
+    this.viewPersistTimer = setTimeout(() => this.persistTabViewsNow(), 400)
+  }
+
+  private persistTabViewsNow(): void {
+    if (this.viewPersistTimer !== undefined) clearTimeout(this.viewPersistTimer)
+    this.viewPersistTimer = undefined
+    try {
+      for (const [id, state] of this.tabViewStates.get()) {
+        globalThis.localStorage?.setItem(`${tabViewPrefix(id)}${this.workspaceActorId}`, JSON.stringify(state))
+      }
+    } catch {
+      // A storage failure cannot interrupt an editor gesture.
+    }
+  }
 
   private markDocumentPersistenceDirty(tabId: string): void {
     this.documentPersistenceDirty.add(tabId)
@@ -4749,6 +4790,7 @@ export class AppState {
 
   /** Write any pending (debounced) tab snapshot immediately. */
   flushPersistTabs(forceStage = false): void {
+    if (this.viewPersistTimer !== undefined) this.persistTabViewsNow()
     if (this.persistTimer === undefined) {
       if (forceStage) this.persistTabsNow(true)
       return
@@ -4788,12 +4830,22 @@ export class AppState {
 
   private queuedPersistedTabsCommit: { readonly storage: Storage | undefined; readonly project: string } | undefined
 
-  private reconcilePersistedTabs(state?: PersistedTabs): void {
+  private readonly workflowPersistenceCodec = new WorkflowPersistenceCodec()
+
+  private reconcilePersistedTabs(state?: PersistedTabs, prepared = false): void {
+    if (!prepared && state !== undefined && !this.disposed && typeof Worker !== 'undefined') {
+      const storage = globalThis.localStorage
+      const project = activeProjectId()
+      void this.workflowPersistenceCodec.prepare(state).then(() => {
+        if (!this.disposed && globalThis.localStorage === storage && activeProjectId() === project) this.reconcilePersistedTabs(state, true)
+      }).catch(() => undefined)
+      return
+    }
     commitPersistedTabs(state, this.workspaceActorId,
       () => [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision })),
       (key, value, documents) => {
         const candidate = key.startsWith(documentCandidatePrefix())
-          ? parsePersistedDocumentCandidate(JSON.stringify(value)) : undefined
+          ? parsePersistedDocumentCandidate(persistenceJson(value)) : undefined
         const tab = candidate === undefined ? undefined : this.tabs.get().find((entry) =>
           !entry.execution && entry.id === persistedTabId(candidate.tab))
         const recovery = candidate === undefined || tab === undefined || !globalThis.localStorage ? undefined : {
@@ -4816,7 +4868,7 @@ export class AppState {
         if (!id) continue
         this.documentPersistenceRevisions.set(id, tab.documentRevision ?? 0)
         const live = this.tabs.get().find((candidate) => candidate.id === id)
-        if (live && JSON.stringify(live.store.doc) === JSON.stringify(tab.doc)) this.documentPersistenceDirty.delete(id)
+        if (live && persistenceJson(live.store.doc) === persistenceJson(tab.doc)) this.documentPersistenceDirty.delete(id)
       }
       if (!this.disposed && this.tabs.get().some((tab) => this.documentPersistenceDirty.has(tab.id))) {
         this.schedulePersistTabs()
@@ -4853,12 +4905,26 @@ export class AppState {
       const run = () => {
         // Sources and acknowledgments are read under the lock, so one queued
         // scan covers every notification before entry, not changes after entry.
-        clear()
-        commit()
+        const apply = () => {
+          clear()
+          commit()
+        }
+        if (typeof Worker === 'undefined' || this.disposed) return apply()
+        const raw = new Set<string>()
+        for (let index = 0; storage && index < storage.length; index += 1) {
+          const key = storage.key(index)
+          if (key === tabsKey() || key?.startsWith(tabsCandidatePrefix()) || key?.startsWith(documentCandidatePrefix())) {
+            const value = storage.getItem(key)
+            if (value !== null) raw.add(value)
+          }
+        }
+        return Promise.all([...raw].map((value) => this.workflowPersistenceCodec.parse(value))).then(() => {
+          if (globalThis.localStorage === storage && activeProjectId() === project && !this.disposed) apply()
+        }).finally(clear)
       }
       const locks = globalThis.navigator?.locks
       if (locks) void locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, run).finally(clear).catch(() => undefined)
-      else run()
+      else void Promise.resolve(run()).catch(() => undefined)
     })
   }
 
@@ -6036,7 +6102,7 @@ export class AppState {
       graphViewports: { ...current?.graphViewports, [graphId]: { ...viewport, update: this.nextTabViewUpdate() } },
       ...(current?.appScroll === undefined ? {} : { appScroll: current.appScroll }),
     }))
-    this.schedulePersistTabs()
+    this.schedulePersistTabViews()
   }
 
   appScrollTop(tabId: string): number {
@@ -6052,7 +6118,7 @@ export class AppState {
       graphViewports: current?.graphViewports ?? {},
       appScroll: { scrollTop: appScrollTop, update: this.nextTabViewUpdate() },
     }))
-    this.schedulePersistTabs()
+    this.schedulePersistTabViews()
   }
 
   /** Active canvas lens of a tab ('standard' when never switched). */
