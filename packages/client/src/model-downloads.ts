@@ -7,7 +7,7 @@ export interface ModelRequirement {
 
 export interface ModelDownloadSelection extends ModelRequirement {
   readonly project: string
-  readonly provider: 'huggingface'
+  readonly provider: 'huggingface' | 'civitai'
   readonly source: string
   readonly repo: string
   readonly revision: string
@@ -25,7 +25,7 @@ export type ModelDownloadPlan =
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[]; readonly detail: string }
   | { readonly status: 'picker-required'; readonly sources: readonly string[] }
   | { readonly status: 'destination-required' }
-  | { readonly status: 'credential-required' | 'provider-grant-required' | 'model-hidden' }
+  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required' | 'model-hidden' }
 
 export type ModelDownloadPhase = 'starting' | 'checking-existing' | 'downloading' | 'verifying' |
   'publishing' | 'indexing' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
@@ -66,11 +66,12 @@ function strings(row: Record<string, unknown>, key: string): readonly string[] {
 }
 
 function selection(row: Record<string, unknown>): ModelDownloadSelection {
-  if (row['provider'] !== 'huggingface' || !/^[a-f0-9]{64}$/.test(text(row, 'sha256')) ||
-    !/^[a-f0-9]{40}$/.test(text(row, 'revision'))) throw new Error('Malformed immutable model selection')
+  const provider = row['provider']
+  if ((provider !== 'huggingface' && provider !== 'civitai') || !/^[a-f0-9]{64}$/.test(text(row, 'sha256')) ||
+    !(provider === 'civitai' ? /^[1-9][0-9]*$/ : /^[a-f0-9]{40}$/).test(text(row, 'revision'))) throw new Error('Malformed immutable model selection')
   return {
     name: text(row, 'name'), kind: text(row, 'kind'), project: text(row, 'project'),
-    provider: 'huggingface', source: text(row, 'source'), repo: text(row, 'repo'),
+    provider, source: text(row, 'source'), repo: text(row, 'repo'),
     revision: text(row, 'revision'), file: text(row, 'file'), sha256: text(row, 'sha256'),
     size: count(row, 'size'), license: text(row, 'license'),
     destination: text(row, 'destination'), mount: text(row, 'mount'),
@@ -87,6 +88,7 @@ export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
     case 'destination-required': return { status: 'destination-required' }
     case 'credential-required':
     case 'provider-grant-required':
+    case 'civitai-access-required':
     case 'model-hidden': return { status: row['status'] }
     default: throw new Error('Unknown model download plan state')
   }

@@ -38,6 +38,7 @@ export interface RequestSlot<T> {
 
 export interface ModelConsentState {
   readonly requirement: ModelRequirement
+  readonly source?: string
   readonly pending: boolean
   readonly plan?: ModelDownloadPlan
   readonly job?: ModelDownloadJob
@@ -50,6 +51,7 @@ export interface AssetConsentRequest {
   readonly providerChanged?: () => void
   readonly providerBackendUrl?: string
   readonly models?: readonly ModelConsentState[]
+  readonly selectModelSource?: (index: number, source: string) => void
   readonly reviewModel?: (index: number) => Promise<void>
   readonly downloadModel?: (index: number) => Promise<void>
   readonly cancelModel?: (index: number) => Promise<void>
@@ -171,6 +173,7 @@ export function installAssetConsent(p: {
     const active = (job: ModelDownloadJob): boolean => !['completed', 'cancelled', 'failed'].includes(job.status)
     const update = (index: number, state: ModelConsentState): void => {
       const next: AssetConsentRequest = { ...owner, models: owner.models!.map((entry, i) => i === index ? state : entry),
+        selectModelSource: (i, source) => selectModelSource(i, source, next),
         reviewModel: (i) => modelAction(i, 'review', next),
         downloadModel: (i) => modelAction(i, 'download', next),
         cancelModel: (i) => modelAction(i, 'cancel', next),
@@ -180,11 +183,22 @@ export function installAssetConsent(p: {
       chain = next
       p.slot.set(next)
     }
+    const selectModelSource = (index: number, source: string, expected: AssetConsentRequest): void => {
+      const state = owner.models?.[index]
+      if (!owned() || settled || owner.busy || owner !== expected || !state || state.pending ||
+        (state.job && active(state.job))) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      update(index, { requirement: state.requirement, source, pending: false,
+        ...(state.plan?.status === 'picker-required' ? { plan: state.plan } : {}),
+      })
+    }
     const providerChanged = (expected: AssetConsentRequest): void => {
       if (!owned() || settled || owner.busy || owner !== expected) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
       for (const [index, entry] of (owner.models ?? []).entries())
-        update(index, { requirement: entry.requirement, pending: false })
+        update(index, { requirement: entry.requirement, pending: false,
+          ...(entry.source === undefined ? {} : { source: entry.source }),
+        })
     }
     const modelAction = async (index: number, action: 'review' | 'download' | 'cancel', expected = owner): Promise<void> => {
       const scope = p.modelDownloads
@@ -200,7 +214,9 @@ export function installAssetConsent(p: {
       try {
         const matches = (job: ModelDownloadJob): boolean => job.project === scope.project &&
           job.name === state.requirement.name && job.kind === state.requirement.kind
-        let next: ModelConsentState = { requirement: state.requirement, pending: false }
+        let next: ModelConsentState = { requirement: state.requirement, pending: false,
+          ...(state.source === undefined ? {} : { source: state.source }),
+        }
         if (action === 'download' && state.plan?.status === 'consent-required') {
           const job = await scope.connection.startModelDownload(state.plan.planId, observation.signal)
           if (!matches(job)) throw new Error('Model job does not match the captured project and requirement')
@@ -218,7 +234,7 @@ export function installAssetConsent(p: {
           const job = [...jobs].reverse().find((entry) => matches(entry) && active(entry))
           if (job) next = { ...next, job }
           else {
-            const plan = await scope.connection.planModelDownload(state.requirement, observation.signal)
+            const plan = await scope.connection.planModelDownload(state.requirement, observation.signal, state.source || undefined)
             if (plan.status === 'consent-required' && (plan.project !== scope.project ||
               plan.name !== state.requirement.name || plan.kind !== state.requirement.kind))
               throw new Error('Model plan does not match the captured project and requirement')
@@ -229,7 +245,9 @@ export function installAssetConsent(p: {
         if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
         update(index, next)
       } catch (error) {
-        if (current()) update(index, { ...(action === 'download' ? { requirement: state.requirement } : state), pending: false,
+        if (current()) update(index, { ...(action === 'download' ? { requirement: state.requirement,
+          ...(state.source === undefined ? {} : { source: state.source }),
+        } : state), pending: false,
           // A timed-out start may have reached the server. Discover before another consent.
           ...(action === 'download' ? { interrupted: true } : {}),
           error: error instanceof Error ? error.message : String(error),
@@ -300,6 +318,7 @@ export function installAssetConsent(p: {
       } : {}),
       ...(result.assetsMissing.models?.length ? {
         models: result.assetsMissing.models.map((requirement) => ({ requirement, pending: false })),
+        selectModelSource: (index: number, source: string) => selectModelSource(index, source, request),
         reviewModel: (index: number) => modelAction(index, 'review', request),
         downloadModel: (index: number) => modelAction(index, 'download', request),
         cancelModel: (index: number) => modelAction(index, 'cancel', request),
