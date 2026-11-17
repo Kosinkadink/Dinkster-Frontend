@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { expect, nativeAppViewTest as test } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
@@ -87,10 +88,14 @@ test('an App View partial queue button completes against the native backend', as
       return observed.activeLineage === 'app-view-native-queue' && observed.gradientAvailable
     }).toBe(true)
   } catch (error) {
-    await testInfo.attach('app-view-native-startup', {
-      body: JSON.stringify({ open: openDiagnostics, observations }, null, 2),
-      contentType: 'application/json',
-    }).catch(() => undefined)
+    try {
+      const path = testInfo.outputPath('app-view-native-startup.json')
+      writeFileSync(path, JSON.stringify({ open: openDiagnostics, observations }, null, 2))
+      await testInfo.attach('app-view-native-startup', {
+        path,
+        contentType: 'application/json',
+      })
+    } catch { /* Preserve the original startup failure if diagnostic retention fails. */ }
     throw error
   }
 
