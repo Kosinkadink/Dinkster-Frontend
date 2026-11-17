@@ -152,8 +152,14 @@ test('inspects every media kind through the owning value API without mutating th
         const { owner } = JSON.parse(localStorage.getItem(key)!)
         return `${owner.scope}/${owner.ownerKind}/${owner.ownerId}`
       }))
-    return owners.length > 0 && retentionRequests.size === 0 && owners.every((owner) => observedRetentionOwners.has(owner))
-  }).toBe(true)
+    return {
+      hasOwners: owners.length > 0,
+      pendingRequests: [...retentionRequests].map(([request, generation]) => ({
+        method: request.method(), url: request.url(), generation,
+      })),
+      missingOwners: owners.filter((owner) => !observedRetentionOwners.has(owner)),
+    }
+  }).toEqual({ hasOwners: true, pendingRequests: [], missingOwners: [] })
   const beforeLocaleRequests = [...backendRequests]
   const beforeLocaleValueRequests = requests.length
   const localeModule = await (await request.get('/src/locale.ts')).text()
