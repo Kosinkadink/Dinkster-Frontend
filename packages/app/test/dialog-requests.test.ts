@@ -60,6 +60,27 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('invalidates reviewed model consent after sign-in changes without starting or submitting', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const { result, retries } = rejection([])
+    const requirement = { name: 'gated.safetensors', kind: 'model/checkpoint' }
+    const selected = { ...requirement, project: 'work', provider: 'huggingface' as const, source: 'https://huggingface.co/org/model', repo: 'org/model', revision: 'a'.repeat(40), file: requirement.name, sha256: 'b'.repeat(64), size: 17, license: 'test', destination: '/models/gated.safetensors', mount: 'models', status: 'consent-required' as const, planId: 'old-plan' }
+    const connection = { planModelDownload: async () => selected, startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'engine', jobs: [] }), fetchModelDownload: vi.fn(), cancelModelDownload: vi.fn() }
+    const provider = { fetchModelProvider: vi.fn(), saveModelProviderToken: vi.fn(), forgetModelProvider: vi.fn(), startModelProviderSignIn: vi.fn(), pollModelProviderSignIn: vi.fn(), cancelModelProviderSignIn: vi.fn() }
+    installAssetConsent({ result: { ...result, assetsMissing: { ...result.assetsMissing, models: [requirement] } }, slot,
+      modelDownloads: { connection, providerConnection: provider, project: 'work' }, ...consentCallbacks() })
+    await slot.value!.reviewModel!(0)
+    const reviewed = slot.value!
+    expect(reviewed.models![0]!.plan).toEqual(selected)
+    reviewed.providerChanged!()
+    expect(slot.value!.models![0]!.plan).toBeUndefined()
+    await reviewed.downloadModel!(0)
+    await slot.value!.retry([])
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    expect(retries).toHaveLength(0)
+    slot.set(undefined)
+  })
+
 
   it('requires reviewed model consent, stops on dismissal, and retries only after verified completion', async () => {
     const slot = slotOf<AssetConsentRequest>()

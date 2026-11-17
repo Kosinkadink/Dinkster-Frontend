@@ -307,6 +307,53 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
   return { body, digest: `sha256:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}` }
 }
 
+describe('model provider credentials', () => {
+  it('keeps secrets out of returned status and errors and scopes every operation to the chosen engine', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = []
+    let payload: unknown = { provider: 'huggingface', configured: false }
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        expect(init?.redirect).toBe('error')
+        calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined })
+        return jsonResponse(status, payload)
+      } })
+    expect(await connection.fetchModelProvider()).toEqual(payload)
+    payload = { provider: 'huggingface', configured: true, token: 'private-canary' }
+    expect(await connection.saveModelProviderToken('private-canary')).toEqual({ provider: 'huggingface', configured: true })
+    expect(calls.at(-1)).toEqual({ url: '/engine/api/models/providers/huggingface?scope=local', method: 'PUT', body: { token: 'private-canary' } })
+    payload = { method: 'device', flowId: 'owned / flow', status: 'pending', verificationUri: 'https://hf.co/oauth/device', userCode: 'CODE', interval: 5, expiresIn: 60 }
+    expect(await connection.startModelProviderSignIn('device')).toMatchObject({ flowId: 'owned / flow', userCode: 'CODE', verificationUri: 'https://hf.co/oauth/device' })
+    for (const verificationUri of ['http://hf.co/oauth/device', 'https://hf.co.evil.example/device', 'https://hf.co:444/device', 'https://user@hf.co/device']) {
+      payload = { method: 'device', flowId: 'owned', verificationUri, userCode: 'CODE', interval: 5, expiresIn: 60 }
+      await expect(connection.startModelProviderSignIn('device')).rejects.toThrow('Invalid provider URL')
+    }
+    payload = { method: 'pkce', flowId: 'owned', authorizationUrl: 'https://hf.co/oauth/authorize' }
+    await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
+    payload = { status: 'pending', interval: 7 }
+    expect(await connection.pollModelProviderSignIn('owned / flow')).toEqual(payload)
+    expect(calls.at(-1)?.url).toBe('/engine/api/models/providers/huggingface/sign-in/owned%20%2F%20flow?scope=local')
+    payload = { status: 'cancelled' }
+    await connection.cancelModelProviderSignIn('owned / flow')
+    expect(calls.at(-1)?.method).toBe('DELETE')
+    status = 409; payload = { error: 'private-canary' }
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.toThrow('Hugging Face request failed: 409')
+    status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
+    await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
+  })
+
+  it('returns credential and provider-grant refusals without treating either as download consent', async () => {
+    let error = 'credential-required'
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+    error = 'provider-grant-required'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    error = 'unrecognized-private-message'
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
+  })
+})
+
 describe('model download planning and owned jobs', () => {
   const selected = {
     name: 'renamed-source.safetensors', kind: 'model/vae', project: 'work / client',
@@ -399,7 +446,7 @@ describe('shared model management', () => {
   const folder = { id: 'studio', path: '/models/checkpoints', mode: 'read' as const, visibility: 'opt-in' as const, kind: 'model/checkpoint' }
   const state = { settings: { version: 1 as const, locations: [folder], downloadLocation: null },
     locations: [{ ...folder, mounts: ['studio-checkpoint'], enabled: false, active: true }],
-    revision: 'revision-one', project: 'work / client', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+    revision: 'revision-one', project: 'work / client', changesAllowed: true, restartRequired: false, pendingRemovals: [], hiddenModels: [] }
 
   it('preserves shared configuration separately from project state and sends revision-checked edits', async () => {
     const calls: { url: string; body: unknown }[] = []
@@ -434,6 +481,30 @@ describe('shared model management', () => {
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
     await expect(connection.fetchModelSettings()).rejects.toThrow('Malformed model settings')
+  })
+
+  it('keeps model visibility and name guesses in the connection project without replaying failed mutations', async () => {
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, virtualPath: 'mounts/studio-checkpoint/a.safetensors' }
+    const hidden = { name: 'a.safetensors', kind: 'model/checkpoint', identities: [asset.digest] }
+    const calls: { url: string; method: string | undefined; body: unknown }[] = []
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test', project: 'isolated',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        const body = JSON.parse(String(init?.body)) as unknown
+        calls.push({ url, method: init?.method, body })
+        return jsonResponse(status, url.endsWith('/guess') ? { matches: [] } : { ...state, project: 'isolated', hiddenModels: init?.method === 'PUT' ? [hidden] : [] })
+      } })
+    await expect(connection.hideModel(asset, hidden.kind)).resolves.toMatchObject({ project: 'isolated', hiddenModels: [hidden] })
+    await expect(connection.unhideModel(asset.digest)).resolves.toMatchObject({ hiddenModels: [] })
+    expect(calls.slice(0, 2)).toEqual([
+      { url: '/engine/api/models/hidden/isolated', method: 'PUT', body: { asset, kind: hidden.kind } },
+      { url: '/engine/api/models/hidden/isolated', method: 'DELETE', body: { identity: asset.digest } },
+    ])
+    await connection.guessAssets(['a.safetensors'])
+    expect(calls.at(-1)?.body).toEqual({ names: ['a.safetensors'], project: 'isolated' })
+    status = 409
+    await expect(connection.hideModel(asset, hidden.kind)).rejects.toThrow('409')
+    expect(calls).toHaveLength(4)
   })
 
   it('scopes both mount browser routes and search to the selected project', async () => {
@@ -862,8 +933,8 @@ describe('asset name guesses', () => {
     })
 
     expect(calls).toEqual([
-      { names: names.slice(0, 64), digestHints: { 'asset-0': upper.toLowerCase() } },
-      { names: names.slice(64), digestHints: { 'asset-64': lower } },
+      { names: names.slice(0, 64), project: 'default', digestHints: { 'asset-0': upper.toLowerCase() } },
+      { names: names.slice(64), project: 'default', digestHints: { 'asset-64': lower } },
     ])
     expect(matches[0]!.candidates[0]?.confidence).toBe('digest')
   })
