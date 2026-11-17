@@ -57,6 +57,7 @@ import {
   type ProductRole,
 } from '../src/index.js'
 import '../dist/dinkster.css'
+import { CanvasGallery } from './canvas.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -144,6 +145,9 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#canvas'}>
+              <CanvasGallery />
+            </Match>
             <Match when={route() === '#controls'}>
               <Section
                 title="Button roles and fills"

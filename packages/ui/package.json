@@ -16,6 +16,8 @@
   "dependencies": {
     "@dinkster/branding": "workspace:*",
     "@dinkster/core": "workspace:*",
+    "@dinkster/canvas": "workspace:*",
+    "@dinkster/widgets": "workspace:*",
     "lucide-solid": "^1.25.0",
     "solid-js": "^1.9.4"
   },
