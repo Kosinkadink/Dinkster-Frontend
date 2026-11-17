@@ -9,6 +9,7 @@ on:
       - .github/workflows/release.yml
       - scripts/build_release.py
       - scripts/test_build_release.py
+      - scripts/test-release-provenance.mjs
       - frontend-release.json
       - package.json
 
@@ -36,6 +37,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: node --test scripts/test-release-provenance.mjs
       - run: python -m unittest scripts/test_build_release.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @dinkster/app build
