@@ -203,13 +203,13 @@ const paintPin = (ctx: CanvasRenderingContext2D, pin: PinPaint): void => {
   }
   pinOutlinePath(ctx, pin.shape, pin.x, pin.y, r)
   ctx.strokeStyle = pin.background
-  ctx.lineWidth = 1
+  ctx.lineWidth = canvasPaintTokens.pin.outlineStroke
   if (pin.any) ctx.setLineDash([...canvasPaintTokens.dash.anyPin])
   ctx.stroke()
   if (pin.any) ctx.setLineDash([])
   if (pin.optional) {
     ctx.beginPath()
-    ctx.arc(pin.x, pin.y, Math.max(1.5, pin.radius * 0.32), 0, Math.PI * 2)
+    ctx.arc(pin.x, pin.y, Math.max(canvasPaintTokens.pin.optionalMinRadius, pin.radius * canvasPaintTokens.pin.optionalRadiusRatio), 0, Math.PI * 2)
     ctx.fillStyle = pin.background
     ctx.fill()
   }
@@ -689,13 +689,14 @@ const modeDash = (mode: 'active' | 'muted' | 'bypassed', scale: number): number[
 }
 
 const detailRadius = (radius: number, scale: number, detailLevel: CanvasDetailLevel): number =>
-  detailLevel === 'overview' ? screenAwareStroke(radius, scale, 2) : radius
+  detailLevel === 'overview' ? screenAwareStroke(radius, scale, canvasPaintTokens.pin.overviewMinRadius) : radius
 
 const statusRingCullPad = (radius: number, scale: number): number =>
   radius + STATUS_RING_GAP + screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH) / 2
 
 const linkCullPad = (scale: number): number =>
-  Math.max(5, screenAwareStroke(5.5, scale, 2) / 2) + 1 / finiteScale(scale)
+  Math.max(canvasPaintTokens.link.cullMinPadding, screenAwareStroke(canvasPaintTokens.link.selectedStroke, scale, canvasPaintTokens.link.selectedMinScreenStroke) / 2)
+  + canvasPaintTokens.link.cullScreenPadding / finiteScale(scale)
 
 const structureCullPad = (scale: number, pinRadius: number, detailLevel: CanvasDetailLevel): number => {
   const radius = detailRadius(pinRadius, scale, detailLevel)
@@ -1561,7 +1562,7 @@ export class CanvasRenderer {
         batches.set(link.typeName, batch)
         batchedOverviewLinks.add(link.id)
       }
-      ctx.lineWidth = screenAwareStroke(2.5, scale, 1)
+      ctx.lineWidth = screenAwareStroke(canvasPaintTokens.link.stroke, scale, canvasPaintTokens.link.minScreenStroke)
       for (const [typeName, batch] of batches) {
         ctx.strokeStyle = typeName === undefined
           ? t.colors.linkDefault
@@ -1613,8 +1614,8 @@ export class CanvasRenderer {
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,
-          width: 5.5,
-          minScreenWidth: 2,
+          width: canvasPaintTokens.link.selectedStroke,
+          minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
       // Maybe-absent (optional producer) links dash long-and-slow: a calm
@@ -1628,8 +1629,8 @@ export class CanvasRenderer {
       if (link.mismatch === true) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.error,
-          width: 3,
-          minScreenWidth: 1.5,
+          width: canvasPaintTokens.link.mismatchStroke,
+          minScreenWidth: canvasPaintTokens.link.mismatchMinScreenStroke,
         })
       } else {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName)
@@ -1648,7 +1649,7 @@ export class CanvasRenderer {
         const my = (y1 + y2) / 2
         ctx.beginPath()
         const midpointHovered = this.overlay.hoveredLinkMidpoint === link.id
-        ctx.arc(mx, my, midpointHovered ? 5 : 3.5, 0, Math.PI * 2)
+        ctx.arc(mx, my, midpointHovered ? canvasPaintTokens.link.hoveredMidpointRadius : canvasPaintTokens.link.midpointRadius, 0, Math.PI * 2)
         // The grab dot follows the noodle's paint, so a mismatch reads red
         // end to end rather than showing a healthy-looking handle mid-error.
         ctx.fillStyle =
@@ -1659,7 +1660,7 @@ export class CanvasRenderer {
               : t.colors.linkDefault
         ctx.fill()
         ctx.strokeStyle = midpointHovered ? t.colors.dropTarget : t.colors.canvasBackground
-        ctx.lineWidth = midpointHovered ? 1.5 : 1
+        ctx.lineWidth = midpointHovered ? canvasPaintTokens.link.hoveredMidpointStroke : canvasPaintTokens.link.midpointStroke
         ctx.stroke()
       }
       // Net noodles carry their name at the midpoint (legible from ~50% zoom).
@@ -1668,7 +1669,7 @@ export class CanvasRenderer {
         ctx.textAlign = 'center'
         ctx.textBaseline = 'bottom'
         ctx.fillStyle = t.colors.label
-        ctx.fillText(link.netName, (x1 + x2) / 2, (y1 + y2) / 2 - 3)
+        ctx.fillText(link.netName, (x1 + x2) / 2, (y1 + y2) / 2 - canvasPaintTokens.link.nameOffset)
         ctx.textAlign = 'left'
         ctx.textBaseline = 'alphabetic'
       }
@@ -1870,10 +1871,10 @@ export class CanvasRenderer {
           ctx.stroke()
         }
         ctx.strokeStyle = t.colors.canvasBackground
-        ctx.lineWidth = screenAwareStroke(4.5, scale, 3)
+        ctx.lineWidth = screenAwareStroke(canvasPaintTokens.link.guideCasingStroke, scale, canvasPaintTokens.link.guideCasingMinScreenStroke)
         trace()
         ctx.strokeStyle = source.color
-        ctx.lineWidth = screenAwareStroke(2.5, scale, 1.5)
+        ctx.lineWidth = screenAwareStroke(canvasPaintTokens.link.guideStroke, scale, canvasPaintTokens.link.guideMinScreenStroke)
         trace()
       }
       ctx.restore()
@@ -2440,7 +2441,7 @@ export class CanvasRenderer {
   ): void {
     const t = this.tokens
     ctx.strokeStyle = style?.color ?? (typeName ? presentedType(t, { kind: 'concrete', name: typeName }).color : t.colors.linkDefault)
-    ctx.lineWidth = screenAwareStroke(style?.width ?? 2.5, this.viewport.scale, style?.minScreenWidth ?? 1)
+    ctx.lineWidth = screenAwareStroke(style?.width ?? canvasPaintTokens.link.stroke, this.viewport.scale, style?.minScreenWidth ?? canvasPaintTokens.link.minScreenStroke)
     ctx.beginPath()
     this.appendLinkPath(ctx, x1, y1, x2, y2)
     ctx.stroke()
@@ -3492,17 +3493,18 @@ export class CanvasRenderer {
     width: number,
     height: number,
   ): void {
+    const paint = canvasPaintTokens.running
     const pulse = this.reducedMotion
-      ? 0.5
-      : (Math.sin((this.animationTimeMs / 1400) * Math.PI * 2) + 1) / 2
+      ? paint.reducedMotionPulse
+      : (Math.sin((this.animationTimeMs / paint.pulsePeriodMs) * Math.PI * 2) + 1) / 2
     ctx.save()
-    ctx.globalAlpha *= 0.48 + pulse * 0.22
+    ctx.globalAlpha *= paint.glowOpacity + pulse * paint.glowPulseOpacity
     ctx.beginPath()
-    ctx.roundRect(x - 2, y - 2, width + 4, height + 4, this.tokens.cornerRadius + 2)
+    ctx.roundRect(x - paint.glowOutset, y - paint.glowOutset, width + paint.glowOutset * 2, height + paint.glowOutset * 2, this.tokens.cornerRadius + paint.glowOutset)
     ctx.strokeStyle = this.tokens.stateColors.running
-    ctx.lineWidth = screenAwareStroke(4.5, this.viewport.scale, 3)
+    ctx.lineWidth = screenAwareStroke(paint.glowStroke, this.viewport.scale, paint.glowMinScreenStroke)
     ctx.shadowColor = this.tokens.stateColors.running
-    ctx.shadowBlur = 8 + pulse * 5
+    ctx.shadowBlur = paint.glowBlur + pulse * paint.glowPulseBlur
     ctx.stroke()
     ctx.restore()
   }
@@ -3519,9 +3521,9 @@ export class CanvasRenderer {
     ctx.beginPath()
     ctx.roundRect(x, y, width, height, this.tokens.cornerRadius)
     ctx.strokeStyle = this.tokens.progressBar
-    ctx.lineWidth = screenAwareStroke(1.5, scale, 1.5)
+    ctx.lineWidth = screenAwareStroke(canvasPaintTokens.running.accentStroke, scale, canvasPaintTokens.running.accentMinScreenStroke)
     ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.running.world, canvasPaintTokens.dash.running.screen, scale))
-    ctx.lineDashOffset = -(this.animationTimeMs * 0.032) / scale
+    ctx.lineDashOffset = -(this.animationTimeMs * canvasPaintTokens.running.dashSpeed) / scale
     ctx.stroke()
     ctx.restore()
   }
