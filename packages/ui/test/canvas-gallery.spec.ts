@@ -20,6 +20,12 @@ for (const theme of ['dark', 'light'] as const) {
         exact: true,
       })
       await expect(canvas).toHaveAttribute('data-ready', `${id}-${theme}`)
+      expect(
+        await canvas.evaluate(
+          (element) =>
+            element.parentElement!.clientWidth >= element.clientWidth,
+        ),
+      ).toBe(true)
       await expect(canvas).toHaveScreenshot(`${id}-${theme}.png`)
       expect(errors).toEqual([])
     })

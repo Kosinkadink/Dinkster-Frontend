@@ -74,13 +74,8 @@ export function CanvasGallery() {
       renderer.setNodeStates(fixture.states)
       renderer.setBadges(fixture.badges)
       renderer.setOverlay(fixture.overlay)
-      renderer.setRowMarks({
-        'Invalid value': new Set(['steps']),
-        Invalid: new Set(['value']),
-      })
-      renderer.setCompanions({
-        'Shown value': { value: { value: 0.85, state: 'expected' } },
-      })
+      renderer.setRowMarks(fixture.rowMarks)
+      renderer.setCompanions(fixture.companions)
       renderer.setToolbox(fixture.toolbox)
       const image = document.createElement('canvas')
       image.width = 320
@@ -135,7 +130,18 @@ export function CanvasGallery() {
             y: node.y,
             width: node.layout.width,
             height: node.layout.height,
+            ...(fixture.states[node.id]
+              ? { state: fixture.states[node.id]!.state }
+              : {}),
+            bypassed: node.node.mode === 'bypassed',
+            ...(node.color ? { color: node.color } : {}),
           })),
+          groups: fixture.scene.groups,
+          links: fixture.scene.links.map((link) => ({
+            from: { x: link.x1, y: link.y1 },
+            to: { x: link.x2, y: link.y2 },
+          })),
+          reroutes: fixture.scene.reroutes,
           viewport: {
             x: 0,
             y: 0,
@@ -159,17 +165,28 @@ export function CanvasGallery() {
   return (
     <>
       <div class="dinkster-actions" aria-label="Canvas theme">
-        <ProductButton onClick={() => setTheme('dark')}>
+        <ProductButton
+          aria-pressed={theme() === 'dark'}
+          onClick={() => setTheme('dark')}
+        >
           Dark theme
         </ProductButton>
-        <ProductButton onClick={() => setTheme('light')}>
+        <ProductButton
+          aria-pressed={theme() === 'light'}
+          onClick={() => setTheme('light')}
+        >
           Light theme
         </ProductButton>
       </div>
       <nav class="dinkster-actions" aria-label="Canvas pages">
         <For each={canvasGalleryPages}>
           {([id, label]) => (
-            <ProductButton onClick={() => setPage(id)}>{label}</ProductButton>
+            <ProductButton
+              aria-pressed={page() === id}
+              onClick={() => setPage(id)}
+            >
+              {label}
+            </ProductButton>
           )}
         </For>
       </nav>
@@ -180,11 +197,13 @@ export function CanvasGallery() {
           Fixed examples painted by the production CanvasRenderer and registered
           widget views, without a backend.
         </p>
-        <canvas
-          ref={canvas}
-          role="img"
-          aria-label={`${page()} in ${theme()} theme`}
-        />
+        <div class="dinkster-table-scroll">
+          <canvas
+            ref={canvas}
+            role="img"
+            aria-label={`${page()} in ${theme()} theme`}
+          />
+        </div>
       </ProductSection>
     </>
   )

@@ -23,10 +23,12 @@ import {
   executionBlockedBadge,
   executionErrorBadge,
   executionExpandedBadge,
-  layoutNode,
   logWarningBadge,
   toolboxButton,
   type BadgeMap,
+  type NodeBadge,
+  type CompanionMap,
+  type RowMarkMap,
   type DesignTokens,
   type OverlayState,
   type PreviewMap,
@@ -42,12 +44,17 @@ export const canvasGalleryPages = [
   ['states', 'Node states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
+  ['widget-driven', 'Link-driven widgets'],
+  ['widget-offered', 'Offered widgets'],
+  ['widget-companions', 'Propagated values'],
   ['widget-states', 'Widget states'],
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
-  ['zoom', 'Lower zoom'],
+  ['zoom', 'Controls zoom'],
+  ['zoom-content', 'Content zoom'],
+  ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
@@ -176,6 +183,8 @@ export interface CanvasGalleryFixture {
   overlay: OverlayState
   toolbox: readonly ToolboxRow[]
   previews: PreviewMap
+  companions: CompanionMap
+  rowMarks: RowMarkMap
   labels: readonly { text: string; x: number; y: number }[]
 }
 
@@ -199,7 +208,7 @@ export function createCanvasGalleryFixture(
       boundaryNodes: [],
       diagnostics: [],
     },
-    width: 960,
+    width: 944,
     height: 600,
     scale: 1,
     states: {},
@@ -207,6 +216,8 @@ export function createCanvasGalleryFixture(
     overlay: {},
     toolbox: [],
     previews: {},
+    companions: {},
+    rowMarks: {},
     labels: [],
   }
   const labels: { text: string; x: number; y: number }[] = []
@@ -215,10 +226,26 @@ export function createCanvasGalleryFixture(
     definition = sample,
     values: Record<string, Json> = {},
     index = fixture.scene.nodes.length,
+    driven = false,
   ) => {
-    const x = 24 + (index % 3) * 312
-    const y = 54 + Math.floor(index / 3) * 250
-    const document = loadDocument({
+    const x = driven ? 244 : 24 + (index % 3) * 312
+    const y = driven
+      ? Math.max(
+          54,
+          ...fixture.scene.nodes.map(
+            (node) => node.y + node.layout.height + 64,
+          ),
+        )
+      : 54 + Math.floor(index / 3) * 250
+    const producer = schema(
+      'Source',
+      definition.items.flatMap((item) =>
+        item.kind === 'input' && item.widget
+          ? [{ kind: 'output' as const, id: item.id, type: item.type }]
+          : [],
+      ),
+    )
+    const loaded = loadDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'canvas-gallery',
@@ -229,6 +256,15 @@ export function createCanvasGalleryFixture(
           name: 'Gallery',
           nextOrdinal: 2,
           nodes: {
+            ...(driven
+              ? {
+                  [`${id} source`]: {
+                    id: `${id} source`,
+                    type: producer.type,
+                    values: {},
+                  },
+                }
+              : {}),
             [id]: {
               id,
               type: id === 'Missing type' ? 'Uninstalled' : definition.type,
@@ -241,7 +277,24 @@ export function createCanvasGalleryFixture(
                   : {}),
             },
           },
-          links: {},
+          links: driven
+            ? Object.fromEntries(
+                definition.items.flatMap((item, i) =>
+                  item.kind === 'input' && item.widget
+                    ? [
+                        [
+                          `${id}-${i}`,
+                          {
+                            id: `${id}-${i}`,
+                            from: { node: `${id} source`, port: item.id },
+                            to: { node: id, port: item.id },
+                          },
+                        ],
+                      ]
+                    : [],
+                ),
+              )
+            : {},
           nets: {},
           reroutes: {},
         },
@@ -250,6 +303,14 @@ export function createCanvasGalleryFixture(
         graphs: {
           gallery: {
             nodes: {
+              ...(driven
+                ? {
+                    [`${id} source`]: {
+                      position: { x: 24, y },
+                      size: { width: 160, height: 0 },
+                    },
+                  }
+                : {}),
               [id]: {
                 position: { x, y },
                 size: { width: 280, height: 0 },
@@ -259,32 +320,86 @@ export function createCanvasGalleryFixture(
           },
         },
       },
-    }).document
-    if (!document) throw new Error('Invalid canvas gallery document')
+    })
+    const document = loaded.document
+    if (!document)
+      throw new Error(
+        `Invalid canvas gallery document: ${JSON.stringify(loaded)}`,
+      )
     const scene = buildScene({
       document,
       graphId: 'gallery',
-      resolve: (type) => (type === definition.type ? definition : undefined),
+      resolve: (type) =>
+        type === definition.type
+          ? definition
+          : type === producer.type
+            ? producer
+            : undefined,
       tokens,
       measure,
       widgetMeasure,
       seedControllerEnabled: true,
     })
     fixture.scene.nodes.push(...scene.nodes)
+    fixture.scene.links.push(...scene.links)
     labels.push({ text: id, x, y: y - 24 })
   }
-  if (page === 'widgets') {
+  if (
+    page === 'widgets' ||
+    page === 'widget-driven' ||
+    page === 'widget-offered' ||
+    page === 'widget-companions'
+  ) {
+    const companions: Record<
+      string,
+      Record<
+        string,
+        { value: Json; state: 'expected' | 'cached' | 'estimate' | 'stale' }
+      >
+    > = {}
     for (let column = 0; column < 3; column++) {
+      const id = `Kinds ${column + 1}`
+      const items = galleryWidgetInputs.slice(column * 10, column * 10 + 10)
       add(
-        `Kinds ${column + 1}`,
+        id,
         schema(
-          `Kinds ${column + 1}`,
-          galleryWidgetInputs.slice(column * 10, column * 10 + 10),
+          id,
+          page === 'widget-offered'
+            ? items.map((item) => ({
+                kind: 'input',
+                id: `${item.id}_family`,
+                type: item.type,
+                optional: true,
+                dynamic: {
+                  kind: 'autogrow',
+                  naming: { kind: 'prefix', prefix: item.id, min: 0, max: 8 },
+                  template: [item],
+                },
+              }))
+            : items,
         ),
         {},
         column,
+        page === 'widget-driven' || page === 'widget-companions',
       )
+      if (page === 'widget-companions')
+        companions[id] = Object.fromEntries(
+          items.map((item, i) => [
+            item.id,
+            {
+              value: (item.widget?.default ?? null) as Json,
+              state: (['expected', 'cached', 'estimate', 'stale'] as const)[
+                i % 4
+              ]!,
+            },
+          ]),
+        )
     }
+    fixture.companions = companions
+    fixture.height = Math.max(
+      600,
+      ...fixture.scene.nodes.map((node) => node.y + node.layout.height + 24),
+    )
   } else if (
     page === 'structure' ||
     page === 'boundary' ||
@@ -366,22 +481,10 @@ export function createCanvasGalleryFixture(
       hoveredNode: 'Hovered',
       hoveredWidget: { nodeId: 'Hovered row', valueKey: 'cfg' },
     }
-    fixture.scene.nodes = fixture.scene.nodes.map((n) => ({
-      ...n,
-      ...(n.id === 'Muted' || n.id === 'Bypassed'
-        ? {
-            node: {
-              ...n.node,
-              mode:
-                n.id === 'Muted' ? ('muted' as const) : ('bypassed' as const),
-            },
-          }
-        : {}),
-      ...(n.id === 'Colored' ? { color: tokens.stateColors.running } : {}),
-      ...(n.id === 'Renamed'
-        ? { node: { ...n.node, title: 'Refine pass' } }
-        : {}),
-      ...(n.id === 'Missing type' ? { missingSchema: true } : {}),
+    fixture.rowMarks = { 'Invalid value': new Set(['steps']) }
+    fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
+      ...node,
+      ...(node.id === 'Colored' ? { color: tokens.stateColors.running } : {}),
     }))
     fixture.height = 1800
   } else if (page === 'types') {
@@ -447,7 +550,7 @@ export function createCanvasGalleryFixture(
       })
     fixture.height = 850
   } else if (page === 'badges') {
-    const badges = [
+    const badges: NodeBadge[] = [
       ERROR_BADGE,
       executionErrorBadge(2),
       executionBlockedBadge('Missing image'),
@@ -461,7 +564,22 @@ export function createCanvasGalleryFixture(
       PROBLEM_ERROR_BADGE,
       PROBLEM_BLOCKING_WARNING_BADGE,
       PROBLEM_WARNING_BADGE,
-      { id: 'core.media', glyph: 'M', color: tokens.colors.selection },
+      {
+        id: 'core.media.alpha_dropped.image.IMAGE',
+        glyph: 'Alpha dropped: IMAGE',
+        variant: 'label',
+        placement: 'below',
+        interactive: false,
+        color: PROBLEM_WARNING_BADGE.color,
+      },
+      {
+        id: 'core.media.mask_polarity.mask.mask',
+        glyph: 'Mask polarity: mask',
+        variant: 'label',
+        placement: 'below',
+        interactive: false,
+        color: PROBLEM_WARNING_BADGE.color,
+      },
     ]
     const map: Record<string, (typeof badges)[number][]> = {}
     badges.forEach((badge) => {
@@ -491,25 +609,40 @@ export function createCanvasGalleryFixture(
     ]
     fixture.height = 1300
   } else if (page === 'widget-states') {
-    for (const id of [
+    for (const [index, id] of [
       'Default',
       'Hovered',
-      'Driven by link',
-      'Shown value',
       'Offered',
       'Invalid',
       'Empty',
-    ])
+    ].entries()) {
+      const value = widget('value', 'FLOAT', 0.65, { min: 0, max: 1 })
       add(
         id,
         schema(id, [
-          widget('value', 'FLOAT', 0.65, { min: 0, max: 1 }),
+          id === 'Offered'
+            ? {
+                kind: 'input',
+                id: 'values',
+                type: value.type,
+                optional: true,
+                dynamic: {
+                  kind: 'autogrow',
+                  naming: { kind: 'prefix', prefix: 'value', min: 0, max: 8 },
+                  template: [value],
+                },
+              }
+            : value,
           widget('text', 'STRING', id === 'Empty' ? '' : 'A stored value'),
         ]),
+        id === 'Invalid' ? { value: 2 } : {},
+        index,
       )
+    }
     fixture.overlay = {
       hoveredWidget: { nodeId: 'Hovered', valueKey: 'value' },
     }
+    fixture.rowMarks = { Invalid: new Set(['value']) }
     fixture.height = 850
   } else if (page === 'previews') {
     for (const id of [
@@ -562,10 +695,19 @@ export function createCanvasGalleryFixture(
       ...node,
       isSubgraph: node.id === 'Subgraph',
     }))
-    if (page === 'zoom') {
-      fixture.scale = 0.6
-      fixture.width = 600
-      fixture.height = 350
+    if (
+      page === 'zoom' ||
+      page === 'zoom-content' ||
+      page === 'zoom-overview'
+    ) {
+      fixture.scale =
+        page === 'zoom'
+          ? tokens.mediaControlMinScale
+          : page === 'zoom-content'
+            ? 0.5
+            : 0.49
+      fixture.width = 960 * fixture.scale
+      fixture.height = 350 * fixture.scale
     }
   }
   fixture.labels = labels.map((label) => {

@@ -638,7 +638,9 @@ select fixed examples painted by the production `CanvasRenderer`, registry
 widget painter, layout and scene builder, without a backend. The reusable
 fixtures live under `packages/canvas/gallery/`; the gallery shell owns only
 selection, captions and decoded preview images. Gallery captions are annotations,
-not part of node paint.
+not part of node paint. Widget fixtures include link-driven inputs, offered
+family members, propagated values and diagnostics. Zoom pages cover controls,
+content and overview detail. The minimap includes groups, links and reroutes.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
