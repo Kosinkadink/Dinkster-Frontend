@@ -10783,7 +10783,7 @@ export class AppState {
     installAssetConsent({
       result: submitted,
       slot: this.assetConsent,
-      modelDownloads: { connection: backend.connection, project },
+      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
       signal: lease.signal,
       onSettled: lease.release,

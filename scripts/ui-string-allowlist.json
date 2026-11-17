@@ -1,4 +1,10 @@
 {
+  "ModelProvider.tsx": [
+    "text:() const [busy, setBusy] = createSignal(false) const [fallback, setFallback] = createSignal(false) const [token, setToken] = createSignal('') const [forgetting, setForgetting] = createSignal(false) const [error, setError] = createSignal(false) let generation = 0 let timer: ReturnType",
+    "text:() const [flow, setFlow] = createSignal",
+    "text:).authorizationUrl : (current() as Extract",
+    "text:Promise"
+  ],
   "AgentPermissionsPanel.tsx": [
     "text:() const [saving, setSaving] = createSignal",
     "text:(new Set()) const [errors, setErrors] = createSignal",
@@ -672,6 +678,7 @@
     "text:Rendering 3D preview..."
   ],
   "ModelSettings.tsx": [
+    "text:readonly providerConnection?: ModelProviderConnection readonly visibilityConnection?: Pick",
     "text:() const [busy, setBusy] = createSignal(false) const [error, setError] = createSignal('') const [id, setId] = createSignal('') const [path, setPath] = createSignal('') const [kind, setKind] = createSignal('') const [writable, setWritable] = createSignal(false) const [removing, setRemoving] = createSignal",
     "text:() const [editing, setEditing] = createSignal",
     "text:): Promise",
@@ -928,6 +935,7 @@
     "text:family() === 'folder' ? Folder : family() === 'image' ? ImageIcon : family() === 'video' ? Film : family() === 'audio' ? AudioLines : family() === 'model' || family() === 'model3d' ? Box : File return ("
   ],
   "asset-browser/rail.tsx": [
+    "text:readonly visibilityConnection?: Pick",
     "text:() const [previewFailed, setPreviewFailed] = createSignal(false) return (",
     "text:adapter.id === props.item.source.id) return (",
     "text:props.detail.variant return (",

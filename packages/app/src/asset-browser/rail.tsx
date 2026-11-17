@@ -8,13 +8,14 @@
  * next selection.
  */
 
-import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
 import type { DinksterConnection } from '@dinkster/client'
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { CollectionImage } from '../CollectionImage.js'
 import { activeProjectId } from '../projects.js'
 import { ProductNotice } from '../ProductForm.js'
+import { ProductButton } from '../ProductControls.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
@@ -138,12 +139,62 @@ function AssetEntrySelectionContent(props: {
   )
 }
 
+function ModelVisibilityAction(props: {
+  readonly item: AssetBrowserItem
+  readonly connection: Pick<DinksterConnection, 'hideModel'>
+  readonly isCurrent: () => boolean
+  readonly onChanged?: (() => void) | undefined
+}) {
+  const message = useAppMessage()
+  const [confirming, setConfirming] = createSignal(false)
+  const [busy, setBusy] = createSignal(false)
+  const [hidden, setHidden] = createSignal(false)
+  const [error, setError] = createSignal(false)
+  let generation = 0
+  createEffect(() => {
+    props.connection
+    props.item
+    generation++
+    setConfirming(false); setBusy(false); setHidden(false); setError(false)
+  })
+  onCleanup(() => { generation++ })
+  const hide = async () => {
+    if (busy() || !props.isCurrent()) return
+    const owner = generation
+    const asset = props.item.rawRef
+    if (typeof asset !== 'object' || asset === null || !props.item.kind) return
+    setBusy(true); setError(false)
+    try {
+      await props.connection.hideModel(asset as Record<string, unknown>, props.item.kind)
+      if (owner !== generation || !props.isCurrent()) return
+      setHidden(true); setConfirming(false)
+      props.onChanged?.()
+    } catch {
+      if (owner === generation && props.isCurrent()) setError(true)
+    } finally { if (owner === generation) setBusy(false) }
+  }
+  return <section class="model-visibility-action" data-testid="model-visibility-action">
+    <Show when={error()}><ProductNotice tone="error">{message('modelVisibility.error')}</ProductNotice></Show>
+    <Show when={hidden()} fallback={
+      <Show when={confirming()} fallback={<ProductButton class="model-hide-outline" onClick={() => setConfirming(true)}>{message('modelVisibility.hide')}</ProductButton>}>
+        <ProductNotice tone="warning">{message('modelVisibility.confirm', { name: props.item.name })}</ProductNotice>
+        <div class="project-folder-actions">
+          <ProductButton disabled={busy()} onClick={() => setConfirming(false)}>{message('projectFolders.cancel')}</ProductButton>
+          <ProductButton variant="danger" disabled={busy()} onClick={() => void hide()}>{message('modelVisibility.hide')}</ProductButton>
+        </div>
+      </Show>
+    }><ProductNotice tone="info">{message('modelVisibility.hidden')}</ProductNotice></Show>
+  </section>
+}
+
 /** Bind an Assets-panel selection to the same summary and disclosure used by the picker. */
 export function AssetEntrySelection(props: {
   readonly entry: CollectionEntry | undefined
   readonly adapters: readonly AssetSourceAdapter[]
   readonly backendId: string
   readonly connection: Pick<DinksterConnection, 'fetchAssetLocations'>
+  readonly visibilityConnection?: Pick<DinksterConnection, 'hideModel'>
+  readonly onVisibilityChanged?: () => void
   readonly backendUrl: string
   readonly backendLabel?: string | undefined
 }) {
@@ -167,6 +218,9 @@ export function AssetEntrySelection(props: {
           const backendUrl = props.backendUrl
           const project = activeProjectId()
           return <>
+            <Show when={props.visibilityConnection && selected.kind?.startsWith('model/') && selected.virtualPath && selected.rawRef && (selected.digest || (typeof selected.rawRef === 'object' && 'localBinding' in selected.rawRef)) ? props.visibilityConnection : undefined}>{(visibility) => <ModelVisibilityAction
+              item={selected} connection={visibility()} onChanged={props.onVisibilityChanged}
+              isCurrent={() => props.connection === connection && props.backendUrl === backendUrl && activeProjectId() === project} />}</Show>
             <AssetEntrySelectionContent item={selected} preview={isBrowserPreviewable(selected) ? props.entry : undefined} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />
             <Show when={committableAssetRef(selected)}>{(ref) => <AssetFileLocation
               connection={connection} backendUrl={backendUrl} backendLabel={props.backendLabel}

@@ -103,6 +103,9 @@ for (const theme of ['dark', 'light'] as const) {
     } }))
     await openModal(page, 'desktop-management')
     await expect(page.locator('.desktop-management')).toContainText('0.2.0')
+    const provider = page.getByTestId('model-provider')
+    await expect(provider.getByRole('button', { name: 'Sign in with Hugging Face', exact: true })).toBeEnabled()
+    await expect(provider.getByRole('button', { name: 'Dismiss sign-in error' })).toHaveCount(0)
     await screenshot(page, `brand-version-${theme}`)
     await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
       readonly modalPanel: { set(value: string): void }
@@ -156,6 +159,8 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
       dinkster: { version: 'visual-fixture', schemaWire: 1 },
       nodes: {},
     } })
+  } else if (path.endsWith('/api/models/providers/huggingface')) {
+    await route.fulfill({ json: { provider: 'huggingface', configured: false } })
   } else if (path.endsWith('/api/models/settings')) {
     await route.fulfill({ json: {
       settings: { version: 1, downloadLocation: null, locations: [] },

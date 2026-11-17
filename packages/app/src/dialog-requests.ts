@@ -28,6 +28,7 @@ import type {
   ModelDownloadJob,
 } from '@dinkster/client'
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
+import type { ModelProviderConnection } from './ModelProvider.js'
 
 /** Minimal slot surface (a core Signal satisfies it). */
 export interface RequestSlot<T> {
@@ -45,6 +46,9 @@ export interface ModelConsentState {
 }
 
 export interface AssetConsentRequest {
+  readonly providerConnection?: ModelProviderConnection
+  readonly providerChanged?: () => void
+  readonly providerBackendUrl?: string
   readonly models?: readonly ModelConsentState[]
   readonly reviewModel?: (index: number) => Promise<void>
   readonly downloadModel?: (index: number) => Promise<void>
@@ -123,6 +127,8 @@ export function installAssetConsent(p: {
   readonly modelDownloads?: {
     readonly connection: Pick<DinksterConnection, 'planModelDownload' | 'startModelDownload' | 'fetchModelDownloads' | 'fetchModelDownload' | 'cancelModelDownload'>
     readonly project: string
+    readonly providerConnection?: ModelProviderConnection
+    readonly backendUrl?: string
   }
   readonly onSubmitted: (submitted: SubmitOk) => void
   readonly onRejected: (diagnostics: readonly Diagnostic[]) => void
@@ -168,10 +174,17 @@ export function installAssetConsent(p: {
         reviewModel: (i) => modelAction(i, 'review', next),
         downloadModel: (i) => modelAction(i, 'download', next),
         cancelModel: (i) => modelAction(i, 'cancel', next),
+        ...(p.modelDownloads?.providerConnection ? { providerChanged: () => providerChanged(next) } : {}),
       }
       owner = next
       chain = next
       p.slot.set(next)
+    }
+    const providerChanged = (expected: AssetConsentRequest): void => {
+      if (!owned() || settled || owner.busy || owner !== expected) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      for (const [index, entry] of (owner.models ?? []).entries())
+        update(index, { requirement: entry.requirement, pending: false })
     }
     const modelAction = async (index: number, action: 'review' | 'download' | 'cancel', expected = owner): Promise<void> => {
       const scope = p.modelDownloads
@@ -280,6 +293,11 @@ export function installAssetConsent(p: {
       }
     }
     const request: AssetConsentRequest = { assets: result.assetsMissing.assets, busy: false, retry,
+      ...(p.modelDownloads?.providerConnection ? {
+        providerConnection: p.modelDownloads.providerConnection,
+        ...(p.modelDownloads.backendUrl === undefined ? {} : { providerBackendUrl: p.modelDownloads.backendUrl }),
+        providerChanged: () => providerChanged(request),
+      } : {}),
       ...(result.assetsMissing.models?.length ? {
         models: result.assetsMissing.models.map((requirement) => ({ requirement, pending: false })),
         reviewModel: (index: number) => modelAction(index, 'review', request),
