@@ -162,6 +162,22 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(happy-dom@20.11.1)(jiti@2.7.0)(tsx@4.23.12)
 
+  packages/ui:
+    dependencies:
+      '@dinkster/branding':
+        specifier: workspace:*
+        version: link:../../branding/tokens
+      '@dinkster/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/widgets:
     dependencies:
       '@dinkster/core':

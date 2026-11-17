@@ -18,16 +18,30 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 ## Source of truth
 
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
-identity values. The private `@dinkster/branding` workspace package exports
-that JSON as `@dinkster/branding/palette`; core declares it as a dependency.
-`packages/core/src/ui/tokens.ts` imports it with the native JSON type
-attribute and projects it into the existing semantic roles. No duplicate
-theme CSS is maintained. It exports:
+identity values. `dinkster-components.json` beside it owns spacing, typography,
+regular/bold weights, shape, motion, interaction and layout values. The private
+`@dinkster/branding` package exports them as `@dinkster/branding/palette` and
+`@dinkster/branding/components`. `packages/core/src/ui/tokens.ts` imports these
+with native JSON type attributes and projects the semantic roles for the app
+and canvas. It exports:
 
 - `semanticDesignTokens`, the host token model;
 - `semanticCssVariables` and `semanticCssRoot`, the CSS projection injected
   into the document head before application modules; and
 - `canvasSemanticTokens`, the bounded typed subset available to Canvas code.
+
+`pnpm build:ui` builds `packages/ui/dist/dinkster.css`, its relative `fonts/`
+assets (including the font license), and `manifest.json` with the package
+version and SHA-256 of each file. The framework-free stylesheet is exported
+as `@dinkster/ui/styles.css`. Its classes live only in `packages/ui/styles.css`;
+the build adds the same semantic variables the app uses and expands the shared
+768px breakpoint. Consumers copy the entire distribution, not the CSS alone.
+Use `dinkster-root` on the page root and `data-density="site"` for 14px site
+text; the default density is the app's 13px. The full-width shell has a 56px
+top bar, 240px sidebar, 720px content column (960px for tables) and 32px page
+padding. Below the standard breakpoint, the sidebar is hidden unless opened.
+Components own the corresponding menu, form, dialog and notification behavior;
+CSS does not implement keyboard interaction or confirmation policy.
 
 The document's `data-theme="light"` selects the light CSS projection; dark
 is the default. Settings -> Dinkster -> Theme switches both DOM and canvas

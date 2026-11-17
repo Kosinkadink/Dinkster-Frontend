@@ -47,7 +47,7 @@
 .app-layout-queue-label {
   flex: 1;
   min-width: 0;
-  font-weight: var(--dinkster-weight-semibold);
+  font-weight: var(--dinkster-weight-bold);
 }
 .app-layout-queue-targets {
   display: grid;
@@ -117,9 +117,9 @@
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
 }
-.app-layout-palette > span { margin-right: auto; font-weight: var(--dinkster-weight-semibold); }
+.app-layout-palette > span { margin-right: auto; font-weight: var(--dinkster-weight-bold); }
 .app-layout-text { margin: 0; color: var(--dinkster-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
-.app-layout-text.heading { font-size: var(--dinkster-type-title-size); line-height: var(--dinkster-type-title-line); font-weight: var(--dinkster-weight-semibold); }
+.app-layout-text.heading { font-size: var(--dinkster-type-title-size); line-height: var(--dinkster-type-title-line); font-weight: var(--dinkster-weight-bold); }
 .app-layout-text.body { font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .app-layout-text.caption { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .app-layout-text a { color: var(--dinkster-accent-foreground); text-decoration: underline; text-underline-offset: 2px; }
@@ -148,8 +148,8 @@
   box-shadow: var(--dinkster-elevation-low);
 }
 .app-layout-group-header { display: flex; align-items: center; gap: var(--dinkster-space-8); min-height: var(--dinkster-input-primary-height); }
-.app-layout-group-header > h2 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); font-weight: var(--dinkster-weight-semibold); }
-.app-layout-group-title { flex: 1; min-width: 0; font-weight: var(--dinkster-weight-semibold); }
+.app-layout-group-header > h2 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); font-weight: var(--dinkster-weight-bold); }
+.app-layout-group-title { flex: 1; min-width: 0; font-weight: var(--dinkster-weight-bold); }
 .app-layout-group-children { display: flex; flex-direction: column; gap: var(--dinkster-space-8); }
 .app-layout-group-child { min-width: 0; }
 .app-layout-group-child > .app-view-row { background: var(--dinkster-surface-raised); border-color: var(--dinkster-border-subtle); }

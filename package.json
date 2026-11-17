@@ -5,6 +5,7 @@
   "description": "Dinkster: greenfield ComfyUI frontend. Framework-free core, canvas renderer, SolidJS shell.",
   "type": "module",
   "scripts": {
+    "build:ui": "pnpm --filter @dinkster/ui build",
     "check:raw-controls": "node scripts/check-raw-controls.mjs",
     "check:raw-controls:write": "node scripts/check-raw-controls.mjs --write",
     "ci:fast": "node scripts/ci-fast.mjs",
