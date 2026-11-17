@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
+import { expect, nativeAppViewTest as test, type Request, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
@@ -21,9 +21,36 @@ test.beforeEach(async ({ page }) => {
 test('inspects every media kind through the owning value API without mutating the graph or values', async ({ page, request }, testInfo) => {
   let socket: WebSocketRoute | undefined
   const backendRequests: string[] = []
+  const retentionRequests = new Map<Request, number>()
+  const successfulRetentionReads = new Set<Request>()
+  const observedRetentionOwners = new Set<string>()
+  let retentionGeneration = 0
   page.on('request', (request) => {
     const url = new URL(request.url())
     if (url.pathname.startsWith('/api/') || url.pathname === '/system_stats' || url.pathname === '/supervisor/status') backendRequests.push(`${request.method()} ${url.pathname}${url.search}`)
+    if (!url.pathname.startsWith('/api/library/retentions/')) return
+    if (request.method() !== 'GET') {
+      retentionGeneration += 1
+      observedRetentionOwners.clear()
+    }
+    retentionRequests.set(request, retentionGeneration)
+  })
+  page.on('response', (response) => {
+    if (retentionRequests.has(response.request()) && response.request().method() === 'GET' && response.ok()) {
+      successfulRetentionReads.add(response.request())
+    }
+  })
+  page.on('requestfinished', (request) => {
+    if (retentionRequests.get(request) === retentionGeneration && successfulRetentionReads.has(request)) {
+      const url = new URL(request.url())
+      observedRetentionOwners.add(`${url.searchParams.get('scope')}/${decodeURIComponent(url.pathname.slice('/api/library/retentions/'.length))}`)
+    }
+    retentionRequests.delete(request)
+    successfulRetentionReads.delete(request)
+  })
+  page.on('requestfailed', (request) => {
+    retentionRequests.delete(request)
+    successfulRetentionReads.delete(request)
   })
   await page.routeWebSocket('**/api/events?*', (route) => { socket = route })
   await page.setViewportSize({ width: 1400, height: 1400 })
@@ -117,6 +144,16 @@ test('inspects every media kind through the owning value API without mutating th
     return snapshot?.v === 1 &&
       !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
   })).toBe(true)
+  // Snapshot persistence does not drain the debounced retention journal scan.
+  await expect.poll(async () => {
+    const owners = await page.evaluate(() => Object.keys(localStorage)
+      .filter((key) => key.startsWith('dinkster.workflow-retentions.'))
+      .map((key) => {
+        const { owner } = JSON.parse(localStorage.getItem(key)!)
+        return `${owner.scope}/${owner.ownerKind}/${owner.ownerId}`
+      }))
+    return owners.length > 0 && retentionRequests.size === 0 && owners.every((owner) => observedRetentionOwners.has(owner))
+  }).toBe(true)
   const beforeLocaleRequests = [...backendRequests]
   const beforeLocaleValueRequests = requests.length
   const localeModule = await (await request.get('/src/locale.ts')).text()
