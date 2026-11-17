@@ -27,6 +27,7 @@ for (const args of [
   ['check:raw-controls'],
   ['check:ui-strings'],
   ['typecheck'],
+  ['build:ui'],
 ]) {
   const env = { ...process.env }
   if (args[0] === 'check:extension-literals')

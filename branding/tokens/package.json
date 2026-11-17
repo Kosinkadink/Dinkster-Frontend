@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./palette": "./dinkster-colors.json"
+    "./palette": "./dinkster-colors.json",
+    "./components": "./dinkster-components.json"
   }
 }

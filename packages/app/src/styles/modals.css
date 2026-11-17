@@ -45,7 +45,7 @@
 .desktop-worker-form-heading, .desktop-worker-path-field, .desktop-worker-form-actions { grid-column: 1 / -1; }
 .desktop-worker-form-heading p { margin-bottom: 0; }
 .desktop-worker-form label, .desktop-worker-form-field { display: grid; align-content: start; gap: var(--dinkster-space-4); min-width: 0; color: var(--dinkster-text-primary); }
-.desktop-worker-form label > span, .desktop-worker-form-field > span { font-weight: var(--dinkster-weight-medium); }
+.desktop-worker-form label > span, .desktop-worker-form-field > span { font-weight: var(--dinkster-weight-regular); }
 .desktop-worker-form label small, .desktop-worker-form-field small { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); font-weight: normal; line-height: var(--dinkster-type-metadata-line); }
 .desktop-worker-form input, .desktop-worker-form select, .desktop-worker-form textarea { width: 100%; min-width: 0; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; }
 .desktop-worker-form textarea { resize: vertical; }
@@ -77,7 +77,7 @@
 .close-tab-confirm { padding: var(--dinkster-space-16); }
 .close-tab-confirm p { margin: 0 0 var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
 .subgraph-definitions { width: min(760px, 82vw); max-height: calc(86vh - 40px); padding: var(--dinkster-space-16); overflow-y: auto; color: var(--dinkster-text-primary); -webkit-user-select: text; user-select: text; }
-.subgraph-definitions h2 { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); font-weight: var(--dinkster-weight-semibold); line-height: var(--dinkster-type-section-line); }
+.subgraph-definitions h2 { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); font-weight: var(--dinkster-weight-bold); line-height: var(--dinkster-type-section-line); }
 .subgraph-cleanup-intro { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); overflow-wrap: anywhere; }
 .subgraph-definition-list-hint { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .subgraph-definition-list { display: grid; gap: var(--dinkster-space-8); max-height: 380px; margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); scrollbar-gutter: stable; list-style: none; touch-action: pan-y; }
@@ -86,23 +86,23 @@
 .subgraph-retained-definitions .subgraph-definition-row { border-left-color: var(--dinkster-success-border); }
 .subgraph-definition-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; }
 .subgraph-definition-identity { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
-.subgraph-definition-identity strong { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-semibold); overflow-wrap: anywhere; }
+.subgraph-definition-identity strong { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
 .subgraph-definition-identity code,
 .subgraph-definition-dependencies code { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); overflow-wrap: anywhere; }
-.subgraph-definition-state { flex: none; padding: 0 var(--dinkster-space-8); border: 1px solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-capsule); color: var(--dinkster-warning-foreground); background: var(--dinkster-warning-background); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-semibold); line-height: var(--dinkster-type-metadata-line); }
+.subgraph-definition-state { flex: none; padding: 0 var(--dinkster-space-8); border: 1px solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-capsule); color: var(--dinkster-warning-foreground); background: var(--dinkster-warning-background); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-bold); line-height: var(--dinkster-type-metadata-line); }
 .subgraph-definition-state[data-state='reachable'] { color: var(--dinkster-success-foreground); background: var(--dinkster-success-background); border-color: var(--dinkster-success-border); }
 .subgraph-definition-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--dinkster-space-8); margin: 0; }
 .subgraph-definition-facts div { min-width: 0; padding: var(--dinkster-space-8); background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-small); }
 .subgraph-definition-facts dt,
 .subgraph-definition-dependencies > span:first-child { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.subgraph-definition-facts dd { margin: 0; color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-medium); overflow-wrap: anywhere; }
+.subgraph-definition-facts dd { margin: 0; color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-regular); overflow-wrap: anywhere; }
 .subgraph-definition-dependencies { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .subgraph-definition-dependencies ul { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-4); margin: 0; padding: 0; list-style: none; }
 .subgraph-definition-dependencies li { display: inline-flex; flex-wrap: wrap; gap: var(--dinkster-space-4); min-width: 0; padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
-.subgraph-definition-dependencies strong { font-weight: var(--dinkster-weight-medium); overflow-wrap: anywhere; }
+.subgraph-definition-dependencies strong { font-weight: var(--dinkster-weight-regular); overflow-wrap: anywhere; }
 .subgraph-definition-none { color: var(--dinkster-text-secondary); }
 .subgraph-retained-definitions { margin-top: var(--dinkster-space-16); padding-top: var(--dinkster-space-12); border-top: 1px solid var(--dinkster-border-subtle); }
-.subgraph-retained-definitions summary { min-height: var(--dinkster-control-compact-height); margin-bottom: var(--dinkster-space-8); color: var(--dinkster-text-secondary); font-weight: var(--dinkster-weight-medium); cursor: pointer; }
+.subgraph-retained-definitions summary { min-height: var(--dinkster-control-compact-height); margin-bottom: var(--dinkster-space-8); color: var(--dinkster-text-secondary); font-weight: var(--dinkster-weight-regular); cursor: pointer; }
 .subgraph-retained-definitions summary:hover { color: var(--dinkster-text-primary); }
 .subgraph-retained-definitions summary:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
 @media (max-width: 520px) {
@@ -183,13 +183,13 @@
 .settings-result-status { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .settings-result-group + .settings-result-group { margin-top: var(--dinkster-space-16); }
 .settings-result-group h2 { margin: 0; font-size: inherit; }
-.settings-result-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); width: 100%; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; font-weight: var(--dinkster-weight-semibold); text-align: start; cursor: pointer; }
+.settings-result-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); width: 100%; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; font-weight: var(--dinkster-weight-bold); text-align: start; cursor: pointer; }
 .settings-result-heading:hover { background: var(--dinkster-interaction-hover); border-color: var(--dinkster-border-strong); }
 .product-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(calc(var(--dinkster-space-32) * 5), calc(var(--dinkster-space-32) * 7)) auto; grid-template-areas: 'copy control actions' '. message message'; gap: var(--dinkster-space-8); align-items: center; min-width: 0; min-height: calc(var(--dinkster-space-32) * 2); padding: var(--dinkster-space-8); border-bottom: 1px solid var(--dinkster-border-subtle); }
 .product-field:hover { background: var(--dinkster-interaction-hover); }
 .product-field-invalid { background: var(--dinkster-danger-background); }
 .product-field-copy { grid-area: copy; min-width: 0; display: flex; flex-direction: column; gap: var(--dinkster-space-4); }
-.product-field-label { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-medium); overflow-wrap: anywhere; cursor: pointer; }
+.product-field-label { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-regular); overflow-wrap: anywhere; cursor: pointer; }
 .product-field-description { color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); overflow-wrap: anywhere; }
 .product-field-metadata { color: var(--dinkster-text-muted); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); overflow-wrap: anywhere; }
 .product-field-invalid .product-field-label,
@@ -202,7 +202,7 @@
 .binding-capture { min-width: 0; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; }
 .binding-capture { width: 100%; cursor: pointer; }
 .product-field-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-4); }
-.product-field-message { grid-area: message; margin: 0; color: var(--dinkster-danger-foreground); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-medium); line-height: var(--dinkster-type-metadata-line); }
+.product-field-message { grid-area: message; margin: 0; color: var(--dinkster-danger-foreground); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-regular); line-height: var(--dinkster-type-metadata-line); }
 .product-field-message[data-tone='warning'] { color: var(--dinkster-warning-foreground); }
 .product-field-message[data-tone='status'] { color: var(--dinkster-info-foreground); }
 .product-field-invalid .product-field-control > input,
@@ -357,7 +357,7 @@
 .canvas-file-drop-copy { display: grid; min-width: 0; gap: var(--dinkster-space-4); }
 .canvas-file-drop-copy > strong {
   font-size: var(--dinkster-type-section-size);
-  font-weight: var(--dinkster-weight-semibold);
+  font-weight: var(--dinkster-weight-bold);
   line-height: var(--dinkster-type-section-line);
 }
 .canvas-file-drop-copy > span {

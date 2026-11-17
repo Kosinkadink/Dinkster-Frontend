@@ -114,7 +114,7 @@
 .combo-page:hover { background: var(--dinkster-surface-raised); }
 
 .combo-option-copy { display: flex; flex-direction: column; min-width: 0; }
-.combo-option-copy strong { font-weight: var(--dinkster-weight-medium); }
+.combo-option-copy strong { font-weight: var(--dinkster-weight-regular); }
 .combo-option-info { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .combo-menu-entry.active .combo-option-info { color: inherit; opacity: 0.8; }
 .combo-folder svg:last-child { margin-left: auto; }
@@ -238,7 +238,7 @@
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-capsule);
   font-size: var(--dinkster-type-metadata-size);
-  font-weight: var(--dinkster-weight-medium);
+  font-weight: var(--dinkster-weight-regular);
   line-height: var(--dinkster-type-metadata-line);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -263,7 +263,7 @@
 .asset-section-eyebrow {
   color: var(--dinkster-text-muted);
   font-size: var(--dinkster-type-metadata-size);
-  font-weight: var(--dinkster-weight-semibold);
+  font-weight: var(--dinkster-weight-bold);
   line-height: var(--dinkster-type-metadata-line);
   text-transform: uppercase;
 }

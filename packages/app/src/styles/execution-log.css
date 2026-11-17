@@ -150,7 +150,7 @@
   border-radius: var(--dinkster-radius-capsule);
   color: var(--dinkster-info-foreground);
   background: var(--dinkster-info-background);
-  font-weight: var(--dinkster-weight-semibold);
+  font-weight: var(--dinkster-weight-bold);
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -174,7 +174,7 @@
   color: var(--dinkster-text-primary);
   background: transparent;
   font: inherit;
-  font-weight: var(--dinkster-weight-medium);
+  font-weight: var(--dinkster-weight-regular);
   text-align: left;
   text-decoration: underline;
   text-decoration-color: var(--dinkster-border-subtle);
