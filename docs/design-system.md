@@ -631,6 +631,23 @@ the last ordinary item so interaction is not destroyed by the cap. Tab changes
 clear transient ownership. Canvas2D images and compact low-zoom media cues do
 not add DOM roots.
 
+### Canvas gallery
+
+The shared component gallery includes `/#canvas`. Its theme and page controls
+select fixed examples painted by the production `CanvasRenderer`, registry
+widget painter, layout and scene builder, without a backend. The reusable
+fixtures live under `packages/canvas/gallery/`; the gallery shell owns only
+selection, captions and decoded preview images. Gallery captions are annotations,
+not part of node paint. Widget fixtures include link-driven inputs, offered
+family members, propagated values and diagnostics. The widget-state page selects
+each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
+cover controls, content and overview detail. The minimap includes groups, links and reroutes.
+
+`packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
+themes in the same Linux Chromium job as the shared component screenshots.
+Intentional paint changes include reviewed picture differences; token-only
+moves preserve the pictures.
+
 ### Extension descriptors
 
 Extensions never receive canvas, DOM, CSS, theme, app-store, socket, network,
