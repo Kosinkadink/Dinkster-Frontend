@@ -8,7 +8,7 @@
     "./styles.css": "./dist/dinkster.css"
   },
   "scripts": {
-    "build": "tsx build.ts && vite build",
+    "build": "node ../../scripts/check-design-system.mjs && tsx build.ts && vite build",
     "dev": "vite --host 127.0.0.1 --port 5276 --strictPort",
     "test:browser": "playwright test",
     "typecheck": "tsc --noEmit"
