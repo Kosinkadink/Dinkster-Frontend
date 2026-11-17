@@ -18,16 +18,97 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 ## Source of truth
 
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
-identity values. The private `@dinkster/branding` workspace package exports
-that JSON as `@dinkster/branding/palette`; core declares it as a dependency.
-`packages/core/src/ui/tokens.ts` imports it with the native JSON type
-attribute and projects it into the existing semantic roles. No duplicate
-theme CSS is maintained. It exports:
+identity values. `dinkster-components.json` beside it owns spacing, typography,
+regular/bold weights, shape, motion, interaction and layout values. The private
+`@dinkster/branding` package exports them as `@dinkster/branding/palette` and
+`@dinkster/branding/components`. `packages/core/src/ui/tokens.ts` imports these
+with native JSON type attributes and projects the semantic roles for the app
+and canvas. It exports:
 
 - `semanticDesignTokens`, the host token model;
 - `semanticCssVariables` and `semanticCssRoot`, the CSS projection injected
   into the document head before application modules; and
 - `canvasSemanticTokens`, the bounded typed subset available to Canvas code.
+
+`pnpm build:ui` builds `packages/ui/dist/dinkster.css`, its relative `fonts/`
+assets (including the font license), and `manifest.json` with the package
+version and SHA-256 of each file. The framework-free stylesheet is exported
+as `@dinkster/ui/styles.css`. Its classes live only in `packages/ui/styles.css`;
+the build adds the same semantic variables the app uses and expands the shared
+768px breakpoint. Consumers copy the entire distribution, not the CSS alone.
+Use `dinkster-root` on the page root and `data-density="site"` for 14px site
+text; the default density is the app's 13px. The full-width shell has a 56px
+top bar, 240px sidebar, 720px content column (960px for tables) and 32px page
+padding. Below the standard breakpoint, the sidebar is hidden unless opened.
+Components own the corresponding menu, form, dialog and notification behavior;
+CSS does not implement keyboard interaction or confirmation policy.
+
+## Shared SolidJS components and gallery
+
+`branding/tokens/design-rules.json` owns button roles/fills, message behavior,
+notification lifetime, sentence case and hidden unconfigured services. It names
+tokens rather than colors and is exported as `@dinkster/branding/rules`. The
+portable distribution includes it in the SHA-256 manifest.
+
+`@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
+They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
+alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
+component gallery on loopback port 5276 after `pnpm build:ui`; production gallery
+files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
+not an account service or a replacement for the app.
+
+- `ProductShell` owns the full-width frame and responsive navigation. Its caller
+  changes `currentHref` and content synchronously in `onNavigate`, showing
+  `ProductLoading` until data arrives. Navigation retains real link targets.
+  `ProductPage` owns headings and the normal/table content width.
+- `ProductButton` names `intent` as add/remove/neutral and `fill` as
+  solid/outline. `ProductIconButton` is the quiet icon-only control with a
+  required accessible label. Pending buttons stay disabled with a stable name.
+  The variant gallery is deliberately not a real screen's action hierarchy.
+- `ProductField` binds its label, description and error to its child control.
+  Pass its attributes to `ProductTextInput`, `ProductTextArea` or `ProductSelect`.
+  Native checkbox/radio behavior remains in `ProductCheckbox`/`ProductRadio`.
+- `ProductForm` takes an initial string-valued record once per mounted form.
+  Its render callback receives values, a field setter, dirty and pending state.
+  Save and Undo changes are disabled until the values differ from the saved
+  baseline. A successful asynchronous save updates that baseline; a failure
+  retains edits and shows a dismissible error until a later save succeeds.
+  Changing to another record mounts a new form. Page-specific API validation
+  stays with the caller and `ProductField`.
+- `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
+  keyboard item movement and opener focus restoration. Disabled items are
+  skipped; a disabled-only menu remains keyboard-dismissable. Placement uses
+  the app's unchanged viewport algorithm from `@dinkster/core/floating-surface`,
+  clamping horizontally and flipping above when needed. Scroll outside or
+  resize dismisses the menu rather than leaving a stale anchor. Item text follows its intent. Removal callbacks open a confirmation;
+  `ProductAccountMenu` displays name/email and invokes Sign out immediately.
+- `ProductNotice` is standing information without a dismiss button, including
+  its warning tone for QA environments.
+  `ProductErrorBanner` is dismissed explicitly or by the caller after success.
+  `ProductToast` is success feedback, dismissible immediately and automatically
+  after five seconds. Mount a new toast for each success notification.
+- `ProductConfirmation` orders the title, consequence, solid action and Cancel.
+  Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
+  duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
+  Escape dismissal, keyboard focus wrapping and opener restoration for apps;
+  its pending state prevents dismissal during an owned operation.
+- `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
+  `ProductEmptyState` uses the approved D mark with a sentence and optional
+  action. `ProductLoading`, `ProductSpinner` and `ProductIcon` provide status
+  and lucide icon anatomy.
+
+`reportProductEvent` is the single telemetry entry point. Its types permit only
+page views, fixed action outcomes, and load/interaction timings for named
+product routes. There is no provider, network call, storage, arbitrary string
+payload, workflow content, prompt or filename. The function currently does
+nothing; adding transport requires approval of the provider and event list.
+
+`pnpm --filter @dinkster/ui test:browser` exercises the production gallery in
+Chromium, with desktop/mobile screenshots and menu, form, toast, dialog and
+navigation contracts. `pnpm test:visual` includes these checks. Keyboard focus,
+hover and pressed states are real browser states, not simulated CSS classes.
+
+## App semantic projection
 
 The document's `data-theme="light"` selects the light CSS projection; dark
 is the default. Settings -> Dinkster -> Theme switches both DOM and canvas

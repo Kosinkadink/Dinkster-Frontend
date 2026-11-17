@@ -1,9 +1,10 @@
 import palette from '@dinkster/branding/palette' with { type: 'json' }
+import components from '@dinkster/branding/components' with { type: 'json' }
 
 export interface TypeToken {
   readonly fontSize: number
   readonly lineHeight: number
-  readonly fontWeight: 400 | 500 | 600
+  readonly fontWeight: 400 | 700
 }
 
 export interface MeaningToken {
@@ -41,8 +42,7 @@ export interface SemanticDesignTokens {
     readonly title: TypeToken
     readonly weight: {
       readonly regular: 400
-      readonly medium: 500
-      readonly semibold: 600
+      readonly bold: 700
     }
   }
   readonly surface: {
@@ -76,6 +76,7 @@ export interface SemanticDesignTokens {
   readonly action: {
     readonly primaryBg: string
     readonly primaryText: string
+    readonly removeText: string
   }
   readonly shape: {
     readonly small: number
@@ -114,23 +115,8 @@ export const semanticTokensForTheme = (
     border: foreground,
   })
   return deepFreeze({
-    space: {
-      4: 4,
-      8: 8,
-      12: 12,
-      16: 16,
-      24: 24,
-      32: 32,
-    },
-    type: {
-      fontFamily: '"Noto Sans", sans-serif',
-      fontMono: '"Noto Sans Mono", monospace',
-      metadata: { fontSize: 11, lineHeight: 16, fontWeight: 400 },
-      body: { fontSize: 13, lineHeight: 20, fontWeight: 400 },
-      section: { fontSize: 15, lineHeight: 20, fontWeight: 500 },
-      title: { fontSize: 18, lineHeight: 24, fontWeight: 600 },
-      weight: { regular: 400, medium: 500, semibold: 600 },
-    },
+    space: components.space,
+    type: components.type as SemanticDesignTokens['type'],
     surface: {
       canvas: colors.bg.canvas,
       panel: colors.bg.surface,
@@ -159,32 +145,20 @@ export const semanticTokensForTheme = (
       danger: meaning(colors.status.danger),
       info: meaning(colors.status.info),
     },
-    action: colors.action,
-    shape: {
-      small: 4,
-      control: 6,
-      card: 8,
-      capsule: 999,
+    action: {
+      ...colors.action,
+      removeText:
+        theme === 'dark' ? colors.action.primaryText : colors.bg.surface,
     },
+    shape: components.shape,
     interaction: {
-      compactControlHeight: 32,
-      primaryInputHeight: 40,
-      focusRingWidth: 2,
+      ...components.interaction,
       hoverOverlay: colors.bg.hover,
       pressedOverlay: colors.bg.raised,
       selectedOverlay: colors.bg.hover,
-      disabledOpacity: 0.45,
     },
-    motion: {
-      fast: 120,
-      standard: 180,
-      reduced: 0,
-      easing: 'cubic-bezier(0.2, 0, 0, 1)',
-    },
-    elevation: {
-      low: '0 4px 12px rgba(0, 0, 0, 0.28)',
-      high: '0 12px 32px rgba(0, 0, 0, 0.42)',
-    },
+    motion: components.motion,
+    elevation: components.elevation,
   } as const satisfies SemanticDesignTokens)
 }
 
@@ -238,6 +212,7 @@ export const semanticCssVariablesForTheme = (
   deepFreeze({
     '--dinkster-action-primary-bg': semanticDesignTokens.action.primaryBg,
     '--dinkster-action-primary-text': semanticDesignTokens.action.primaryText,
+    '--dinkster-action-remove-text': semanticDesignTokens.action.removeText,
     '--dinkster-space-4': px(semanticDesignTokens.space[4]),
     '--dinkster-space-8': px(semanticDesignTokens.space[8]),
     '--dinkster-space-12': px(semanticDesignTokens.space[12]),
@@ -279,10 +254,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-weight-regular': String(
       semanticDesignTokens.type.weight.regular,
     ),
-    '--dinkster-weight-medium': String(semanticDesignTokens.type.weight.medium),
-    '--dinkster-weight-semibold': String(
-      semanticDesignTokens.type.weight.semibold,
-    ),
+    '--dinkster-weight-bold': String(semanticDesignTokens.type.weight.bold),
     '--dinkster-surface-canvas': semanticDesignTokens.surface.canvas,
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,

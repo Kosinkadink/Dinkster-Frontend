@@ -57,7 +57,7 @@ import type { VideoPreferences } from './video-preview.js'
 import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { placeFloatingSurface } from './floating-surface.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import {
   defaultValuesOf,
   initialDynamicStateOf,

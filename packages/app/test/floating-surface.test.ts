@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { placeFloatingSurface } from '../src/floating-surface.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 
 const bounds = { left: 0, top: 0, right: 800, bottom: 600 }
 
