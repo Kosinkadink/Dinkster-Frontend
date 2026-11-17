@@ -425,20 +425,6 @@
     "text:Reset visibility",
     "text:Visibility"
   ],
-  "DesktopManagementDialog.tsx": [
-    "text:() const [busy, setBusy] = createSignal(false) const [statusMessage, setStatusMessage] = createSignal",
-    "text:() const [check, setCheck] = createSignal",
-    "text:() const [mounts, setMounts] = createSignal",
-    "text:() const [removingWorker, setRemovingWorker] = createSignal",
-    "text:() const [workerName, setWorkerName] = createSignal('') const [workerEndpoint, setWorkerEndpoint] = createSignal('') const [workerTokenFile, setWorkerTokenFile] = createSignal('') const [workerTokenFileGrant, setWorkerTokenFileGrant] = createSignal",
-    "text:() const [workerTlsCaFile, setWorkerTlsCaFile] = createSignal('') const [workerTlsCaFileGrant, setWorkerTlsCaFileGrant] = createSignal",
-    "text:([]) const [mountChangesAllowed, setMountChangesAllowed] = createSignal(false) const [workers, setWorkers] = createSignal",
-    "text:([]) const [workerFormOpen, setWorkerFormOpen] = createSignal(false) const [editingWorker, setEditingWorker] = createSignal",
-    "text:, successKey?: string): Promise",
-    "text:= 1024 && unit",
-    "text:Promise",
-    "text:props.connection) const [info, setInfo] = createSignal"
-  ],
   "DesktopSetup.tsx": [
     "text:props.status.phase === 'failed' return ("
   ],

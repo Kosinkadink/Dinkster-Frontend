@@ -107,19 +107,10 @@ the opener's project, and the same workflow can be torn out once per project.
 
 ## Managing the desktop installation
 
-Open **Dinkster Desktop** from the app toolbar to inspect local storage, select a
-locked CPU, CUDA, MPS, ROCm, or XPU environment, restore an installed engine
-release, manage install snapshots and existing model folders, run the system
-checker, check for desktop updates, or export a support bundle. Environment
-changes stop the local engine first and only become active after the selected
-environment starts successfully. A failed change starts the previous selection
-again. Each commit and hardware variant has its own release directory, so
-preparing a different environment does not overwrite the working one.
-
-The mounted management dialog follows the active English or Chinese locale
-without closing forms or changing desktop state. Versions, commits, paths,
-worker and node identifiers, hardware and platform facts, update and system
-check details, errors, and other host-provided values remain untranslated.
+Manage environments in Dinkster Desktop, not in the editor. The editor does not
+provide the old engine-management or install-snapshot dialog. Existing model
+folders remain available through the model settings and project folder settings.
+Software changes update an environment and record a snapshot of its software.
 
 Every environment change writes a durable operation journal before mutation,
 captures the current install state, and records the replacement state after a
