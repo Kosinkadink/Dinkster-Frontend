@@ -234,6 +234,12 @@ export async function checkDesignSystem(args = []) {
             'Use static shared classes and semantic data attributes',
           )
       }
+      if (memberName(node) === 'classList')
+        report(
+          path,
+          line(node),
+          'Use static shared classes and semantic data attributes',
+        )
       if (
         (ts.isPropertyAccessExpression(node) ||
           ts.isElementAccessExpression(node)) &&

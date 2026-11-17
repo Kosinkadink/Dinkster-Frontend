@@ -61,6 +61,15 @@ test('design check accepts shared classes and geometry but rejects screen-local 
         'Native element spreads',
       ],
       ['element.className = "private-card"', 'Class private-card'],
+      ...[
+        'node.classList.add("private-card")',
+        'node.classList.toggle("private-card", true)',
+        'node["classList"]["add"]("private-card")',
+        'const classes = node.classList; classes.add("private-card")',
+      ].map((mutation) => [
+        `const node = document.createElement('div'); ${mutation}`,
+        'Use static shared classes',
+      ]),
       ['element.setAttribute("class", "private-card")', 'Class private-card'],
       ['element.setAttribute("style", "color: red")', 'Inline styles'],
     ]) {
