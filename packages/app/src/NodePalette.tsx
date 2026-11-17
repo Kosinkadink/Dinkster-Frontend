@@ -44,7 +44,7 @@ import {
   type TypeExpr,
   type WidgetRegistry,
 } from '@dinkster/core'
-import { placeFloatingSurface } from './floating-surface.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { useAppMessage } from './locale.js'
 import { paintSchemaPreview } from './palette-node-preview.js'
 import { SearchInput, SearchResultGroup, SearchResultRow, SearchState } from './SearchSurface.js'

@@ -7,7 +7,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { semanticDesignTokens, type MenuActionItem, type MenuItem, type MenuSubmenuItem } from '@dinkster/core'
 import { Ban, CirclePlay, Copy, CopyPlus, Eye, FolderOpen, Group, Palette, SlidersHorizontal, Trash2, Ungroup, VolumeX, type LucideIcon } from 'lucide-solid'
-import { placeFloatingSurface, type FloatingSurfacePlacement } from './floating-surface.js'
+import { placeFloatingSurface, type FloatingSurfacePlacement } from '@dinkster/core/floating-surface'
 import { Icon } from './Icon.js'
 import { menuFlat, type MenuAnchor } from './menu-target.js'
 
