@@ -205,6 +205,15 @@ Gated model review distinguishes missing sign-in from missing provider permissio
 The captured-submission dialog offers sign-in without granting download or run
 consent; after credentials change, review again before Download and Run once.
 
+Select a local model in Assets and choose Hide in this project, then confirm.
+Hiding suppresses that model in this project's Browse, pickers and suggestions
+without deleting bytes or changing other projects. Existing explicit workflow
+references report the hidden model instead of silently selecting another file.
+Under Model management -> Hidden Models, Show in this project restores a saved
+selection, including one whose folder is temporarily unavailable. A verified
+content hide follows identical bytes; an unhashed local selection follows only
+that file revision, not replacement bytes or a different same-byte location.
+
 Edit model folder changes its shared path, purpose and read/write access;
 its warning explains that every project is affected. Read-only folders are never
 upgraded implicitly. Changing the last writable location to read only leaves

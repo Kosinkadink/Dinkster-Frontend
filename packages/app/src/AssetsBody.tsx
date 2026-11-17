@@ -297,7 +297,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         <summary>{message('projectFolders.title')}</summary>
         <Show when={foldersOpen()}>
           <ProjectFolderSettings connection={props.connection} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
-          <ModelSettings connection={props.connection} providerConnection={props.connection} backendLabel={props.baseUrl || props.backendId} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} onChanged={() => setRetryTick((tick) => tick + 1)} />
+          <ModelSettings connection={props.connection} providerConnection={props.connection} visibilityConnection={props.connection} backendLabel={props.baseUrl || props.backendId} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} onChanged={() => setRetryTick((tick) => tick + 1)} />
           <OutputMountSettings connection={props.connection} />
         </Show>
       </details>
@@ -316,7 +316,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
               renderState={(state) => assetState(state, message)}
               entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
               detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId}
-                connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}
+                connection={props.connection} visibilityConnection={props.connection} onVisibilityChanged={() => setRetryTick((tick) => tick + 1)} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}
             />
     </div>
   )

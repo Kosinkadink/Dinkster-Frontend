@@ -17,7 +17,7 @@ import { BrandMark } from './BrandMark.js'
 import { ProductButton, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 
-export type DesktopMountConnection = Pick<DinksterConnection, 'fetchMountSettings' | 'addMount' | 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'> & ModelProviderConnection
+export type DesktopMountConnection = Pick<DinksterConnection, 'fetchMountSettings' | 'addMount' | 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged' | 'unhideModel'> & ModelProviderConnection
 
 type StatusMessage = { readonly key: string; readonly params?: Record<string, string | number> } | { readonly raw: string }
 
@@ -284,7 +284,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
               <div class="desktop-mount-list">
                 <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
               </div>
-              <ModelSettings connection={connection()} providerConnection={connection()} backendLabel={props.backendUrl || 'localhost'} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={refreshMounts} />
+              <ModelSettings connection={connection()} providerConnection={connection()} visibilityConnection={connection()} backendLabel={props.backendUrl || 'localhost'} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={refreshMounts} />
             </>}
           </Show>
         </section>

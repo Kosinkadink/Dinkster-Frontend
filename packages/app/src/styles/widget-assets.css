@@ -484,6 +484,8 @@
     grid-template-rows: auto auto;
   }
   .asset-selection-summary { max-height: 30vh; }
+  .assets-panel .collection-content:has(.model-visibility-action) { flex-direction: column; flex-wrap: nowrap; }
+  .assets-panel .asset-browser-selection:has(.model-visibility-action) { width: 100%; max-height: 50vh; }
   .asset-browser-section { min-height: min(440px, 60vh); }
   .asset-editor .collection-content { min-height: 40vh; flex-direction: column; flex-wrap: nowrap; }
   /* Definite cap so the list stays an internal scrollbox while the body

@@ -133,6 +133,46 @@ it('refuses a stale open editor after a shared update and preserves its draft un
   } finally { dispose() }
 })
 
+it('shows unavailable hidden selections and restores visibility only on explicit action', async () => {
+  const hidden = { name: 'offline.safetensors', kind: 'model/checkpoint', identities: ['local-revision:opaque'] }
+  let state = { ...initial, hiddenModels: [hidden] }
+  const connection = { fetchModelSettings: async () => state, onMountsChanged: () => () => {},
+    updateModelSettings: vi.fn(), setModelLocationEnabled: vi.fn(),
+    unhideModel: async (identity: string) => { expect(identity).toBe(hidden.identities[0]); state = { ...state, hiddenModels: [] }; return state } }
+  const changed = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <ModelSettings connection={connection} visibilityConnection={connection} backendLabel="Engine" onChanged={changed} />, root)
+  try {
+    await vi.waitFor(() => expect(root.textContent).toContain(hidden.name))
+    expect(changed).not.toHaveBeenCalled()
+    root.querySelector<HTMLButtonElement>('[data-testid="hidden-models"] button')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('No individual models are hidden'))
+    expect(root.textContent).not.toContain(hidden.name)
+    expect(changed).toHaveBeenCalledTimes(1)
+  } finally { dispose() }
+})
+
+it('discards pending unhide completion after changing engines', async () => {
+  let finish!: (state: ModelSettingsState) => void
+  const hidden = { name: 'first.safetensors', kind: 'model/checkpoint', identities: ['opaque'] }
+  const first = { fetchModelSettings: async () => ({ ...initial, hiddenModels: [hidden] }), onMountsChanged: () => () => {},
+    updateModelSettings: vi.fn(), setModelLocationEnabled: vi.fn(), unhideModel: () => new Promise<ModelSettingsState>((resolve) => { finish = resolve }) }
+  const second = { ...first, fetchModelSettings: async () => ({ ...initial, project: 'other', hiddenModels: [{ ...hidden, name: 'second.safetensors' }] }) }
+  const [connection, setConnection] = createSignal(first)
+  const changed = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <ModelSettings connection={connection()} visibilityConnection={connection()} backendLabel="Engine" onChanged={changed} />, root)
+  try {
+    await vi.waitFor(() => expect(root.textContent).toContain(hidden.name))
+    root.querySelector<HTMLButtonElement>('[data-testid="hidden-models"] button')!.click()
+    setConnection(second)
+    await vi.waitFor(() => expect(root.textContent).toContain('second.safetensors'))
+    finish({ ...initial, hiddenModels: [] }); await Promise.resolve(); await Promise.resolve()
+    expect(root.textContent).toContain('second.safetensors')
+    expect(changed).not.toHaveBeenCalled()
+  } finally { dispose() }
+})
+
 it('discards an old server response after changing connections', async () => {
   let finish!: (state: ModelSettingsState) => void
   const first: ComponentProps<typeof ModelSettings>['connection'] = { fetchModelSettings: () => new Promise((resolve) => { finish = resolve }), onMountsChanged: () => () => {}, updateModelSettings: vi.fn(), setModelLocationEnabled: vi.fn() }
