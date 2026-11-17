@@ -63,6 +63,48 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it('stays busy until acknowledged workspace candidates finish locked cleanup', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, digests: [], complete: true }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const waiting: (() => void)[] = []
+    Object.defineProperty(globalThis.navigator, 'locks', {
+      configurable: true,
+      value: { request: (_name: string, _options: LockOptions, callback: () => unknown) =>
+        new Promise<unknown>((resolve) => { waiting.push(() => resolve(callback())) }) },
+    })
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(0)
+    waiting.shift()!()
+    await vi.advanceTimersByTimeAsync(0)
+    const candidates = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.startsWith('dinkster.openTabsCandidate.'))
+    expect(candidates().length).toBeGreaterThan(0)
+    expect(app.retentionActivity().admissions).toBe(0)
+    expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(true)
+    while (waiting.length > 0) {
+      waiting.shift()!()
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    expect(candidates()).toEqual([])
+    expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+  })
+
   it('reuses acknowledged ownership when a peer repeats an incorporated document stage', async () => {
     const events = new EventTarget()
     vi.stubGlobal('addEventListener', events.addEventListener.bind(events))

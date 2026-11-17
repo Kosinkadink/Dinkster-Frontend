@@ -2071,7 +2071,7 @@ function commitPersistedTabs(
   onRetired: (retired: readonly string[], committed: PersistedTabs) => void,
   onSlotRetired: (key: string, raw: string) => void,
   incorporatesClosedCandidate: (candidate: PersistedDocumentCandidate, workspace: PersistedTabs) => boolean,
-  queueCommit: (commit: () => void) => void,
+  queueCommit: (commit: () => Promise<void>) => void,
 ): void {
   const storage = globalThis.localStorage
   if (!storage) return
@@ -2095,7 +2095,7 @@ function commitPersistedTabs(
   } catch {
     return
   }
-  const commit = (): void => {
+  const commit = async (): Promise<void> => {
     try {
       if (activeProjectId() !== project || globalThis.localStorage !== storage) return
       const loaded = loadPersistedTabStates()
@@ -2108,7 +2108,7 @@ function commitPersistedTabs(
         .map(({ opId }) => ({ opId, raw: storage.getItem(`${workspaceOperationPrefix()}${opId}`) }))
       const admission = stage(tabsKey(), merged, documents)
       onCommitted(merged)
-      void admission.then((admitted) => {
+      await admission.then((admitted) => {
         const cleanup = (): void => {
           if (activeProjectId() !== project || globalThis.localStorage !== storage) return
           if (admitted === undefined || storage.getItem(tabsKey()) !== admitted) return
@@ -4819,6 +4819,7 @@ export class AppState {
     this.reconcilePersistedTabs(state)
   }
 
+  private pendingPersistedTabsCommits = 0
   private queuedPersistedTabsCommit: { readonly storage: Storage | undefined; readonly project: string } | undefined
   private readonly recoveryStorageProblemsOwner = Symbol('workspace-recovery-storage')
 
@@ -4902,7 +4903,9 @@ export class AppState {
         // Sources and acknowledgments are read under the lock, so one queued
         // scan covers every notification before entry, not changes after entry.
         clear()
-        commit()
+        this.pendingPersistedTabsCommits += 1
+        // Release the scan lock before admission and its locked cleanup finish.
+        void commit().finally(() => { this.pendingPersistedTabsCommits -= 1 }).catch(() => undefined)
       }
       const locks = globalThis.navigator?.locks
       if (locks) void locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, run).finally(clear).catch(() => undefined)
@@ -8430,6 +8433,7 @@ export class AppState {
       workspaceOperations: this.workspaceTabPending,
       persistenceTimer: this.persistTimer !== undefined,
       queuedCommit: this.queuedPersistedTabsCommit !== undefined,
+      commits: this.pendingPersistedTabsCommits,
       incompleteSlots: [...this.persistedWorkflowSlots].filter(([, slot]) => !slot.complete).map(([key]) => key),
     }
   }
