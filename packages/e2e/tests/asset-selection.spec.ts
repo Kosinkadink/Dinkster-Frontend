@@ -143,6 +143,7 @@ for (const accepted of [true, false]) {
     })
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+    await waitForStartupOwnership(page)
     await page.evaluate(async () => {
       await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'picker-owner', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'Picker', values: { source: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
