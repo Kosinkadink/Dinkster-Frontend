@@ -5,9 +5,9 @@ import { useAssetDecisionViewport } from './asset-decision-viewport.js'
 import { formatByteSize } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ModalSurface } from './ModalSurface.js'
-import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
 import { ModelProvider } from './ModelProvider.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { useSignal } from './solid-adapter.js'
 
 export interface AssetPlanPresentation {
@@ -160,6 +160,23 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 <span class="asset-kind">{state().requirement.kind}</span>
                 <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
                 <Show when={state().job?.error}>{(error) => <ProductNotice tone="error">{['credential-required', 'provider-grant-required', 'model-hidden'].includes(error()) ? message(`modelConsent.plan.${error()}`) : error()}</ProductNotice>}</Show>
+                <Show when={state().source !== undefined || state().plan?.status === 'picker-required'}>
+                  <ProductField controlId={`model-source-${index}`} layout="stack"
+                    label={message('modelConsent.sourceUrl')} description={message('modelConsent.sourceDescription')}>
+                    <ProductTextInput id={`model-source-${index}`} type="url" data-testid="model-consent-source"
+                      aria-labelledby={productFieldIds(`model-source-${index}`).label}
+                      aria-describedby={productFieldIds(`model-source-${index}`).description}
+                      value={state().source ?? ''} disabled={state().pending || request()?.busy || cancellable()}
+                      onInput={(event) => request()?.selectModelSource?.(index, event.currentTarget.value)} />
+                  </ProductField>
+                  <For each={(() => { const plan = state().plan; return plan?.status === 'picker-required' ? plan.sources : [] })()}>{(source) =>
+                    <div class="asset-decision-source"><span>{message('modelConsent.suggestedSource')}</span>
+                      <div class="asset-decision-source-details"><code>{source}</code>
+                        <ProductButton disabled={state().pending || request()?.busy} onClick={() => request()?.selectModelSource?.(index, source)}>{message('modelConsent.chooseSource')}</ProductButton>
+                      </div>
+                    </div>
+                  }</For>
+                </Show>
                 <Show when={metadata()}>{(selection) => <>
                   <For each={[
                     ['modelConsent.provider', selection().provider], ['modelConsent.project', selection().project],

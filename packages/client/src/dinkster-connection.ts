@@ -3471,9 +3471,10 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
-  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal): Promise<ModelDownloadPlan> {
+  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
+      ...(source === undefined ? {} : { source }),
     }, signal))
   }
 

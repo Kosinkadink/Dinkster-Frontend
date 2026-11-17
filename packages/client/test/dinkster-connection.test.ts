@@ -377,6 +377,9 @@ describe('model download planning and owned jobs', () => {
     expect(plan).not.toHaveProperty('digest')
     expect(calls).toEqual([{ url: '/engine/api/models/downloads/plan?scope=local', method: 'POST',
       body: { name: selected.name, kind: selected.kind, project: selected.project, scope: 'local' } }])
+    await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
+    expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
+      project: selected.project, scope: 'local', source: selected.source })
     payload = active
     const started = await connection.startModelDownload('opaque-plan')
     expect(started).toEqual(active)
