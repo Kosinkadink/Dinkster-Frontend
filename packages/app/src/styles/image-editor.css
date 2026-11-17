@@ -45,6 +45,7 @@
 
 .graph-editor-with-gallery { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
 .graph-editor-canvas { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.graph-editor-canvas > .product-empty-state { margin: calc(var(--dinkster-control-compact-height) + var(--dinkster-space-24)) var(--dinkster-space-16) var(--dinkster-space-16); }
 .template-gallery-open { position: absolute; z-index: 7; left: 50%; bottom: var(--dinkster-space-24); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-8) var(--dinkster-space-16); color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border: 1px solid var(--dinkster-accent-border); border-radius: var(--dinkster-radius-control); box-shadow: var(--dinkster-elevation-low); font: inherit; transform: translateX(-50%); cursor: pointer; }
 .template-gallery-open:hover { background: var(--dinkster-surface-selected); }
 .template-gallery-open:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }

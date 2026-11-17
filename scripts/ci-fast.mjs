@@ -25,6 +25,8 @@ for (const args of [
   ],
   ['check:extension-literals'],
   ['check:raw-controls'],
+  ['check:design-system'],
+  ['test:design-system'],
   ['check:ui-strings'],
   ['typecheck'],
   ['build:ui'],
