@@ -740,7 +740,11 @@ IDs and labels remain owned by `ProductField`. The service supplies the person's
 name and email to the account menu. The renderer owns changed-field disabling;
 controller callbacks update service state without rewriting button attributes.
 Rejected changes remain retryable, and only a successful save advances the saved
-baseline. Dismissing a toast or error updates the service-owned message state.
+baseline. Same-screen responses reconcile the existing controls, so a focused
+Save remains focused through refusal or success. After success it is announced
+as unavailable until focus leaves, then becomes natively disabled. Conditional
+fields and token-history membership update with the service model.
+Dismissing a toast or error updates the service-owned message state.
 The service calls the view's `clear()` on pagehide alongside clearing its secret
 variables; this removes secret DOM before a restored page is rendered.
 Authorization retains a native POST form

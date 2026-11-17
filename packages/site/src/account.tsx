@@ -1,5 +1,6 @@
 import { For, Show, batch, createMemo, createSignal, type JSX } from 'solid-js'
 import { render } from 'solid-js/web'
+import { createStore, reconcile } from 'solid-js/store'
 import { CreditCard, KeyRound, Package, Shield, User } from 'lucide-solid'
 import {
   ProductAccountMenu,
@@ -139,6 +140,7 @@ const sentenceLabel = (label: string) =>
  * and interaction behavior. Fields expose data-account-field to that controller. */
 export function accountView(options: AccountViewOptions) {
   const [model, setModel] = createSignal<AccountModel>()
+  const [blocks, setBlocks] = createStore<AccountBlock[]>([])
   const [pending, setPending] = createSignal<AccountControl>()
   const [edits, setEdits] = createSignal<Record<string, string>>({})
   const baselines: Record<string, string> = {}
@@ -236,9 +238,9 @@ export function accountView(options: AccountViewOptions) {
       </Show>
     </Show>
   )
-  const rows = (items: AccountRow[], label: string) => (
-    <ProductList label={label}>
-      <For each={items}>
+  const rows = (items: () => AccountRow[], label: () => string) => (
+    <ProductList label={label()}>
+      <For each={items()}>
         {(row) => (
           <ProductListRow
             title={row.label}
@@ -265,8 +267,7 @@ export function accountView(options: AccountViewOptions) {
     </ProductList>
   )
   const block = (item: AccountBlock): JSX.Element => {
-    if (!visible(item)) return null
-    const label = item.label ?? ''
+    const label = () => item.label ?? ''
     switch (item.t) {
       case 'h1':
         return null
@@ -309,7 +310,7 @@ export function accountView(options: AccountViewOptions) {
         return (
           <div class="dinkster-stack">
             <ProductField
-              label={label}
+              label={label()}
               description={item.hint ?? ''}
               error={item.error ?? ''}
             >
@@ -334,7 +335,7 @@ export function accountView(options: AccountViewOptions) {
         )
       case 'select':
         return (
-          <ProductField label={label}>
+          <ProductField label={label()}>
             {(attributes) => (
               <ProductSelect
                 {...attributes}
@@ -377,22 +378,23 @@ export function accountView(options: AccountViewOptions) {
           />
         )
       case 'rows': {
-        const items = (item.items as AccountRow[]).filter(visible)
-        if (!item.history_label) return rows(items, 'Account items')
-        const active = items.filter((row) => !row.inactive)
-        const inactive = items.filter((row) => row.inactive)
+        const items = () => (item.items as AccountRow[]).filter(visible)
+        if (!item.history_label) return rows(items, () => 'Account items')
+        const active = () => items().filter((row) => !row.inactive)
+        const inactive = () => items().filter((row) => row.inactive)
         return (
           <div class="dinkster-stack">
-            {active.length ? (
-              rows(active, 'Active tokens')
-            ) : (
-              <p class="dinkster-description">No active tokens.</p>
-            )}
-            <Show when={inactive.length}>
+            <Show
+              when={active().length}
+              fallback={<p class="dinkster-description">No active tokens.</p>}
+            >
+              {rows(active, () => 'Active tokens')}
+            </Show>
+            <Show when={inactive().length}>
               <ProductDisclosure
-                title={`${item.history_label} (${inactive.length})`}
+                title={`${item.history_label} (${inactive().length})`}
               >
-                {rows(inactive, item.history_label)}
+                {rows(inactive, () => item.history_label ?? 'Inactive tokens')}
               </ProductDisclosure>
             </Show>
           </div>
@@ -415,7 +417,7 @@ export function accountView(options: AccountViewOptions) {
       case 'key':
         return (
           <ProductCodeBlock
-            label={label || 'Secret value'}
+            label={label() || 'Secret value'}
             value={item.value ?? ''}
             action={action({
               text: item.copy ?? 'Copy',
@@ -514,7 +516,15 @@ export function accountView(options: AccountViewOptions) {
                         >
                           {(banner) => message(banner() as Message)}
                         </Show>
-                        <For each={model()!.screen.blocks}>{block}</For>
+                        <For each={model()!.screen.blocks}>
+                          {(item) => (
+                            <Show when={visible(item)}>
+                              <Show when={item.t} keyed>
+                                {(_type) => block(item)}
+                              </Show>
+                            </Show>
+                          )}
+                        </For>
                       </Show>
                     </Show>
                   </form>
@@ -547,9 +557,12 @@ export function accountView(options: AccountViewOptions) {
       }
       batch(() => {
         setEdits({})
+        const nextBlocks = structuredClone(next.screen.blocks)
+        if (previous !== next.screen.id) setBlocks(nextBlocks)
+        else setBlocks(reconcile(nextBlocks, { key: null, merge: true }))
         setModel({
           ...next,
-          screen: { ...next.screen },
+          screen: { ...next.screen, blocks },
           state: { ...next.state },
         })
       })
@@ -571,6 +584,7 @@ export function accountView(options: AccountViewOptions) {
       for (const id of Object.keys(baselines)) delete baselines[id]
       batch(() => {
         setModel(undefined)
+        setBlocks([])
         setNotification(undefined)
         setDismissed(undefined)
         setEdits({})

@@ -137,6 +137,7 @@ test('pending actions keep focus and cannot repeat; service refusal keeps entere
     app.view.render(app.model)
     app.finish()
   })
+  await expect(save).toBeFocused()
   await expect(page.getByLabel('Display name')).toHaveValue('Rejected name')
   await expect(page.getByText('Use another name.')).toBeVisible()
   await expect(
@@ -157,10 +158,14 @@ test('pending actions keep focus and cannot repeat; service refusal keeps entere
       () => (window as unknown as { model: AccountModel }).model.state.flash,
     ),
   ).toBeNull()
+  await save.focus()
+  await save.press('Enter')
+  await expect(save).toBeFocused()
   await page.evaluate(() => {
     const app = window as unknown as {
       model: AccountModel
       view: { render: (model: AccountModel) => void }
+      finish: () => void
     }
     app.model.screen.blocks = app.model.screen.blocks.map((block) =>
       block.t === 'field'
@@ -171,7 +176,21 @@ test('pending actions keep focus and cannot repeat; service refusal keeps entere
     )
     app.model.state.flash = { tone: 'success', text: 'Saved.' }
     app.view.render(app.model)
+    app.finish()
   })
+  await expect(save).toBeFocused()
+  await expect(save).toHaveAttribute('aria-disabled', 'true')
+  await page.screenshot({
+    path: 'test-results/captures/profile-saved.png',
+    fullPage: true,
+  })
+  await save.press('Enter')
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { actions: string[] }).actions,
+    ),
+  ).toEqual(['Save', 'Save'])
+  await page.getByLabel('Display name').focus()
   await expect(save).toBeDisabled()
   await expect(page.getByRole('status')).toContainText('Saved.')
   await page.getByRole('button', { name: 'Dismiss notification' }).click()
@@ -184,6 +203,73 @@ test('pending actions keep focus and cannot repeat; service refusal keeps entere
   await expect(save).toBeEnabled()
   await page.getByLabel('Display name').fill('Corrected name')
   await expect(save).toBeDisabled()
+})
+
+test('service updates move tokens to history and refresh conditional controls', async ({
+  page,
+}) => {
+  const model = structuredClone(profile)
+  model.screen = {
+    id: 'account.publishing',
+    layout: 'account',
+    nav: 'publishing',
+    blocks: [
+      { t: 'h1', text: 'Publishing' },
+      {
+        t: 'rows',
+        history_label: 'Inactive tokens',
+        items: [
+          { label: 'Release token', detail: 'Active', actions: [] },
+          {
+            label: 'Old token',
+            detail: 'Expired',
+            inactive: true,
+            actions: [],
+          },
+        ],
+      },
+      { t: 'p', text: 'Confirm identity before changes.', when: 'stale' },
+      { t: 'field', id: 'code', label: 'Verification code', when: 'stale' },
+    ],
+  }
+  await open(page, model)
+  await expect(page.getByRole('list', { name: 'Active tokens' })).toContainText(
+    'Release token',
+  )
+  await expect(page.getByText('Old token', { exact: true })).toBeHidden()
+  await expect(page.getByLabel('Verification code')).toHaveCount(0)
+  await page.evaluate(() => {
+    const app = window as unknown as {
+      model: AccountModel
+      view: { render: (model: AccountModel) => void }
+    }
+    app.model.screen.blocks[1]!.items = [
+      {
+        label: 'Release token',
+        detail: 'Revoked',
+        inactive: true,
+        actions: [],
+      },
+      { label: 'Old token', detail: 'Expired', inactive: true, actions: [] },
+    ]
+    app.model.state.flags.stale = true
+    app.view.render(app.model)
+  })
+  await expect(page.getByText('No active tokens.')).toBeVisible()
+  await expect(page.getByLabel('Verification code')).toBeVisible()
+  await expect(page.getByText('Confirm identity before changes.')).toBeVisible()
+  await page.getByText('Inactive tokens (2)', { exact: true }).click()
+  const history = page.getByRole('list', {
+    name: 'Inactive tokens',
+    exact: true,
+  })
+  await expect(history).toContainText('Release tokenRevoked')
+  await expect(history).toContainText('Old tokenExpired')
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.screenshot({
+    path: 'test-results/captures/publishing-history-390.png',
+    fullPage: true,
+  })
 })
 
 test('navigation marks current immediately during loading', async ({
