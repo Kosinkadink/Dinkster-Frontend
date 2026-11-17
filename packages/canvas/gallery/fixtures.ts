@@ -428,6 +428,26 @@ export function createCanvasGalleryFixture(
     if (page === 'minimap') {
       fixture.width = 210
       fixture.height = 122
+      const states = [
+        'running',
+        'error',
+        'done',
+        'pending',
+        'skipped',
+        'cached',
+      ] as const
+      fixture.scene.nodes = fixture.scene.nodes.map((node, index) => {
+        fixture.states[node.id] = { state: states[index % states.length]! }
+        return {
+          ...node,
+          ...(node.id === 'note'
+            ? { node: { ...node.node, mode: 'bypassed' as const } }
+            : {}),
+          ...(node.id === 'markdown'
+            ? { color: tokens.stateColors.running }
+            : {}),
+        }
+      })
     }
   } else if (page === 'states') {
     const ids = [
@@ -704,6 +724,37 @@ export function createCanvasGalleryFixture(
       ...node,
       isSubgraph: node.id === 'Subgraph',
     }))
+    if (page === 'anatomy') {
+      for (const collapsed of [false, true]) {
+        add(
+          collapsed ? 'Collapsed section' : 'Expanded section',
+          schema('Section example', [
+            {
+              kind: 'input',
+              id: 'image',
+              type: concrete('IMAGE'),
+              optional: true,
+            },
+            { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+            {
+              kind: 'section',
+              id: 'advanced',
+              displayName: 'Advanced',
+              collapsedByDefault: collapsed,
+            },
+            { ...widget('amount', 'FLOAT', 0.75), section: 'advanced' },
+            {
+              kind: 'input',
+              id: 'mask',
+              type: concrete('MASK'),
+              optional: true,
+              section: 'advanced',
+            },
+          ]),
+        )
+      }
+      add('Missing type')
+    }
     if (
       page === 'zoom' ||
       page === 'zoom-content' ||
