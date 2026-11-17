@@ -131,10 +131,12 @@ synchronized canonical Close, matching captured stages and document digest,
 and removal of the physical recovery candidate.
 When browser recovery writes exceed quota or storage access is refused, the
 current workflow remains editable in memory and previously stored recovery is
-not discarded to make space. The Problems log reports the failure and asks the
-user to keep the window open, export the workflow, and free browser storage.
-A later persistence attempt retries normally; the diagnostic clears only after
-acknowledged canonical cleanup covers all current open workflow documents.
+not discarded to make space. A dismissible error banner above the workspace
+and the Problems log ask the user to keep the window open, export the workflow,
+and free browser storage. Dismissing the banner does not discard the edit;
+a later failed attempt shows it again. A later persistence attempt retries
+normally; successful acknowledged canonical cleanup covering all current open
+workflow documents clears the diagnostic.
 
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
