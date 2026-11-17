@@ -3022,9 +3022,9 @@ export class CanvasRenderer {
       }
       ctx.fillStyle = t.colors.widgetBackground
       ctx.strokeStyle = t.colors.nodeBorder
-      ctx.lineWidth = 1
+      ctx.lineWidth = canvasPaintTokens.preview.stroke
       ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(2, t.cornerRadius - 1))
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset))
       ctx.fill()
       ctx.stroke()
       const minimizedPreview = l.minimized === true
@@ -3046,16 +3046,18 @@ export class CanvasRenderer {
           : undefined
         const fit = containRect(mediaRect, preview)
         if (this.previewChecker === undefined) {
+          const size = canvasPaintTokens.preview.checkerSize
+          const half = size / 2
           const tile = typeof OffscreenCanvas === 'undefined'
             ? this.canvas.ownerDocument.createElement('canvas')
-            : new OffscreenCanvas(16, 16)
-          tile.width = tile.height = 16
+            : new OffscreenCanvas(size, size)
+          tile.width = tile.height = size
           const tileContext = tile.getContext('2d')!
           tileContext.fillStyle = t.colors.widgetBackground
-          tileContext.fillRect(0, 0, 16, 16)
+          tileContext.fillRect(0, 0, size, size)
           tileContext.fillStyle = t.colors.nodeBorder
-          tileContext.fillRect(0, 0, 8, 8)
-          tileContext.fillRect(8, 8, 8, 8)
+          tileContext.fillRect(0, 0, half, half)
+          tileContext.fillRect(half, half, half, half)
           this.previewChecker = ctx.createPattern(tile, 'repeat')
         }
         ctx.fillStyle = this.previewChecker ?? t.colors.widgetBackground
@@ -3071,7 +3073,7 @@ export class CanvasRenderer {
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         const alpha = ctx.globalAlpha
-        ctx.globalAlpha = alpha * 0.65
+        ctx.globalAlpha = alpha * canvasPaintTokens.preview.placeholderOpacity
         const media = preview.kind === 'video'
           ? 'video'
           : preview.kind === 'audio'
@@ -3086,16 +3088,17 @@ export class CanvasRenderer {
             : preview.status === 'failed'
               ? minimizedPreview ? 'No preview' : `${media[0]!.toUpperCase()}${media.slice(1)} unavailable`
               : minimizedPreview ? 'Loading' : `Loading ${media}`)
-          : fitText(ctx, preview.statusMessage, Math.max(0, mediaRect.width - 8))
+          : fitText(ctx, preview.statusMessage, Math.max(0, mediaRect.width - canvasPaintTokens.preview.labelPadding))
         ctx.fillText(label, mediaRect.x + mediaRect.width / 2, mediaRect.y + mediaRect.height / 2)
         ctx.globalAlpha = alpha
       }
       if (farMedia) {
         ctx.fillStyle = t.colors.nodeBody
         const label = `${preview.kind ?? 'media'}${(preview.count ?? 0) > 1 ? ` ${(preview.index ?? 0) + 1}/${preview.count}` : ''}`
-        ctx.font = `${Math.max(9, t.fontSize - 1)}px ${t.fontFamily}`
-        const width = Math.max(48, ctx.measureText(label).width + 12)
-        ctx.fillRect(rect.x + (rect.width - width) / 2, rect.y + (rect.height - 20) / 2, width, 20)
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
+        const width = Math.max(canvasPaintTokens.preview.mediaBadgeMinWidth, ctx.measureText(label).width + canvasPaintTokens.preview.mediaBadgePadding)
+        const height = canvasPaintTokens.preview.mediaBadgeHeight
+        ctx.fillRect(rect.x + (rect.width - width) / 2, rect.y + (rect.height - height) / 2, width, height)
         ctx.fillStyle = t.colors.label
         ctx.textAlign = 'center'
         ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2)
@@ -3104,17 +3107,17 @@ export class CanvasRenderer {
           (preview.kind === 'video' || preview.kind === 'audio')) {
         const label = `${preview.kind === 'video' ? 'Video' : 'Audio'}${(preview.count ?? 0) > 1 ? ` ${(preview.index ?? 0) + 1}/${preview.count}` : ''}`
         ctx.fillStyle = t.colors.label
-        ctx.font = `${Math.max(9, t.fontSize - 1)}px ${t.fontFamily}`
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2, Math.max(0, rect.width - 8))
+        ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2, Math.max(0, rect.width - canvasPaintTokens.preview.labelPadding))
       }
       if (!farMedia && !minimizedPreview) {
         const caption = panel.caption
         ctx.fillStyle = t.colors.nodeBody
         ctx.fillRect(caption.x, caption.y, caption.width, caption.height)
         ctx.strokeStyle = t.colors.nodeBorder
-        ctx.lineWidth = 1
+        ctx.lineWidth = canvasPaintTokens.preview.stroke
         ctx.beginPath()
         ctx.moveTo(caption.x, caption.y)
         ctx.lineTo(caption.x + caption.width, caption.y)
@@ -3122,8 +3125,8 @@ export class CanvasRenderer {
       }
       if (!farMedia && !minimizedPreview && contentDetail) {
         const caption = panel.caption
-        const provenanceY = caption.y + caption.height * 0.25
-        const metadataY = caption.y + caption.height * 0.75
+        const provenanceY = caption.y + caption.height * canvasPaintTokens.preview.provenancePosition
+        const metadataY = caption.y + caption.height * canvasPaintTokens.preview.metadataPosition
         // The approx prefix keeps a mirror-computed estimate distinguishable
         // from real imagery even without color.
         const stateLabel = preview.state === 'cached'
@@ -3139,10 +3142,10 @@ export class CanvasRenderer {
           : undefined
         const metadataLabel = [dimensionsLabel, preview.colorTransform === undefined
           ? undefined : `Preview color: ${preview.colorTransform}`].filter((label) => label !== undefined).join(' | ')
-        ctx.font = `${Math.max(9, t.fontSize - 1)}px ${t.fontFamily}`
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
         ctx.fillStyle = t.colors.label
         ctx.textBaseline = 'middle'
-        const padding = 8
+        const padding = canvasPaintTokens.preview.labelPadding
         if (stateLabel !== undefined) {
           if (preview.state === 'estimate') ctx.fillStyle = t.colors.companionEstimate
           ctx.textAlign = 'left'
@@ -3170,14 +3173,14 @@ export class CanvasRenderer {
       ctx.save()
       ctx.fillStyle = t.colors.widgetBackground
       ctx.strokeStyle = t.colors.nodeBorder
-      ctx.lineWidth = 1
+      ctx.lineWidth = canvasPaintTokens.preview.stroke
       ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(2, t.cornerRadius - 1))
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset))
       ctx.fill()
       ctx.stroke()
       ctx.clip()
-      const padding = 4
-      const visibleLines = Math.max(1, Math.min(6, Math.round(rect.height / t.rowHeight)))
+      const padding = canvasPaintTokens.preview.outputPadding
+      const visibleLines = Math.max(1, Math.min(canvasPaintTokens.preview.outputMaxLines, Math.round(rect.height / t.rowHeight)))
       const lineHeight = (rect.height - padding * 2) / visibleLines
       const maxWidth = Math.max(0, rect.width - padding * 2)
       ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
@@ -3202,18 +3205,18 @@ export class CanvasRenderer {
         if (outputText.stale === true && line.length > 0) {
           ctx.save()
           ctx.strokeStyle = color
-          ctx.lineWidth = 1
+          ctx.lineWidth = canvasPaintTokens.preview.staleStroke
           ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
           ctx.beginPath()
-          ctx.moveTo(rect.x + padding, textY + t.fontSize / 2 + 1)
-          ctx.lineTo(rect.x + padding + measureWidth(ctx, line), textY + t.fontSize / 2 + 1)
+          ctx.moveTo(rect.x + padding, textY + t.fontSize / 2 + canvasPaintTokens.preview.staleUnderlineOffset)
+          ctx.lineTo(rect.x + padding + measureWidth(ctx, line), textY + t.fontSize / 2 + canvasPaintTokens.preview.staleUnderlineOffset)
           ctx.stroke()
           ctx.restore()
         }
         textY += lineHeight
       }
       if (overflow && visibleLines > 1) {
-        ctx.font = `${Math.max(9, t.fontSize - 1)}px ${t.fontFamily}`
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
         ctx.fillStyle = t.colors.label
         ctx.textAlign = 'right'
         ctx.fillText(`+${lines.length - shown.length} more`, rect.x + rect.width - padding, textY)
@@ -3228,9 +3231,9 @@ export class CanvasRenderer {
       }
       ctx.fillStyle = t.colors.widgetBackground
       ctx.strokeStyle = t.colors.nodeBorder
-      ctx.lineWidth = 1
+      ctx.lineWidth = canvasPaintTokens.preview.stroke
       ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(2, t.cornerRadius - 1))
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset))
       ctx.fill()
       ctx.stroke()
       if (contentDetail) {
@@ -3242,9 +3245,9 @@ export class CanvasRenderer {
         ctx.textAlign = l.minimized ? 'center' : 'left'
         ctx.fillText(
           label,
-          l.minimized ? rect.x + rect.width / 2 : rect.x + 8,
+          l.minimized ? rect.x + rect.width / 2 : rect.x + canvasPaintTokens.preview.labelPadding,
           rect.y + t.rowHeight / 2,
-          Math.max(0, rect.width - 16),
+          Math.max(0, rect.width - canvasPaintTokens.preview.labelPadding * 2),
         )
         ctx.textBaseline = 'alphabetic'
       }
