@@ -28,6 +28,7 @@ for (const args of [
   ['check:design-system'],
   ['test:design-system'],
   ['check:ui-strings'],
+  ['exec', 'node', '--test', 'scripts/check-ui-strings.test.mjs'],
   ['typecheck'],
   ['build:ui'],
 ]) {
