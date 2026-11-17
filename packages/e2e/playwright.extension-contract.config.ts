@@ -37,8 +37,8 @@ if (frontendPort === nativePort)
 const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
 const pack = resolve(
-  dinksterRoot,
-  'tests/fixtures/extension-contract-pack/dinkster-pack.toml',
+  import.meta.dirname,
+  'tests/extension-contract-pack/dinkster-pack.toml',
 )
 accessSync(pack)
 const packRoot = resolve(pack, '..')
