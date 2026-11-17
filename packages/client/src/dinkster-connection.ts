@@ -26,6 +26,8 @@
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
 import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
+import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
+  type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
 import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
   type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
 import {
@@ -3491,9 +3493,51 @@ export class DinksterConnection {
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       })
       if (res.status === 404 && method === 'GET' && path) return undefined
-      if (!res.ok) throw new Error(`Model download ${method} failed: ${res.status}`)
+      if (!res.ok) {
+        const raw: unknown = await res.json().catch(() => undefined)
+        if (path === 'plan' && res.status === 409 && record(raw) &&
+          (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'model-hidden'))
+          return { status: raw['error'] }
+        throw new Error(`Model download ${method} failed: ${res.status}`)
+      }
       return res.json() as Promise<unknown>
     }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
+  }
+
+  async fetchModelProvider(signal?: AbortSignal): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest('', 'GET', undefined, signal))
+  }
+
+  async saveModelProviderToken(token: string, signal?: AbortSignal): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest('', 'PUT', { token }, signal))
+  }
+
+  async forgetModelProvider(signal?: AbortSignal): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest('', 'DELETE', undefined, signal))
+  }
+
+  async startModelProviderSignIn(method: 'pkce' | 'device', signal?: AbortSignal): Promise<ModelProviderSignIn> {
+    return decodeModelProviderSignIn(await this.modelProviderRequest('/sign-in', 'POST', { method }, signal))
+  }
+
+  async pollModelProviderSignIn(flowId: string, signal?: AbortSignal): Promise<ModelProviderPoll> {
+    return decodeModelProviderPoll(await this.modelProviderRequest(`/sign-in/${encodeURIComponent(flowId)}`, 'POST', undefined, signal))
+  }
+
+  async cancelModelProviderSignIn(flowId: string): Promise<ModelProviderPoll> {
+    return decodeModelProviderPoll(await this.modelProviderRequest(`/sign-in/${encodeURIComponent(flowId)}`, 'DELETE'))
+  }
+
+  private async modelProviderRequest(path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return requestWithDeadline(async (deadline) => {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/providers/huggingface${path}?scope=local`, {
+        method, signal: deadline, cache: 'no-store', redirect: 'error',
+        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      })
+      // Never reflect provider replies or credential-bearing bodies into errors.
+      if (!res.ok) throw new Error(`Hugging Face request failed: ${res.status}`)
+      return res.json() as Promise<unknown>
+    }, 'Hugging Face request timed out. Check sign-in status before retrying.', signal)
   }
 
   async fetchModelSettings(): Promise<ModelSettingsState> {

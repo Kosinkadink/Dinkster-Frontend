@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import { ModelSettings } from './ModelSettings.js'
+import type { ModelProviderConnection } from './ModelProvider.js'
 import {
   DESKTOP_ENGINE_ACCELERATORS,
   desktopBridge,
@@ -16,7 +17,7 @@ import { BrandMark } from './BrandMark.js'
 import { ProductButton, ProductTextArea, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 
-export type DesktopMountConnection = Pick<DinksterConnection, 'fetchMountSettings' | 'addMount' | 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
+export type DesktopMountConnection = Pick<DinksterConnection, 'fetchMountSettings' | 'addMount' | 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'> & ModelProviderConnection
 
 type StatusMessage = { readonly key: string; readonly params?: Record<string, string | number> } | { readonly raw: string }
 
@@ -283,7 +284,7 @@ export function DesktopManagementDialog(props: { readonly connection: DesktopMou
               <div class="desktop-mount-list">
                 <For each={mounts()}>{(mount) => <span>{mount.id} - {mount.state} - {mount.mode}</span>}</For>
               </div>
-              <ModelSettings connection={connection()} backendLabel={props.backendUrl || 'localhost'} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={refreshMounts} />
+              <ModelSettings connection={connection()} providerConnection={connection()} backendLabel={props.backendUrl || 'localhost'} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={refreshMounts} />
             </>}
           </Show>
         </section>

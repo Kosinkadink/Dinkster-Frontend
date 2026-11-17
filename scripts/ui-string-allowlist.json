@@ -1,4 +1,10 @@
 {
+  "ModelProvider.tsx": [
+    "text:() const [busy, setBusy] = createSignal(false) const [fallback, setFallback] = createSignal(false) const [token, setToken] = createSignal('') const [forgetting, setForgetting] = createSignal(false) const [error, setError] = createSignal(false) let generation = 0 let timer: ReturnType",
+    "text:() const [flow, setFlow] = createSignal",
+    "text:).authorizationUrl : (current() as Extract",
+    "text:Promise"
+  ],
   "AgentPermissionsPanel.tsx": [
     "text:() const [saving, setSaving] = createSignal",
     "text:(new Set()) const [errors, setErrors] = createSignal",

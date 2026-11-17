@@ -297,7 +297,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         <summary>{message('projectFolders.title')}</summary>
         <Show when={foldersOpen()}>
           <ProjectFolderSettings connection={props.connection} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
-          <ModelSettings connection={props.connection} backendLabel={props.baseUrl || props.backendId} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} onChanged={() => setRetryTick((tick) => tick + 1)} />
+          <ModelSettings connection={props.connection} providerConnection={props.connection} backendLabel={props.baseUrl || props.backendId} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} onChanged={() => setRetryTick((tick) => tick + 1)} />
           <OutputMountSettings connection={props.connection} />
         </Show>
       </details>

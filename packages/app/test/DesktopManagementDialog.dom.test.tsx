@@ -80,7 +80,7 @@ function mount(connection?: Pick<DesktopMountConnection, 'fetchMountSettings' | 
       const current = currentConnection()
       if (!current) return undefined
       if (current.fetchModelSettings) return current as DesktopMountConnection
-      return { fetchModelSettings: async () => modelState, updateModelSettings: async () => modelState, setModelLocationEnabled: async () => modelState, onMountsChanged: () => () => {}, ...current }
+      return { fetchModelProvider: async () => ({ provider: 'huggingface' as const, configured: false }), saveModelProviderToken: vi.fn(), forgetModelProvider: vi.fn(), startModelProviderSignIn: vi.fn(), pollModelProviderSignIn: vi.fn(), cancelModelProviderSignIn: vi.fn(), fetchModelSettings: async () => modelState, updateModelSettings: async () => modelState, setModelLocationEnabled: async () => modelState, onMountsChanged: () => () => {}, ...current }
     })
     return <DesktopManagementDialog connection={(connectionRevision(), fullConnection())} backendUrl={(connectionRevision(), backendUrl)} />
   }, root)

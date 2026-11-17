@@ -5,9 +5,11 @@ import { ProductField, ProductNotice } from './ProductForm.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
+import { ModelProvider, type ModelProviderConnection } from './ModelProvider.js'
 
 export function ModelSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
+  readonly providerConnection?: ModelProviderConnection
   readonly backendLabel: string
   readonly backendUrl?: string
   readonly onChanged?: () => void
@@ -145,6 +147,7 @@ export function ModelSettings(props: {
         <ProductButton disabled={busy()} onClick={() => { resetForm(); void load() }}>{message('projectFolders.refresh')}</ProductButton>
       </div>
       <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
+      <Show when={props.providerConnection}>{(connection) => <ModelProvider connection={connection()} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={() => props.onChanged?.()} />}</Show>
       <Show when={state()}>{(current) => <>
         <p>{message('modelSettings.project', { project: current().project })}</p>
         <Show when={!current().changesAllowed}><ProductNotice tone="warning">{message('projectFolders.disabled')}</ProductNotice></Show>

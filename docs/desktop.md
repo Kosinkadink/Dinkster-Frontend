@@ -193,7 +193,19 @@ projects without deleting files; removing the download default selects the next
 writable location, or leaves downloads unconfigured. Concurrent edits require a
 refresh before saving. Fixed worker grants display a restart notice.
 The same Model management section appears in Desktop's Existing model folders
-area. Edit model folder changes its shared path, purpose and read/write access;
+area. Hugging Face Sign-In is engine-private: local loopback browsers use PKCE,
+while remote engines use a provider device code. Continue at Hugging Face opens
+the validated provider origin in a separate tab; the panel checks completion.
+Cancel stops the pending sign-in flow, not a model download. A masked access-token
+fallback clears the input after submission and is never saved in browser storage.
+Check sign-in status reconciles uncertain replies without repeating a mutation.
+Forget sign-in requires confirmation, works for expired credentials, invalidates
+pending model consent and stops transfers without deleting model files.
+Gated model review distinguishes missing sign-in from missing provider permission.
+The captured-submission dialog offers sign-in without granting download or run
+consent; after credentials change, review again before Download and Run once.
+
+Edit model folder changes its shared path, purpose and read/write access;
 its warning explains that every project is affected. Read-only folders are never
 upgraded implicitly. Changing the last writable location to read only leaves
 no download default. Edits opened before another shared change require a refresh.

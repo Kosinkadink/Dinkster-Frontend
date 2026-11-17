@@ -6,6 +6,7 @@ import { formatByteSize } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ModelProvider } from './ModelProvider.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -189,6 +190,12 @@ export function AssetConsentDialog(props: { app: AppState }) {
             </li>
           }}</Index>
         </ul>
+        <Show when={request()?.providerConnection && models().some((entry) =>
+          ['credential-required', 'provider-grant-required'].includes(entry.plan?.status ?? entry.job?.error ?? ''))}>
+          <ModelProvider connection={request()!.providerConnection!}
+            {...(request()?.providerBackendUrl === undefined ? {} : { backendUrl: request()!.providerBackendUrl! })}
+            onChanged={() => request()?.providerChanged?.()} />
+        </Show>
         <Show when={selectable().length === 0 && request()?.assets.some((asset) => !asset.disabledLocations?.length)}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.unresolvable')}</ProductNotice>
         </Show>

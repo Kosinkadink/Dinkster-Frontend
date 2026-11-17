@@ -307,6 +307,47 @@ async function snapshotFixture(id: string): Promise<{ body: string; digest: stri
   return { body, digest: `sha256:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}` }
 }
 
+describe('model provider credentials', () => {
+  it('keeps secrets out of returned status and errors and scopes every operation to the chosen engine', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = []
+    let payload: unknown = { provider: 'huggingface', configured: false }
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        expect(init?.redirect).toBe('error')
+        calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined })
+        return jsonResponse(status, payload)
+      } })
+    expect(await connection.fetchModelProvider()).toEqual(payload)
+    payload = { provider: 'huggingface', configured: true, token: 'private-canary' }
+    expect(await connection.saveModelProviderToken('private-canary')).toEqual({ provider: 'huggingface', configured: true })
+    expect(calls.at(-1)).toEqual({ url: '/engine/api/models/providers/huggingface?scope=local', method: 'PUT', body: { token: 'private-canary' } })
+    payload = { method: 'device', flowId: 'owned / flow', status: 'pending', verificationUri: 'https://huggingface.co/device', userCode: 'CODE', interval: 5, expiresIn: 60 }
+    expect(await connection.startModelProviderSignIn('device')).toMatchObject({ flowId: 'owned / flow', userCode: 'CODE' })
+    payload = { status: 'pending', interval: 7 }
+    expect(await connection.pollModelProviderSignIn('owned / flow')).toEqual(payload)
+    expect(calls.at(-1)?.url).toBe('/engine/api/models/providers/huggingface/sign-in/owned%20%2F%20flow?scope=local')
+    payload = { status: 'cancelled' }
+    await connection.cancelModelProviderSignIn('owned / flow')
+    expect(calls.at(-1)?.method).toBe('DELETE')
+    status = 409; payload = { error: 'private-canary' }
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.toThrow('Hugging Face request failed: 409')
+    status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
+    await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
+  })
+
+  it('returns credential and provider-grant refusals without treating either as download consent', async () => {
+    let error = 'credential-required'
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+    error = 'provider-grant-required'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    error = 'unrecognized-private-message'
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
+  })
+})
+
 describe('model download planning and owned jobs', () => {
   const selected = {
     name: 'renamed-source.safetensors', kind: 'model/vae', project: 'work / client',

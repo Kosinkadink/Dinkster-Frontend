@@ -48,6 +48,16 @@
   gap: 8px;
   margin-top: 8px;
 }
+.model-provider {
+  display: grid;
+  min-width: 0;
+  gap: var(--dinkster-space-8);
+  padding-block: var(--dinkster-space-12);
+  border-block: 1px solid var(--dinkster-border-subtle);
+}
+.model-provider h4, .model-provider p { margin: 0; }
+.model-provider .product-button { white-space: nowrap; justify-self: start; }
+.model-provider-token { display: grid; gap: var(--dinkster-space-8); }
 .model-location-form {
   display: grid;
   gap: var(--dinkster-space-12);
