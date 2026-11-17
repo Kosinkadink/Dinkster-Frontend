@@ -261,3 +261,13 @@ raised (4.19:1) does not meet 4.5:1 for normal body text. Do not use these
 pairings for normal-size body text; use secondary text instead. Palette
 values are preserved, not silently retuned. These ratios do not certify
 components, focus rings or status-only communication.
+
+Hovered danger text is a second exception. Dark-theme danger text
+(`#FF7468`) on the hover background (`#343940`) is 4.40:1, which the script
+prints after the table. It appears only while a danger item is hovered or
+holds keyboard focus, such as a Remove outline button or Sign out in a menu;
+at rest the same text is 7.04:1 on canvas, 6.26:1 on surface and 5.32:1 on
+raised. The palette and the shared hover background stay as they are (user
+ruling 2026-11-16,
+https://github.com/Kosinkadink/comfy-vibe-station/issues/1026#issuecomment-6937938102).
+Do not use this pairing for text that is shown at rest.
