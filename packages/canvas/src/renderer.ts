@@ -2319,8 +2319,9 @@ export class CanvasRenderer {
     ctx.beginPath()
     const top = tl.rows[0]?.panel
     const bottom = tl.rows[1]?.panel
-    const radius = 8 / scale
-    const inner = top && bottom ? Math.min(3 / scale, (bottom.y - top.y) / 2) : 0
+    const paint = canvasPaintTokens.toolbox
+    const radius = paint.panelRadius / scale
+    const inner = top && bottom ? Math.min(paint.innerRadius / scale, (bottom.y - top.y) / 2) : 0
     const joined = top && bottom && bottom.width - top.width >= 2 * (radius + inner)
     if (joined) {
       ctx.moveTo(top.x + radius, top.y)
@@ -2352,7 +2353,7 @@ export class CanvasRenderer {
     ctx.fillStyle = t.colors.nodeHeader
     ctx.fill()
     ctx.strokeStyle = t.colors.nodeBorder
-    ctx.lineWidth = 1 / scale
+    ctx.lineWidth = paint.borderStroke / scale
     ctx.stroke()
     // The context is camera-scaled, so font size must return to world units
     // just like the toolbox geometry to remain stable in screen pixels.
@@ -2372,9 +2373,9 @@ export class CanvasRenderer {
       const r = entry
       const active = r.button.active === true
       ctx.save()
-      if (r.button.disabled === true) ctx.globalAlpha = 0.4
+      if (r.button.disabled === true) ctx.globalAlpha = paint.disabledOpacity
       ctx.beginPath()
-      ctx.roundRect(r.x, r.y, r.size, r.size, 5 / scale)
+      ctx.roundRect(r.x, r.y, r.size, r.size, paint.buttonRadius / scale)
       ctx.fillStyle = active ? t.colors.selection : t.colors.widgetBackground
       ctx.fill()
       const glyphColor = r.button.iconColor ?? (active ? t.colors.canvasBackground : t.colors.label)
@@ -2382,7 +2383,7 @@ export class CanvasRenderer {
         paintToolboxIcon(ctx, r.button.icon, r.x, r.y, r.size, glyphColor)
       } else if (r.button.glyph) {
         ctx.fillStyle = glyphColor
-        ctx.fillText(r.button.glyph, r.x + r.size / 2, r.y + r.size / 2 + 0.5)
+        ctx.fillText(r.button.glyph, r.x + r.size / 2, r.y + r.size / 2 + paint.glyphBaselineOffset)
       }
       ctx.restore()
     }
@@ -2822,13 +2823,13 @@ export class CanvasRenderer {
           const rowAlpha = ctx.globalAlpha
           ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           ctx.strokeStyle = t.colors.label
-          ctx.lineWidth = 1
+          ctx.lineWidth = canvasPaintTokens.widget.growth.stroke
           ctx.setLineDash([...canvasPaintTokens.dash.growth])
-          ctx.strokeRect(node.x + t.padX, rowY + 3, l.width - t.padX * 2, row.height - 6)
+          ctx.strokeRect(node.x + t.padX, rowY + canvasPaintTokens.widget.growth.verticalInset, l.width - t.padX * 2, row.height - canvasPaintTokens.widget.growth.verticalInset * 2)
           ctx.setLineDash([])
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'center'
-          ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, l.width - t.padX * 2 - 8)
+          ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, l.width - t.padX * 2 - canvasPaintTokens.widget.growth.textPadding)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'fallback') {
@@ -2837,22 +2838,23 @@ export class CanvasRenderer {
           // schema even though no editor can be trusted to write them.
           const rowAlpha = ctx.globalAlpha
           ctx.fillStyle = t.colors.widgetBackground
-          ctx.fillRect(node.x + t.padX, rowY + 2, l.width - t.padX * 2, row.height - 4)
-          ctx.globalAlpha = rowAlpha * 0.75
+          const paint = canvasPaintTokens.widget
+          ctx.fillRect(node.x + t.padX, rowY + paint.verticalInset, l.width - t.padX * 2, row.height - paint.verticalInset * 2)
+          ctx.globalAlpha = rowAlpha * paint.fallback.opacity
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, node.x + t.padX + 4, rowY + row.height / 2, (l.width - t.padX * 2) * 0.45)
+          ctx.fillText(row.label, node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.labelRatio)
           ctx.fillStyle = t.colors.value
           ctx.textAlign = 'right'
-          ctx.fillText(row.text, node.x + l.width - t.padX - 4, rowY + row.height / 2, (l.width - t.padX * 2) * 0.5)
+          ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
           if (this.rowMarks[sceneNode.id]?.has(row.label) === true) {
             // Anchored diagnostic on this stored value: red outline mirrors
             // the Problems entry at the row (same contract as widget rows).
             ctx.strokeStyle = t.colors.error
-            ctx.lineWidth = 1.5
-            ctx.strokeRect(node.x + t.padX, rowY + 2, l.width - t.padX * 2, row.height - 4)
+            ctx.lineWidth = paint.diagnosticStroke
+            ctx.strokeRect(node.x + t.padX, rowY + paint.verticalInset, l.width - t.padX * 2, row.height - paint.verticalInset * 2)
           }
         } else if (row.kind === 'ports') {
           // Ghost (dynamic affordance) labels render dimmed: connect/edit
@@ -2860,7 +2862,7 @@ export class CanvasRenderer {
           const rowAlpha = ctx.globalAlpha
           if (row.input) {
             if (row.input.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
-            if (row.input.inactive) ctx.globalAlpha = rowAlpha * 0.45
+            if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
             ctx.textAlign = 'left'
             ctx.fillText(row.input.label, node.x + t.padX + t.pinRadius + 4, rowY + row.height / 2)
@@ -2883,9 +2885,9 @@ export class CanvasRenderer {
           const connected = companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
           const rowAlpha = ctx.globalAlpha
           if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
-          if (row.inactive) ctx.globalAlpha *= 0.45
+          if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
           const companionAlpha = ctx.globalAlpha
-          if (connected) ctx.globalAlpha *= 0.45
+          if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
           const hovered = this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
             this.overlay.hoveredWidget.valueKey === row.valueKey
           this.paintWidget({
@@ -2909,7 +2911,7 @@ export class CanvasRenderer {
             // styling without making value selection look like live blue data.
             const hoverAlpha = ctx.globalAlpha
             const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height)
-            ctx.globalAlpha = hoverAlpha * 0.12
+            ctx.globalAlpha = hoverAlpha * canvasPaintTokens.widget.hoverOpacity
             ctx.fillStyle = t.colors.label
             ctx.beginPath()
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
@@ -2923,7 +2925,7 @@ export class CanvasRenderer {
             // replacing) the panel entry - same contract as the pin warn ring.
             const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height)
             ctx.strokeStyle = t.colors.error
-            ctx.lineWidth = 1.5
+            ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
             ctx.beginPath()
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.stroke()
@@ -2933,7 +2935,7 @@ export class CanvasRenderer {
             const x = node.x + row.inset + chip.x
             const y = rowY + chip.y
             const chipAlpha = ctx.globalAlpha
-            if (connected) ctx.globalAlpha = chipAlpha * 0.5
+            if (connected) ctx.globalAlpha = chipAlpha * canvasPaintTokens.widget.connectedControllerOpacity
             ctx.fillStyle = t.colors.nodeHeader
             ctx.fillRect(x, y, chip.width, chip.height)
             ctx.strokeStyle = t.colors.selection
@@ -2950,9 +2952,9 @@ export class CanvasRenderer {
             const previousStrokeStyle: string | CanvasGradient | CanvasPattern = ctx.strokeStyle
             const previousLineWidth = ctx.lineWidth
             const previousLineCap = ctx.lineCap
-            if (connected) ctx.globalAlpha = glyphAlpha * 0.35
+            if (connected) ctx.globalAlpha = glyphAlpha * canvasPaintTokens.widget.connectedGlyphOpacity
             ctx.strokeStyle = t.colors.label
-            ctx.lineWidth = 1.5
+            ctx.lineWidth = canvasPaintTokens.widget.stepperStroke
             ctx.lineCap = 'round'
             const rowLeft = node.x + row.inset
             const rowWidth = widgetWidth
