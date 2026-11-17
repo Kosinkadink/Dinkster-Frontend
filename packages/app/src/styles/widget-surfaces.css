@@ -689,6 +689,7 @@
 .asset-decision-summary dt { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .asset-decision-summary dd { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); font-weight: var(--dinkster-weight-semibold); line-height: var(--dinkster-type-section-line); }
 .asset-decision-notice { flex: none; margin: 0; }
+.asset-decision .product-action-buttons > .product-button { white-space: nowrap; }
 .asset-decision-list { display: grid; flex: 1; min-height: 0; gap: var(--dinkster-space-8); margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; list-style: none; }
 .asset-decision-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; border-radius: var(--dinkster-radius-control); }
 .asset-decision-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-left: 3px solid var(--dinkster-success-border); border-radius: var(--dinkster-radius-card); }
