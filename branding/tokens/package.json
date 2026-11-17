@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./palette": "./dinkster-colors.json",
-    "./components": "./dinkster-components.json"
+    "./components": "./dinkster-components.json",
+    "./rules": "./design-rules.json"
   }
 }

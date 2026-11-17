@@ -1,4 +1,11 @@
 import { expect, test } from '@playwright/test'
+import axe from 'axe-core'
+
+declare global {
+  interface Window {
+    axe: typeof axe
+  }
+}
 
 for (const width of [1280, 390]) {
   for (const section of [
@@ -23,10 +30,69 @@ for (const width of [1280, 390]) {
       await expect(page).toHaveScreenshot(`${section}-${width}.png`, {
         fullPage: true,
       })
+      await page.addScriptTag({ content: axe.source })
+      const violations = await page.evaluate(async () =>
+        (await window.axe.run()).violations.map(({ id, nodes }) => ({
+          id,
+          elements: nodes.map((node) => node.html),
+        })),
+      )
+      expect(violations).toEqual([])
       expect(errors).toEqual([])
     })
   }
 }
+
+test('enabled controls expose actual hover, keyboard focus and pressed states', async ({
+  page,
+}) => {
+  await page.goto('/#controls')
+  const samples = page.getByRole('region', {
+    name: 'Button roles and fills',
+    exact: true,
+  })
+  const button = page.getByRole('button', { name: 'Add outline', exact: true })
+  await page.mouse.move(0, 0)
+  const rest = await button.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )
+  await button.hover()
+  expect(
+    await button.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+  ).not.toBe(rest)
+  await expect(samples).toHaveScreenshot('buttons-hover.png')
+  await page.keyboard.press('Tab')
+  await button.focus()
+  expect(
+    await button.evaluate((element) => element.matches(':focus-visible')),
+  ).toBe(true)
+  await expect(button).toHaveCSS('outline-width', '2px')
+  await expect(samples).toHaveScreenshot('buttons-focus.png')
+  await button.hover()
+  await page.mouse.down()
+  expect(await button.evaluate((element) => element.matches(':active'))).toBe(
+    true,
+  )
+  await expect(samples).toHaveScreenshot('buttons-pressed.png')
+  await page.mouse.up()
+  const field = page.getByLabel('Display name', { exact: true })
+  await field.focus()
+  await expect(field).toHaveCSS('outline-width', '2px')
+  await page.getByLabel('Unchecked option').focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByLabel('Unchecked option')).toBeChecked()
+  await page.getByLabel('First choice').focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByLabel('Second choice')).toBeChecked()
+  await page
+    .getByLabel('Access', { exact: true })
+    .selectOption({ label: 'Mint only' })
+  await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
+    'Mint only',
+  )
+})
 
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({
   page,
@@ -52,6 +118,17 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(trigger).toBeFocused()
+  const unavailable = page.getByRole('button', {
+    name: 'Unavailable actions',
+    exact: true,
+  })
+  await unavailable.click()
+  await expect(
+    page.getByRole('menu', { name: 'Unavailable actions' }),
+  ).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(unavailable).toBeFocused()
+  await expect(page.getByRole('menu')).toHaveCount(0)
   await trigger.click()
   await page.getByRole('heading', { level: 1 }).click()
   await expect(page.getByRole('menu')).toHaveCount(0)
@@ -83,6 +160,12 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   await expect(
     page.getByText('Signed out', { exact: true }).first(),
   ).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 900 })
+  await trigger.click()
+  const bounds = await page.getByRole('menu').boundingBox()
+  expect(bounds!.x).toBeGreaterThanOrEqual(0)
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+  await expect(page).toHaveScreenshot('mobile-menu-open.png', { fullPage: true })
 })
 
 test('forms retain edits after refusal and disable save after undo and successful save', async ({
@@ -125,12 +208,17 @@ test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
   await page.clock.install()
   await page.goto('/#messages')
   await expect(page.getByRole('note').getByRole('button')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Show success toast' }).click()
+  await expect(page).toHaveScreenshot('toast-visible.png', { fullPage: true })
+  await page.getByRole('button', { name: 'Dismiss notification' }).click()
   await page.getByRole('button', { name: 'Dismiss error' }).click()
   await expect(page.getByRole('alert')).toHaveCount(1)
   await page.getByRole('button', { name: 'Show success toast' }).click()
   await expect(
     page.getByRole('button', { name: 'Dismiss notification' }),
   ).toBeVisible()
+  await page.clock.fastForward(4000)
+  await page.getByRole('button', { name: 'Show success toast' }).click()
   await page.clock.fastForward(4999)
   await expect(
     page.getByRole('button', { name: 'Dismiss notification' }),
@@ -149,6 +237,8 @@ test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
 test('dialog contains focus, Escape restores its opener and removal requires confirmation', async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
   await page.goto('/#confirmations')
   const opener = page.getByRole('button', { name: 'Review removal' })
   await opener.click()
@@ -172,6 +262,14 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(dialog).toHaveCount(0)
   await opener.click()
   await dialog.getByRole('button', { name: 'Remove item', exact: true }).click()
+  await expect(
+    dialog.getByRole('button', { name: 'Remove item', exact: true }),
+  ).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect(page).toHaveScreenshot('dialog-pending.png', { fullPage: true })
+  await page.clock.runFor(600)
   await expect(dialog).toHaveCount(0)
   await expect(
     page.getByText('Item removed', { exact: true }).first(),
@@ -181,6 +279,8 @@ test('dialog contains focus, Escape restores its opener and removal requires con
 test('mobile navigation selects immediately and closes; desktop selection does not change label weight', async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
   await page.setViewportSize({ width: 390, height: 900 })
   await page.goto('/#controls')
   const toggle = page.getByRole('button', { name: 'Toggle navigation' })
@@ -189,7 +289,18 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   await expect(page).toHaveScreenshot('mobile-navigation.png', {
     fullPage: true,
   })
+  await page.keyboard.press('Escape')
+  await expect(toggle).toBeFocused()
+  await expect(page.getByRole('navigation')).toBeHidden()
+  await toggle.click()
   await page.getByRole('link', { name: 'Forms', exact: true }).click()
+  await expect(
+    page.getByText('Loading selected page', { exact: true }),
+  ).toBeVisible()
+  await expect(page).toHaveScreenshot('mobile-page-loading.png', {
+    fullPage: true,
+  })
+  await page.clock.runFor(600)
   await expect(
     page.getByRole('heading', { name: 'Forms', exact: true }),
   ).toBeVisible()

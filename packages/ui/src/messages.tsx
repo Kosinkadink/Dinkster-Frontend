@@ -1,10 +1,19 @@
 import { Show, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
 import { Check, CircleAlert, Info, X } from 'lucide-solid'
-import { ProductButton, ProductIcon, ProductIconButton } from './controls.js'
+import {
+  ProductButton,
+  ProductIcon,
+  ProductIconButton,
+  type ProductRole,
+} from './controls.js'
+import rules from '@dinkster/branding/rules' with { type: 'json' }
 
-export function ProductNotice(props: { children: JSX.Element }) {
+export function ProductNotice(props: {
+  children: JSX.Element
+  tone?: 'info' | 'warning'
+}) {
   return (
-    <div class="dinkster-message" data-kind="info" role="note">
+    <div class="dinkster-message" data-kind={props.tone ?? 'info'} role="note">
       <ProductIcon icon={Info} />
       <span class="dinkster-message-copy">{props.children}</span>
     </div>
@@ -33,7 +42,10 @@ export function ProductToast(props: {
   onDismiss: () => void
 }) {
   onMount(() => {
-    const timer = window.setTimeout(props.onDismiss, 5000)
+    const timer = window.setTimeout(
+      props.onDismiss,
+      rules.messages.success.timeoutMs,
+    )
     onCleanup(() => window.clearTimeout(timer))
   })
   return (
@@ -54,17 +66,19 @@ export function ProductToast(props: {
 }
 
 export function ProductConfirmation(props: {
-  title: string
+  title?: string
   consequence: string
   actionLabel: string
-  intent: 'add' | 'remove' | 'neutral'
+  intent: ProductRole
   pending?: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
   return (
     <section class="dinkster-stack">
-      <h2 class="dinkster-heading">{props.title}</h2>
+      <Show when={props.title}>
+        <h2 class="dinkster-heading">{props.title}</h2>
+      </Show>
       <p class="dinkster-description">{props.consequence}</p>
       <div class="dinkster-actions">
         <ProductButton
@@ -111,6 +125,11 @@ export function ProductDialog(props: {
         ].filter((element) => element.getClientRects().length > 0)
         const first = focusable[0]
         const last = focusable[focusable.length - 1]
+        if (!first) {
+          event.preventDefault()
+          dialog.focus()
+          return
+        }
         if (event.shiftKey && document.activeElement === first) {
           event.preventDefault()
           last?.focus()

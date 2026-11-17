@@ -1,8 +1,9 @@
 import { Show, createUniqueId, splitProps, type JSX } from 'solid-js'
 import { type LucideIcon } from 'lucide-solid'
+import rules from '@dinkster/branding/rules' with { type: 'json' }
 
-export type ProductRole = 'add' | 'remove' | 'neutral'
-export type ProductFill = 'solid' | 'outline'
+export type ProductRole = keyof typeof rules.buttonRoles
+export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
 
 export function ProductIcon(props: { icon: LucideIcon }) {
   return <props.icon class="dinkster-icon" aria-hidden="true" />

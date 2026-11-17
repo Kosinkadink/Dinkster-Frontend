@@ -65,6 +65,7 @@
 .dinkster-message { display: flex; align-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-info-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-info-background); color: var(--dinkster-info-foreground); }
 .dinkster-message[data-kind='error'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-background); }
 .dinkster-message[data-kind='success'] { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-border); background: var(--dinkster-success-background); }
+.dinkster-message[data-kind='warning'] { color: var(--dinkster-warning-foreground); border-color: var(--dinkster-warning-border); background: var(--dinkster-warning-background); }
 .dinkster-toast { position: fixed; inset: auto var(--dinkster-space-24) var(--dinkster-space-24) auto; max-width: calc(100vw - var(--dinkster-space-32)); z-index: 2; }
 .dinkster-dialog { width: min(var(--dinkster-empty-state-max-width), calc(100vw - var(--dinkster-space-32))); padding: var(--dinkster-space-24); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
 .dinkster-dialog::backdrop { background: var(--dinkster-surface-canvas); opacity: var(--dinkster-interaction-disabled-opacity); }
@@ -79,7 +80,7 @@
 .dinkster-textarea { resize: vertical; }
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
-.dinkster-menu-popover { position: absolute; top: calc(100% + var(--dinkster-space-4)); right: 0; z-index: 1; width: max-content; max-width: calc(100vw - var(--dinkster-space-32)); }
+.dinkster-menu-popover { position: fixed; z-index: 1; width: max-content; max-width: calc(100vw - var(--dinkster-space-32)); overflow: auto; }
 .dinkster-message-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .dinkster-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); }
 .dinkster-visually-hidden { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }

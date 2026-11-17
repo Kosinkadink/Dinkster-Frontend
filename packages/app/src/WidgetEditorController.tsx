@@ -28,7 +28,7 @@ import type { AppState, Tab } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
 import { OutputDescriptorEditor } from './OutputDescriptorEditor.js'
-import { placeFloatingSurface } from './floating-surface.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
 import { useAppMessage } from './locale.js'
 import {

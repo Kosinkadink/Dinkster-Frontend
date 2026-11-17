@@ -1,14 +1,16 @@
 import {
   For,
   Show,
+  createEffect,
   createSignal,
   createUniqueId,
   onCleanup,
   onMount,
-  type JSX,
 } from 'solid-js'
 import { ChevronDown, LogOut, User, type LucideIcon } from 'lucide-solid'
 import { ProductIcon, type ProductRole } from './controls.js'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
+import tokens from '@dinkster/branding/components' with { type: 'json' }
 
 export interface ProductMenuItem {
   label: string
@@ -38,14 +40,52 @@ export function ProductMenu(props: {
       '[role="menuitem"]:not(:disabled)',
     )
     const item = items?.[last ? items.length - 1 : 0]
-    item?.focus()
+    ;(item ?? menu)?.focus()
   }
   const show = (last = false) => {
     setOpen(true)
     queueMicrotask(() => {
-      if (open()) focusItem(last)
+      if (!open()) return
+      const anchor = trigger.getBoundingClientRect()
+      const surface = menu.getBoundingClientRect()
+      const placement = placeFloatingSurface({
+        surface,
+        anchor: {
+          left: anchor.right - surface.width,
+          top: anchor.top,
+          right: anchor.right,
+          bottom: anchor.bottom,
+        },
+        bounds: {
+          left: 0,
+          top: 0,
+          right: window.innerWidth,
+          bottom: window.innerHeight,
+        },
+        direction: 'block',
+        margin: tokens.space[8],
+        gap: tokens.space[4],
+      })
+      // Coordinates are measured geometry; all visual styling stays in the stylesheet.
+      menu.style.left = `${placement.left}px`
+      menu.style.top = `${placement.top}px`
+      menu.style.maxHeight = `${placement.maxHeight}px`
+      focusItem(last)
     })
   }
+  createEffect(() => {
+    if (!open()) return
+    const resize = () => close()
+    const scroll = (event: Event) => {
+      if (!menu?.contains(event.target as Node)) close()
+    }
+    window.addEventListener('resize', resize)
+    document.addEventListener('scroll', scroll, true)
+    onCleanup(() => {
+      window.removeEventListener('resize', resize)
+      document.removeEventListener('scroll', scroll, true)
+    })
+  })
   onMount(() => {
     const outside = (event: PointerEvent) => {
       if (!root.contains(event.target as Node)) close()
@@ -89,6 +129,7 @@ export function ProductMenu(props: {
           id={id}
           class="dinkster-menu dinkster-menu-popover"
           role="menu"
+          tabindex="-1"
           aria-label={props.label}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {

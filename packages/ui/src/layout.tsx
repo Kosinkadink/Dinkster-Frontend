@@ -22,14 +22,25 @@ export function ProductShell(props: {
   children: JSX.Element
 }) {
   const [open, setOpen] = createSignal(false)
+  let navigationToggle!: HTMLButtonElement
   return (
-    <div class="dinkster-shell">
+    <div
+      class="dinkster-shell"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && open()) {
+          event.preventDefault()
+          setOpen(false)
+          navigationToggle.focus()
+        }
+      }}
+    >
       <header class="dinkster-topbar">
         <div class="dinkster-brand">
           <button
             type="button"
             class="dinkster-button dinkster-mobile-nav"
             aria-label="Toggle navigation"
+            ref={navigationToggle}
             aria-expanded={open()}
             aria-controls="dinkster-navigation"
             onClick={() => setOpen(!open())}

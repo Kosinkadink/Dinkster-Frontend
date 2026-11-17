@@ -45,6 +45,11 @@ CSS does not implement keyboard interaction or confirmation policy.
 
 ## Shared SolidJS components and gallery
 
+`branding/tokens/design-rules.json` owns button roles/fills, message behavior,
+notification lifetime, sentence case and hidden unconfigured services. It names
+tokens rather than colors and is exported as `@dinkster/branding/rules`. The
+portable distribution includes it in the SHA-256 manifest.
+
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
 alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
@@ -72,14 +77,19 @@ not an account service or a replacement for the app.
   stays with the caller and `ProductField`.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
   keyboard item movement and opener focus restoration. Disabled items are
-  skipped. Item text follows its intent. Removal callbacks open a confirmation;
+  skipped; a disabled-only menu remains keyboard-dismissable. Placement uses
+  the app's unchanged viewport algorithm from `@dinkster/core/floating-surface`,
+  clamping horizontally and flipping above when needed. Scroll outside or
+  resize dismisses the menu rather than leaving a stale anchor. Item text follows its intent. Removal callbacks open a confirmation;
   `ProductAccountMenu` displays name/email and invokes Sign out immediately.
-- `ProductNotice` is standing information without a dismiss button.
+- `ProductNotice` is standing information without a dismiss button, including
+  its warning tone for QA environments.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.
   `ProductToast` is success feedback, dismissible immediately and automatically
   after five seconds. Mount a new toast for each success notification.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
-  Sites use it as page content. `ProductDialog` provides native modal inertness,
+  Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
+  duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
   Escape dismissal, keyboard focus wrapping and opener restoration for apps;
   its pending state prevents dismissal during an owned operation.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
