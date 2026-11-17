@@ -31,6 +31,51 @@ async function waitForStartupOwnership(page: Page): Promise<void> {
 const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
   window.__dinksterTest!.app.tabs.get().map((tab) => tab.id))
 
+test('worker saves retain concurrent edits and merge more than sixteen recovery sources without parsing workflows on the page', async ({ page, context }) => {
+  await page.goto('/')
+  await waitForStartupOwnership(page)
+  const peer = await context.newPage()
+  await peer.goto('/')
+  await waitForStartupOwnership(peer)
+  await page.evaluate(() => {
+    const parse = JSON.parse
+    const counts = { workflowParses: 0 }
+    Object.assign(window, { persistenceCounts: counts })
+    JSON.parse = (...args: Parameters<typeof JSON.parse>) => {
+      if (args[0].includes('dinkster-workflow')) counts.workflowParses += 1
+      return parse(...args)
+    }
+  })
+  await peer.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+    for (let index = 0; index < 24; index += 1) {
+      localStorage.setItem(`dinkster.openTabsCandidate.recovery-${index}`, JSON.stringify({ ...saved, source: index }))
+    }
+  })
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage)
+    .filter((key) => key.startsWith('dinkster.openTabsCandidate.recovery-')).length)).toBe(0)
+  expect(await page.evaluate(() => (window as unknown as {
+    persistenceCounts: { workflowParses: number }
+  }).persistenceCounts.workflowParses)).toBe(0)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const update = (title: string) => tab.store.dispatch({ command: 'node.setTitle', params: {
+      graphId: tab.store.doc.root, nodeId: Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!, title,
+    } })
+    update('First worker snapshot')
+    app.flushPersistTabs()
+    update('Newer worker snapshot')
+  })
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('dinkster.openTabs'))).toContain('Newer worker snapshot')
+  await peer.reload()
+  await waitForStartupOwnership(peer)
+  expect(await peer.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes).map((node) => node.title)
+  })).toContain('Newer worker snapshot')
+})
+
 for (const accepted of [true, false]) {
   test(`image session waits for editor ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
     await disableSupervisorDiscovery(page)

@@ -174,7 +174,7 @@ import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, M
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
-import { parsePersistenceJson, persistenceJson, persistedWorkflowDigest, persistedWorkflowDocument } from './workflow-persistence-value.js'
+import { parsePersistenceJson, persistenceJson, persistenceValuePrepared, persistedWorkflowDigest, persistedWorkflowDocument, withPersistenceSources } from './workflow-persistence-value.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
@@ -4868,7 +4868,10 @@ export class AppState {
         if (!id) continue
         this.documentPersistenceRevisions.set(id, tab.documentRevision ?? 0)
         const live = this.tabs.get().find((candidate) => candidate.id === id)
-        if (live && persistenceJson(live.store.doc) === persistenceJson(tab.doc)) this.documentPersistenceDirty.delete(id)
+        // A newer edit may arrive while the worker prepares the saved snapshot.
+        // Leave it dirty rather than serializing that unprepared document here.
+        if (live && (typeof Worker === 'undefined' || persistenceValuePrepared(live.store.doc)) &&
+          persistenceJson(live.store.doc) === persistenceJson(tab.doc)) this.documentPersistenceDirty.delete(id)
       }
       if (!this.disposed && this.tabs.get().some((tab) => this.documentPersistenceDirty.has(tab.id))) {
         this.schedulePersistTabs()
@@ -4910,17 +4913,26 @@ export class AppState {
           commit()
         }
         if (typeof Worker === 'undefined' || this.disposed) return apply()
-        const raw = new Set<string>()
-        for (let index = 0; storage && index < storage.length; index += 1) {
-          const key = storage.key(index)
-          if (key === tabsKey() || key?.startsWith(tabsCandidatePrefix()) || key?.startsWith(documentCandidatePrefix())) {
-            const value = storage.getItem(key)
-            if (value !== null) raw.add(value)
+        const sources = new Map<string, unknown>()
+        const prepare = async (): Promise<void> => {
+          if (globalThis.localStorage !== storage || activeProjectId() !== project || this.disposed) return
+          const unread = new Set<string>()
+          for (let index = 0; storage && index < storage.length; index += 1) {
+            const key = storage.key(index)
+            if (key === tabsKey() || key?.startsWith(tabsCandidatePrefix()) || key?.startsWith(documentCandidatePrefix())) {
+              const value = storage.getItem(key)
+              if (value !== null && !sources.has(value)) unread.add(value)
+            }
           }
+          if (unread.size === 0) return withPersistenceSources(sources, apply)
+          await Promise.all([...unread].map(async (value) => {
+            sources.set(value, await this.workflowPersistenceCodec.parse(value))
+          }))
+          // A peer's pagehide recovery write does not await the commit lock.
+          // Re-read after the worker returns, before merging synchronously.
+          return prepare()
         }
-        return Promise.all([...raw].map((value) => this.workflowPersistenceCodec.parse(value))).then(() => {
-          if (globalThis.localStorage === storage && activeProjectId() === project && !this.disposed) apply()
-        }).finally(clear)
+        return prepare().finally(clear)
       }
       const locks = globalThis.navigator?.locks
       if (locks) void locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, run).finally(clear).catch(() => undefined)

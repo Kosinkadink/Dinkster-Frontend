@@ -12,6 +12,14 @@ export interface PreparedWorkflow {
 
 const workflows = new WeakMap<object, PreparedWorkflow>()
 const parsedValues = new Map<string, unknown>()
+let mergingValues: ReadonlyMap<string, unknown> | undefined
+
+/** A merge must not evict an unread source from the small steady-state cache. */
+export function withPersistenceSources(sources: ReadonlyMap<string, unknown>, merge: () => void): void {
+  const previous = mergingValues
+  mergingValues = sources
+  try { merge() } finally { mergingValues = previous }
+}
 
 function rememberJson(json: string, value: unknown): void {
   parsedValues.delete(json)
@@ -20,10 +28,11 @@ function rememberJson(json: string, value: unknown): void {
 }
 
 export function cachedPersistenceJson(json: string): unknown {
-  return parsedValues.get(json)
+  return mergingValues?.has(json) ? mergingValues.get(json) : parsedValues.get(json)
 }
 
 export function parsePersistenceJson(json: string): ReturnType<typeof JSON.parse> {
+  if (mergingValues?.has(json)) return mergingValues.get(json)
   if (parsedValues.has(json)) return parsedValues.get(json)
   const value: unknown = JSON.parse(json)
   rememberJson(json, value)
