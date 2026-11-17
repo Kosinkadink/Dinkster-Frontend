@@ -5,7 +5,7 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
+import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -1639,6 +1639,32 @@ export function App(props: {
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
+    const [sessionFailed, setSessionFailed] = createSolidSignal(false)
+    const [recovering, setRecovering] = createSolidSignal(false)
+    createEffect(() => {
+      const store = activeEditorTab()?.store
+      if (store === undefined || !('status' in store)) {
+        setSessionFailed(false)
+        return
+      }
+      const status = (store as SharedDocumentSession).status
+      const update = () => setSessionFailed(status.get() === 'error' || status.get() === 'closed')
+      update()
+      onCleanup(status.subscribe(update))
+    })
+    const recover = async (): Promise<void> => {
+      const tab = activeEditorTab()
+      if (!tab || recovering()) return
+      setRecovering(true)
+      try {
+        const diagnostics = await app.openDocument(tab.store.doc,
+          message('shell.workflow.recovery.title', { title: tab.title }), app.backendForTab(tab), true)
+        if (diagnostics.length > 0) app.reportProblems(tab.id, diagnostics)
+        else if (managedContext().kind === 'workflow') redockCurrentWindow()
+      } finally {
+        setRecovering(false)
+      }
+    }
     createEffect(() => {
       const tab = activeEditorTab()
       if (tab === undefined) return
@@ -1658,9 +1684,18 @@ export function App(props: {
     }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
-        <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
-          {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
-          />
+        <Show when={!sessionFailed()} fallback={
+          <ProductEmptyState tone="error" testId="workflow-session-recovery"
+            title={message('shell.workflow.recovery.failed')}
+            hint={message('shell.workflow.recovery.description')}
+            action={<ProductButton variant="primary" loading={recovering()} onClick={() => void recover()}>
+              {message('shell.workflow.recovery.action')}
+            </ProductButton>} />
+        }>
+          <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
+            {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
+            />
+        </Show>
       </div>
       <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>

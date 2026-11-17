@@ -1588,10 +1588,11 @@ describe('shared DocumentSession', () => {
     await session.settle()
     // Peer removes n2: our undo record (un-title n2) can no longer apply.
     conn.appendForeign('peer', foreignRemoveNode('n2'))
-    expect(session.canUndo).toBe(true)
+    expect(session.canUndo).toBe(false)
+    expect(session.historySnapshot().undo).toEqual([])
     expect(session.undo()).toBe(false)
     expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]!.during).toBe('undo')
+    expect(conflicts[0]!.during).toBe('rebase')
     expect(session.canUndo).toBe(false) // consumed, not retried forever
   })
 
@@ -1800,7 +1801,7 @@ describe('shared DocumentSession', () => {
     expect(session.undo()).toBe(false)
     expect((session.doc.graphs.g0!.nodes.n1 as { title?: string }).title).toBe('theirs')
     expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]!.during).toBe('undo')
+    expect(conflicts[0]!.during).toBe('rebase')
     expect(conflicts[0]!.diagnostics[0]!.code).toBe('session.history.stale')
     expect(session.canUndo).toBe(false) // dropped, not retried forever
   })
