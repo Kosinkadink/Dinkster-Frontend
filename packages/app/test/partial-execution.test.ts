@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, type NodeData, type NodeSchema } from '@dinkster/core'
+import * as core from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
 import { inactiveSceneNodesFor, runOnMachineMenuGroup } from '../src/CanvasHost.js'
 import { historicalRegistry } from './historical-schemas.js'
@@ -48,6 +49,96 @@ beforeEach(async () => {
 })
 
 describe('directed partial-execution scopes', () => {
+  it('paints selection before compiling availability and reuses it after a node move', async () => {
+    vi.useFakeTimers()
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1 })
+    vi.stubGlobal('cancelAnimationFrame', () => { frame = undefined })
+    const compileScopes = vi.spyOn(app, 'selectionExecutionScopes')
+    const compile = vi.spyOn(core, 'scopeClosure')
+    try {
+      // Selection and its context menu share the same pending request.
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBeUndefined()
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBeUndefined()
+      expect(compileScopes).not.toHaveBeenCalled()
+      frame!(0)
+      expect(compileScopes).not.toHaveBeenCalled()
+      expect(compile).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(0)
+      const ready = app.previewSelectionExecutionScopes(basic, ['n0'])!
+      expect(ready.upTo).toEqual({ kind: 'partial', targets: [{ instancePath: [], node: 'n0' }] })
+      expect(compileScopes).toHaveBeenCalledTimes(1)
+      expect(compile.mock.calls.length).toBeGreaterThan(0)
+
+      const moved = await app.dispatchTo(basic, { command: 'node.move', params: {
+        graphId: basic.store.doc.root, positions: { n0: { x: 419, y: 173 } },
+      } })
+      expect(moved.ok).toBe(true)
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBe(ready)
+      expect(compileScopes).toHaveBeenCalledTimes(1)
+
+      const changed = await app.dispatchTo(basic, { command: 'node.setMode', params: {
+        graphId: basic.store.doc.root, nodeIds: ['n0'], mode: 'muted',
+      } })
+      expect(changed.ok).toBe(true)
+      expect(app.previewSelectionExecutionScopes(basic, ['n0'])).toBeUndefined()
+      expect(compileScopes).toHaveBeenCalledTimes(1)
+      frame!(0)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(compileScopes).toHaveBeenCalledTimes(2)
+    } finally {
+      app.dispose()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
+  it('reuses a lazy-selector closure after a move but recomputes it when the branch changes', async () => {
+    app.registerSchemas([{
+      type: 'LazySelector', displayName: 'Lazy selector', category: 'test', source: 'v3', isOutputNode: true,
+      selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+      items: [
+        { kind: 'input', id: 'switch', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false, widget: { widgetType: 'BOOLEAN', options: {} } },
+        { kind: 'input', id: 'on_false', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+        { kind: 'input', id: 'on_true', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      ],
+    }])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'lazy-cache', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {
+        left: { id: 'left', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
+        right: { id: 'right', type: 'EmptyImage', values: { width: 32, height: 32, batch_size: 1, color: 255 } },
+        choose: { id: 'choose', type: 'LazySelector', values: { switch: false } },
+      }, links: {
+        a: { id: 'a', from: { node: 'left', port: 'out0' }, to: { node: 'choose', port: 'on_false' } },
+        b: { id: 'b', from: { node: 'right', port: 'out0' }, to: { node: 'choose', port: 'on_true' } },
+      }, nets: {}, reroutes: {}, nextOrdinal: 3 } }, view: { graphs: {} },
+    }, 'Lazy cache')
+    const tab = app.activeTab()!
+    const compile = vi.spyOn(core, 'scopeClosure')
+    try {
+      const initial = app.scopeClosureCached(tab)!
+      expect([...inactiveSceneNodesFor(initial.inactiveExclusive, [])]).toEqual(['right'])
+      expect(compile).toHaveBeenCalledTimes(1)
+      expect((await app.dispatchTo(tab, { command: 'node.move', params: {
+        graphId: 'g0', positions: { choose: { x: 419, y: 173 } },
+      } })).ok).toBe(true)
+      const moved = app.scopeClosureCached(tab)!
+      expect([...inactiveSceneNodesFor(moved.inactiveExclusive, [])]).toEqual(['right'])
+      expect(moved.revision).toBe(tab.store.revision)
+      expect(compile).toHaveBeenCalledTimes(1)
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'choose', inputId: 'switch', value: true,
+      } })).ok).toBe(true)
+      const changed = app.scopeClosureCached(tab)!
+      expect([...inactiveSceneNodesFor(changed.inactiveExclusive, [])]).toEqual(['left'])
+      expect(compile).toHaveBeenCalledTimes(2)
+    } finally {
+      compile.mockRestore()
+      app.dispose()
+    }
+  })
+
   it('offers connected workers that route every selected ordinary node', () => {
     const selectedTypes = ['n0', 'n1'].map((nodeId) => basic.store.doc.graphs[basic.store.doc.root]!.nodes[nodeId]!.type)
     const group = runOnMachineMenuGroup({

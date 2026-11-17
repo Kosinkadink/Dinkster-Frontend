@@ -28,8 +28,18 @@ for (const args of [
   ['check:design-system'],
   ['test:design-system'],
   ['check:ui-strings'],
+  ['exec', 'node', '--test', 'scripts/check-ui-strings.test.mjs'],
   ['typecheck'],
   ['build:ui'],
+  [
+    '--filter',
+    '@dinkster/app',
+    'exec',
+    'vitest',
+    'run',
+    'test/partial-execution.test.ts',
+    'test/tab-persistence.test.ts',
+  ],
 ]) {
   const env = { ...process.env }
   if (args[0] === 'check:extension-literals')

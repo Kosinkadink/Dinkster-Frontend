@@ -1,4 +1,5 @@
 {
+  "execution.scopes.checking": "Checking executable selection...",
   "common.close": "Close",
   "modelConsent.footer": "Download does not run the graph. Dismiss does not cancel transfers. Run once retries only this captured submission.",
   "modelConsent.review": "Review source",
