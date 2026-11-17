@@ -159,7 +159,7 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 <strong>{state().requirement.name}</strong>
                 <span class="asset-kind">{state().requirement.kind}</span>
                 <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
-                <Show when={state().job?.error}>{(error) => <ProductNotice tone="error">{['credential-required', 'provider-grant-required', 'model-hidden'].includes(error()) ? message(`modelConsent.plan.${error()}`) : error()}</ProductNotice>}</Show>
+                <Show when={state().job?.error}>{(error) => <ProductNotice tone="error">{['credential-required', 'provider-grant-required', 'civitai-access-required', 'model-hidden'].includes(error()) ? message(`modelConsent.plan.${error()}`) : error()}</ProductNotice>}</Show>
                 <Show when={state().source !== undefined || state().plan?.status === 'picker-required'}>
                   <ProductField controlId={`model-source-${index}`} layout="stack"
                     label={message('modelConsent.sourceUrl')} description={message('modelConsent.sourceDescription')}>

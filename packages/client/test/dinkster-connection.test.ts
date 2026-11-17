@@ -349,6 +349,8 @@ describe('model provider credentials', () => {
     expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
     error = 'provider-grant-required'
     expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    error = 'civitai-access-required'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required' })
     error = 'unrecognized-private-message'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
   })
@@ -380,6 +382,12 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    const civitai = { ...selected, provider: 'civitai', repo: '19', revision: '72',
+      source: 'https://civitai.com/api/download/models/72?fileId=84', status: 'consent-required', planId: 'civitai-plan' }
+    payload = civitai
+    expect(await connection.planModelDownload(selected, undefined, civitai.source)).toEqual(civitai)
+    expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
+      project: selected.project, scope: 'local', source: civitai.source })
     payload = active
     const started = await connection.startModelDownload('opaque-plan')
     expect(started).toEqual(active)
