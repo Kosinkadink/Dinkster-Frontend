@@ -3946,8 +3946,7 @@ export class AppState {
         replacement.generation === owner.generation && replacement.project === owner.project &&
         replacement.storage === owner.storage && replacement.retained.complete &&
         JSON.stringify(replacement.document) === JSON.stringify(owner.document))) continue
-      void retireAssetOwner(owner.backend.connection, owner.retained).finally(() =>
-        this.workflowRetentionRefreshes.get(owner.backend.connection)?.())
+      this.retireWorkflowAssetOwner(owner.backend.connection, owner.retained)
     }
   }
 
@@ -4722,6 +4721,18 @@ export class AppState {
   private readonly workflowRetentionRefreshes = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
+  private retireWorkflowAssetOwner(connection: DinksterConnection, retained: RetainedAssets): void {
+    void retireAssetOwner(connection, retained).then(() => {
+      // A confirmed release removes its journal. Only uncertain ownership or
+      // an observation already in flight needs another backend census.
+      if (globalThis.localStorage?.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) !== null ||
+        this.workflowRetentionRecoveries.has(connection) ||
+        this.problems.get().some((problem) => problem.code === 'workflow.retention.unresolved')) {
+        this.workflowRetentionRefreshes.get(connection)?.()
+      }
+    }).catch(() => this.workflowRetentionRefreshes.get(connection)?.())
+  }
+
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
     const backend = this.backendForTab(tab)
@@ -5413,6 +5424,8 @@ export class AppState {
               'warning', 'validation', 'workflow.retention.unresolved',
               `[${label}] Workflow ownership unconfirmed.`,
             )])
+          }).finally(() => {
+            if (this.workflowRetentionRecoveries.get(connection) === controller) this.workflowRetentionRecoveries.delete(connection)
           })
       }
       this.workflowRetentionRefreshes.set(connection, () => {
@@ -8584,8 +8597,7 @@ export class AppState {
       // A complete replacement protects live consumers; durable sources must
       // independently stop naming every root that replacement no longer holds.
       this.supersededWorkflowOwners.delete(retained)
-      void retireAssetOwner(backend.connection, retained).finally(() =>
-        this.workflowRetentionRefreshes.get(backend.connection)?.())
+      this.retireWorkflowAssetOwner(backend.connection, retained)
     }
   }
 
