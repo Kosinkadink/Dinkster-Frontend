@@ -166,7 +166,17 @@ unpublished and permits a later read to retry. Reads stay on the original live
 or retired backend; removing a backend
 does not redirect historical results. Application disposal or caller cancellation
 prevents late publication. Each application descriptor captures its acknowledged
-receipt and backend-affine reader. Rendition callers pass that exact descriptor,
+receipt and backend-affine reader. Repeated peeks of the same execution and exact
+root declaration or sealed offer reuse this application's acknowledged receipt
+within its backend, connection generation, project and storage lifetime. Concurrent
+admissions share one request; changed offers, releasing or modified journals and
+stale lifetimes require new admission. Reused readers drain all overlapping bodies
+before retirement, while each descriptor keeps its own publication-validity check.
+Peer receipts never enter this reuse inventory. `AppState.retentionActivity()`
+reports in-flight restoration, hydration, value admission and reads, reader drain,
+owner retirement, delayed recovery scans and persistence work; a persistence flush
+alone is not a quiescence barrier. Consumers require all activity to finish before
+measuring flat storage and owner traffic. Rendition callers pass that exact descriptor,
 including lazy audio/video and image-batch reads. Another client's descriptor,
 a copied descriptor, a mismatched query or missing admission refuses before
 network or cache access. Later peeks cannot substitute their selectors or reader

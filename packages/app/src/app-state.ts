@@ -3916,7 +3916,7 @@ export class AppState {
         replacement.generation === owner.generation && replacement.project === owner.project &&
         replacement.storage === owner.storage && replacement.retained.complete &&
         JSON.stringify(replacement.document) === JSON.stringify(owner.document))) continue
-      void retireAssetOwner(owner.backend.connection, owner.retained).finally(() =>
+      void this.retireAssetOwner(owner.backend.connection, owner.retained).finally(() =>
         this.workflowRetentionRefreshes.get(owner.backend.connection)?.())
     }
   }
@@ -4671,6 +4671,8 @@ export class AppState {
   }>()
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
   private readonly workflowRetentionRecoveries = new Map<DinksterConnection, AbortController>()
+  private pendingRetentionRecoveries = 0
+  private readonly workflowRetentionTimers = new Set<DinksterConnection>()
   private readonly workflowRetentionRefreshes = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
@@ -5091,6 +5093,7 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
+      const valueAdmissions = new Map<string, { storage: Storage; promise: Promise<RetainedAssets> }>()
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(), retentionClient,
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
         admitValuePeek: async (query, descriptor, offer) => {
@@ -5101,7 +5104,8 @@ export class AppState {
             persistedResultReferences()?.executions.has(key) === true
           const project = activeProjectId()
           const generation = this.assetConnectionGenerations.get(connection)
-          const current = (): boolean => !this.disposed && activeProjectId() === project &&
+          const storage = globalThis.localStorage
+          const current = (): boolean => !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
             generation === this.assetConnectionGenerations.get(connection) &&
             (pending === undefined
@@ -5111,16 +5115,48 @@ export class AppState {
                 this.pendingResultReads.get(key) === pending && pending.current())
           if (!current()) throw new Error('Value owner is no longer available')
           const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
-          const retained = await retainExecutionAssets(connection, ref, roots)
-          const reader = new RetainedAssetReader(connection, retained, current)
+          const valueKey = canonicalJson({ execution: key, roots })
+          const reusable = [...this.resultAssetOwners.values()].find((owner) => {
+            if (owner.backend !== nativeBackend || owner.project !== project || owner.generation !== generation ||
+              owner.valueKey !== valueKey || owner.storage !== storage || owner.drained !== undefined) return false
+            const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
+            return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined &&
+              intent.connectionId === id && intent.assetBaseUrl === connection.assetUrl('') &&
+              intent.owner?.ownerId === owner.retained.ownerId && intent.owner?.ownerKind === 'shown-result' &&
+              intent.owner?.scope === owner.retained.scope && intent.complete === owner.retained.complete &&
+              intent.sourceToken === owner.retained.sourceToken && canonicalJson(intent.digests) === canonicalJson(owner.retained.digests) &&
+              canonicalJson(intent.owner?.holderClasses) === canonicalJson(owner.retained.holderClasses)
+          })
+          const admissionKey = canonicalJson({ project, generation, valueKey })
+          let admission = valueAdmissions.get(admissionKey)
+          if (reusable === undefined && admission?.storage !== storage) {
+            this.pendingValueAdmissions += 1
+            admission = { storage, promise: retainExecutionAssets(connection, ref, roots)
+              .finally(() => { this.pendingValueAdmissions -= 1 }) }
+            valueAdmissions.set(admissionKey, admission)
+          }
+          let retained: RetainedAssets
+          try { retained = reusable?.retained ?? await admission!.promise } finally {
+            if (valueAdmissions.get(admissionKey) === admission) valueAdmissions.delete(admissionKey)
+          }
+          const owner = this.resultAssetOwners.get(retained.ownerId)
+          const reader = owner?.reader ?? new RetainedAssetReader(connection, retained, () =>
+            !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
+            (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
+            generation === this.assetConnectionGenerations.get(connection))
           this.resultAssetOwners.set(retained.ownerId, { backend: nativeBackend, retained, project, generation,
-            execution: key, reader, observed })
+            execution: key, reader, observed: owner?.observed === true || observed, valueKey, storage })
           this.retireUnusedResultOwners()
           if (!current()) throw new Error('Value owner changed during asset admission')
           return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
             this.valueAssetReaders.set(reader, (this.valueAssetReaders.get(reader) ?? 0) + 1)
             try {
-              return await reader.read(consume)
+              return await reader.read(async () => {
+                if (!current()) throw new Error('Value owner is no longer available')
+                const value = await consume()
+                if (!current()) throw new Error('Value owner changed during read')
+                return value
+              })
             } finally {
               const remaining = this.valueAssetReaders.get(reader)! - 1
               if (remaining === 0) this.valueAssetReaders.delete(reader)
@@ -5321,6 +5357,7 @@ export class AppState {
         this.workflowRetentionRecoveries.get(connection)?.abort()
         const controller = new AbortController()
         this.workflowRetentionRecoveries.set(connection, controller)
+        this.pendingRetentionRecoveries += 1
         void reconcileWorkflowRetentions(connection, AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]))
           .then((resolved) => {
             if (this.disposed || controller.signal.aborted || this.backendFor(id) !== nativeBackend) return
@@ -5328,13 +5365,18 @@ export class AppState {
               'warning', 'validation', 'workflow.retention.unresolved',
               `[${label}] Workflow ownership unconfirmed.`,
             )])
+          }).finally(() => {
+            this.pendingRetentionRecoveries -= 1
+            if (this.workflowRetentionRecoveries.get(connection) === controller) this.workflowRetentionRecoveries.delete(connection)
           })
       }
       this.workflowRetentionRefreshes.set(connection, () => {
         this.workflowRetentionRecoveries.get(connection)?.abort()
         if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
+        this.workflowRetentionTimers.add(connection)
         retentionRefreshTimer = setTimeout(() => {
           retentionRefreshTimer = undefined
+          this.workflowRetentionTimers.delete(connection)
           reconcileRetentions()
         }, 400)
       })
@@ -5398,6 +5440,7 @@ export class AppState {
           this.workflowRetentionRecoveries.get(connection)?.abort()
           this.workflowRetentionRecoveries.delete(connection)
           this.workflowRetentionRefreshes.delete(connection)
+          this.workflowRetentionTimers.delete(connection)
           if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
           this.clearProblems(retentionProblemsOwner)
           disposeCompletionHydration()
@@ -6328,7 +6371,7 @@ export class AppState {
     // Publication transfers the staged selection, not an unfinished body read.
     // Closing admission waits for every reader before retiring its exact receipt.
     await before.owned.close()
-    if (before.current() && after.current()) await retireAssetOwner(before.backend.connection, before.owned.retained)
+    if (before.current() && after.current()) await this.retireAssetOwner(before.backend.connection, before.owned.retained)
     return true
   }
 
@@ -6355,7 +6398,7 @@ export class AppState {
         this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
         this.tabs.get().some((tab) => tab.store === session)) continue
       this.editorAssetOwners.delete(retained)
-      void retireAssetOwner(owner.backend.connection, retained)
+      void this.retireAssetOwner(owner.backend.connection, retained)
     }
   }
 
@@ -6403,7 +6446,7 @@ export class AppState {
         if (current() && owner.backend === backend && owner.project === project &&
           owner.registry === registry && owner.generation === generation) {
           this.editorAssetOwners.delete(receipt)
-          await retireAssetOwner(backend.connection, receipt)
+          await this.retireAssetOwner(backend.connection, receipt)
         }
       }
     } finally { unsubscribe() }
@@ -7225,12 +7268,12 @@ export class AppState {
         // Close ends only this captured live document lifetime. Recovery, shared
         // views and readers retain their independent receipts and inventories.
         this.workflowAssetOwners.delete(session)
-        void retireAssetOwner(owner.backend.connection, owner.retained)
+        void this.retireAssetOwner(owner.backend.connection, owner.retained)
         for (const [retained, pending] of this.supersededWorkflowOwners) {
           if (pending.session !== session || pending.backend !== owner.backend ||
             pending.project !== owner.project || pending.generation !== owner.generation) continue
           this.supersededWorkflowOwners.delete(retained)
-          void retireAssetOwner(owner.backend.connection, retained)
+          void this.retireAssetOwner(owner.backend.connection, retained)
         }
       }
       // A pending acknowledgment can still finish; it may retire only this stage.
@@ -7286,7 +7329,7 @@ export class AppState {
         if (this.disposed || this.tabs.get().some((candidate) => candidate.id === tab.id) || activeProjectId() !== owner.project ||
           (this.backendFor(owner.backend.id) ?? this.retiredBackends.get(owner.backend.id)) !== owner.backend ||
           this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) return
-        void retireAssetOwner(owner.backend.connection, owner.retained)
+        void this.retireAssetOwner(owner.backend.connection, owner.retained)
       })
     }
   }
@@ -8367,6 +8410,35 @@ export class AppState {
     { connection: DinksterConnection; revision: number; schemaHash: string; digest: string;
       document: WorkflowDocument; project: string; generation: number | undefined; retained: RetainedAssets }
   >()
+  private pendingAssetRetirements = 0
+  private pendingValueAdmissions = 0
+
+  /** Pending ownership work, including work not covered by a persistence flush. */
+  retentionActivity() {
+    return {
+      admissions: this.persistedWorkflowAdmissions.size,
+      valueAdmissions: this.pendingValueAdmissions,
+      restorations: this.pendingResultRestorations,
+      retirements: this.pendingAssetRetirements,
+      drainingReaders: [...this.resultAssetOwners.values()].filter((owner) => owner.drained === false).length,
+      valueReads: [...this.valueAssetReaders.values()].reduce((sum, count) => sum + count, 0),
+      resultReads: this.pendingResultReads.size,
+      recoveries: this.pendingRetentionRecoveries,
+      hydrations: this.pendingExecutionHydrations,
+      recoveryTimers: this.workflowRetentionTimers.size,
+      promotions: this.workspacePromotions.size,
+      workspaceOperations: this.workspaceTabPending,
+      persistenceTimer: this.persistTimer !== undefined,
+      queuedCommit: this.queuedPersistedTabsCommit !== undefined,
+      incompleteSlots: [...this.persistedWorkflowSlots].filter(([, slot]) => !slot.complete).map(([key]) => key),
+    }
+  }
+
+  private async retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
+    this.pendingAssetRetirements += 1
+    try { await retireAssetOwner(connection, retained) } finally { this.pendingAssetRetirements -= 1 }
+  }
+
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
   private readonly workflowAssetOwners = new WeakMap<DocumentSession, {
@@ -8415,7 +8487,7 @@ export class AppState {
       // A rejected admission is not a published document lifetime. Its exact
       // receipt ends only after all live and durable recovery roots are known.
       this.unpublishedWorkflowOwners.delete(retained)
-      void retireAssetOwner(backend.connection, retained)
+      void this.retireAssetOwner(backend.connection, retained)
     }
   }
 
@@ -8498,7 +8570,7 @@ export class AppState {
       // A complete replacement protects live consumers; durable sources must
       // independently stop naming every root that replacement no longer holds.
       this.supersededWorkflowOwners.delete(retained)
-      void retireAssetOwner(backend.connection, retained).finally(() =>
+      void this.retireAssetOwner(backend.connection, retained).finally(() =>
         this.workflowRetentionRefreshes.get(backend.connection)?.())
     }
   }
@@ -8524,6 +8596,8 @@ export class AppState {
     readonly execution?: string
     readonly interim?: true
     readonly reader?: RetainedAssetReader
+    readonly valueKey?: string
+    readonly storage?: Storage
     observed?: boolean
     drained?: boolean
   }>()
@@ -8576,7 +8650,7 @@ export class AppState {
       // Recheck references and connection authority after admitted work settles.
       // Only this lifetime's locally admitted exact receipt can be released.
       this.resultAssetOwners.delete(id)
-      void retireAssetOwner(backend.connection, retained)
+      void this.retireAssetOwner(backend.connection, retained)
     }
   }
 
@@ -9352,6 +9426,7 @@ export class AppState {
 
   private readonly restorationSourceReaders = new WeakMap<Backend, Map<string, Set<RetainedAssetReader>>>()
   private readonly resultRestorations = new WeakMap<Backend, { dirty: boolean }>()
+  private pendingResultRestorations = 0
 
   private refreshPersistedExecutionResults(): void {
     for (const backend of this.backends.get()) {
@@ -9389,6 +9464,7 @@ export class AppState {
         this.backends.get().includes(backend) && schemasCurrent() &&
         (held === registry || (held !== undefined && this.packLocaleSources.get(held) === registry))
     }
+    this.pendingResultRestorations += 1
     try {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
@@ -9428,6 +9504,7 @@ export class AppState {
         }
       }
     } finally {
+      this.pendingResultRestorations -= 1
       unsubscribe()
     }
   }
@@ -10183,7 +10260,7 @@ export class AppState {
           .flatMap((ring) => Object.values(ring.frames)))]
       if (frames.some((frame) => frame?.payload === owner.payload)) continue
       this.previewAssetOwners.delete(retained)
-      void retireAssetOwner(owner.backend.connection, retained)
+      void this.retireAssetOwner(owner.backend.connection, retained)
     }
   }
 
@@ -10883,6 +10960,7 @@ export class AppState {
 
   /** Keys already hydrated (or being hydrated) from /history. */
   private readonly hydrated = new Set<string>()
+  private pendingExecutionHydrations = 0
 
   private async retainTerminalExecutionAssets(
     backend: Backend,
@@ -11000,11 +11078,13 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
+      this.pendingExecutionHydrations += 1
       void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
         .then(() => {
           if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
         .catch(() => this.hydrated.delete(state.key))
+        .finally(() => { this.pendingExecutionHydrations -= 1 })
     }
   }
 

@@ -341,6 +341,94 @@ describe('startup result source admission', () => {
     } finally { test.app.dispose() }
   })
 
+  it('reports source restoration as pending until its preview retirement acknowledges', async () => {
+    const test = setup()
+    let finish!: (receipt: RetainedAssets) => void
+    let released!: RetainedAssets
+    vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation((owner, revision) => {
+      released = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      return new Promise((resolve) => { finish = resolve })
+    })
+    try {
+      const starting = test.app.start()
+      await vi.waitFor(() => expect(released).toBeDefined())
+      expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      expect(test.app.retentionActivity().restorations).toBeGreaterThan(0)
+      finish(released)
+      await starting
+      expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0, valueAdmissions: 0 })
+    } finally { if (finish) finish(released); test.app.dispose() }
+  })
+
+  it('keeps shown-result ownership flat when an unchanged value is read again', async () => {
+    const test = setup()
+    const owners = new Map<string, RetainedAssets>()
+    let token = 'a'.repeat(32)
+    const digests = [`blake3:${'c'.repeat(64)}`]
+    vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+      const receipt = { ...owner, sourceToken, revision: 1, complete: true, digests }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.mocked(test.backend.connection.fetchTerminalResultAssets).mockImplementation(async (jobRef) => ({
+      scope: 'local', jobRef, attemptId: 1, state: 'completed', complete: true,
+      offers: [{ token, scope: 'local', jobRef, attemptId: 1, nodeId: test.nodeId,
+        outputId: 'sum', publication: 1, complete: true, digests }],
+    }))
+    vi.mocked(test.backend.connection.values().peek).mockRestore()
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+      if (new URL(input, 'http://test').pathname !== '/api/values') return new Response('', { status: 404 })
+      return Response.json({ available: true, descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 },
+        renditions: [], resultOffer: { token, scope: 'local', jobRef: test.saved.jobRef,
+          attemptId: 1, nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests } })
+    }))
+    const journals = () => Object.fromEntries(Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.')).sort()
+      .map((key) => [key, localStorage.getItem(key)]))
+    try {
+      await test.app.start()
+      expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      const query = { jobId: test.ref.prompt, nodeId: test.nodeId, outputId: 'sum' }
+      expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
+      const settledJournals = journals()
+      const settledOwners = [...owners.values()]
+      for (let index = 0; index < 12; index++) {
+        const result = await test.backend.connection.values().peek(query)
+        expect(result).toMatchObject({ available: true, descriptor: { value: 7 } })
+        if (result.available) expect(await test.backend.connection.values().read(query, result.descriptor, async () => 7)).toBe(7)
+      }
+      expect(journals()).toEqual(settledJournals)
+      expect([...owners.values()]).toEqual(settledOwners)
+      token = 'd'.repeat(32)
+      const changed = await Promise.all(Array.from({ length: 3 }, () => test.backend.connection.values().peek(query)))
+      expect(changed.every((result) => result.available)).toBe(true)
+      expect(owners.size).toBe(settledOwners.length + 1)
+      expect([...owners.values()].filter((receipt) => receipt.sourceToken === token)).toEqual([
+        expect.objectContaining({ complete: true, digests, sourceToken: token }),
+      ])
+      const replacementJournals = journals()
+      expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
+      expect(journals()).toEqual(replacementJournals)
+      const replacement = [...owners.values()].find((receipt) => receipt.sourceToken === token)!
+      const replacementKey = scopedStorageKey(`dinkster.workflow-retentions.${replacement.ownerId}`)
+      localStorage.setItem(replacementKey, JSON.stringify({ ...JSON.parse(localStorage.getItem(replacementKey)!), releaseRevision: 1 }))
+      expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
+      expect(owners.size).toBe(settledOwners.length + 2)
+      let finish!: (value: number) => void
+      const body = new Promise<number>((resolve) => { finish = resolve })
+      let entered = 0
+      const reads = changed.map((result) => {
+        if (!result.available) throw new Error('Expected admitted descriptor')
+        return test.backend.connection.values().read(query, result.descriptor, async () => { entered++; return body })
+      })
+      const stopped = Promise.all(reads.map(async (read) => { await expect(read).rejects.toThrow() }))
+      await vi.waitFor(() => expect(entered).toBe(3))
+      test.app.dispose()
+      finish(7)
+      await stopped
+    } finally { test.app.dispose() }
+  })
+
   it.each(['accepted', 'saved-extra', 'missing-seal', 'wrong-attempt', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
     const test = setup()
     try {
