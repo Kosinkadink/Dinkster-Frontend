@@ -538,7 +538,7 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it.each(['acknowledged', 'lost', 'rejected', 'foreign-job'] as const)(
+  it.each(['acknowledged', 'lost', 'rejected', 'foreign-job', 'quota'] as const)(
     'admits a value through its original full parent source before publication: %s', async (scenario) => {
       const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,
         nodeId: 'n0', outputId: 'images', publication: 3, digests: [asset('a').digest, asset('b').digest], complete: true }
@@ -570,6 +570,15 @@ describe('retained app dispatch', () => {
         return response.promise
       })
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async () => scenario === 'lost' ? saved : undefined)
+      if (scenario === 'quota') {
+        const write = localStorage.setItem.bind(localStorage)
+        vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+          if (key.includes('dinkster.workflow-retentions.execution-result:')) {
+            throw new DOMException('Browser storage quota exceeded', 'QuotaExceededError')
+          }
+          write(key, value)
+        })
+      }
       let published = false
       const pending = backend.connection.values().peek({ jobId: ref.prompt, nodeId: 'n0', outputId: 'images', element: [1] })
         .then((result) => { published = result.available; return result })
@@ -581,7 +590,10 @@ describe('retained app dispatch', () => {
       const result = await pending
       expect(result.available).toBe(scenario === 'acknowledged' || scenario === 'lost')
       if (result.available) expect(result.resultOffer?.digests).toEqual([asset('a').digest, asset('b').digest])
-      else expect(result.reason).toBe('ownership-unconfirmed')
+      else if (scenario === 'quota') {
+        expect(result).toMatchObject({ reason: 'storage-full', error: expect.stringContaining('Browser storage is full') })
+        expect(saved).toBeUndefined()
+      } else expect(result.reason).toBe('ownership-unconfirmed')
     },
   )
 

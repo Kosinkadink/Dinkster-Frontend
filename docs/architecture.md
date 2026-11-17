@@ -162,7 +162,9 @@ Application-owned value peeks retain descriptor roots with incomplete
 shown-result ownership before returning the descriptor or announcing rendition
 identity, including opaque descriptors with no known digest. An empty known
 root set does not establish completeness. Refusal keeps the descriptor
-unpublished and permits a later read to retry. Reads stay on the original live
+unpublished and permits a later read to retry. A quota failure while writing the
+ownership intent returns `storage-full` with a browser-storage message instead of
+`ownership-unconfirmed`; a failed initial write makes no owner claim. Reads stay on the original live
 or retired backend; removing a backend
 does not redirect historical results. Application disposal or caller cancellation
 prevents late publication. Each application descriptor captures its acknowledged
