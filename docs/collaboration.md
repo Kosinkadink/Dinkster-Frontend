@@ -66,6 +66,12 @@ exact completed local stage and digest into a fresh canonical admission, without
 restoring tab membership. A recovery write already
 queued before Close keeps its written-stage barrier, protecting newer
 unincorporated edits.
+Each renderer queues at most one canonical reconciliation scan per project and
+storage lifetime while waiting for the commit lock. That scan reads the latest
+recovery sources and operation acknowledgments after entry; notifications after
+entry can queue the next scan. Explicit local writes still stage their recovery
+sources immediately. This keeps duplicate notifications from filling the lock
+queue ahead of admitted cleanup.
 Repeated notifications for an identical pending canonical snapshot share its
 publication barrier instead of invalidating admissions already in flight.
 Each renderer shares its own identical in-flight canonical admission only while

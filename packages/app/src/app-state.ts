@@ -2065,12 +2065,13 @@ function samePersistedWorkflowStage(stagedRaw: string, currentRaw: string): bool
 function commitPersistedTabs(
   state: PersistedTabs | undefined,
   actorId: string,
-  acknowledged: readonly { readonly opId: string; readonly revision: number }[],
+  acknowledged: () => readonly { readonly opId: string; readonly revision: number }[],
   stage: (key: string, value: object, documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[]) => Promise<string | undefined>,
   onCommitted: (committed: PersistedTabs) => void,
   onRetired: (retired: readonly string[], committed: PersistedTabs) => void,
   onSlotRetired: (key: string, raw: string) => void,
   incorporatesClosedCandidate: (candidate: PersistedDocumentCandidate, workspace: PersistedTabs) => boolean,
+  queueCommit: (commit: () => void) => void,
 ): void {
   const storage = globalThis.localStorage
   if (!storage) return
@@ -2102,7 +2103,7 @@ function commitPersistedTabs(
       if (!merged) return
       const documents = merged.tabs.map((tab) => ({ document: loadDocument(tab.doc).document!, revision: tab.documentRevision ?? 0 }))
       if (documents.some(({ document }) => !document)) return
-      const operations = acknowledged
+      const operations = acknowledged()
         .filter(({ revision }) => revision <= (merged.workspaceRevision ?? 0))
         .map(({ opId }) => ({ opId, raw: storage.getItem(`${workspaceOperationPrefix()}${opId}`) }))
       const admission = stage(tabsKey(), merged, documents)
@@ -2141,9 +2142,7 @@ function commitPersistedTabs(
     }
   }
   const locks = globalThis.navigator?.locks
-  if (locks) {
-    void locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, commit).catch(() => undefined)
-  } else commit()
+  queueCommit(commit)
 }
 
 // ---------------------------------------------------------------------------
@@ -4774,9 +4773,11 @@ export class AppState {
     this.reconcilePersistedTabs(state)
   }
 
+  private queuedPersistedTabsCommit: { readonly storage: Storage | undefined; readonly project: string } | undefined
+
   private reconcilePersistedTabs(state?: PersistedTabs): void {
-    const acknowledged = [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision }))
-    commitPersistedTabs(state, this.workspaceActorId, acknowledged,
+    commitPersistedTabs(state, this.workspaceActorId,
+      () => [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision })),
       (key, value, documents) => {
         const candidate = key.startsWith(documentCandidatePrefix())
           ? parsePersistedDocumentCandidate(JSON.stringify(value)) : undefined
@@ -4829,6 +4830,22 @@ export class AppState {
         closed.recovery?.pending === false && activeProjectId() === closed.project &&
         globalThis.localStorage === closed.storage && this.workspaceAuthorityGeneration === closed.authorityGeneration &&
         (workspace.workspaceRevision ?? 0) >= closed.revision)
+    }, (commit) => {
+      const storage = globalThis.localStorage
+      const project = activeProjectId()
+      if (this.queuedPersistedTabsCommit?.storage === storage && this.queuedPersistedTabsCommit.project === project) return
+      const queued = { storage, project }
+      this.queuedPersistedTabsCommit = queued
+      const clear = () => { if (this.queuedPersistedTabsCommit === queued) this.queuedPersistedTabsCommit = undefined }
+      const run = () => {
+        // Sources and acknowledgments are read under the lock, so one queued
+        // scan covers every notification before entry, not changes after entry.
+        clear()
+        commit()
+      }
+      const locks = globalThis.navigator?.locks
+      if (locks) void locks.request(workspacePersistenceLock(), { mode: 'exclusive' }, run).finally(clear).catch(() => undefined)
+      else run()
     })
   }
 

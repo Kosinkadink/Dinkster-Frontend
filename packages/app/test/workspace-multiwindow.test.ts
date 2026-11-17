@@ -776,15 +776,21 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
-  it.each(['ordinary', 'canonical-first'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
+  it.each(['ordinary', 'canonical-first', 'notification-burst'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
     const events = new EventTarget()
     vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
     vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
     let commits = Promise.resolve<unknown>(undefined)
-    vi.stubGlobal('navigator', { locks: { request: (
-      _name: string, _options: LockOptions, callback: () => unknown,
+    const pending: LockInfo[] = []
+    vi.stubGlobal('navigator', { locks: { query: async () => ({ pending: [...pending], held: [] }), request: (
+      name: string, _options: LockOptions, callback: () => unknown,
     ) => {
-      const next = commits.then(callback)
+      const lock: LockInfo = { name, mode: 'exclusive', clientId: 'test-renderer' }
+      pending.push(lock)
+      const next = commits.then(() => {
+        pending.splice(pending.indexOf(lock), 1)
+        return callback()
+      })
       commits = next.catch(() => undefined)
       return next
     } } })
@@ -814,18 +820,26 @@ describe('AppState multi-window workspace', () => {
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
     let releaseCommit = () => {}
-    if (timing === 'canonical-first') {
+    if (timing !== 'ordinary') {
       void navigator.locks.request('dinkster.openTabs.commit', {}, () => new Promise<void>((resolve) => { releaseCommit = resolve }))
       await drainTasks()
-      events.dispatchEvent(Object.assign(new Event('storage'), {
+      const notify = () => events.dispatchEvent(Object.assign(new Event('storage'), {
         key: 'dinkster.openTabs', newValue: localStorage.getItem('dinkster.openTabs'),
       }))
+      notify()
       await drainTasks()
+      if (timing === 'notification-burst') {
+        for (let repeat = 0; repeat < 12; repeat += 1) {
+          notify()
+          await drainTasks()
+        }
+        expect((await navigator.locks.query()).pending).toHaveLength(1)
+      }
     }
     expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
     expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
     await drainTasks()
-    if (timing === 'canonical-first') {
+    if (timing !== 'ordinary') {
       app.flushPersistTabs(true)
       await drainTasks()
       releaseCommit()
