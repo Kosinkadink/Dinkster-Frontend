@@ -155,6 +155,43 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it('keeps settled unchanged document ownership stable across persistence flushes', async () => {
+    let commits = Promise.resolve<unknown>(undefined)
+    vi.stubGlobal('navigator', { locks: { request: (
+      _name: string, _options: LockOptions, callback: () => unknown,
+    ) => {
+      const next = commits.then(callback)
+      commits = next.catch(() => undefined)
+      return next
+    } } })
+    const app = createEditableApp()
+    const schema = primitive('X', 'FLOAT')
+    app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
+      diagnostics: [], hash: 'stable-ownership', resolve: (type) => type === 'X' ? schema : undefined })
+    expect(await app.openDocument(workflow(), 'Unchanged workflow')).toEqual([])
+    const factory = authorityFactories()
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    app.flushPersistTabs(true)
+    await drainTasks()
+    const intents = () => [...Array(localStorage.length)].map((_, index) => localStorage.key(index)!)
+      .filter((key) => key.startsWith('dinkster.workflow-retentions.'))
+      .map((key) => JSON.parse(localStorage.getItem(key)!))
+      .filter((intent) => intent.documentLineage === 'multi-window-workflow')
+      .map((intent) => intent.owner.ownerId).sort()
+    const settled = intents()
+    expect(settled.length).toBeGreaterThan(0)
+    const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+    expect(canonical.assetRetention).toMatchObject({ acknowledged: true, complete: true })
+    for (let repeat = 0; repeat < 12; repeat += 1) {
+      app.flushPersistTabs(true)
+      await drainTasks()
+    }
+    expect(intents()).toEqual(settled)
+    expect(app.tabs.get().find((tab) => tab.id === 'multi-window-workflow')?.store.doc).toEqual(workflow())
+    expect(JSON.parse(localStorage.getItem('dinkster.openTabs')!).assetRetention)
+      .toMatchObject({ acknowledged: true, complete: true })
+  })
+
   it.each(['unchanged', 'newer'] as const)('duplicate notifications do not block admission or replace newer data: %s', async (scenario) => {
     let lock = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
