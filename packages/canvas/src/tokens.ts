@@ -1,13 +1,78 @@
 /**
- * Design tokens: the single style source shared by canvas rendering and
- * (later) DOM widgets, so in-canvas and DOM presentation match. Values are a
- * first pass; the token SET is the commitment, the values are tunable.
+ * Canvas paint tokens project shared semantic roles and own the fixed
+ * geometry used together by drawing, layout and hit testing.
  */
 
 import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
+/** Fixed paint geometry shared with layout and hit testing. */
+export const canvasPaintTokens = {
+  detailMinScale: 0.5,
+  badge: {
+    size: 14,
+    stride: 18,
+    rightInset: 22,
+    characterWidth: 5.5,
+    labelPadding: 10,
+    iconWidth: 10,
+    colors: {
+      subgraph: '#4a4a5e',
+      executionError: '#b3402f',
+      warning: '#8a6d1f',
+      expanded: '#315d73',
+      info: '#3a5a68',
+      documentError: '#c13f32',
+    },
+  },
+  controller: {
+    edgeWidth: 12,
+    glyphHalf: 3,
+    verticalInset: canvasSemanticTokens.space[4],
+    textGap: 6,
+    fieldInset: 6,
+  },
+  node: {
+    minimizedMinWidth: 80,
+    widgetPinGap: canvasSemanticTokens.space[4],
+    pinOverhang: canvasSemanticTokens.space[12],
+  },
+  pin: {
+    dividerScreen: 1,
+    dividerMinWorld: 0.75,
+    dividerMaxWorld: canvasSemanticTokens.space[4],
+    diamondScale: 1.25,
+    hoverScale: 1.35,
+    statusRingGap: 3.5,
+    statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
+  },
+  toolbox: {
+    buttonSize: 28,
+    gap: 5,
+    padding: 6,
+    selectionGap: canvasSemanticTokens.space[16],
+    badgeGap: 6,
+    separatorWidth: 1,
+    nodeSelectionOutset: 3,
+    selectionStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    boundarySelectionOutset: 2,
+    multiSelectionPadding: canvasSemanticTokens.space[8],
+    multiSelectionStroke: 1,
+  },
+  reroute: { radius: 13, socketGap: 8, socketRadius: 5 },
+  valueSource: { heightPadding: 8, minWidth: 90, badgeSize: 14, badgeInset: 6 },
+  selector: { minWidth: 110, badgeSize: 14, badgeInset: 6 },
+  net: { gap: 10, height: 18, paddingX: 6 },
+  group: { headerHeight: 26 },
+  opacity: {
+    ghost: canvasSemanticTokens.interaction.disabledOpacity,
+    scopeDim: 0.72,
+  },
+  link: { paintPadding: canvasSemanticTokens.space[4] },
+  widget: { textPadding: 2 },
+} as const
+
 /** Minimum zoom for text detail and transient media DOM. */
-export const CANVAS_DETAIL_MIN_SCALE = 0.5
+export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 
 /** Typed presentation density derived from the two shared Canvas thresholds. */
 export type CanvasDetailLevel = 'overview' | 'content' | 'controls'

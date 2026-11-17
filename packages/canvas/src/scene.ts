@@ -87,7 +87,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from './layout.js'
-import type { DesignTokens } from './tokens.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 
 interface PositionedSceneCacheEntry {
   readonly graph: GraphDef
@@ -423,7 +423,7 @@ export interface SceneReroute {
 }
 
 /** Reroute dot radius (world units). A deliberately large junction: easy to grab, reads as a station on the noodle. */
-export const REROUTE_RADIUS = 13
+export const REROUTE_RADIUS = canvasPaintTokens.reroute.radius
 
 /**
  * Ghost socket geometry for a HOVERED reroute: an input socket floats left
@@ -432,8 +432,8 @@ export const REROUTE_RADIUS = 13
  * Alt+drag. One constant pair shared by renderer AND hit testing so the
  * painted circle and its grab region can never drift apart.
  */
-export const REROUTE_SOCKET_OFFSET = REROUTE_RADIUS + 8
-export const REROUTE_SOCKET_RADIUS = 5
+export const REROUTE_SOCKET_OFFSET = REROUTE_RADIUS + canvasPaintTokens.reroute.socketGap
+export const REROUTE_SOCKET_RADIUS = canvasPaintTokens.reroute.socketRadius
 
 /**
  * A value source rendered as a compact literal pill: title + value + spec
@@ -463,11 +463,11 @@ export interface SceneValueSource {
   readonly conflict: boolean
 }
 
-export const VS_HEIGHT_PAD = 8
-export const VS_MIN_WIDTH = 90
-export const VS_BADGE_SIZE = 14
+export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
+export const VS_MIN_WIDTH = canvasPaintTokens.valueSource.minWidth
+export const VS_BADGE_SIZE = canvasPaintTokens.valueSource.badgeSize
 /** Badge inset from the pill's right edge. */
-export const VS_BADGE_INSET = 6
+export const VS_BADGE_INSET = canvasPaintTokens.valueSource.badgeInset
 
 /** A value source's single output pin center, world coords. */
 export const valueSourcePinPosition = (vs: SceneValueSource): { x: number; y: number } => ({
@@ -533,10 +533,10 @@ export interface SceneSelector {
   readonly typeName?: string
 }
 
-export const SELECTOR_MIN_WIDTH = 110
-export const SELECTOR_BADGE_SIZE = 14
+export const SELECTOR_MIN_WIDTH = canvasPaintTokens.selector.minWidth
+export const SELECTOR_BADGE_SIZE = canvasPaintTokens.selector.badgeSize
 /** Badge inset from the selector's right edge (header band). */
-export const SELECTOR_BADGE_INSET = 6
+export const SELECTOR_BADGE_INSET = canvasPaintTokens.selector.badgeInset
 
 /** A selector's single output pin center, world coords (header band, right edge). */
 export const selectorOutPinPosition = (sel: SceneSelector): { x: number; y: number } => ({
@@ -607,9 +607,9 @@ export interface SceneNetStub {
 }
 
 /** Gap between a node edge and its net stub tags. */
-export const NET_STUB_GAP = 10
-export const NET_STUB_HEIGHT = 18
-export const NET_STUB_PAD_X = 6
+export const NET_STUB_GAP = canvasPaintTokens.net.gap
+export const NET_STUB_HEIGHT = canvasPaintTokens.net.height
+export const NET_STUB_PAD_X = canvasPaintTokens.net.paddingX
 
 export const netStubId = (netId: string, role: 'source' | 'sink', ref: PortRef): string =>
   JSON.stringify(['netView', netId, role, ref.node, ref.port, ref.members ?? []])
@@ -630,7 +630,7 @@ export interface SceneGroup {
 }
 
 /** Height of a group's title band (world units): drag handle + hit target. */
-export const GROUP_HEADER_HEIGHT = 26
+export const GROUP_HEADER_HEIGHT = canvasPaintTokens.group.headerHeight
 
 export interface Scene {
   readonly graphId: string

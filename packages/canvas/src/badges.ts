@@ -7,7 +7,7 @@
  */
 
 import type { Scene, SceneNode } from './scene.js'
-import { defaultTokens } from './tokens.js'
+import { canvasPaintTokens, defaultTokens } from './tokens.js'
 import type { CanvasIconName } from './toolbox.js'
 
 export interface NodeBadge {
@@ -42,17 +42,17 @@ export type BadgeMap = Readonly<Record<string, readonly NodeBadge[]>>
 export type PortProblemKind = 'error' | 'blocking-warning' | 'warning'
 export type PortProblemMap = Readonly<Record<string, Readonly<Record<string, PortProblemKind>>>>
 
-export const BADGE_SIZE = 14
+export const BADGE_SIZE = canvasPaintTokens.badge.size
 /** Horizontal distance between badge origins. */
-export const BADGE_STRIDE = 18
+export const BADGE_STRIDE = canvasPaintTokens.badge.stride
 const BADGE_GAP = BADGE_STRIDE - BADGE_SIZE
 /** Right inset of the FIRST badge from the node's right edge. */
-export const BADGE_RIGHT_INSET = 22
-export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'S', icon: 'boxes', color: '#4a4a5e' }
+export const BADGE_RIGHT_INSET = canvasPaintTokens.badge.rightInset
+export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'S', icon: 'boxes', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2
   ? { ...SUBGRAPH_BADGE, glyph: String(occurrences), fallbackGlyph: SUBGRAPH_BADGE.glyph, variant: 'label' }
   : SUBGRAPH_BADGE
-export const ERROR_BADGE: NodeBadge = { id: 'core.error', glyph: 'Error', variant: 'label', color: '#b3402f' }
+export const ERROR_BADGE: NodeBadge = { id: 'core.error', glyph: 'Error', variant: 'label', color: canvasPaintTokens.badge.colors.executionError }
 /**
  * Runtime error tab on the node's bottom edge - the ONE visual for the job
  * error report (never a log level). Count > 1 surfaces multiple diagnostics
@@ -71,7 +71,7 @@ export const executionBlockedBadge = (message: string): NodeBadge => ({
   variant: 'label',
   placement: 'below',
   interactive: false,
-  color: '#8a6d1f',
+  color: canvasPaintTokens.badge.colors.warning,
 })
 /** Runtime work created under a parent node during this execution. */
 export const executionExpandedBadge = (childCount: number): NodeBadge => ({
@@ -80,7 +80,7 @@ export const executionExpandedBadge = (childCount: number): NodeBadge => ({
   variant: 'label',
   placement: 'below',
   interactive: false,
-  color: '#315d73',
+  color: canvasPaintTokens.badge.colors.expanded,
 })
 /** Bottom tab counting the node's warning log records this run. */
 export const logWarningBadge = (count: number): NodeBadge => ({
@@ -89,14 +89,14 @@ export const logWarningBadge = (count: number): NodeBadge => ({
   fallbackGlyph: 'Warning',
   variant: 'label',
   placement: 'below',
-  color: '#8a6d1f',
+  color: canvasPaintTokens.badge.colors.warning,
 })
 /** Bottom dot marking that the node produced runtime messages this run. */
 export const LOG_INFO_BADGE: NodeBadge = {
   id: 'core.log.info',
   glyph: 'i',
   placement: 'below',
-  color: '#3a5a68',
+  color: canvasPaintTokens.badge.colors.info,
 }
 export const MUTED_BADGE: NodeBadge = {
   id: 'core.mode.muted',
@@ -117,16 +117,16 @@ export const PROBLEM_ERROR_BADGE: NodeBadge = {
   id: 'core.problem.error',
   glyph: 'Error',
   variant: 'label',
-  color: '#c13f32',
+  color: canvasPaintTokens.badge.colors.documentError,
 }
 export const PROBLEM_BLOCKING_WARNING_BADGE: NodeBadge = {
   id: 'core.problem.blocking-warning',
   glyph: '!',
   color: defaultTokens.colors.blockingWarning,
 }
-export const PROBLEM_WARNING_BADGE: NodeBadge = { id: 'core.problem.warning', glyph: 'W', color: '#8a6d1f' }
+export const PROBLEM_WARNING_BADGE: NodeBadge = { id: 'core.problem.warning', glyph: 'W', color: canvasPaintTokens.badge.colors.warning }
 /** Deprecated node type; popover shows the successor + apply-replacement. */
-export const DEPRECATED_BADGE: NodeBadge = { id: 'core.deprecated', glyph: 'D', color: '#8a6d1f' }
+export const DEPRECATED_BADGE: NodeBadge = { id: 'core.deprecated', glyph: 'D', color: canvasPaintTokens.badge.colors.warning }
 
 export interface BadgeRect {
   readonly x: number
@@ -136,7 +136,7 @@ export interface BadgeRect {
 }
 
 const badgeWidth = (badge: NodeBadge): number =>
-  badge.variant === 'label' ? Math.ceil(badge.glyph.length * 5.5) + 10 + (badge.icon === undefined ? 0 : 10) : BADGE_SIZE
+  badge.variant === 'label' ? Math.ceil(badge.glyph.length * canvasPaintTokens.badge.characterWidth) + canvasPaintTokens.badge.labelPadding + (badge.icon === undefined ? 0 : canvasPaintTokens.badge.iconWidth) : BADGE_SIZE
 
 /** Width reserved beside a minimized title for badges inside the header. */
 export const headerBadgeLaneWidth = (badges: readonly NodeBadge[]): number => {

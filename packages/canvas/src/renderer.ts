@@ -54,7 +54,7 @@ import {
   type ToolboxRow,
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
 /** Pin color for a declared type: canonical id (closed lists included) when
@@ -101,15 +101,15 @@ export const pinSlices = (
   }))
 }
 
-export const PIN_SLICE_DIVIDER_SCREEN_PX = 1
-export const PIN_SLICE_DIVIDER_MIN_WORLD = 0.75
-export const PIN_SLICE_DIVIDER_MAX_WORLD = 4
+export const PIN_SLICE_DIVIDER_SCREEN_PX = canvasPaintTokens.pin.dividerScreen
+export const PIN_SLICE_DIVIDER_MIN_WORLD = canvasPaintTokens.pin.dividerMinWorld
+export const PIN_SLICE_DIVIDER_MAX_WORLD = canvasPaintTokens.pin.dividerMaxWorld
 
 /**
  * Diamond pins (definitely-list cardinality) scale their vertex radius up so
  * the smaller diamond area reads as the same visual weight as circle pins.
  */
-export const PIN_DIAMOND_SCALE = 1.25
+export const PIN_DIAMOND_SCALE = canvasPaintTokens.pin.diamondScale
 
 export type PinShape = 'circle' | 'diamond' | 'scalar-list'
 
@@ -647,14 +647,14 @@ export const boundaryTargetKey = (side: 'inputs' | 'outputs', item: string): str
   `boundary::${side}::${item}`
 
 /** Dim factor for ghost (unmaterialized dynamic) pins, labels, and widgets. */
-const GHOST_ALPHA = 0.45
-const PIN_HOVER_SCALE = 1.35
-const STATUS_RING_GAP = 3.5
-const STATUS_RING_STROKE_WIDTH = 2
+const GHOST_ALPHA = canvasPaintTokens.opacity.ghost
+const PIN_HOVER_SCALE = canvasPaintTokens.pin.hoverScale
+const STATUS_RING_GAP = canvasPaintTokens.pin.statusRingGap
+const STATUS_RING_STROKE_WIDTH = canvasPaintTokens.pin.statusRingStroke
 
 /** Half the widest link stroke plus the midpoint dot: pads link bounds so
  * culling and fit account for painted thickness, not just the centerline. */
-const LINK_PAINT_PAD = 4
+const LINK_PAINT_PAD = canvasPaintTokens.link.paintPadding
 
 const finiteScale = (scale: number): number => Math.max(scale, Number.EPSILON)
 
@@ -3978,10 +3978,10 @@ const tintHex = (base: string, tint: string, amount: number): string => {
 const ZERO_OFFSET = { dx: 0, dy: 0 } as const
 
 /** Culling slack for pins/rings that overhang an item's bounds (world units). */
-const PIN_OVERHANG = 12
+const PIN_OVERHANG = canvasPaintTokens.node.pinOverhang
 
 /** Alpha applied to nodes/links outside a partial-execution scope preview. */
-const SCOPE_DIM = 0.72
+const SCOPE_DIM = canvasPaintTokens.opacity.scopeDim
 
 /** Fallback painter: label left, formatted value right. Label and value
  * share the row deficit-proportionally (text-fit.ts) so neither overlaps

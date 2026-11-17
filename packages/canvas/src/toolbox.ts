@@ -8,6 +8,7 @@
  */
 
 import { boundarySceneId, type Scene } from './scene.js'
+import { canvasPaintTokens } from './tokens.js'
 
 export type CanvasIconName =
   | 'volume-x' | 'ban' | 'play' | 'play-to' | 'play-from' | 'play-between'
@@ -69,24 +70,24 @@ export const toolboxButton = (button: ToolboxButton): ToolboxEntry => ({ kind: '
 export const toolboxSeparator = (): ToolboxEntry => ({ kind: 'separator' })
 
 /** Screen-pixel button square side, converted to world units by layout. */
-export const TOOLBOX_BUTTON_SIZE = 28
+export const TOOLBOX_BUTTON_SIZE = canvasPaintTokens.toolbox.buttonSize
 /** Screen-pixel gap between adjacent entries and rows. */
-export const TOOLBOX_GAP = 5
+export const TOOLBOX_GAP = canvasPaintTokens.toolbox.gap
 /** Screen-pixel strip padding around the rows. */
-export const TOOLBOX_PAD = 6
+export const TOOLBOX_PAD = canvasPaintTokens.toolbox.padding
 /** Screen-pixel gap from the strip bottom to the painted selection outline. */
-export const TOOLBOX_GAP_FROM_SELECTION = 16
-export const TOOLBOX_GAP_FROM_ATTACHED_BADGE = 6
+export const TOOLBOX_GAP_FROM_SELECTION = canvasPaintTokens.toolbox.selectionGap
+export const TOOLBOX_GAP_FROM_ATTACHED_BADGE = canvasPaintTokens.toolbox.badgeGap
 /** Screen-pixel separator width; its height is 60% of a button. */
-export const TOOLBOX_SEPARATOR_WIDTH = 1
+export const TOOLBOX_SEPARATOR_WIDTH = canvasPaintTokens.toolbox.separatorWidth
 /** World-space ordinary-node selection outline outset and stroke width. */
-export const NODE_SELECTION_OUTLINE_OUTSET = 3
-export const SELECTION_OUTLINE_STROKE_WIDTH = 2
+export const NODE_SELECTION_OUTLINE_OUTSET = canvasPaintTokens.toolbox.nodeSelectionOutset
+export const SELECTION_OUTLINE_STROKE_WIDTH = canvasPaintTokens.toolbox.selectionStroke
 /** World-space boundary-node selection outline outset. */
-export const BOUNDARY_SELECTION_OUTLINE_OUTSET = 2
+export const BOUNDARY_SELECTION_OUTLINE_OUTSET = canvasPaintTokens.toolbox.boundarySelectionOutset
 /** Multi-selection union outline geometry: world-space pad, screen-pixel stroke. */
-export const MULTI_SELECTION_OUTLINE_PAD = 8
-export const MULTI_SELECTION_OUTLINE_STROKE_WIDTH = 1
+export const MULTI_SELECTION_OUTLINE_PAD = canvasPaintTokens.toolbox.multiSelectionPadding
+export const MULTI_SELECTION_OUTLINE_STROKE_WIDTH = canvasPaintTokens.toolbox.multiSelectionStroke
 
 export interface ToolboxButtonRect {
   readonly button: ToolboxButton

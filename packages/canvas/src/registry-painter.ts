@@ -13,8 +13,9 @@ import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, 
 import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
+import { canvasPaintTokens } from './tokens.js'
 
-const TEXT_PAD = 2
+const TEXT_PAD = canvasPaintTokens.widget.textPadding
 
 function compactAssetValue(value: Json, valid: boolean): string {
   if (!valid || value === null) return 'no asset'

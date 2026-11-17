@@ -50,7 +50,7 @@ import {
   type TypeExpr,
   type WidgetSpec,
 } from '@dinkster/core'
-import { type DesignTokens } from './tokens.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
@@ -1293,10 +1293,10 @@ export function layoutNode(
 }
 
 /** Minimized nodes may be narrower than ordinary editable node bodies. */
-export const MINIMIZED_NODE_MIN_WIDTH = 80
+export const MINIMIZED_NODE_MIN_WIDTH = canvasPaintTokens.node.minimizedMinWidth
 
 /** Visual gap between a pin circle and widget chrome. */
-export const WIDGET_PIN_GAP = 4
+export const WIDGET_PIN_GAP = canvasPaintTokens.node.widgetPinGap
 
 /** One boundary item rendered as a pseudo-node row (scene supplies these). */
 export interface BoundarySlotInfo {
