@@ -5,10 +5,11 @@ import {
   createSignal,
   createUniqueId,
   onCleanup,
-  onMount,
+  type JSX,
 } from 'solid-js'
-import { ChevronDown, LogOut, User, type LucideIcon } from 'lucide-solid'
+import { ChevronDown, LogOut, type LucideIcon } from 'lucide-solid'
 import { ProductIcon, type ProductRole } from './controls.js'
+import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
 
@@ -20,11 +21,18 @@ export interface ProductMenuItem {
   onSelect: () => void
 }
 
-export function ProductMenu(props: {
-  label: string
+interface MenuIdentity {
+  name: string
+  email: string
+}
+
+function Menu(props: {
+  triggerName: string
+  menuName: string
   items: readonly ProductMenuItem[]
-  identity?: { name: string; email: string }
-  icon?: LucideIcon
+  identity: MenuIdentity | undefined
+  account?: boolean
+  children: JSX.Element
 }) {
   const [open, setOpen] = createSignal(false)
   const id = createUniqueId()
@@ -35,23 +43,26 @@ export function ProductMenu(props: {
     setOpen(false)
     if (restoreFocus) trigger.focus()
   }
-  const focusItem = (last = false) => {
-    const items = menu?.querySelectorAll<HTMLButtonElement>(
+  const enabledItems = () => [
+    ...menu.querySelectorAll<HTMLButtonElement>(
       '[role="menuitem"]:not(:disabled)',
-    )
-    const item = items?.[last ? items.length - 1 : 0]
-    ;(item ?? menu)?.focus()
-  }
+    ),
+  ]
   const show = (last = false) => {
     setOpen(true)
     queueMicrotask(() => {
       if (!open()) return
       const anchor = trigger.getBoundingClientRect()
       const surface = menu.getBoundingClientRect()
+      const margin = tokens.space[8]
+      // Left edges align; a trigger too near the right edge of the window
+      // aligns right edges instead, before the shared clamp applies.
+      const fitsFromLeft =
+        anchor.left + surface.width <= window.innerWidth - margin
       const placement = placeFloatingSurface({
         surface,
         anchor: {
-          left: anchor.right - surface.width,
+          left: fitsFromLeft ? anchor.left : anchor.right - surface.width,
           top: anchor.top,
           right: anchor.right,
           bottom: anchor.bottom,
@@ -63,35 +74,36 @@ export function ProductMenu(props: {
           bottom: window.innerHeight,
         },
         direction: 'block',
-        margin: tokens.space[8],
+        margin,
         gap: tokens.space[4],
       })
       // Coordinates are measured geometry; all visual styling stays in the stylesheet.
       menu.style.left = `${placement.left}px`
       menu.style.top = `${placement.top}px`
       menu.style.maxHeight = `${placement.maxHeight}px`
-      focusItem(last)
+      const items = enabledItems()
+      ;(items[last ? items.length - 1 : 0] ?? menu).focus()
     })
   }
+  // Dismissal listeners exist only while the menu is open, so a page with
+  // many menus does not run one handler per menu on every press.
   createEffect(() => {
     if (!open()) return
-    const resize = () => close()
+    const dismiss = () => close()
     const scroll = (event: Event) => {
       if (!menu?.contains(event.target as Node)) close()
     }
-    window.addEventListener('resize', resize)
-    document.addEventListener('scroll', scroll, true)
-    onCleanup(() => {
-      window.removeEventListener('resize', resize)
-      document.removeEventListener('scroll', scroll, true)
-    })
-  })
-  onMount(() => {
     const outside = (event: PointerEvent) => {
       if (!root.contains(event.target as Node)) close()
     }
+    window.addEventListener('resize', dismiss)
+    document.addEventListener('scroll', scroll, true)
     document.addEventListener('pointerdown', outside)
-    onCleanup(() => document.removeEventListener('pointerdown', outside))
+    onCleanup(() => {
+      window.removeEventListener('resize', dismiss)
+      document.removeEventListener('scroll', scroll, true)
+      document.removeEventListener('pointerdown', outside)
+    })
   })
   return (
     <div
@@ -104,9 +116,10 @@ export function ProductMenu(props: {
       <button
         ref={trigger}
         class="dinkster-button dinkster-menu-trigger"
+        data-account={props.account ? '' : undefined}
         type="button"
         aria-haspopup="menu"
-        aria-label={props.label}
+        aria-label={props.triggerName}
         aria-expanded={open()}
         aria-controls={open() ? id : undefined}
         onClick={() => (open() ? close() : show())}
@@ -117,10 +130,7 @@ export function ProductMenu(props: {
           }
         }}
       >
-        <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
-        <span class="dinkster-menu-label" data-compact={!!props.icon}>
-          {props.label}
-        </span>
+        {props.children}
         <ProductIcon icon={ChevronDown} />
       </button>
       <Show when={open()}>
@@ -130,7 +140,8 @@ export function ProductMenu(props: {
           class="dinkster-menu dinkster-menu-popover"
           role="menu"
           tabindex="-1"
-          aria-label={props.label}
+          aria-label={props.menuName}
+          aria-describedby={props.identity ? `${id}-identity` : undefined}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
@@ -139,30 +150,34 @@ export function ProductMenu(props: {
             }
             if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
               event.preventDefault()
-              const items = [
-                ...menu.querySelectorAll<HTMLButtonElement>(
-                  '[role="menuitem"]:not(:disabled)',
-                ),
-              ]
+              const items = enabledItems()
               const current = items.indexOf(
                 document.activeElement as HTMLButtonElement,
               )
+              const last = items.length - 1
               const next =
                 event.key === 'Home'
                   ? 0
                   : event.key === 'End'
-                    ? items.length - 1
-                    : (current +
-                        (event.key === 'ArrowDown' ? 1 : -1) +
-                        items.length) %
-                      items.length
+                    ? last
+                    : event.key === 'ArrowDown'
+                      ? current === last
+                        ? 0
+                        : current + 1
+                      : current <= 0
+                        ? last
+                        : current - 1
               items[next]?.focus()
             }
           }}
         >
           <Show when={props.identity}>
             {(identity) => (
-              <div class="dinkster-menu-identity" role="presentation">
+              <div
+                id={`${id}-identity`}
+                class="dinkster-menu-identity"
+                role="presentation"
+              >
                 <strong>{identity().name}</strong>
                 <span class="dinkster-metadata">{identity().email}</span>
               </div>
@@ -195,24 +210,60 @@ export function ProductMenu(props: {
   )
 }
 
+export function ProductMenu(props: {
+  label: string
+  items: readonly ProductMenuItem[]
+  identity?: MenuIdentity
+  icon?: LucideIcon
+}) {
+  return (
+    <Menu
+      triggerName={props.label}
+      menuName={props.label}
+      items={props.items}
+      identity={props.identity}
+    >
+      <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
+      <span class="dinkster-menu-label" data-compact={!!props.icon}>
+        {props.label}
+      </span>
+    </Menu>
+  )
+}
+
+/** The signed-in person's menu: their initial and name on the trigger, then
+ * name, email and Sign out, which acts at once. */
 export function ProductAccountMenu(props: {
   name: string
   email: string
   onSignOut: () => void
 }) {
+  const strings = useProductStrings()
   return (
-    <ProductMenu
-      label="Account menu"
-      icon={User}
+    <Menu
+      triggerName={`${strings.accountMenu}: ${props.name}`}
+      menuName={strings.accountMenu}
+      account
       identity={{ name: props.name, email: props.email }}
       items={[
         {
-          label: 'Sign out',
+          label: strings.signOut,
           icon: LogOut,
           intent: 'remove',
           onSelect: props.onSignOut,
         },
       ]}
-    />
+    >
+      <span
+        class="dinkster-avatar"
+        aria-hidden="true"
+        // Drawn by the stylesheet so the initial is not part of the visible
+        // label that the accessible name has to contain.
+        data-initial={[...props.name.trim()][0]?.toLocaleUpperCase() ?? ''}
+      />
+      <span class="dinkster-menu-label" data-compact="true">
+        {props.name}
+      </span>
+    </Menu>
   )
 }
