@@ -323,13 +323,14 @@ export function widgetChromeRect(x: number, rowY: number, width: number, rowHeig
   readonly height: number
   readonly radius: number
 } {
-  return { x, y: rowY + 2, width, height: rowHeight - 4, radius: 4 }
+  const paint = canvasPaintTokens.widget
+  return { x, y: rowY + paint.verticalInset, width, height: rowHeight - paint.verticalInset * 2, radius: paint.radius }
 }
 
 /** Floating label band plus padded multiline content rows. */
 export function multilineWidgetHeight(rows: number, tokens: DesignTokens): number {
-  // The content budget lives inside widgetChromeRect's 2px top/bottom inset.
-  return 4 + tokens.multilineText.labelHeight +
+  // The content budget lives inside widgetChromeRect's top/bottom inset.
+  return canvasPaintTokens.widget.verticalInset * 2 + tokens.multilineText.labelHeight +
     rows * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
 }
 

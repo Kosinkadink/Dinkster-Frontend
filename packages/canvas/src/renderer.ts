@@ -2024,7 +2024,7 @@ export class CanvasRenderer {
       ctx.roundRect(g.x, g.y, g.width, this.tokens.headerHeight, [this.tokens.cornerRadius, this.tokens.cornerRadius, 0, 0])
       ctx.fill()
       ctx.fillStyle = this.tokens.colors.title
-      ctx.font = `600 ${this.tokens.titleFontSize}px ${this.tokens.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${this.tokens.titleFontSize}px ${this.tokens.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.save()
       ctx.beginPath()
@@ -2118,7 +2118,7 @@ export class CanvasRenderer {
       const fontSize = descriptor.fontRole === 'compact-semibold'
         ? this.tokens.fontSize
         : Math.max(8, this.tokens.fontSize - 2)
-      ctx.font = `600 ${fontSize}px ${this.tokens.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${fontSize}px ${this.tokens.fontFamily}`
       ctx.fillStyle = adornmentTextColor(this.tokens, descriptor.textRole)
       ctx.textAlign = descriptor.anchor === 'link-midpoint' ? 'center' : 'right'
       ctx.textBaseline = descriptor.anchor === 'link-midpoint' ? 'bottom' : 'middle'
@@ -2292,7 +2292,7 @@ export class CanvasRenderer {
       ctx.fill()
       ctx.stroke()
       // Label pill anchored to the pointer tail.
-      ctx.font = `600 ${t.fontSize}px ${t.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.fontSize}px ${t.fontFamily}`
       const label = actor.label
       const tw = ctx.measureText(label).width
       const px = 12
@@ -2355,7 +2355,7 @@ export class CanvasRenderer {
     ctx.stroke()
     // The context is camera-scaled, so font size must return to world units
     // just like the toolbox geometry to remain stable in screen pixels.
-    ctx.font = `600 ${t.fontSize / scale}px ${t.fontFamily}`
+    ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.fontSize / scale}px ${t.fontFamily}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     for (const row of tl.rows) for (const entry of row.entries) {
@@ -2402,26 +2402,26 @@ export class CanvasRenderer {
     // Body: barely-there tint so noodles/nodes stay legible on top.
     ctx.beginPath()
     ctx.roundRect(x, y, group.width, group.height, t.cornerRadius)
-    ctx.globalAlpha = 0.14
+    ctx.globalAlpha = canvasPaintTokens.group.fillOpacity
     ctx.fillStyle = color
     ctx.fill()
     // Title band (the drag handle).
     ctx.beginPath()
     ctx.roundRect(x, y, group.width, GROUP_HEADER_HEIGHT, [t.cornerRadius, t.cornerRadius, 0, 0])
-    ctx.globalAlpha = 0.45
+    ctx.globalAlpha = canvasPaintTokens.group.headerOpacity
     ctx.fill()
     // Border.
-    ctx.globalAlpha = 0.8
+    ctx.globalAlpha = canvasPaintTokens.group.borderOpacity
     ctx.beginPath()
     ctx.roundRect(x, y, group.width, group.height, t.cornerRadius)
     ctx.strokeStyle = color
-    ctx.lineWidth = screenAwareStroke(1, this.viewport.scale, 1)
+    ctx.lineWidth = screenAwareStroke(canvasPaintTokens.group.stroke, this.viewport.scale, canvasPaintTokens.group.stroke)
     ctx.stroke()
     // Title.
     if (detailLevel !== 'overview') {
       ctx.globalAlpha = 1
       ctx.fillStyle = t.colors.title
-      ctx.font = `600 ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       ctx.fillText(group.title, x + t.padX, y + GROUP_HEADER_HEIGHT / 2, group.width - t.padX * 2)
@@ -2576,7 +2576,7 @@ export class CanvasRenderer {
     // so the two modes remain distinguishable.
     // Out-of-scope nodes dim during a partial-execution preview.
     const mode = node.node.mode ?? 'active'
-    let alpha = mode === 'muted' || mode === 'bypassed' ? 0.45 : 1
+    let alpha = mode === 'muted' || mode === 'bypassed' ? canvasPaintTokens.node.modeOpacity : 1
     if ((this.scopeHighlight && !this.scopeHighlight.nodes.has(node.id)) || this.inactiveNodes?.has(node.id)) alpha *= SCOPE_DIM
     ctx.globalAlpha = alpha
 
@@ -2585,15 +2585,15 @@ export class CanvasRenderer {
     ctx.beginPath()
     ctx.roundRect(node.x, node.y, l.width, l.height, t.cornerRadius)
     ctx.fillStyle = unrecognized
-      ? tintHex(t.colors.nodeBody, t.colors.error, 0.2)
-      : nodeColor === undefined ? t.colors.nodeBody : tintHex(t.colors.nodeBody, nodeColor, 0.18)
+      ? tintHex(t.colors.nodeBody, t.colors.error, canvasPaintTokens.node.errorBodyTint)
+      : nodeColor === undefined ? t.colors.nodeBody : tintHex(t.colors.nodeBody, nodeColor, canvasPaintTokens.node.identityBodyTint)
     ctx.fill()
     // Header.
     ctx.beginPath()
     ctx.roundRect(node.x, node.y, l.width, l.headerHeight, [t.cornerRadius, t.cornerRadius, 0, 0])
     ctx.fillStyle = unrecognized
-      ? tintHex(t.colors.nodeHeader, t.colors.error, 0.35)
-      : nodeColor === undefined ? t.colors.nodeHeader : tintHex(t.colors.nodeHeader, nodeColor, 0.72)
+      ? tintHex(t.colors.nodeHeader, t.colors.error, canvasPaintTokens.node.errorHeaderTint)
+      : nodeColor === undefined ? t.colors.nodeHeader : tintHex(t.colors.nodeHeader, nodeColor, canvasPaintTokens.node.identityHeaderTint)
     ctx.fill()
     // Bypass wash: over body+header, under text, so content stays legible.
     if (mode === 'bypassed') {
@@ -2625,7 +2625,8 @@ export class CanvasRenderer {
                 ? t.stateColors[progress.state]
                 : t.colors.nodeOutline
     const strongOutline = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress?.state === 'done'
-    const outlineWidth = unrecognized ? 1.25 * 3 : strongOutline ? 2.5 : 1.25
+    const outline = canvasPaintTokens.node.outline
+    const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : outline.idle
     const outlineDash = unrecognized || runtimeError || hasDocumentError
       ? nodeStateDash('error', scale)
       : running
@@ -2640,7 +2641,7 @@ export class CanvasRenderer {
     ctx.beginPath()
     ctx.roundRect(node.x, node.y, l.width, l.height, t.cornerRadius)
     ctx.strokeStyle = outlineColor
-    ctx.lineWidth = screenAwareStroke(outlineWidth, scale, strongOutline || unrecognized ? 2 : 1)
+    ctx.lineWidth = screenAwareStroke(outlineWidth, scale, strongOutline || unrecognized ? outline.strongScreen : outline.screen)
     ctx.stroke()
     if (dash !== undefined) ctx.setLineDash([])
     if (running && !this.reducedMotion) this.drawRunningAccent(ctx, node.x, node.y, l.width, l.height)
@@ -2668,7 +2669,7 @@ export class CanvasRenderer {
     }
 
     if (!contentDetail) {
-      ctx.font = `${l.titleRenamed ? 'italic ' : ''}600 ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       if (measureWidth(ctx, title) <= l.width - t.padX * 2) {
         ctx.fillStyle = t.colors.title
         ctx.textBaseline = 'middle'
@@ -2682,7 +2683,7 @@ export class CanvasRenderer {
     if (contentDetail) {
       // Title (truncated only for badges that occupy the header lane).
       ctx.fillStyle = t.colors.title
-      ctx.font = `${l.titleRenamed ? 'italic ' : ''}600 ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       const headerBadgeLefts = badges
@@ -2706,10 +2707,10 @@ export class CanvasRenderer {
         ctx.lineTo(glyphX + 2, glyphY + 1)
         ctx.fillStyle = t.colors.title
         ctx.fill()
-        ctx.font = `600 ${Math.max(9, t.titleFontSize - 2)}px ${t.fontFamily}`
+        ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${Math.max(9, t.titleFontSize - 2)}px ${t.fontFamily}`
         ctx.fillText(node.regionKind, titleX + 16, glyphY)
         titleX += 16 + ctx.measureText(node.regionKind).width + 8
-        ctx.font = `${l.titleRenamed ? 'italic ' : ''}600 ${t.titleFontSize}px ${t.fontFamily}`
+        ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
       ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - 4))
 
@@ -2746,7 +2747,7 @@ export class CanvasRenderer {
           }
         }
         ctx.fillStyle = t.colors.title
-        ctx.font = `600 9px ${t.fontFamily}`
+        ctx.font = `${canvasPaintTokens.type.semiboldWeight} 9px ${t.fontFamily}`
         ctx.textAlign = 'center'
         const textCenter = r.x + r.width / 2 + (badgeIconPainted ? 5 : 0)
         ctx.fillText(badgeIconPainted ? badge.glyph : (badge.fallbackGlyph ?? badge.glyph), textCenter, r.y + r.height / 2 + 0.5)
@@ -3231,7 +3232,7 @@ export class CanvasRenderer {
       ctx.stroke()
       if (contentDetail) {
         ctx.fillStyle = t.colors.title
-        ctx.font = `600 ${t.fontSize}px ${t.fontFamily}`
+        ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.fontSize}px ${t.fontFamily}`
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
         const label = l.minimized ? 'Preview' : 'Preview - right-click'
@@ -3658,7 +3659,7 @@ export class CanvasRenderer {
     if (contentDetail) {
       // Title.
       ctx.fillStyle = t.colors.title
-      ctx.font = `600 ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       ctx.fillText(l.title, x + t.padX, y + l.headerHeight / 2, l.width - t.padX * 2)
@@ -3859,7 +3860,7 @@ export class CanvasRenderer {
     if (contentDetail) {
       // Title (truncated to leave room for the policy badge).
       ctx.fillStyle = t.colors.title
-      ctx.font = `600 ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       ctx.fillText(sel.title, x + t.padX, y + sel.headerHeight / 2, Math.max(0, badge.x - sel.x - t.padX - 4))
@@ -3880,7 +3881,7 @@ export class CanvasRenderer {
       }
       const activeIndex = sel.candidates.findIndex((c) => c.id === activeId)
       ctx.fillStyle = t.colors.title
-      ctx.font = `600 9px ${t.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} 9px ${t.fontFamily}`
       ctx.textAlign = 'center'
       ctx.fillText(activeIndex < 0 ? (sel.random ? '?' : '0') : `${activeIndex + 1}`, bx + badge.width / 2, by + badge.height / 2 + 0.5)
       ctx.textAlign = 'left'
