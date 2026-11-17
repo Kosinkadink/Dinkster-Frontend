@@ -195,7 +195,8 @@ refresh before saving. Fixed worker grants display a restart notice.
 The same Model management section appears in Desktop's Existing model folders
 area. Hugging Face Sign-In is engine-private: local loopback browsers use PKCE,
 while remote engines use a provider device code. Continue at Hugging Face opens
-the validated provider origin in a separate tab; the panel checks completion.
+the validated provider origin in a separate tab; device verification also accepts
+Hugging Face's HTTPS `hf.co` short domain. The panel checks completion.
 Cancel stops the pending sign-in flow, not a model download. A masked access-token
 fallback clears the input after submission and is never saved in browser storage.
 Check sign-in status reconciles uncertain replies without repeating a mutation.

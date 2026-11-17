@@ -26,7 +26,7 @@ function text(row: Record<string, unknown>, key: string): string {
 
 function providerUrl(value: string, path?: string): string {
   const url = new URL(value)
-  if (url.protocol !== 'https:' || url.host !== 'huggingface.co' || url.username || url.password ||
+  if (url.protocol !== 'https:' || (url.host !== 'huggingface.co' && (path !== undefined || url.host !== 'hf.co')) || url.username || url.password ||
     (path !== undefined && url.pathname !== path)) throw new Error('Invalid provider URL')
   return url.href
 }

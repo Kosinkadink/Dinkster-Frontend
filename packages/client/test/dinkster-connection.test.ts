@@ -322,8 +322,14 @@ describe('model provider credentials', () => {
     payload = { provider: 'huggingface', configured: true, token: 'private-canary' }
     expect(await connection.saveModelProviderToken('private-canary')).toEqual({ provider: 'huggingface', configured: true })
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/providers/huggingface?scope=local', method: 'PUT', body: { token: 'private-canary' } })
-    payload = { method: 'device', flowId: 'owned / flow', status: 'pending', verificationUri: 'https://huggingface.co/device', userCode: 'CODE', interval: 5, expiresIn: 60 }
-    expect(await connection.startModelProviderSignIn('device')).toMatchObject({ flowId: 'owned / flow', userCode: 'CODE' })
+    payload = { method: 'device', flowId: 'owned / flow', status: 'pending', verificationUri: 'https://hf.co/oauth/device', userCode: 'CODE', interval: 5, expiresIn: 60 }
+    expect(await connection.startModelProviderSignIn('device')).toMatchObject({ flowId: 'owned / flow', userCode: 'CODE', verificationUri: 'https://hf.co/oauth/device' })
+    for (const verificationUri of ['http://hf.co/oauth/device', 'https://hf.co.evil.example/device', 'https://hf.co:444/device', 'https://user@hf.co/device']) {
+      payload = { method: 'device', flowId: 'owned', verificationUri, userCode: 'CODE', interval: 5, expiresIn: 60 }
+      await expect(connection.startModelProviderSignIn('device')).rejects.toThrow('Invalid provider URL')
+    }
+    payload = { method: 'pkce', flowId: 'owned', authorizationUrl: 'https://hf.co/oauth/authorize' }
+    await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
     payload = { status: 'pending', interval: 7 }
     expect(await connection.pollModelProviderSignIn('owned / flow')).toEqual(payload)
     expect(calls.at(-1)?.url).toBe('/engine/api/models/providers/huggingface/sign-in/owned%20%2F%20flow?scope=local')
