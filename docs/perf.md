@@ -6,6 +6,71 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Canvas click and save reporting (2026-11-17)
+
+The reporting tools in `scripts/canvas-performance/` retain the input and
+frame probes from the canvas audit. They impose no timing assertions and
+are not part of CI. Counting checks run in the fast and browser lanes.
+Use a production-optimized **test-mode** build to expose the workload bridge;
+ordinary production builds deliberately omit it. Start a local backend and
+preview separately, then run from the repository root:
+
+```bash
+pnpm --filter @dinkster/app exec vite build --mode test
+# In packages/app, with DINKSTER_NATIVE_BACKEND pointing at the local engine:
+pnpm preview --host 127.0.0.1 --port 4173 --strictPort
+# In another shell, from the repository root:
+node scripts/canvas-performance/discrete.mjs url=http://127.0.0.1:4173/ mode=gpu uncapped=1 size=2560x1440 workload=syn1200 "only=select node,node context menu" out=.amp/in/clicks.json
+node scripts/canvas-performance/measure.mjs url=http://127.0.0.1:4173/ mode=gpu uncapped=1 size=2560x1440 workloads=default7,trellis66,syn300,syn1200 cameras=read,fit interactions=hover,pan out=.amp/in/frames.json
+```
+
+Create and ignore `.amp/in/` locally before writing results there. On shared
+GPU hosts, run each browser command through the host's GPU claim tool.
+`mode=gpu` uses headless Chromium Vulkan; `uncapped=1` disables the frame
+limiter and vsync. `mode=sw` requires `AUDIT_DISPLAY` naming the caller's
+private DUMMY0 X server, whose configured modes the tool changes. It never
+selects a desktop display automatically.
+
+The frame tool reports idle, hover, pan, zoom, drag and marquee when named
+in `interactions`. Run `interactions=drag` separately from wheel flooding:
+queued wheel events can distort subsequent drag latency. A valid drag
+must change the picked node's position. Do not treat a skipped or invalid
+scenario as a passing measurement. `read` is 100% zoom and `fit` shows the
+whole graph. The click tool reports one warmup and then three samples by
+default (`reps` overrides this). Frame and click data include medians,
+percentiles and maxima. The target is <4 ms/frame through 300 nodes,
+<6.9 ms/frame at 1200, next-frame pointer redraw with <2 ms page time through
+300, and first click feedback <8 ms through 300 or <16 ms at 1200. Menus,
+panels and rails target <16 ms. These are reporting targets, not CI gates.
+
+X570, RTX 4090, Chromium 149, 2560x1440, same optimized build configuration.
+Before: `b1a951b6`; after: `67ff2856`. Three measured samples after warmup.
+All values below are first-frame p50 in milliseconds. The large-graph
+improvement does not yet meet the final timing targets.
+
+| Nodes | Selection before | Selection after | Node menu before | Node menu after |
+| --- | --- | --- | --- | --- |
+| 7 | 19.0 | 19.0 | 17.9 | 18.6 |
+| 66 | 20.8 | 21.1 | 19.0 | 19.1 |
+| 300 | 26.2 | 19.7 | 25.4 | 18.9 |
+| 1200 | 114.4 | 20.7 | 87.8 | 17.8 |
+
+A separate 1200-node delayed-save observation used three camera updates and
+three edits, observing 350-1500 ms after each command. Maximum frame gaps:
+
+| Operation | Before trials (ms) | After trials (ms) |
+| --- | --- | --- |
+| Camera save | 86.4 / 87.7 / 83.6 | 19.2 / 17.4 / 17.4 |
+| Edit save | 114.3 / 121.2 / 115.9 | 31.8 / 24.3 / 19.9 |
+
+The baseline produced >50 ms long tasks near the 400 ms save timer. The
+after save windows produced none and no main-thread JSON.stringify result
+above 100 KB. CPU-profile GC samples totaled 80.4 ms before and 34.4 ms after
+across the complete camera/edit run. This shows save work and GC contribute;
+it does not establish that all remaining frame gaps are GC. One 216.1 ms
+gap ended 208.8 ms after edit dispatch, before the save timer, so it is not
+attributed to delayed saving.
+
 ## Viewport (pan + zoom, 120 frames, read-only hot path)
 
 | Workload | Date | Commit | avg frame | p95 frame |
