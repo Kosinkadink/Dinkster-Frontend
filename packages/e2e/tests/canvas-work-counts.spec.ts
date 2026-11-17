@@ -69,4 +69,19 @@ test('select, context menu and drag release do not compile availability before t
   await page.mouse.up()
   await check()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0?.nodes?.n0?.position)).toEqual({ x: 240, y: 230 })
+
+  const unselected = await page.evaluate(() => {
+    const r = window.__dinksterTest!.renderer!, vp = r.getViewport()
+    const n = r.getScene().nodes.find((node) => node.id === 'n1')!
+    const c = document.querySelector('canvas.graph-canvas')!.getBoundingClientRect()
+    return { x: c.left + (n.x + n.layout.width / 2) * vp.scale + vp.x, y: c.top + (n.y + 12) * vp.scale + vp.y }
+  })
+  await arm('pointerdown')
+  await page.mouse.click(unselected.x, unselected.y, { button: 'right' })
+  await check()
+  await expect.poll(() => page.evaluate(() => window.canvasWorkCounts.calls)).toBeGreaterThan(0)
+  await expect(page.getByTestId('context-menu')).toBeVisible()
+  await page.locator('[data-item-id="core.node.mode"]').hover()
+  await expect(page.getByTestId('context-submenu')).toBeVisible()
+  await page.screenshot({ path: info.outputPath('unselected-context-menu.png') })
 })

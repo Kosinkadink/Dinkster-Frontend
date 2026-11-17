@@ -6844,7 +6844,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           <ContextMenu
             menu={m}
             onInvoke={(item) => menuInvoke(item)}
-            onClose={() => setMenu(undefined)}
+            onClose={() => { if (menu() === m) setMenu(undefined) }}
           />
         )}
       </Show>
