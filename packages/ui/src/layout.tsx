@@ -29,6 +29,7 @@ export function ProductShell(props: {
   return (
     <div
       class="dinkster-shell"
+      data-navigation={props.navigation.length > 0}
       onKeyDown={(event) => {
         // A dialog or menu that is handling Escape keeps it.
         if (
@@ -45,58 +46,62 @@ export function ProductShell(props: {
     >
       <header class="dinkster-topbar">
         <div class="dinkster-brand">
-          <button
-            type="button"
-            class="dinkster-button dinkster-mobile-nav"
-            data-icon-only=""
-            aria-label={strings.toggleNavigation}
-            ref={navigationToggle}
-            aria-expanded={open()}
-            aria-controls={navigationId}
-            onClick={() => setOpen(!open())}
-          >
-            <ProductIcon icon={Menu} />
-          </button>
+          <Show when={props.navigation.length > 0}>
+            <button
+              type="button"
+              class="dinkster-button dinkster-mobile-nav"
+              data-icon-only=""
+              aria-label={strings.toggleNavigation}
+              ref={navigationToggle}
+              aria-expanded={open()}
+              aria-controls={navigationId}
+              onClick={() => setOpen(!open())}
+            >
+              <ProductIcon icon={Menu} />
+            </button>
+          </Show>
           <ProductBrandMark />
           <strong class="dinkster-brand-title">{props.title}</strong>
         </div>
         {props.account}
       </header>
-      <aside class="dinkster-sidebar" data-open={open()}>
-        <nav
-          id={navigationId}
-          class="dinkster-nav"
-          aria-label={strings.mainNavigation}
-        >
-          <For each={props.navigation}>
-            {(item) => (
-              <a
-                class="dinkster-nav-item"
-                href={item.href}
-                aria-current={
-                  props.currentHref === item.href ? 'page' : undefined
-                }
-                onClick={(event) => {
-                  if (
-                    event.button !== 0 ||
-                    event.ctrlKey ||
-                    event.metaKey ||
-                    event.altKey ||
-                    event.shiftKey
-                  )
-                    return
-                  event.preventDefault()
-                  props.onNavigate(item.href)
-                  setOpen(false)
-                }}
-              >
-                <ProductIcon icon={item.icon} />
-                {item.label}
-              </a>
-            )}
-          </For>
-        </nav>
-      </aside>
+      <Show when={props.navigation.length > 0}>
+        <aside class="dinkster-sidebar" data-open={open()}>
+          <nav
+            id={navigationId}
+            class="dinkster-nav"
+            aria-label={strings.mainNavigation}
+          >
+            <For each={props.navigation}>
+              {(item) => (
+                <a
+                  class="dinkster-nav-item"
+                  href={item.href}
+                  aria-current={
+                    props.currentHref === item.href ? 'page' : undefined
+                  }
+                  onClick={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.ctrlKey ||
+                      event.metaKey ||
+                      event.altKey ||
+                      event.shiftKey
+                    )
+                      return
+                    event.preventDefault()
+                    props.onNavigate(item.href)
+                    setOpen(false)
+                  }}
+                >
+                  <ProductIcon icon={item.icon} />
+                  {item.label}
+                </a>
+              )}
+            </For>
+          </nav>
+        </aside>
+      </Show>
       <main class="dinkster-page">{props.children}</main>
     </div>
   )

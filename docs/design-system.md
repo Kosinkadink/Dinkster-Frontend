@@ -114,7 +114,21 @@ not an account service or a replacement for the app.
   action in its column. `ProductLoading` is one status region with its label;
   `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
   icon anatomy.
-- The components supply twelve short texts themselves, such as Save, Cancel
+- `ProductFacts` renders labeled account facts as a definition list; values may
+  contain shared links. `ProductCodeBlock` preserves selectable multiline text
+  and wraps long values without widening the page. `ProductCopyValue` adds a
+  neutral Copy button, holds it pending until the clipboard write finishes,
+  and shows a dismissible error on refusal. Its caller owns success feedback
+  through `onCopied` and must discard show-once secrets when the page leaves;
+  the component stores nothing. `ProductDisclosure` uses native details/summary
+  keyboard behavior for inactive history, initially closed unless `open`.
+  `ProductQrCode` preserves the supplied image's aspect ratio and quiet zone,
+  with required alternative text; the service owns enrollment content.
+  These patterns appear on the gallery's Account data page.
+- Passing an empty navigation list to `ProductShell` removes the sidebar and
+  mobile toggle without centering the content in a card. The gallery's
+  signed-out shell link demonstrates this state.
+- The components supply short texts themselves, such as Save, Cancel
   and Sign out. `ProductStringsProvider` replaces any of them for its subtree,
   for another language; `defaultProductStrings` lists them.
 

@@ -37,6 +37,8 @@ for (const width of [1280, 390]) {
     'lists',
     'messages',
     'confirmations',
+    'account-data',
+    'signed-out',
   ]) {
     test(`${section} at ${width}px`, async ({ page }) => {
       const errors: string[] = []
@@ -58,6 +60,112 @@ for (const width of [1280, 390]) {
     })
   }
 }
+
+test('account values copy exactly, history expands by keyboard and signed-out shell has no empty navigation', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('/#account-data')
+  await page.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect(
+    page.locator('.dinkster-toast').filter({ hasText: 'Copied.' }),
+  ).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'dk_sample_not_a_credential_abcdefghijklmnopqrstuvwxyz0123456789_abcdefghijklmnopqrstuvwxyz0123456789',
+  )
+  const history = page.getByText('Revoked tokens (1)', { exact: true })
+  await expect(
+    page.getByText('Old publishing token', { exact: true }),
+  ).toBeHidden()
+  await history.focus()
+  await page.keyboard.press('Enter')
+  await expect(
+    page.getByText('Old publishing token', { exact: true }),
+  ).toBeVisible()
+  await page.keyboard.press('Space')
+  await expect(
+    page.getByText('Old publishing token', { exact: true }),
+  ).toBeHidden()
+  await expect(page.getByText('Release token', { exact: true })).toBeVisible()
+  const image = page.getByRole('img', { name: /Example QR code/ })
+  expect(
+    await image.evaluate(
+      (node: HTMLImageElement) => node.complete && node.naturalWidth > 0,
+    ),
+  ).toBe(true)
+  await page
+    .getByRole('link', { name: 'View shell without account navigation' })
+    .click()
+  await expect(page.getByRole('navigation')).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Toggle navigation' }),
+  ).toHaveCount(0)
+  expect((await page.getByRole('main').boundingBox())!.x).toBe(0)
+  await page.getByRole('link', { name: 'Return to the gallery' }).click()
+  await expect(page.getByRole('navigation')).toHaveCount(1)
+})
+
+test('copy retains focus while the clipboard is pending', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.addInitScript(() => {
+    navigator.clipboard.writeText = () =>
+      new Promise<void>((resolve) => window.setTimeout(resolve, 600))
+  })
+  await page.goto('/#account-data')
+  await page.evaluate(() => document.fonts.ready)
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
+  const copy = page.getByRole('button', { name: 'Copy', exact: true })
+  await copy.focus()
+  await page.keyboard.press('Enter')
+  await expect(copy).toBeFocused()
+  await expect(copy).toHaveAttribute('aria-busy', 'true')
+  await expect(copy).toBeDisabled()
+  await expect(page).toHaveScreenshot('account-copy-pending.png', {
+    fullPage: true,
+  })
+  await page.clock.runFor(600)
+  await expect(copy).toBeFocused()
+  await expect(copy).toBeEnabled()
+  await expect(page.locator('.dinkster-toast')).toHaveText('Copied.')
+})
+
+test('clipboard refusal keeps the value selectable and reports no success', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    navigator.clipboard.writeText = async () => {
+      throw new Error('Clipboard refused')
+    }
+  })
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.goto('/#account-data')
+  await page.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveText(/Could not copy/)
+  await expect(
+    page.locator('.dinkster-toast').filter({ hasText: 'Copied.' }),
+  ).toHaveCount(0)
+  await page
+    .getByRole('region', { name: 'Example API key', exact: true })
+    .locator('code')
+    .evaluate((node) => {
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      window.getSelection()!.removeAllRanges()
+      window.getSelection()!.addRange(range)
+    })
+  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(
+    'dk_sample_not_a_credential_abcdefghijklmnopqrstuvwxyz0123456789_abcdefghijklmnopqrstuvwxyz0123456789',
+  )
+  await page.evaluate(() => window.getSelection()!.removeAllRanges())
+  await page.evaluate(() => document.fonts.ready)
+  await expect(page).toHaveScreenshot('account-copy-refused-390.png', {
+    fullPage: true,
+  })
+  await expectNoAxeViolations(page)
+  await page.getByRole('button', { name: 'Dismiss error', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
 
 test('enabled controls expose actual hover, keyboard focus and pressed states', async ({
   page,
@@ -286,7 +394,7 @@ test('forms retain edits after refusal and disable save after undo and successfu
 test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
   page,
 }) => {
-  await page.clock.install()
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
   await page.goto('/#messages')
   await expect(page.getByRole('note').getByRole('button')).toHaveCount(0)
   const region = page.locator('.dinkster-toast')
@@ -297,6 +405,7 @@ test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
   await expect(page).toHaveScreenshot('toast-visible.png', { fullPage: true })
   await expectNoAxeViolations(page)
   await page.getByRole('button', { name: 'Dismiss notification' }).focus()
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
   await page.clock.fastForward(6000)
   await expect(
     page.getByRole('button', { name: 'Dismiss notification' }),
