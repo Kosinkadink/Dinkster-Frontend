@@ -51,6 +51,11 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       ['element["className"] = "private-card"', 'Class private-card'],
       ['import "../outside.css"', 'Stylesheet imports must use'],
       ['import("../outside.css")', 'Stylesheet imports must use'],
+      ['const v=<style>{".private {color:red}"}</style>', 'Embedded styles'],
+      [
+        'const v=<link rel="stylesheet" href="../outside.css"/>',
+        'stylesheet link',
+      ],
       [
         'const attrs={style:{color:"red"}};const v=<section {...attrs}/>',
         'Native element spreads',

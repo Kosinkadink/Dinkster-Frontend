@@ -184,6 +184,26 @@ export async function checkDesignSystem(args = []) {
         checkStylesheetImport(node.moduleSpecifier.text, node)
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const tag = node.tagName.getText(source)
+        if (tag === 'style')
+          report(
+            path,
+            line(node),
+            'Embedded styles are outside the shared stylesheet',
+          )
+        if (
+          tag === 'link' &&
+          node.attributes.properties.some(
+            (attribute) =>
+              ts.isJsxAttribute(attribute) &&
+              attribute.name.text === 'rel' &&
+              attribute.initializer?.getText(source).includes('stylesheet'),
+          )
+        )
+          report(
+            path,
+            line(node),
+            'Use the shared stylesheet import instead of a stylesheet link',
+          )
         if (controls.has(tag) && !primitiveTags.get(path)?.has(tag))
           report(path, line(node), `Raw ${tag}; use a shared Product component`)
         if (
