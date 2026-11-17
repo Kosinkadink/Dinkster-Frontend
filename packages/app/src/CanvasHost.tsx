@@ -3050,6 +3050,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
+    let hoveredToolboxButtonId: string | undefined
+    function refreshToolboxScopeHighlight(): void {
+      const hit = renderer.getToolboxLayout()?.buttons.find((entry) => entry.button.id === hoveredToolboxButtonId)
+      const tab = activeTab()
+      const def = tab?.store.doc.graphs[tab.store.doc.root]
+      const selected = def ? [...controller.getSelection()].filter((id) => def.nodes[id]) : []
+      const scopes = hit && !hit.button.disabled && tab
+        ? props.app.previewSelectionExecutionScopes(tab, selected)
+        : undefined
+      const scope = hit?.button.id === 'core.queueUpToHere'
+        ? scopes?.upTo
+        : hit?.button.id === 'core.queueBetween'
+          ? scopes?.between
+          : hit?.button.id === 'core.queueFromHere'
+            ? scopes?.fromOnwards
+            : undefined
+      renderer.setScopeHighlight(scope ? selectionScopeHighlight(scope) : undefined)
+    }
     controller = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
@@ -3271,26 +3289,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (b.id === 'core.minimize') toggleSelectedNodes(tab, nodeIds)
       },
       onToolboxHover: (hit) => {
-        if (hit?.button.disabled === true) {
-          renderer.setScopeHighlight(undefined)
-          return
-        }
-        const tab = activeTab()
-        const def = tab?.store.doc.graphs[tab.store.doc.root]
-        const selected = def ? [...controller.getSelection()].filter((id) => def.nodes[id]) : []
-        const scopes = tab ? props.app.previewSelectionExecutionScopes(tab, selected) : undefined
-        const scope = hit?.button.id === 'core.queueUpToHere'
-          ? scopes?.upTo
-          : hit?.button.id === 'core.queueBetween'
-            ? scopes?.between
-            : hit?.button.id === 'core.queueFromHere'
-              ? scopes?.fromOnwards
-              : undefined
-        if (!scope) {
-          renderer.setScopeHighlight(undefined)
-          return
-        }
-        renderer.setScopeHighlight(selectionScopeHighlight(scope))
+        hoveredToolboxButtonId = hit?.button.id
+        refreshToolboxScopeHighlight()
       },
       onHoverTarget: (target) => {
         if (!target) { props.tooltips?.hideMatching((candidate) => (candidate as { kind?: string } | null | undefined)?.kind !== 'dom', tooltipOwner); return }
@@ -4890,13 +4890,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // nodes (the Nodes 2.0 above-node control strip). Host-derived like
     // badges: recomputed on selection/document changes, placed by the canvas.
     // Frozen execution views are read-only, so they grow no toolbox.
+    createEffect(on([selVersion, docTick], () => {
+      // A hover belongs to this selection/document, not the next one.
+      hoveredToolboxButtonId = undefined
+      renderer.setScopeHighlight(undefined)
+    }))
     createEffect(() => {
       selVersion()
       docTick()
       selectionScopesChanged()
-      // A preview is valid only while the pointer remains over the button
-      // for this exact selection/document snapshot.
-      renderer.setScopeHighlight(undefined)
       const tab = activeTab()
       const def = tab ? tab.store.doc.graphs[currentGraphId(tab)] : undefined
       const sel = def ? [...controller.getSelection()].filter((id) => def.nodes[id]) : []
@@ -4976,6 +4978,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         toolboxButton({ id: 'core.more', icon: 'ellipsis-vertical', label: 'More actions' }),
       ])
       renderer.setToolbox(rows)
+      refreshToolboxScopeHighlight()
     })
 
     // -- widget editor overlay ----------------------------------------------

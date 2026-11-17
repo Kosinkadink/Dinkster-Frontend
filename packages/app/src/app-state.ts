@@ -3674,12 +3674,11 @@ export class AppState {
     }
   }
 
-  /** Confirm restored local ownership before sharing the local inventory. */
-  async confirmStartupOwnership(): Promise<void> {
+  private async waitForOwnershipCatalogs(backends: readonly Backend[]): Promise<void> {
     // Initial socket opening replaces the catalog and connection lifetime.
     // Capture ownership only after that publication, without retrying admission.
     await new Promise<void>((resolve) => {
-      const ready = (): boolean => this.disposed || !this.backends.get().some((backend) => {
+      const ready = (): boolean => this.disposed || !backends.some((backend) => {
         if (backend.protocol !== 'dinkster') return false
         const status = backend.connection.status.get()
         return status === 'connecting' || status === 'reconnecting' ||
@@ -3693,6 +3692,11 @@ export class AppState {
         })
       })
     })
+  }
+
+  /** Confirm restored local ownership before sharing the local inventory. */
+  async confirmStartupOwnership(): Promise<void> {
+    await this.waitForOwnershipCatalogs(this.backends.get())
     const tabs = this.tabs.get()
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const currentLocalDocuments = new Set(tabs.filter((tab) => this.backendForTab(tab) === local)
@@ -8018,9 +8022,10 @@ export class AppState {
     prepared: Extract<ReturnType<AppState['prepareDocumentOpen']>, { readonly ok: true }>,
     backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true,
   ): Promise<Tab | undefined> {
+    const destination = target ?? this.backends.get()[0]!
+    await this.waitForOwnershipCatalogs([backend, destination])
     if (this.disposed || !stillWanted()) return undefined
     const registry = backend.registry.get()
-    const destination = target ?? this.backends.get()[0]!
     const destinationRegistry = destination.registry.get()
     const registryUnchanged = (before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean => {
       before = before && (this.packLocaleSources.get(before) ?? before)
