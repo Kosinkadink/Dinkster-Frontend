@@ -16,6 +16,7 @@
 .dinkster-root [hidden] { display: none !important; }
 :root:has(.dinkster-topbar) { scroll-padding-top: calc(var(--dinkster-top-bar-height) + var(--dinkster-space-16)); }
 .dinkster-shell { display: grid; min-height: 100dvh; grid-template: var(--dinkster-top-bar-height) 1fr / var(--dinkster-sidebar-width) minmax(0, 1fr); }
+.dinkster-shell[data-navigation='false'] { grid-template-columns: minmax(0, 1fr); }
 .dinkster-topbar { position: sticky; top: 0; z-index: 1; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); padding-inline: var(--dinkster-space-24); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-panel); }
 .dinkster-sidebar { padding: var(--dinkster-space-16); border-right: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-panel); }
 .dinkster-nav { position: sticky; top: calc(var(--dinkster-top-bar-height) + var(--dinkster-space-16)); display: grid; align-content: start; gap: var(--dinkster-space-4); max-height: calc(100dvh - var(--dinkster-top-bar-height) - var(--dinkster-space-32)); overflow: auto; }
@@ -34,6 +35,14 @@
 .dinkster-description { margin: 0; color: var(--dinkster-text-secondary); }
 .dinkster-metadata { font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); color: var(--dinkster-text-secondary); }
 .dinkster-mono { font-family: var(--dinkster-font-mono); }
+.dinkster-facts { display: grid; gap: var(--dinkster-space-12); margin: 0; }
+.dinkster-fact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--dinkster-space-16); }
+.dinkster-fact dd { margin: 0; overflow-wrap: anywhere; }
+.dinkster-code { margin: 0; min-width: 0; padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); font: inherit; font-family: var(--dinkster-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.dinkster-code code { font: inherit; }
+.dinkster-disclosure > summary { color: var(--dinkster-text-secondary); cursor: pointer; }
+.dinkster-disclosure > .dinkster-stack { margin-top: var(--dinkster-space-16); }
+.dinkster-qr { display: block; width: var(--dinkster-menu-width); max-width: 100%; height: auto; }
 .dinkster-link { color: var(--dinkster-accent-foreground); text-decoration: underline; }
 .dinkster-link:hover { color: var(--dinkster-text-primary); }
 .dinkster-icon { width: var(--dinkster-icon-size); height: var(--dinkster-icon-size); flex: none; }
