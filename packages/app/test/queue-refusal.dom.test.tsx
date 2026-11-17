@@ -58,6 +58,45 @@ async function fixture(clean = false) {
   return { app, backend, root, queue }
 }
 
+it('shows recovery storage errors until dismissed or saved without losing the edit', async () => {
+  const { app, root } = await fixture(true)
+  try {
+    app.flushPersistTabs(true)
+    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('dinkster.openTabs')!).assetRetention.acknowledged).toBe(true))
+    const original = localStorage.getItem('dinkster.openTabs')
+    const tab = app.activeTab()!
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Keep my unsaved edit',
+    } })).ok).toBe(true)
+    const write = localStorage.setItem.bind(localStorage)
+    let blocked = true
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (blocked && key.startsWith('dinkster.openTabs')) throw new DOMException('Storage full', 'QuotaExceededError')
+      write(key, value)
+    })
+    const banner = () => root.querySelector('[data-testid="recovery-storage-error"]')
+    app.flushPersistTabs(true)
+    await vi.waitFor(() => expect(banner()?.querySelector('[role="alert"]') ?? null).not.toBeNull())
+    expect(banner()!.textContent).toContain('Keep this window open and export your workflow')
+    expect(localStorage.getItem('dinkster.openTabs')).toBe(original)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBe('Keep my unsaved edit')
+    app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'unrelated', 'Keep this advisory')])
+    banner()!.querySelector<HTMLButtonElement>('[aria-label="Dismiss error"]')!.click()
+    expect(banner()).toBeNull()
+    expect(app.problems.get().some((problem) => problem.code === 'unrelated')).toBe(true)
+    app.flushPersistTabs(true)
+    await vi.waitFor(() => expect(banner()).not.toBeNull())
+    blocked = false
+    app.flushPersistTabs(true)
+    await vi.waitFor(() => {
+      expect(banner()).toBeNull()
+      const saved = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+      expect(saved.assetRetention).toMatchObject({ acknowledged: true, complete: true })
+      expect(saved.tabs.find((entry: { doc: { lineage: string } }) => entry.doc.lineage === tab.id).doc).toEqual(tab.store.doc)
+    })
+  } finally { app.dispose() }
+})
+
 it('pressing Queue on an invalid graph shows the Problems summary and opens its hidden panel', async () => {
   const { app, root, queue } = (await fixture())
   app.dock.setOpen('right', false)
