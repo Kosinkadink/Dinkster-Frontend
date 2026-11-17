@@ -155,6 +155,7 @@ async function retainRoundTrip(
   const afterSaveReload = await persistedState(page)
   const retainedImportOwners: string[] = []
   await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
     expect(route.request().method()).toBe('PUT')
     // VIDEO_EDIT and output-target values are opaque, not a certified empty asset set.
     expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
