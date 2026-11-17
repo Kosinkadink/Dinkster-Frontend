@@ -1,21 +1,36 @@
 import { Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { ProductButton } from './controls.js'
 import { ProductErrorBanner } from './messages.js'
+import { useProductStrings } from './strings.js'
 
-export interface ProductFormState<T extends Record<string, string>> {
+export type ProductFormValues = Record<string, string | boolean>
+
+/** The editable shape of initial values: an initial `false` is a boolean
+ * field, not a field that can only hold `false`. */
+export type ProductFormFields<I extends ProductFormValues> = {
+  [K in keyof I]: I[K] extends boolean ? boolean : string
+}
+
+export interface ProductFormState<T> {
   values: () => T
   setValue: <K extends keyof T>(key: K, value: T[K]) => void
   dirty: () => boolean
   pending: () => boolean
 }
 
-export function ProductForm<T extends Record<string, string>>(props: {
-  initialValues: T
-  onSave: (values: T) => Promise<void>
-  children: (state: ProductFormState<T>) => JSX.Element
+export function ProductForm<I extends ProductFormValues>(props: {
+  initialValues: I
+  /** Resolve to save. Resolve `false` to keep the edits without the general
+   * error, when the caller shows the reason under a field. Reject for a
+   * failure that belongs to no field. */
+  onSave: (values: ProductFormFields<I>) => Promise<void | false>
+  children: (state: ProductFormState<ProductFormFields<I>>) => JSX.Element
 }) {
-  const [baseline, setBaseline] = createSignal({ ...props.initialValues })
-  const [values, setValues] = createSignal({ ...props.initialValues })
+  type T = ProductFormFields<I>
+  const strings = useProductStrings()
+  const initial = () => ({ ...props.initialValues }) as unknown as T
+  const [baseline, setBaseline] = createSignal(initial())
+  const [values, setValues] = createSignal(initial())
   const [pending, setPending] = createSignal(false)
   const [error, setError] = createSignal(false)
   const dirty = createMemo(() =>
@@ -27,7 +42,7 @@ export function ProductForm<T extends Record<string, string>>(props: {
     const snapshot = { ...values() }
     setPending(true)
     try {
-      await props.onSave(snapshot)
+      if ((await props.onSave(snapshot)) === false) return
       setBaseline(() => snapshot)
       setError(false)
     } catch {
@@ -37,10 +52,16 @@ export function ProductForm<T extends Record<string, string>>(props: {
     }
   }
   return (
-    <form class="dinkster-stack" onSubmit={save} aria-busy={pending()}>
+    // Field problems are shown by ProductField, not the browser's own bubble.
+    <form
+      class="dinkster-stack"
+      noValidate
+      onSubmit={save}
+      aria-busy={pending()}
+    >
       <Show when={error()}>
         <ProductErrorBanner onDismiss={() => setError(false)}>
-          Changes could not be saved. Try again.
+          {strings.saveFailed}
         </ProductErrorBanner>
       </Show>
       {props.children({
@@ -53,18 +74,17 @@ export function ProductForm<T extends Record<string, string>>(props: {
       <div class="dinkster-actions">
         <ProductButton
           type="submit"
-          intent="add"
           fill="solid"
           disabled={!dirty()}
-          loading={pending()}
+          pending={pending()}
         >
-          Save
+          {strings.save}
         </ProductButton>
         <ProductButton
           disabled={!dirty() || pending()}
           onClick={() => setValues(() => ({ ...baseline() }))}
         >
-          Undo changes
+          {strings.undoChanges}
         </ProductButton>
       </div>
     </form>

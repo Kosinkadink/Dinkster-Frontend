@@ -31,6 +31,7 @@ import {
   ProductForm,
   ProductIcon,
   ProductIconButton,
+  ProductLink,
   ProductList,
   ProductListRow,
   ProductLoading,
@@ -38,9 +39,11 @@ import {
   ProductNotice,
   ProductPage,
   ProductRadio,
+  ProductSection,
   ProductSelect,
   ProductShell,
   ProductSpinner,
+  ProductStringsProvider,
   ProductTable,
   ProductTextArea,
   ProductTextInput,
@@ -58,23 +61,29 @@ const navigation = [
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
 ]
 
-function Section(props: { title: string; children: JSX.Element }) {
+function Section(props: {
+  title: string
+  components: string
+  children: JSX.Element
+}) {
   return (
-    <section class="dinkster-stack" aria-label={props.title}>
-      <h2 class="dinkster-heading">{props.title}</h2>
+    <ProductSection title={props.title}>
+      <span class="dinkster-metadata dinkster-mono">{props.components}</span>
       {props.children}
-    </section>
+    </ProductSection>
   )
 }
 
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
-  const [toast, setToast] = createSignal<{ message: string }>()
+  const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
   const [invalid, setInvalid] = createSignal(false)
+  const [refuseName, setRefuseName] = createSignal(false)
+  const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
   let navigationTimer: number | undefined
@@ -126,7 +135,10 @@ function Gallery() {
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
             <Match when={route() === '#controls'}>
-              <Section title="Button roles and fills">
+              <Section
+                title="Button roles and fills"
+                components="ProductButton"
+              >
                 <p class="dinkster-description">
                   Variant samples only. A real screen has at most one solid main
                   action; removals open a confirmation first.
@@ -152,19 +164,24 @@ function Gallery() {
                         <ProductButton intent={intent} disabled>
                           {label} disabled
                         </ProductButton>
-                        <ProductButton intent={intent} loading>
+                        <ProductButton intent={intent} pending>
                           {label} pending
                         </ProductButton>
                         <ProductButton intent={intent} fill="solid" disabled>
                           {label} solid disabled
                         </ProductButton>
-                        <ProductButton intent={intent} fill="solid" loading>
+                        <ProductButton intent={intent} fill="solid" pending>
                           {label} solid pending
                         </ProductButton>
                       </div>
                     )
                   }}
                 </For>
+              </Section>
+              <Section
+                title="Icon buttons, spinner, icon and link"
+                components="ProductIconButton, ProductSpinner, ProductIcon, ProductLink"
+              >
                 <div class="dinkster-actions">
                   <ProductIconButton
                     label="Add item"
@@ -187,8 +204,15 @@ function Gallery() {
                   <ProductSpinner label="Pending work" />
                   <ProductIcon icon={Settings} />
                 </div>
+                <p class="dinkster-description">
+                  A sentence can carry a{' '}
+                  <ProductLink href="#lists">link to another page</ProductLink>.
+                </p>
               </Section>
-              <Section title="Text fields">
+              <Section
+                title="Text fields"
+                components="ProductField with ProductTextInput, ProductTextArea or ProductSelect"
+              >
                 <ProductField
                   label="Display name"
                   description="Shown on your account."
@@ -218,6 +242,18 @@ function Gallery() {
                       {...attributes}
                       disabled
                       value="Read-only account"
+                    />
+                  )}
+                </ProductField>
+                <ProductField
+                  label="Read-only field"
+                  description="Selectable, not editable."
+                >
+                  {(attributes) => (
+                    <ProductTextInput
+                      {...attributes}
+                      readOnly
+                      value="dk_live_example"
                     />
                   )}
                 </ProductField>
@@ -277,7 +313,10 @@ function Gallery() {
                   )}
                 </ProductField>
               </Section>
-              <Section title="Choices">
+              <Section
+                title="Choices"
+                components="ProductCheckbox, ProductRadio"
+              >
                 <ProductCheckbox label="Unchecked option" />
                 <ProductCheckbox label="Checked option" checked />
                 <ProductCheckbox label="Disabled option" disabled />
@@ -302,6 +341,7 @@ function Gallery() {
               </Section>
             </Match>
             <Match when={route() === '#forms'}>
+              <span class="dinkster-metadata dinkster-mono">ProductForm</span>
               <ProductNotice>
                 Save is available only after a change. Undo or a successful save
                 returns to the unchanged state.
@@ -312,6 +352,11 @@ function Gallery() {
                 onChange={(event) => setFail(event.currentTarget.checked)}
               />
               <ProductCheckbox
+                label="Refuse the next name as taken"
+                checked={refuseName()}
+                onChange={(event) => setRefuseName(event.currentTarget.checked)}
+              />
+              <ProductCheckbox
                 label="Show field error"
                 checked={invalid()}
                 onChange={(event) => setInvalid(event.currentTarget.checked)}
@@ -320,12 +365,18 @@ function Gallery() {
                 initialValues={{
                   name: 'Alex Morgan',
                   description: 'Personal account',
+                  showEmail: false,
                 }}
                 onSave={async () => {
                   await new Promise((resolve) =>
                     window.setTimeout(resolve, 600),
                   )
                   if (fail()) throw new Error('Gallery refusal')
+                  if (refuseName()) {
+                    setNameTaken(true)
+                    return false
+                  }
+                  setNameTaken(false)
                   complete('Changes saved')
                   reportProductEvent({
                     type: 'action-completed',
@@ -339,15 +390,22 @@ function Gallery() {
                     <ProductField
                       label="Display name"
                       description="Your public name."
-                      error={invalid() ? 'Enter a display name.' : ''}
+                      error={
+                        nameTaken()
+                          ? 'That name is taken.'
+                          : invalid()
+                            ? 'Enter a display name.'
+                            : ''
+                      }
                     >
                       {(attributes) => (
                         <ProductTextInput
                           {...attributes}
                           value={form.values().name}
-                          onInput={(event) =>
+                          onInput={(event) => {
+                            setNameTaken(false)
                             form.setValue('name', event.currentTarget.value)
-                          }
+                          }}
                           disabled={form.pending()}
                           required
                         />
@@ -368,6 +426,14 @@ function Gallery() {
                         />
                       )}
                     </ProductField>
+                    <ProductCheckbox
+                      label="Show my email on my profile"
+                      checked={form.values().showEmail}
+                      onChange={(event) =>
+                        form.setValue('showEmail', event.currentTarget.checked)
+                      }
+                      disabled={form.pending()}
+                    />
                     <p class="dinkster-metadata" role="status">
                       {form.pending()
                         ? 'Saving changes'
@@ -380,7 +446,10 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
-              <Section title="Bordered list">
+              <Section
+                title="Bordered list"
+                components="ProductList, ProductListRow"
+              >
                 <ProductList label="Sign-in methods">
                   <ProductListRow
                     title="Password"
@@ -419,7 +488,7 @@ function Gallery() {
                   />
                 </ProductList>
               </Section>
-              <Section title="Table">
+              <Section title="Table" components="ProductTable">
                 <ProductTable
                   label="Published packages"
                   columns={[
@@ -449,7 +518,10 @@ function Gallery() {
                   ]}
                 />
               </Section>
-              <Section title="Empty and loading">
+              <Section
+                title="Empty and loading"
+                components="ProductEmptyState, ProductLoading"
+              >
                 <ProductEmptyState
                   message="No API keys yet."
                   action={
@@ -471,7 +543,10 @@ function Gallery() {
               </Section>
             </Match>
             <Match when={route() === '#messages'}>
-              <Section title="Menus">
+              <Section
+                title="Menus"
+                components="ProductMenu, ProductAccountMenu"
+              >
                 <div class="dinkster-actions">
                   <ProductMenu
                     label="Package actions"
@@ -516,7 +591,10 @@ function Gallery() {
                   />
                 </div>
               </Section>
-              <Section title="Messages">
+              <Section
+                title="Messages"
+                components="ProductNotice, ProductErrorBanner, ProductToast, ProductField"
+              >
                 <ProductNotice>
                   This is a standing page notice. It has no dismiss action.
                 </ProductNotice>
@@ -551,7 +629,10 @@ function Gallery() {
               </Section>
             </Match>
             <Match when={route() === '#confirmations'}>
-              <Section title="Site confirmation">
+              <Section
+                title="Site confirmation"
+                components="ProductConfirmation"
+              >
                 <ProductConfirmation
                   title="Remove API key?"
                   consequence="Applications using this key will lose access immediately."
@@ -569,10 +650,27 @@ function Gallery() {
                   onCancel={() => complete('Removal cancelled')}
                 />
               </Section>
-              <Section title="App dialog">
+              <Section
+                title="App dialog"
+                components="ProductDialog with ProductConfirmation"
+              >
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
                 </ProductButton>
+              </Section>
+              <Section
+                title="Replaced built-in text"
+                components="ProductStringsProvider"
+              >
+                <ProductStringsProvider strings={{ cancel: 'Keep the key' }}>
+                  <ProductConfirmation
+                    consequence="A product replaces the text the components supply, such as for another language."
+                    actionLabel="Remove this key"
+                    intent="remove"
+                    onConfirm={() => setDialog(true)}
+                    onCancel={() => complete('Key kept')}
+                  />
+                </ProductStringsProvider>
               </Section>
             </Match>
           </Switch>
@@ -581,13 +679,10 @@ function Gallery() {
           {activity()}
         </p>
       </ProductPage>
-      <Show when={toast()} keyed>
-        {(notification) => (
-          <ProductToast onDismiss={() => setToast(undefined)}>
-            {notification.message}
-          </ProductToast>
-        )}
-      </Show>
+      <ProductToast
+        notification={toast()}
+        onDismiss={() => setToast(undefined)}
+      />
       <Show when={dialog()}>
         <ProductDialog
           title="Remove item?"

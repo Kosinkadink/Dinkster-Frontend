@@ -7,6 +7,7 @@ import {
   type ProductRole,
 } from './controls.js'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
+import { useProductStrings } from './strings.js'
 
 export function ProductNotice(props: {
   children: JSX.Element
@@ -24,41 +25,86 @@ export function ProductErrorBanner(props: {
   children: JSX.Element
   onDismiss: () => void
 }) {
+  const strings = useProductStrings()
   return (
     <div class="dinkster-message" data-kind="error" role="alert">
       <ProductIcon icon={CircleAlert} />
       <span class="dinkster-message-copy">{props.children}</span>
       <ProductIconButton
         icon={X}
-        label="Dismiss error"
+        label={strings.dismissError}
         onClick={props.onDismiss}
       />
     </div>
   )
 }
 
+/** The corner region for success feedback. Keep it mounted and pass each
+ * success as a new object: the region exists before its text, which is what
+ * lets assistive technology announce it, and a new object restarts the
+ * lifetime even when the text repeats. */
 export function ProductToast(props: {
-  children: JSX.Element
+  notification: { readonly message: string } | undefined
   onDismiss: () => void
 }) {
-  onMount(() => {
-    const timer = window.setTimeout(
-      props.onDismiss,
+  return (
+    <div class="dinkster-toast" role="status">
+      <Show when={props.notification} keyed>
+        {(notification) => (
+          <ToastMessage onDismiss={props.onDismiss}>
+            {notification.message}
+          </ToastMessage>
+        )}
+      </Show>
+    </div>
+  )
+}
+
+function ToastMessage(props: { children: JSX.Element; onDismiss: () => void }) {
+  const strings = useProductStrings()
+  let toast!: HTMLDivElement
+  let timer: number | undefined
+  let hovered = false
+  let focused = false
+  // The lifetime restarts when the pointer and keyboard focus have both left,
+  // so the toast never disappears from under either.
+  const schedule = () => {
+    window.clearTimeout(timer)
+    if (hovered || focused) return
+    timer = window.setTimeout(
+      () => props.onDismiss(),
       rules.messages.success.timeoutMs,
     )
-    onCleanup(() => window.clearTimeout(timer))
-  })
+  }
+  onMount(schedule)
+  onCleanup(() => window.clearTimeout(timer))
   return (
     <div
-      class="dinkster-toast dinkster-message"
+      ref={toast}
+      class="dinkster-message"
       data-kind="success"
-      role="status"
+      onPointerEnter={() => {
+        hovered = true
+        schedule()
+      }}
+      onPointerLeave={() => {
+        hovered = false
+        schedule()
+      }}
+      onFocusIn={() => {
+        focused = true
+        schedule()
+      }}
+      onFocusOut={(event) => {
+        focused = toast.contains(event.relatedTarget as Node | null)
+        schedule()
+      }}
     >
       <ProductIcon icon={Check} />
       <span class="dinkster-message-copy">{props.children}</span>
       <ProductIconButton
         icon={X}
-        label="Dismiss notification"
+        label={strings.dismissNotification}
         onClick={props.onDismiss}
       />
     </div>
@@ -74,6 +120,7 @@ export function ProductConfirmation(props: {
   onConfirm: () => void
   onCancel: () => void
 }) {
+  const strings = useProductStrings()
   return (
     <section class="dinkster-stack">
       <Show when={props.title}>
@@ -84,13 +131,13 @@ export function ProductConfirmation(props: {
         <ProductButton
           fill="solid"
           intent={props.intent}
-          loading={props.pending === true}
+          pending={props.pending === true}
           onClick={props.onConfirm}
         >
           {props.actionLabel}
         </ProductButton>
         <ProductButton disabled={props.pending} onClick={props.onCancel}>
-          Cancel
+          {strings.cancel}
         </ProductButton>
       </div>
     </section>
@@ -103,6 +150,7 @@ export function ProductDialog(props: {
   onDismiss: () => void
   pending?: boolean
 }) {
+  const strings = useProductStrings()
   let dialog!: HTMLDialogElement
   const id = createUniqueId()
   let retired = false
@@ -117,6 +165,9 @@ export function ProductDialog(props: {
       class="dinkster-dialog"
       aria-labelledby={id}
       onKeyDown={(event) => {
+        // Browsers stop honoring a cancelled `cancel` event after repeated
+        // presses, so Escape itself is cancelled while an operation is pending.
+        if (event.key === 'Escape' && props.pending) event.preventDefault()
         if (event.key !== 'Tab') return
         const focusable = [
           ...dialog.querySelectorAll<HTMLElement>(
@@ -142,7 +193,9 @@ export function ProductDialog(props: {
         if (props.pending) event.preventDefault()
       }}
       onClose={() => {
-        if (!retired) props.onDismiss()
+        if (retired) return
+        if (props.pending) dialog.showModal()
+        else props.onDismiss()
       }}
     >
       <div class="dinkster-stack">
@@ -152,7 +205,7 @@ export function ProductDialog(props: {
           </h2>
           <ProductIconButton
             icon={X}
-            label={`Close ${props.title}`}
+            label={strings.close}
             disabled={props.pending === true}
             onClick={() => dialog.close()}
           />

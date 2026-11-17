@@ -57,45 +57,69 @@ component gallery on loopback port 5276 after `pnpm build:ui`; production galler
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
-- `ProductShell` owns the full-width frame and responsive navigation. Its caller
+- `ProductShell` owns the full-width frame and responsive navigation. The top
+  bar and sidebar stay in place while the page scrolls; below the breakpoint
+  the top bar stays and the opened navigation scrolls with the page. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
   `ProductLoading` until data arrives. Navigation retains real link targets.
-  `ProductPage` owns headings and the normal/table content width.
+  `ProductPage` owns the page title and the normal/table content width;
+  `ProductSection` owns a titled section inside it.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
-  solid/outline. `ProductIconButton` is the quiet icon-only control with a
-  required accessible label. Pending buttons stay disabled with a stable name.
+  solid/outline, and accepts native button attributes. `ProductIconButton` is
+  the quiet, square icon-only control with a required accessible label and the
+  same attributes. `pending` shows the spinner and ignores presses under a
+  stable name. A pending button, and a button that becomes disabled while it
+  holds keyboard focus, stays focusable and is announced as unavailable, so
+  focus is never dropped to the page. `ProductLink` is the text link.
   The variant gallery is deliberately not a real screen's action hierarchy.
-- `ProductField` binds its label, description and error to its child control.
-  Pass its attributes to `ProductTextInput`, `ProductTextArea` or `ProductSelect`.
+- `ProductField` binds its label, description and error to its child control;
+  an error carries the error icon. Pass its attributes to `ProductTextInput`,
+  `ProductTextArea` or `ProductSelect`.
   Native checkbox/radio behavior remains in `ProductCheckbox`/`ProductRadio`.
-- `ProductForm` takes an initial string-valued record once per mounted form.
-  Its render callback receives values, a field setter, dirty and pending state.
-  Save and Undo changes are disabled until the values differ from the saved
-  baseline. A successful asynchronous save updates that baseline; a failure
-  retains edits and shows a dismissible error until a later save succeeds.
-  Changing to another record mounts a new form. Page-specific API validation
-  stays with the caller and `ProductField`.
+- `ProductForm` takes an initial record of text and true/false values once per
+  mounted form. Its render callback receives values, a field setter, dirty and
+  pending state. Save and Undo changes are disabled until the values differ
+  from the saved baseline. A resolved save updates that baseline. A save that
+  resolves `false` keeps the edits and shows nothing itself, for a refusal the
+  caller shows under a field. A rejected save keeps the edits and shows a
+  dismissible error until a later save succeeds. The browser's own validation
+  messages are off; field problems are shown by `ProductField`.
+  Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
   keyboard item movement and opener focus restoration. Disabled items are
-  skipped; a disabled-only menu remains keyboard-dismissable. Placement uses
-  the app's unchanged viewport algorithm from `@dinkster/core/floating-surface`,
-  clamping horizontally and flipping above when needed. Scroll outside or
-  resize dismisses the menu rather than leaving a stale anchor. Item text follows its intent. Removal callbacks open a confirmation;
-  `ProductAccountMenu` displays name/email and invokes Sign out immediately.
+  skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
+  to its trigger's left edge, or to its right edge when it would not fit, and
+  then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
+  to clamp and to flip above when needed. Scroll outside or resize dismisses
+  the menu rather than leaving a stale anchor. Its document listeners exist
+  only while it is open. Item text follows its intent. Removal callbacks open a
+  confirmation. `ProductAccountMenu` shows the person's initial and name on a
+  borderless trigger (the initial alone below the breakpoint), reads out name
+  and email with the menu, and invokes Sign out immediately.
 - `ProductNotice` is standing information without a dismiss button, including
   its warning tone for QA environments.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.
-  `ProductToast` is success feedback, dismissible immediately and automatically
-  after five seconds. Mount a new toast for each success notification.
+  `ProductToast` is the corner region for success feedback. Keep one mounted
+  and pass each success as a new `notification` object, so the region exists
+  before its text. A notification can be dismissed at once and otherwise
+  leaves after five seconds, counted from when the pointer and keyboard focus
+  have both left it.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
   Escape dismissal, keyboard focus wrapping and opener restoration for apps;
-  its pending state prevents dismissal during an owned operation.
+  while `pending` it cannot be dismissed, however often Escape is pressed.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
-  `ProductEmptyState` uses the approved D mark with a sentence and optional
-  action. `ProductLoading`, `ProductSpinner` and `ProductIcon` provide status
-  and lucide icon anatomy.
+  `ProductEmptyState` centers the approved D mark with a sentence and optional
+  action in its column. `ProductLoading` is one status region with its label;
+  `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
+  icon anatomy.
+- The components supply twelve short texts themselves, such as Save, Cancel
+  and Sign out. `ProductStringsProvider` replaces any of them for its subtree,
+  for another language; `defaultProductStrings` lists them.
+
+The gallery names the components each sample shows, in monospace under its
+heading, so a sample can be copied by name.
 
 `reportProductEvent` is the single telemetry entry point. Its types permit only
 page views, fixed action outcomes, and load/interaction timings for named
@@ -105,8 +129,10 @@ nothing; adding transport requires approval of the provider and event list.
 
 `pnpm --filter @dinkster/ui test:browser` exercises the production gallery in
 Chromium, with desktop/mobile screenshots and menu, form, toast, dialog and
-navigation contracts. `pnpm test:visual` includes these checks. Keyboard focus,
-hover and pressed states are real browser states, not simulated CSS classes.
+navigation contracts, and runs axe on every page at rest and with a menu,
+toast, refused form and dialog showing. `pnpm test:visual` includes these
+checks. Keyboard focus, hover and pressed states are real browser states, not
+simulated CSS classes.
 
 ## Shared design build checks
 
@@ -147,6 +173,8 @@ cyan. Semantic danger reads the theme's danger entry, not identity coral.
 Status foregrounds use their semantic status colors on panel surfaces.
 Muted text on raised surfaces retains the brand guide's documented contrast
 exception (dark 3.85:1, light 4.19:1); normal body copy uses secondary text.
+Dark-theme danger text on the hover background retains the brand guide's second
+exception (4.40:1) while a danger item is hovered or holds keyboard focus.
 
 Deliberate literal-color exceptions are color-picker spectrum ramps and
 editable color presets/defaults, user-authored media/GLSL/mask colors, calculated
@@ -365,7 +393,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Family      | Roles                                                                                           |
 | ----------- | ----------------------------------------------------------------------------------------------- |
 | Space       | 4, 8, 12, 16, 24, 32 px                                                                         |
-| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, medium 500, semibold 600   |
+| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, strong, focus, selected                                                                 |

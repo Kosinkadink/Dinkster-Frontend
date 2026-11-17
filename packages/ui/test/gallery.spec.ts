@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import axe from 'axe-core'
 
 declare global {
@@ -6,6 +6,29 @@ declare global {
     axe: typeof axe
   }
 }
+
+const expectNoAxeViolations = async (page: Page) => {
+  await page.addScriptTag({ content: axe.source })
+  expect(
+    await page.evaluate(async () =>
+      (await window.axe.run()).violations.map(({ id, nodes }) => ({
+        id,
+        elements: nodes.map((node) => node.html),
+      })),
+    ),
+  ).toEqual([])
+}
+const background = (locator: Locator) =>
+  locator.evaluate((element) => getComputedStyle(element).backgroundColor)
+const token = (page: Page, name: string) =>
+  page.evaluate((name) => {
+    const probe = document.createElement('span')
+    probe.style.color = `var(${name})`
+    document.body.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  }, name)
 
 for (const width of [1280, 390]) {
   for (const section of [
@@ -30,14 +53,7 @@ for (const width of [1280, 390]) {
       await expect(page).toHaveScreenshot(`${section}-${width}.png`, {
         fullPage: true,
       })
-      await page.addScriptTag({ content: axe.source })
-      const violations = await page.evaluate(async () =>
-        (await window.axe.run()).violations.map(({ id, nodes }) => ({
-          id,
-          elements: nodes.map((node) => node.html),
-        })),
-      )
-      expect(violations).toEqual([])
+      await expectNoAxeViolations(page)
       expect(errors).toEqual([])
     })
   }
@@ -53,15 +69,10 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   })
   const button = page.getByRole('button', { name: 'Add outline', exact: true })
   await page.mouse.move(0, 0)
-  const rest = await button.evaluate(
-    (element) => getComputedStyle(element).backgroundColor,
-  )
+  const rest = await background(button)
   await button.hover()
-  expect(
-    await button.evaluate(
-      (element) => getComputedStyle(element).backgroundColor,
-    ),
-  ).not.toBe(rest)
+  const hovered = await background(button)
+  expect(hovered).not.toBe(rest)
   await expect(samples).toHaveScreenshot('buttons-hover.png')
   await page.keyboard.press('Tab')
   await button.focus()
@@ -75,8 +86,27 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   expect(await button.evaluate((element) => element.matches(':active'))).toBe(
     true,
   )
+  expect(await background(button)).not.toBe(hovered)
   await expect(samples).toHaveScreenshot('buttons-pressed.png')
   await page.mouse.up()
+  await page.mouse.move(0, 0)
+  const solid = page.getByRole('button', { name: 'Add solid', exact: true })
+  const solidRest = await background(solid)
+  await solid.focus()
+  await page.keyboard.down('Space')
+  expect(await background(solid)).toBe(solidRest)
+  expect(
+    await solid.evaluate((element) => getComputedStyle(element).filter),
+  ).not.toBe('none')
+  await page.keyboard.up('Space')
+  expect(
+    await page
+      .getByPlaceholder('Enter a name')
+      .evaluate((element) => getComputedStyle(element, '::placeholder').color),
+  ).toBe(await token(page, '--dinkster-text-muted'))
+  await expect(
+    page.getByRole('link', { name: 'link to another page' }),
+  ).toHaveCSS('color', await token(page, '--dinkster-accent-foreground'))
   const field = page.getByLabel('Display name', { exact: true })
   await field.focus()
   await expect(field).toHaveCSS('outline-width', '2px')
@@ -92,6 +122,13 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
     'Mint only',
   )
+  await page.getByLabel('Selected unavailable radio').scrollIntoViewIfNeeded()
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(900)
+  await expect(page.getByRole('banner')).toBeInViewport()
+  await expect(
+    page.getByRole('link', { name: 'Forms', exact: true }),
+  ).toBeInViewport()
+  await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
 })
 
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({
@@ -106,6 +143,16 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   await expect(
     page.getByRole('menuitem', { name: 'View package' }),
   ).toBeFocused()
+  expect((await page.getByRole('menu').boundingBox())!.x).toBe(
+    (await trigger.boundingBox())!.x,
+  )
+  await expectNoAxeViolations(page)
+  await page.getByRole('menu').focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(
+    page.getByRole('menuitem', { name: 'Remove package' }),
+  ).toBeFocused()
+  await page.keyboard.press('Home')
   await page.keyboard.press('ArrowDown')
   await expect(
     page.getByRole('menuitem', { name: 'Add version' }),
@@ -146,14 +193,22 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   await expect(
     page.getByText('Package viewed', { exact: true }).first(),
   ).toBeVisible()
-  await page
+  const account = page
     .getByRole('banner')
-    .getByRole('button', { name: 'Account menu' })
-    .click()
-  await expect(page.getByRole('menu').getByText('Alex Morgan')).toBeVisible()
-  await expect(
-    page.getByRole('menu').getByText('alex@example.test'),
-  ).toBeVisible()
+    .getByRole('button', { name: 'Account menu: Alex Morgan' })
+  await expect(account).toContainText('Alex Morgan')
+  await account.click()
+  const accountMenu = page.getByRole('menu', { name: 'Account menu' })
+  await expect(accountMenu).toHaveAccessibleDescription(
+    'Alex Morgan alex@example.test',
+  )
+  const accountBounds = (await accountMenu.boundingBox())!
+  const accountTrigger = (await account.boundingBox())!
+  expect(accountBounds.x + accountBounds.width).toBe(
+    accountTrigger.x + accountTrigger.width,
+  )
+  await expect(page).toHaveScreenshot('account-menu-open.png')
+  await expectNoAxeViolations(page)
   await page.getByRole('menuitem', { name: 'Sign out' }).click()
   await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -165,7 +220,9 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   const bounds = await page.getByRole('menu').boundingBox()
   expect(bounds!.x).toBeGreaterThanOrEqual(0)
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
-  await expect(page).toHaveScreenshot('mobile-menu-open.png', { fullPage: true })
+  await expect(page).toHaveScreenshot('mobile-menu-open.png', {
+    fullPage: true,
+  })
 })
 
 test('forms retain edits after refusal and disable save after undo and successful save', async ({
@@ -187,19 +244,43 @@ test('forms retain edits after refusal and disable save after undo and successfu
   await expect(save).toBeDisabled()
   await page.getByLabel('Reject the next save').check()
   await name.fill('Retained name')
-  await save.click()
+  await save.focus()
+  await page.keyboard.press('Enter')
   await expect(save).toBeDisabled()
+  await expect(save).toBeFocused()
   await page.clock.runFor(600)
   await expect(page.getByRole('alert')).toBeVisible()
   await expect(name).toHaveValue('Retained name')
   await expect(save).toBeEnabled()
+  await expect(save).toBeFocused()
   await expect(page).toHaveScreenshot('form-rejected.png', { fullPage: true })
   await page.getByLabel('Reject the next save').uncheck()
+  await page.getByLabel('Refuse the next name as taken').check()
   await save.click()
+  await page.clock.runFor(600)
+  await expect(page.getByText('That name is taken.')).toBeVisible()
+  await expect(page.getByText('Changes could not be saved')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Dismiss error' }).click()
+  await save.click()
+  await page.clock.runFor(600)
+  await expect(page.getByText('Changes could not be saved')).toHaveCount(0)
+  await expect(name).toHaveValue('Retained name')
+  await expect(save).toBeEnabled()
+  await expect(page).toHaveScreenshot('form-field-refused.png', {
+    fullPage: true,
+  })
+  await page.getByLabel('Refuse the next name as taken').uncheck()
+  await save.focus()
+  await page.keyboard.press('Enter')
   await page.clock.runFor(600)
   await expect(page.getByText('No unsaved changes')).toBeVisible()
   await expect(save).toBeDisabled()
+  await expect(save).toBeFocused()
   await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.getByLabel('Show my email on my profile').check()
+  await expect(save).toBeEnabled()
+  await page.getByLabel('Show my email on my profile').uncheck()
+  await expect(save).toBeDisabled()
 })
 
 test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
@@ -208,8 +289,28 @@ test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
   await page.clock.install()
   await page.goto('/#messages')
   await expect(page.getByRole('note').getByRole('button')).toHaveCount(0)
+  const region = page.locator('.dinkster-toast')
+  await expect(region).toHaveRole('status')
+  await expect(region).toBeEmpty()
   await page.getByRole('button', { name: 'Show success toast' }).click()
+  await expect(region).toHaveText('Changes saved')
   await expect(page).toHaveScreenshot('toast-visible.png', { fullPage: true })
+  await expectNoAxeViolations(page)
+  await page.getByRole('button', { name: 'Dismiss notification' }).focus()
+  await page.clock.fastForward(6000)
+  await expect(
+    page.getByRole('button', { name: 'Dismiss notification' }),
+  ).toBeFocused()
+  await page.getByRole('button', { name: 'Show success toast' }).focus()
+  await page.clock.fastForward(4000)
+  await expect(region).toHaveText('Changes saved')
+  await page.clock.fastForward(1000)
+  await expect(region).toBeEmpty()
+  await page.getByRole('button', { name: 'Show success toast' }).click()
+  await region.hover()
+  await page.clock.fastForward(6000)
+  await expect(region).toHaveText('Changes saved')
+  await page.mouse.move(0, 0)
   await page.getByRole('button', { name: 'Dismiss notification' }).click()
   await page.getByRole('button', { name: 'Dismiss error' }).click()
   await expect(page.getByRole('alert')).toHaveCount(1)
@@ -248,6 +349,7 @@ test('dialog contains focus, Escape restores its opener and removal requires con
     dialog.getByRole('button', { name: 'Remove item', exact: true }),
   ).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open.png', { fullPage: true })
+  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   expect(
     await dialog.evaluate((element) =>
@@ -261,12 +363,16 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
   await opener.click()
-  await dialog.getByRole('button', { name: 'Remove item', exact: true }).click()
-  await expect(
-    dialog.getByRole('button', { name: 'Remove item', exact: true }),
-  ).toBeDisabled()
+  const remove = dialog.getByRole('button', {
+    name: 'Remove item',
+    exact: true,
+  })
+  await remove.focus()
+  await page.keyboard.press('Enter')
+  await expect(remove).toBeDisabled()
+  await expect(remove).toBeFocused()
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled()
-  await page.keyboard.press('Escape')
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press('Escape')
   await expect(dialog).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-pending.png', { fullPage: true })
   await page.clock.runFor(600)
@@ -274,6 +380,35 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(
     page.getByText('Item removed', { exact: true }).first(),
   ).toBeVisible()
+  await page.clock.runFor(5000)
+  await expect(page.locator('.dinkster-toast')).toBeEmpty()
+  await page.setViewportSize({ width: 390, height: 900 })
+  await opener.click()
+  await expect(dialog).toBeVisible()
+  await expect(page).toHaveScreenshot('dialog-open-390.png')
+})
+
+test('a refused save and an open dialog have no accessibility violations', async ({
+  page,
+}) => {
+  await page.goto('/#forms')
+  await page.getByLabel('Reject the next save').check()
+  await page.getByLabel('Refuse the next name as taken').check()
+  await page.getByLabel('Display name', { exact: true }).fill('Taken name')
+  const save = page.getByRole('button', { name: 'Save', exact: true })
+  await save.click()
+  await expect(page.getByText('Changes could not be saved')).toBeVisible()
+  await page.getByLabel('Reject the next save').uncheck()
+  await save.click()
+  await expect(page.getByText('That name is taken.')).toBeVisible()
+  await expectNoAxeViolations(page)
+  await page.goto('/#confirmations')
+  await page.getByRole('button', { name: 'Keep the key' }).click()
+  await expect(page.getByText('Key kept').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Review removal' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expectNoAxeViolations(page)
 })
 
 test('mobile navigation selects immediately and closes; desktop selection does not change label weight', async ({
@@ -293,6 +428,16 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   await expect(toggle).toBeFocused()
   await expect(page.getByRole('navigation')).toBeHidden()
   await toggle.click()
+  await page.getByRole('link', { name: 'Confirmations', exact: true }).click()
+  await page.clock.runFor(600)
+  await toggle.click()
+  const panel = (await page.locator('.dinkster-sidebar').boundingBox())!
+  const links = (await page.getByRole('navigation').boundingBox())!
+  expect(panel.height).toBeLessThan(links.height + 40)
+  await page.getByRole('button', { name: 'Review removal' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   await page.getByRole('link', { name: 'Forms', exact: true }).click()
   await expect(
     page.getByText('Loading selected page', { exact: true }),

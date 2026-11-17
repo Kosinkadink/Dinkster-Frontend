@@ -1,42 +1,84 @@
-import { Show, createUniqueId, splitProps, type JSX } from 'solid-js'
-import { type LucideIcon } from 'lucide-solid'
+import {
+  Show,
+  createComputed,
+  createSignal,
+  createUniqueId,
+  splitProps,
+  type JSX,
+} from 'solid-js'
+import { CircleAlert, type LucideIcon } from 'lucide-solid'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
+import { useProductStrings } from './strings.js'
 
 export type ProductRole = keyof typeof rules.buttonRoles
 export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
+
+type ButtonAttributes = Omit<
+  JSX.ButtonHTMLAttributes<HTMLButtonElement>,
+  'style' | 'class' | 'role'
+>
 
 export function ProductIcon(props: { icon: LucideIcon }) {
   return <props.icon class="dinkster-icon" aria-hidden="true" />
 }
 
-export function ProductButton(
-  props: Omit<
-    JSX.ButtonHTMLAttributes<HTMLButtonElement>,
-    'style' | 'class' | 'role'
-  > & {
-    intent?: ProductRole
-    fill?: ProductFill
-    loading?: boolean
+function Button(
+  props: ButtonAttributes & {
+    intent: ProductRole | undefined
+    fill: ProductFill | 'quiet'
+    pending?: boolean | undefined
+    iconOnly?: boolean
   },
 ) {
   const [local, button] = splitProps(props, [
     'intent',
     'fill',
-    'loading',
+    'pending',
+    'iconOnly',
     'disabled',
+    'onClick',
+    'ref',
     'children',
   ])
+  let element: HTMLButtonElement | undefined
+  // The disabled attribute drops keyboard focus to the page. A button that is
+  // pending, or that becomes unavailable while it holds focus (Save after a
+  // successful save), stays focusable and is announced as unavailable until
+  // focus leaves it.
+  const [heldFocus, setHeldFocus] = createSignal(false)
+  createComputed(() => {
+    if (local.disabled && element && document.activeElement === element)
+      setHeldFocus(true)
+  })
+  const focusable = () => local.pending === true || heldFocus()
+  const unavailable = () => local.pending === true || local.disabled === true
   return (
     <button
       {...button}
+      ref={(node) => {
+        element = node
+        node.addEventListener('blur', () => setHeldFocus(false))
+        ;(local.ref as ((node: HTMLButtonElement) => void) | undefined)?.(node)
+      }}
       type={button.type ?? 'button'}
       class="dinkster-button"
       data-role={local.intent ?? 'neutral'}
-      data-fill={local.fill ?? 'outline'}
-      disabled={local.disabled || local.loading}
-      aria-busy={local.loading || undefined}
+      data-fill={local.fill}
+      data-icon-only={local.iconOnly ? '' : undefined}
+      disabled={local.disabled === true && !focusable()}
+      aria-disabled={unavailable() && focusable() ? 'true' : undefined}
+      aria-busy={local.pending ? 'true' : undefined}
+      onClick={(event) => {
+        if (unavailable()) {
+          event.preventDefault()
+          return
+        }
+        const handler = local.onClick
+        if (typeof handler === 'function') handler(event)
+        else if (handler) handler[0](handler[1], event)
+      }}
     >
-      <Show when={local.loading}>
+      <Show when={local.pending}>
         <span class="dinkster-spinner" aria-hidden="true" />
       </Show>
       {local.children}
@@ -44,36 +86,61 @@ export function ProductButton(
   )
 }
 
-export function ProductIconButton(props: {
-  label: string
-  icon: LucideIcon
-  onClick: JSX.EventHandler<HTMLButtonElement, MouseEvent>
-  disabled?: boolean
-  intent?: ProductRole
-}) {
+export function ProductButton(
+  props: ButtonAttributes & {
+    intent?: ProductRole
+    fill?: ProductFill
+    pending?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, ['intent', 'fill', 'pending'])
   return (
-    <button
-      type="button"
-      class="dinkster-button"
-      data-fill="quiet"
-      data-role={props.intent ?? 'neutral'}
-      aria-label={props.label}
-      title={props.label}
-      onClick={props.onClick}
-      disabled={props.disabled}
-    >
-      <ProductIcon icon={props.icon} />
-    </button>
+    <Button
+      {...button}
+      intent={local.intent}
+      fill={local.fill ?? 'outline'}
+      pending={local.pending}
+    />
   )
 }
 
-export function ProductSpinner(props: { label?: string }) {
+export function ProductIconButton(
+  props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
+    label: string
+    icon: LucideIcon
+    intent?: ProductRole
+  },
+) {
+  const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
   return (
-    <span
-      class="dinkster-spinner"
-      role="status"
-      aria-label={props.label ?? 'Loading'}
-    />
+    <Button
+      {...button}
+      intent={local.intent}
+      fill="quiet"
+      iconOnly
+      aria-label={local.label}
+      title={local.label}
+    >
+      <ProductIcon icon={local.icon} />
+    </Button>
+  )
+}
+
+export function ProductLink(
+  props: Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, 'style' | 'class'>,
+) {
+  return <a {...props} class="dinkster-link" />
+}
+
+export function ProductSpinner(props: { label?: string }) {
+  const strings = useProductStrings()
+  return (
+    <span class="dinkster-spinner-status" role="status">
+      <span class="dinkster-spinner" aria-hidden="true" />
+      <span class="dinkster-visually-hidden">
+        {props.label ?? strings.loading}
+      </span>
+    </span>
   )
 }
 
@@ -162,6 +229,9 @@ export function ProductField(props: {
           class={props.error ? 'dinkster-field-error' : 'dinkster-description'}
           role={props.error ? 'alert' : undefined}
         >
+          <Show when={props.error}>
+            <ProductIcon icon={CircleAlert} />
+          </Show>
           {props.error || props.description}
         </p>
       </Show>

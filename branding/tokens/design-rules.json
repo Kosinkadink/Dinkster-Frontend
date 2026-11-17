@@ -11,19 +11,23 @@
   },
   "messages": {
     "fieldError": {
+      "icon": "circle-alert",
       "foreground": "--dinkster-danger-foreground",
       "dismiss": "correct-field"
     },
     "success": {
+      "icon": "check",
       "foreground": "--dinkster-success-foreground",
       "dismiss": "close-or-timeout",
       "timeoutMs": 5000
     },
     "error": {
+      "icon": "circle-alert",
       "foreground": "--dinkster-danger-foreground",
       "dismiss": "close-or-next-success"
     },
     "info": {
+      "icon": "info",
       "foreground": "--dinkster-info-foreground",
       "warningForeground": "--dinkster-warning-foreground",
       "dismiss": "none"

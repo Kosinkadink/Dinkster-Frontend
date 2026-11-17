@@ -1,4 +1,4 @@
-"""Print the WCAG 2 contrast table from the canonical JSON palette."""
+"""Print the WCAG 2 contrast table and the recorded exception pair from the canonical JSON palette."""
 
 import json
 from pathlib import Path
@@ -32,6 +32,9 @@ def main():
                 + " | ".join(f"{ratio:.2f}:1" for ratio in ratios)
                 + " |"
             )
+    dark = tokens["dark"]
+    hovered_danger = contrast(dark["status"]["danger"], dark["bg"]["hover"])
+    print(f"\nDark danger text on the hover background: {hovered_danger:.2f}:1")
 
 
 if __name__ == "__main__":

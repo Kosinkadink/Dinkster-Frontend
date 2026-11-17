@@ -1,7 +1,8 @@
-import { For, Show, createSignal, type JSX } from 'solid-js'
+import { For, Show, createSignal, createUniqueId, type JSX } from 'solid-js'
 import { Menu, type LucideIcon } from 'lucide-solid'
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
-import { ProductIcon, ProductSpinner } from './controls.js'
+import { ProductIcon } from './controls.js'
+import { useProductStrings } from './strings.js'
 
 export function ProductBrandMark() {
   return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />
@@ -21,13 +22,21 @@ export function ProductShell(props: {
   account?: JSX.Element
   children: JSX.Element
 }) {
+  const strings = useProductStrings()
   const [open, setOpen] = createSignal(false)
+  const navigationId = createUniqueId()
   let navigationToggle!: HTMLButtonElement
   return (
     <div
       class="dinkster-shell"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && open()) {
+        // A dialog or menu that is handling Escape keeps it.
+        if (
+          event.key === 'Escape' &&
+          open() &&
+          !event.defaultPrevented &&
+          !(event.target as Element).closest('dialog')
+        ) {
           event.preventDefault()
           setOpen(false)
           navigationToggle.focus()
@@ -39,10 +48,11 @@ export function ProductShell(props: {
           <button
             type="button"
             class="dinkster-button dinkster-mobile-nav"
-            aria-label="Toggle navigation"
+            data-icon-only=""
+            aria-label={strings.toggleNavigation}
             ref={navigationToggle}
             aria-expanded={open()}
-            aria-controls="dinkster-navigation"
+            aria-controls={navigationId}
             onClick={() => setOpen(!open())}
           >
             <ProductIcon icon={Menu} />
@@ -54,9 +64,9 @@ export function ProductShell(props: {
       </header>
       <aside class="dinkster-sidebar" data-open={open()}>
         <nav
-          id="dinkster-navigation"
+          id={navigationId}
           class="dinkster-nav"
-          aria-label="Main navigation"
+          aria-label={strings.mainNavigation}
         >
           <For each={props.navigation}>
             {(item) => (
@@ -111,6 +121,25 @@ export function ProductPage(props: {
       </header>
       {props.children}
     </div>
+  )
+}
+
+export function ProductSection(props: {
+  title: string
+  description?: string
+  children: JSX.Element
+}) {
+  const id = createUniqueId()
+  return (
+    <section class="dinkster-stack" aria-labelledby={id}>
+      <h2 id={id} class="dinkster-heading">
+        {props.title}
+      </h2>
+      <Show when={props.description}>
+        <p class="dinkster-description">{props.description}</p>
+      </Show>
+      {props.children}
+    </section>
   )
 }
 
@@ -193,7 +222,7 @@ export function ProductEmptyState(props: {
 export function ProductLoading(props: { label: string }) {
   return (
     <div class="dinkster-actions" role="status">
-      <ProductSpinner />
+      <span class="dinkster-spinner" aria-hidden="true" />
       <span>{props.label}</span>
     </div>
   )
