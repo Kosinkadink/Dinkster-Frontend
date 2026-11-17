@@ -99,8 +99,10 @@ an incomplete snapshot still requires a complete acknowledgment for the exact
 same document under the current schema. Independent readers and recovery
 sources keep their own protection. A release journal is removed only after the
 exact captured owner is confirmed empty and complete at its next revision and
-the journal bytes are unchanged. An unconfirmed or superseded release remains
-journaled; recovery observes it without replaying DELETE.
+the journal bytes are unchanged. If storage refuses that removal, a console
+warning reports the failure and the journal remains. An unconfirmed or
+superseded release remains journaled; recovery observes it without replaying
+DELETE.
 Close also waits for pending workspace
 promotion acknowledgments, then retires their complete local receipts through
 the same captured document lifetime and canonical close checks. When promotion

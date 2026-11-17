@@ -44,6 +44,25 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it('reports failed terminal cleanup and preserves the journal and independent holder', async () => {
+    const f = recoveryFixture()
+    vi.stubGlobal('localStorage', f.storage)
+    const initial = JSON.stringify({ ...f.intent, acknowledgedRevision: f.acknowledgment.revision })
+    f.entries.set(f.key, initial)
+    const independentKey = `${f.key}-independent`
+    f.entries.set(independentKey, initial)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failure = new DOMException('Storage access refused', 'SecurityError')
+    vi.spyOn(f.storage, 'removeItem').mockImplementation(() => { throw failure })
+    const connection = { ...f.connection, releaseRetainedAssets: async () =>
+      ({ ...f.acknowledgment, revision: 2, complete: true, digests: [] }),
+    } as unknown as DinksterConnection
+    await retireAssetOwner(connection, f.acknowledgment)
+    expect(JSON.parse(f.storage.getItem(f.key)!)).toEqual({ ...JSON.parse(initial), releaseRevision: 1 })
+    expect(f.storage.getItem(independentKey)).toBe(initial)
+    expect(warning).toHaveBeenCalledWith('Confirmed workflow retention journal could not be removed', failure)
+  })
+
   it.each(['acknowledged', 'lost', 'refused', 'changed-owner', 'changed-intent'] as const)(
     'removes only the exact confirmed terminal release journal: %s', async (scenario) => {
       const f = recoveryFixture()

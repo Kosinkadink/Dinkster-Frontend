@@ -783,7 +783,9 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
     }
     if (globalThis.localStorage === storage && storage.getItem(key) === pending &&
       retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
-      storage.removeItem(key)
+      try { storage.removeItem(key) } catch (error) {
+        console.warn('Confirmed workflow retention journal could not be removed', error)
+      }
     }
   } catch {
     // Unconfirmed retirement stays journaled; recovery never replays DELETE.
