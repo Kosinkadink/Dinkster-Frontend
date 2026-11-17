@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_SCALE, MIN_SCALE } from '@dinkster/canvas'
+import * as core from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 import type { RetainedAssets } from '@dinkster/client'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
@@ -63,6 +64,35 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it('persists camera and scroll changes without validating, serializing or checksumming workflows', async () => {
+    const first = createEditableApp()
+    await vi.advanceTimersByTimeAsync(1000)
+    const tab = first.activeTab()!
+    const storedWorkflow = localStorage.getItem(TABS_KEY)
+    const validate = vi.spyOn(core, 'loadDocument')
+    const checksum = vi.spyOn(core, 'canonicalJson')
+    const serialize = vi.spyOn(JSON, 'stringify')
+    const viewport = { x: -135, y: 247, scale: 0.65 }
+    first.setGraphViewport(tab.id, tab.store.doc.root, viewport)
+    first.setAppScrollTop(tab.id, 713)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(validate).not.toHaveBeenCalled()
+    expect(checksum).not.toHaveBeenCalled()
+    expect(serialize).toHaveBeenCalled()
+    for (const [value] of serialize.mock.calls) {
+      expect(value).not.toHaveProperty('doc')
+      expect(value).not.toHaveProperty('tabs')
+      expect(value).not.toHaveProperty('format', 'dinkster-workflow')
+    }
+    expect(localStorage.getItem(TABS_KEY)).toBe(storedWorkflow)
+    validate.mockRestore()
+    checksum.mockRestore()
+    serialize.mockRestore()
+    const restored = createEditableApp()
+    expect(restored.graphViewport(tab.id, tab.store.doc.root)).toEqual(viewport)
+    expect(restored.appScrollTop(tab.id)).toBe(713)
+  })
+
   it('reuses acknowledged ownership when a peer repeats an incorporated document stage', async () => {
     const events = new EventTarget()
     vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
