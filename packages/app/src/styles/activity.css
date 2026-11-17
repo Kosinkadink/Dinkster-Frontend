@@ -22,9 +22,9 @@
 .execution-activity-card[data-status='error'] .execution-status-mark { background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); border-radius: var(--dinkster-radius-small); }
 .execution-activity-card[data-status='interrupted'] .execution-status-mark { background: var(--dinkster-warning-background); border-color: var(--dinkster-warning-border); border-radius: var(--dinkster-radius-small); }
 .execution-activity-title { display: grid; min-width: 0; gap: var(--dinkster-space-4); }
-.execution-tab { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-semibold); overflow-wrap: anywhere; }
+.execution-tab { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
 .execution-id { color: var(--dinkster-text-muted); font-family: var(--dinkster-font-mono); font-size: var(--dinkster-type-metadata-size); overflow-wrap: anywhere; }
-.execution-status { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-semibold); }
+.execution-status { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-bold); }
 .execution-activity-facts { display: flex; min-width: 0; flex-wrap: wrap; gap: var(--dinkster-space-4); }
 .execution-activity-facts > span {
   max-width: 100%;
@@ -91,7 +91,7 @@
   gap: var(--dinkster-space-8);
 }
 .output-iteration-group { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
-.output-iteration-group > h3 { margin: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-semibold); }
+.output-iteration-group > h3 { margin: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-bold); }
 .output-value-group { margin-bottom: var(--dinkster-space-8); }
 .output-iteration-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: var(--dinkster-space-8); }
 .output-iteration-images > [role='listitem'] { min-width: 0; }
@@ -135,7 +135,7 @@
 .output-viewer-grid .product-button { display: grid; width: 100%; min-width: 0; gap: var(--dinkster-space-4); overflow: hidden; text-align: left; }
 .output-viewer-grid-preview { display: grid; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; place-items: center; background: var(--dinkster-surface-canvas); border-radius: var(--dinkster-radius-small); }
 .output-viewer-grid img { width: 100%; height: 100%; object-fit: contain; }
-.output-viewer-grid-position { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-semibold); }
+.output-viewer-grid-position { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); }
 .output-viewer-grid-identity, .output-viewer-grid-provenance { min-width: 0; color: var(--dinkster-text-secondary); font-family: var(--dinkster-font-mono); font-size: var(--dinkster-type-metadata-size); overflow-wrap: anywhere; word-break: break-word; }
 .output-viewer-grid .output-viewer-grid-unavailable { display: grid; place-items: center; color: var(--dinkster-danger-foreground); }
 
@@ -283,7 +283,7 @@
   width: var(--dinkster-space-16);
   text-align: center;
   color: var(--dinkster-info-foreground);
-  font-weight: var(--dinkster-weight-semibold);
+  font-weight: var(--dinkster-weight-bold);
 }
 
 .problem[data-severity='error'] .problem-severity { color: var(--dinkster-danger-foreground); }
@@ -451,7 +451,7 @@
   padding: 0 4px;
   border-radius: 8px;
   font-size: 10px;
-  font-weight: var(--dinkster-weight-semibold);
+  font-weight: var(--dinkster-weight-bold);
   line-height: 1;
   vertical-align: middle;
   color: var(--dinkster-text-primary);
@@ -568,8 +568,8 @@
   border: 0;
 }
 .host-ui-error { color: var(--dinkster-danger-foreground); }
-.placement-status { color: var(--dinkster-warning-foreground); font-weight: var(--dinkster-weight-semibold); }
-.transient-status { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-semibold); }
+.placement-status { color: var(--dinkster-warning-foreground); font-weight: var(--dinkster-weight-bold); }
+.transient-status { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); }
 .status-announcer {
   position: absolute;
   width: 1px;

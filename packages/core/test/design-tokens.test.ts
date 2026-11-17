@@ -30,6 +30,7 @@ describe('semantic design tokens', () => {
         expect(contrast(meaning.foreground, meaning.background)).toBeGreaterThanOrEqual(4.5)
       }
       expect(contrast(tokens.action.primaryText, tokens.action.primaryBg)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(tokens.action.removeText, tokens.meaning.danger.foreground)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.text.onSelected, tokens.surface.selected)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.border.focus, tokens.surface.panel)).toBeGreaterThanOrEqual(3)
     }

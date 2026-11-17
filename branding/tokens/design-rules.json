@@ -1,0 +1,39 @@
+{
+  "buttonRoles": {
+    "add": { "foreground": "--dinkster-accent-foreground" },
+    "remove": { "foreground": "--dinkster-danger-foreground" },
+    "neutral": { "foreground": "--dinkster-text-primary" }
+  },
+  "buttonFills": {
+    "solid": "Commits the action immediately; at most one main action per screen.",
+    "outline": "Opens a step or confirmation, or changes nothing saved.",
+    "quiet": "Icon and toolbar controls only."
+  },
+  "messages": {
+    "fieldError": {
+      "icon": "circle-alert",
+      "foreground": "--dinkster-danger-foreground",
+      "dismiss": "correct-field"
+    },
+    "success": {
+      "icon": "check",
+      "foreground": "--dinkster-success-foreground",
+      "dismiss": "close-or-timeout",
+      "timeoutMs": 5000
+    },
+    "error": {
+      "icon": "circle-alert",
+      "foreground": "--dinkster-danger-foreground",
+      "dismiss": "close-or-next-success"
+    },
+    "info": {
+      "icon": "info",
+      "foreground": "--dinkster-info-foreground",
+      "warningForeground": "--dinkster-warning-foreground",
+      "dismiss": "none"
+    }
+  },
+  "removal": "Removing saved data opens a confirmation; Sign out acts immediately.",
+  "case": "sentence",
+  "unconfiguredServices": "hidden"
+}

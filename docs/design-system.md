@@ -18,16 +18,166 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 ## Source of truth
 
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
-identity values. The private `@dinkster/branding` workspace package exports
-that JSON as `@dinkster/branding/palette`; core declares it as a dependency.
-`packages/core/src/ui/tokens.ts` imports it with the native JSON type
-attribute and projects it into the existing semantic roles. No duplicate
-theme CSS is maintained. It exports:
+identity values. `dinkster-components.json` beside it owns spacing, typography,
+regular/bold weights, shape, motion, interaction and layout values. The private
+`@dinkster/branding` package exports them as `@dinkster/branding/palette` and
+`@dinkster/branding/components`. `packages/core/src/ui/tokens.ts` imports these
+with native JSON type attributes and projects the semantic roles for the app
+and canvas. It exports:
 
 - `semanticDesignTokens`, the host token model;
 - `semanticCssVariables` and `semanticCssRoot`, the CSS projection injected
   into the document head before application modules; and
 - `canvasSemanticTokens`, the bounded typed subset available to Canvas code.
+
+`pnpm build:ui` builds `packages/ui/dist/dinkster.css`, its relative `fonts/`
+assets (including the font license), and `manifest.json` with the package
+version and SHA-256 of each file. The framework-free stylesheet is exported
+as `@dinkster/ui/styles.css`. Its classes live only in `packages/ui/styles.css`;
+the build adds the same semantic variables the app uses and expands the shared
+768px breakpoint. Consumers copy the entire distribution, not the CSS alone.
+Use `dinkster-root` on the page root and `data-density="site"` for 14px site
+text; the default density is the app's 13px. The full-width shell has a 56px
+top bar, 240px sidebar, 720px content column (960px for tables) and 32px page
+padding. Below the standard breakpoint, the sidebar is hidden unless opened.
+Components own the corresponding menu, form, dialog and notification behavior;
+CSS does not implement keyboard interaction or confirmation policy.
+
+## Shared SolidJS components and gallery
+
+`branding/tokens/design-rules.json` owns button roles/fills, message behavior,
+notification lifetime, sentence case and hidden unconfigured services. It names
+tokens rather than colors and is exported as `@dinkster/branding/rules`. The
+portable distribution includes it in the SHA-256 manifest.
+
+`@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
+They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
+alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
+component gallery on loopback port 5276 after `pnpm build:ui`; production gallery
+files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
+not an account service or a replacement for the app.
+
+- `ProductShell` owns the full-width frame and responsive navigation. The top
+  bar and sidebar stay in place while the page scrolls; below the breakpoint
+  the top bar stays and the opened navigation scrolls with the page. Its caller
+  changes `currentHref` and content synchronously in `onNavigate`, showing
+  `ProductLoading` until data arrives. Navigation retains real link targets.
+  `ProductPage` owns the page title and the normal/table content width;
+  `ProductSection` owns a titled section inside it.
+- `ProductButton` names `intent` as add/remove/neutral and `fill` as
+  solid/outline, and accepts native button attributes. `ProductIconButton` is
+  the quiet, square icon-only control with a required accessible label and the
+  same attributes. `pending` shows the spinner and ignores presses under a
+  stable name. A pending button, and a button that becomes disabled while it
+  holds keyboard focus, stays focusable and is announced as unavailable, so
+  focus is never dropped to the page. `ProductLink` is the text link.
+  The variant gallery is deliberately not a real screen's action hierarchy.
+- `ProductField` binds its label, description and error to its child control;
+  an error carries the error icon. Pass its attributes to `ProductTextInput`,
+  `ProductTextArea` or `ProductSelect`.
+  Native checkbox/radio behavior remains in `ProductCheckbox`/`ProductRadio`.
+- `ProductForm` takes an initial record of text and true/false values once per
+  mounted form. Its render callback receives values, a field setter, dirty and
+  pending state. Save and Undo changes are disabled until the values differ
+  from the saved baseline. A resolved save updates that baseline. A save that
+  resolves `false` keeps the edits and shows nothing itself, for a refusal the
+  caller shows under a field. A rejected save keeps the edits and shows a
+  dismissible error until a later save succeeds. The browser's own validation
+  messages are off; field problems are shown by `ProductField`.
+  Changing to another record mounts a new form.
+- `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
+  keyboard item movement and opener focus restoration. Disabled items are
+  skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
+  to its trigger's left edge, or to its right edge when it would not fit, and
+  then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
+  to clamp and to flip above when needed. Scroll outside or resize dismisses
+  the menu rather than leaving a stale anchor. Its document listeners exist
+  only while it is open. Item text follows its intent. Removal callbacks open a
+  confirmation. `ProductAccountMenu` shows the person's initial and name on a
+  borderless trigger (the initial alone below the breakpoint), reads out name
+  and email with the menu, and invokes Sign out immediately.
+- `ProductNotice` is standing information without a dismiss button, including
+  its warning tone for QA environments.
+  `ProductErrorBanner` is dismissed explicitly or by the caller after success.
+  `ProductToast` is the corner region for success feedback. Keep one mounted
+  and pass each success as a new `notification` object, so the region exists
+  before its text. A notification can be dismissed at once and otherwise
+  leaves after five seconds, counted from when the pointer and keyboard focus
+  have both left it.
+- `ProductConfirmation` orders the title, consequence, solid action and Cancel.
+  Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
+  duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
+  Escape dismissal, keyboard focus wrapping and opener restoration for apps;
+  while `pending` it cannot be dismissed, however often Escape is pressed.
+- `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
+  `ProductEmptyState` centers the approved D mark with a sentence and optional
+  action in its column. `ProductLoading` is one status region with its label;
+  `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
+  icon anatomy.
+- `ProductFacts` renders labeled account facts as a definition list; values may
+  contain shared links. `ProductCodeBlock` preserves selectable multiline text
+  and wraps long values without widening the page. `ProductCopyValue` adds a
+  neutral Copy button, holds it pending until the clipboard write finishes,
+  and shows a dismissible error on refusal. Its caller owns success feedback
+  through `onCopied` and must discard show-once secrets when the page leaves;
+  the component stores nothing. `ProductDisclosure` uses native details/summary
+  keyboard behavior for inactive history, initially closed unless `open`.
+  `ProductQrCode` preserves the supplied image's aspect ratio and quiet zone,
+  with required alternative text; the service owns enrollment content.
+  These patterns appear on the gallery's Account data page.
+- Passing an empty navigation list to `ProductShell` removes the sidebar and
+  mobile toggle without centering the content in a card. The gallery's
+  signed-out shell link demonstrates this state.
+- The components supply short texts themselves, such as Save, Cancel
+  and Sign out. `ProductStringsProvider` replaces any of them for its subtree,
+  for another language; `defaultProductStrings` lists them.
+
+The gallery names the components each sample shows, in monospace under its
+heading, so a sample can be copied by name.
+
+`reportProductEvent` is the single telemetry entry point. Its types permit only
+page views, fixed action outcomes, and load/interaction timings for named
+product routes. There is no provider, network call, storage, arbitrary string
+payload, workflow content, prompt or filename. The function currently does
+nothing; adding transport requires approval of the provider and event list.
+
+`pnpm --filter @dinkster/ui test:browser` exercises the production gallery in
+Chromium, with desktop/mobile screenshots and menu, form, toast, dialog and
+navigation contracts, and runs axe on every page at rest and with a menu,
+toast, refused form and dialog showing. `pnpm test:visual` includes these
+checks. Keyboard focus, hover and pressed states are real browser states, not
+simulated CSS classes.
+
+## Shared design build checks
+
+`pnpm check:design-system` checks the shared component source and gallery against
+`packages/ui/styles.css`. The package build runs the same check before emitting
+files, and `pnpm ci:fast` runs both the check and its command-line regression
+cases. A violation exits nonzero with its source path and line.
+
+- Colors and font sizes come from tokens, not source literals. The stylesheet
+  cannot define replacement custom properties; token definitions belong in
+  `branding/tokens`.
+- The shared stylesheet is the only CSS source. Imports of other stylesheets,
+  JSX/HTML inline styling and imperative DOM styling are rejected, except
+  measured placement geometry. Native element attribute spreads are limited
+  to the named primitive implementations; screens pass native attributes
+  explicitly so style/class props cannot bypass the check.
+- Class names must be static names defined by that stylesheet. Conditional
+  choices between shared classes are supported; caller-provided class strings
+  and `classList` are not.
+- Native buttons, inputs, selects, textareas and dialogs belong only in the
+  enumerated shared primitive implementations. Screens use Product components.
+  The check also covers imperative control creation and class/style attributes.
+
+`--source <directory>` replaces the default source roots and may be repeated
+when checking another adopter. Paths are relative to the command's working
+directory; the stylesheet and primitive identities remain repository-owned.
+The legacy app's existing `check:raw-controls` ratchet remains independent until
+its shared-system adoption. Site sources are checked where their frontend
+artifact is built; the Python service does not need Node to consume it.
+
+## App semantic projection
 
 The document's `data-theme="light"` selects the light CSS projection; dark
 is the default. Settings -> Dinkster -> Theme switches both DOM and canvas
@@ -37,6 +187,8 @@ cyan. Semantic danger reads the theme's danger entry, not identity coral.
 Status foregrounds use their semantic status colors on panel surfaces.
 Muted text on raised surfaces retains the brand guide's documented contrast
 exception (dark 3.85:1, light 4.19:1); normal body copy uses secondary text.
+Dark-theme danger text on the hover background retains the brand guide's second
+exception (4.40:1) while a danger item is hovered or holds keyboard focus.
 
 Deliberate literal-color exceptions are color-picker spectrum ramps and
 editable color presets/defaults, user-authored media/GLSL/mask colors, calculated
@@ -255,7 +407,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Family      | Roles                                                                                           |
 | ----------- | ----------------------------------------------------------------------------------------------- |
 | Space       | 4, 8, 12, 16, 24, 32 px                                                                         |
-| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, medium 500, semibold 600   |
+| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, strong, focus, selected                                                                 |

@@ -1,0 +1,240 @@
+import {
+  Show,
+  createComputed,
+  createSignal,
+  createUniqueId,
+  splitProps,
+  type JSX,
+} from 'solid-js'
+import { CircleAlert, type LucideIcon } from 'lucide-solid'
+import rules from '@dinkster/branding/rules' with { type: 'json' }
+import { useProductStrings } from './strings.js'
+
+export type ProductRole = keyof typeof rules.buttonRoles
+export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
+
+type ButtonAttributes = Omit<
+  JSX.ButtonHTMLAttributes<HTMLButtonElement>,
+  'style' | 'class' | 'role'
+>
+
+export function ProductIcon(props: { icon: LucideIcon }) {
+  return <props.icon class="dinkster-icon" aria-hidden="true" />
+}
+
+function Button(
+  props: ButtonAttributes & {
+    intent: ProductRole | undefined
+    fill: ProductFill | 'quiet'
+    pending?: boolean | undefined
+    iconOnly?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, [
+    'intent',
+    'fill',
+    'pending',
+    'iconOnly',
+    'disabled',
+    'onClick',
+    'ref',
+    'children',
+  ])
+  let element: HTMLButtonElement | undefined
+  // The disabled attribute drops keyboard focus to the page. A button that is
+  // pending, or that becomes unavailable while it holds focus (Save after a
+  // successful save), stays focusable and is announced as unavailable until
+  // focus leaves it.
+  const [heldFocus, setHeldFocus] = createSignal(false)
+  createComputed(() => {
+    if (local.disabled && element && document.activeElement === element)
+      setHeldFocus(true)
+  })
+  const focusable = () => local.pending === true || heldFocus()
+  const unavailable = () => local.pending === true || local.disabled === true
+  return (
+    <button
+      {...button}
+      ref={(node) => {
+        element = node
+        node.addEventListener('blur', () => setHeldFocus(false))
+        ;(local.ref as ((node: HTMLButtonElement) => void) | undefined)?.(node)
+      }}
+      type={button.type ?? 'button'}
+      class="dinkster-button"
+      data-role={local.intent ?? 'neutral'}
+      data-fill={local.fill}
+      data-icon-only={local.iconOnly ? '' : undefined}
+      disabled={local.disabled === true && !focusable()}
+      aria-disabled={unavailable() && focusable() ? 'true' : undefined}
+      aria-busy={local.pending ? 'true' : undefined}
+      onClick={(event) => {
+        if (unavailable()) {
+          event.preventDefault()
+          return
+        }
+        const handler = local.onClick
+        if (typeof handler === 'function') handler(event)
+        else if (handler) handler[0](handler[1], event)
+      }}
+    >
+      <Show when={local.pending}>
+        <span class="dinkster-spinner" aria-hidden="true" />
+      </Show>
+      {local.children}
+    </button>
+  )
+}
+
+export function ProductButton(
+  props: ButtonAttributes & {
+    intent?: ProductRole
+    fill?: ProductFill
+    pending?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, ['intent', 'fill', 'pending'])
+  return (
+    <Button
+      {...button}
+      intent={local.intent}
+      fill={local.fill ?? 'outline'}
+      pending={local.pending}
+    />
+  )
+}
+
+export function ProductIconButton(
+  props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
+    label: string
+    icon: LucideIcon
+    intent?: ProductRole
+  },
+) {
+  const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
+  return (
+    <Button
+      {...button}
+      intent={local.intent}
+      fill="quiet"
+      iconOnly
+      aria-label={local.label}
+      title={local.label}
+    >
+      <ProductIcon icon={local.icon} />
+    </Button>
+  )
+}
+
+export function ProductLink(
+  props: Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, 'style' | 'class'>,
+) {
+  return <a {...props} class="dinkster-link" />
+}
+
+export function ProductSpinner(props: { label?: string }) {
+  const strings = useProductStrings()
+  return (
+    <span class="dinkster-spinner-status" role="status">
+      <span class="dinkster-spinner" aria-hidden="true" />
+      <span class="dinkster-visually-hidden">
+        {props.label ?? strings.loading}
+      </span>
+    </span>
+  )
+}
+
+export function ProductTextInput(
+  props: Omit<
+    JSX.InputHTMLAttributes<HTMLInputElement>,
+    'class' | 'style' | 'type'
+  > & {
+    type?: 'text' | 'email' | 'password' | 'url' | 'search' | 'tel'
+  },
+) {
+  return <input {...props} class="dinkster-input" />
+}
+
+export function ProductTextArea(
+  props: Omit<
+    JSX.TextareaHTMLAttributes<HTMLTextAreaElement>,
+    'class' | 'style'
+  >,
+) {
+  return <textarea {...props} class="dinkster-input dinkster-textarea" />
+}
+
+export function ProductSelect(
+  props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
+) {
+  return <select {...props} class="dinkster-input" />
+}
+
+export function ProductCheckbox(
+  props: Omit<
+    JSX.InputHTMLAttributes<HTMLInputElement>,
+    'class' | 'style' | 'type'
+  > & { label: string },
+) {
+  const [local, input] = splitProps(props, ['label', 'children'])
+  return (
+    <label class="dinkster-choice">
+      <input {...input} type="checkbox" class="dinkster-check" />
+      <span>{local.label}</span>
+    </label>
+  )
+}
+
+export function ProductRadio(
+  props: Omit<
+    JSX.InputHTMLAttributes<HTMLInputElement>,
+    'class' | 'style' | 'type'
+  > & { label: string },
+) {
+  const [local, input] = splitProps(props, ['label', 'children'])
+  return (
+    <label class="dinkster-choice">
+      <input {...input} type="radio" class="dinkster-check" />
+      <span>{local.label}</span>
+    </label>
+  )
+}
+
+export function ProductField(props: {
+  label: string
+  description?: string
+  error?: string
+  children: (attributes: {
+    id: string
+    'aria-describedby': string | undefined
+    'aria-invalid': 'true' | undefined
+  }) => JSX.Element
+}) {
+  const id = createUniqueId()
+  return (
+    <div class="dinkster-field">
+      <label for={id}>{props.label}</label>
+      {props.children({
+        id,
+        get 'aria-describedby'() {
+          return props.error || props.description ? `${id}-message` : undefined
+        },
+        get 'aria-invalid'() {
+          return props.error ? 'true' : undefined
+        },
+      })}
+      <Show when={props.error || props.description}>
+        <p
+          id={`${id}-message`}
+          class={props.error ? 'dinkster-field-error' : 'dinkster-description'}
+          role={props.error ? 'alert' : undefined}
+        >
+          <Show when={props.error}>
+            <ProductIcon icon={CircleAlert} />
+          </Show>
+          {props.error || props.description}
+        </p>
+      </Show>
+    </div>
+  )
+}

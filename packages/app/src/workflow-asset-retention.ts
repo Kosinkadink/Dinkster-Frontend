@@ -759,8 +759,9 @@ export async function readAssetPreview<T>(
 /** Only the lifetime that admitted an owner may retire its captured revision. */
 export async function retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
   const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
+  const storage = globalThis.localStorage
   try {
-    const bytes = localStorage.getItem(key)
+    const bytes = storage.getItem(key)
     const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
     if (intent === null || intent.acknowledgedRevision !== retained.revision ||
       intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
@@ -770,7 +771,7 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
       intent.sourceToken !== retained.sourceToken || intent.releaseRevision !== undefined) return
     const releasing = { ...intent, releaseRevision: retained.revision }
     const pending = JSON.stringify(releasing)
-    localStorage.setItem(key, pending)
+    storage.setItem(key, pending)
     let released: RetainedAssets | undefined
     try {
       released = await connection.releaseRetainedAssets(retained, retained.revision)
@@ -780,9 +781,11 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
     } catch {
       released = await connection.fetchRetainedAssets(retained)
     }
-    if (localStorage.getItem(key) === pending &&
+    if (globalThis.localStorage === storage && storage.getItem(key) === pending &&
       retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
-      localStorage.setItem(key, JSON.stringify({ ...releasing, acknowledgedRevision: released!.revision }))
+      try { storage.removeItem(key) } catch (error) {
+        console.warn('Confirmed workflow retention journal could not be removed', error)
+      }
     }
   } catch {
     // Unconfirmed retirement stays journaled; recovery never replays DELETE.
@@ -936,11 +939,13 @@ export async function admitWorkflowDispatch(
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
   purpose: 'publication' | 'admission' = 'publication',
   onCommitted?: (retained: RetainedAssets) => void,
+  onRetained?: (retained: RetainedAssets) => void,
 ): Promise<CommandOutcome> {
   // Proposed history adds only the captured current state and trims existing records.
   const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
     [prepared.document, ...(prepared.retainedDocuments ?? [])], purpose)
   const retained = await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
+  onRetained?.(retained)
   if (!stillCurrent()) throw new Error('Workflow destination changed during asset admission')
   const outcome = prepared.commit()
   if (outcome.ok) onCommitted?.(retained)

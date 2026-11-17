@@ -5,11 +5,11 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
+import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
+import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
-import HardDrive from 'lucide-solid/icons/hard-drive'
 import Images from 'lucide-solid/icons/images'
 import Library from 'lucide-solid/icons/library'
 import BookOpen from 'lucide-solid/icons/book-open'
@@ -41,6 +41,8 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
+import { ProductErrorBanner } from '@dinkster/ui'
+import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
@@ -60,7 +62,6 @@ import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
 import { ContextPanel } from './ContextPanel.js'
 import { ProductSelect } from './ProductSelect.js'
 import { BackendsPanel } from './BackendsPanel.js'
-import { DesktopManagementDialog, type DesktopMountConnection } from './DesktopManagementDialog.js'
 import { ProjectsDialog } from './ProjectsDialog.js'
 import { activeProjectId, DEFAULT_PROJECT_ID, PROJECT_URL_PARAM } from './projects.js'
 import {
@@ -1411,11 +1412,6 @@ export function App(props: {
     activateProblem(app, diagnostic)
     setPanelOpen(app.panels, app.dock, 'context', 'right', true)
   }
-  const desktopManagementConnection = (): DesktopMountConnection | undefined => {
-    const backend = activeBackend()
-    const local = backend.baseUrl === '' || new URL(backend.baseUrl, window.location.href).origin === window.location.origin
-    return backend.protocol === 'dinkster' && local ? backend.connection : undefined
-  }
   const learnBackend = createMemo<Backend | undefined>(() => {
     backendsTick()
     const available = (backend: Backend): boolean =>
@@ -1581,12 +1577,6 @@ export function App(props: {
       />,
     }),
     registerBuiltinPanel({
-      id: 'desktop-management', get title() { return message('shell.panel.desktop.title') },
-      get description() { return message('shell.panel.desktop.description') }, get ariaLabel() { return message('shell.panel.desktop.ariaLabel') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 16,
-      component: () => <DesktopManagementDialog connection={desktopManagementConnection()} backendUrl={activeBackend().baseUrl} />,
-    }),
-    registerBuiltinPanel({
       id: 'projects', get title() { return message('shell.panel.projects.title') },
       get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 18,
@@ -1639,6 +1629,30 @@ export function App(props: {
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
+    const [sessionFailed, setSessionFailed] = createSolidSignal(false)
+    const [recovering, setRecovering] = createSolidSignal(false)
+    createEffect(() => {
+      const store = activeEditorTab()?.store
+      if (store === undefined || !('status' in store)) {
+        setSessionFailed(false)
+        return
+      }
+      const status = (store as SharedDocumentSession).status
+      const update = () => setSessionFailed(status.get() === 'error' || status.get() === 'closed')
+      update()
+      onCleanup(status.subscribe(update))
+    })
+    const recover = async (): Promise<void> => {
+      const tab = activeEditorTab()
+      if (!tab || recovering()) return
+      setRecovering(true)
+      try {
+        const recovered = await app.recoverWorkflow(tab.id, message('shell.workflow.recovery.title', { title: tab.title }))
+        if (recovered && managedContext().kind === 'workflow') redockCurrentWindow()
+      } finally {
+        setRecovering(false)
+      }
+    }
     createEffect(() => {
       const tab = activeEditorTab()
       if (tab === undefined) return
@@ -1658,9 +1672,18 @@ export function App(props: {
     }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
-        <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
-          {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
-          />
+        <Show when={!sessionFailed()} fallback={
+          <ProductEmptyState tone="error" testId="workflow-session-recovery" icon={<Icon icon={CircleAlert} />}
+            title={message('shell.workflow.recovery.failed')}
+            hint={message('shell.workflow.recovery.description')}
+            action={<ProductButton variant="primary" loading={recovering()} onClick={() => void recover()}>
+              {message('shell.workflow.recovery.action')}
+            </ProductButton>} />
+        }>
+          <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
+            {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
+            />
+        </Show>
       </div>
       <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
@@ -2667,9 +2690,6 @@ export function App(props: {
             <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></ProductButton>
           </Show>
           <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></ProductButton>
-          <Show when={desktopBridge()}>
-            <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="desktop-management-button" data-tooltip-label={message('shell.panel.desktop.title')} data-tooltip-detail={message('shell.desktop.tooltip')} aria-label={message('shell.panel.desktop.title')} onClick={() => app.modalPanel.set('desktop-management')}><Icon icon={HardDrive} /></ProductButton>
-          </Show>
         </div>
       </header>
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
@@ -2725,6 +2745,16 @@ export function App(props: {
                 {message('shell.engine.restart')}
               </ProductButton>
             </Show>
+          </div>
+        )}
+      </Show>
+
+      <Show when={problems().find((problem) => problem.code === 'workspace.recovery.storageFailed')} keyed>
+        {(problem) => (
+          <div class="dinkster-root" data-testid="recovery-storage-error">
+            <ProductErrorBanner onDismiss={() => app.clearProblems(problem.owner)}>
+              {problem.message}
+            </ProductErrorBanner>
           </div>
         )}
       </Show>

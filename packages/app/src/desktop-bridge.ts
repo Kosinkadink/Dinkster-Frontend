@@ -14,33 +14,6 @@ export interface DesktopLifecycleStatus {
   readonly error?: string
 }
 
-export interface DesktopEngineRelease {
-  readonly commit: string
-  readonly variant: DesktopEngineAccelerator
-  readonly bytes: number
-  readonly active: boolean
-}
-
-export interface DesktopInfo {
-  readonly appVersion: string
-  readonly engineCommit: string
-  readonly remoteWorkerProtocol?: number
-  readonly variant: DesktopEngineAccelerator
-  readonly storageBytes: number
-  readonly releases: readonly DesktopEngineRelease[]
-  readonly update: { readonly state: 'idle' | 'checking' | 'available' | 'ready' | 'current' | 'failed'; readonly detail: string }
-}
-
-export interface DesktopSystemCheck {
-  readonly platform: string
-  readonly architecture: string
-  readonly freeBytes: number
-  readonly totalBytes: number
-  readonly engineReady: boolean
-  readonly engineDetail: string
-  readonly gpu: { readonly available: boolean; readonly name?: string; readonly driver?: string; readonly memoryMiB?: number }
-}
-
 export type DesktopPanelPlacement = 'dock' | 'rail' | 'bottom'
 
 export type DesktopWindowContext =
@@ -69,38 +42,10 @@ export interface DesktopConnectionCredentials {
   readonly profiles: readonly string[]
 }
 
-export interface DesktopRemoteWorkerMemory {
-  readonly device: string
-  readonly size: string
-}
-
-export interface DesktopRemoteWorker {
-  readonly name: string
-  readonly endpoint: string
-  readonly tokenFile: string
-  readonly tlsCaFile?: string
-  readonly nodes?: readonly string[]
-  readonly memory: readonly DesktopRemoteWorkerMemory[]
-}
-
-export interface DesktopRemoteWorkerFileChoice {
-  readonly path: string
-  readonly grant: string
-}
-
-export interface DesktopRemoteWorkerSave extends DesktopRemoteWorker {
-  readonly tokenFileGrant?: string
-  readonly tlsCaFileGrant?: string
-}
-
 export interface DinksterDesktopBridge {
   locale(): Promise<string>
   status(): Promise<DesktopLifecycleStatus>
   retry(): Promise<void>
-  info(): Promise<DesktopInfo>
-  selectEngine(commit: string, variant: DesktopEngineAccelerator): Promise<void>
-  checkForUpdates(): Promise<void>
-  installUpdate(): Promise<void>
   fileCapabilities(backendUrl: string): Promise<{ readonly nativeFolderChoice: boolean; readonly reveal: boolean; readonly resolvePath?: boolean }>
   chooseDirectory(backendUrl: string): Promise<string | undefined>
   revealFile?(backendUrl: string, asset: { readonly digest: string; readonly scope: 'local'; readonly project: string }): Promise<{ readonly mode: 'selected' | 'folder' }>
@@ -109,11 +54,6 @@ export interface DinksterDesktopBridge {
     | { readonly status: 'resolved'; readonly asset: AssetRef }
     | { readonly status: 'refused'; readonly reason: 'not-resolvable' | 'not-native-file' | 'unsupported-backend' }
   >
-  exportSnapshot(): Promise<string | undefined>
-  importSnapshot(): Promise<unknown | undefined>
-  systemCheck(): Promise<DesktopSystemCheck>
-  clearCache(): Promise<void>
-  exportSupportReport(): Promise<string | undefined>
   windowContext(): Promise<DesktopWindowContext>
   windowLayout(): Promise<DesktopWindowLayout>
   openWorkflowWindow(workflowId: string, x?: number, y?: number): Promise<void>
@@ -138,18 +78,10 @@ export interface DinksterDesktopBridge {
    */
   retireConnectionProfile(profileId: string): Promise<void>
   connectionCredentials(): Promise<DesktopConnectionCredentials>
-  /** Read remote-worker file paths and routing policy; token contents stay in the main process. */
-  remoteWorkers(): Promise<readonly DesktopRemoteWorker[]>
-  /** Atomically save one profile and restart the managed local engine. */
-  saveRemoteWorker(worker: DesktopRemoteWorkerSave): Promise<void>
-  /** Remove one profile and restart the managed local engine. */
-  removeRemoteWorker(name: string): Promise<void>
-  chooseRemoteWorkerFile(kind: 'token' | 'tls-ca'): Promise<DesktopRemoteWorkerFileChoice | undefined>
   /** Drain deep links queued for this window. */
   takeDeepLinks(): Promise<readonly DesktopDeepLink[]>
   onStatus(listener: (status: DesktopLifecycleStatus) => void): () => void
   onLog(listener: (line: string) => void): () => void
-  onInfo(listener: (info: DesktopInfo) => void): () => void
   onWindowLayout(listener: (layout: DesktopWindowLayout) => void): () => void
   onDeepLinkPending(listener: () => void): () => void
 }

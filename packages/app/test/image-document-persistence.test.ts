@@ -138,7 +138,8 @@ function connectionFor(document: ImageDocument, resourceBytes: Uint8Array) {
     })),
     assetUrl: vi.fn((assetDigest: string) => `http://assets.test/${assetDigest}`),
   }
-  return { connection: methods as unknown as DinksterConnection, methods, digest, library, dependencies }
+  return { connection: methods as unknown as DinksterConnection, methods, digest, library, dependencies,
+    receipts: retained as ReadonlyMap<string, RetainedAssets> }
 }
 
 function request<T>(value: IDBRequest<T>): Promise<T> {
@@ -171,7 +172,8 @@ describe('ImageDocument local persistence', () => {
     const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
     const entries = new Map<string, string>()
     const storage = { getItem: (key: string) => entries.get(key) ?? null,
-      setItem: (key: string, value: string) => { entries.set(key, value) } }
+      setItem: (key: string, value: string) => { entries.set(key, value) },
+      removeItem: (key: string) => { entries.delete(key) } }
     vi.stubGlobal('localStorage', storage)
     const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
       sessionId: 'retained-history', scope: 'shared', documentKind: 'image', documentId: draft.document.lineage,
@@ -247,7 +249,23 @@ describe('ImageDocument local persistence', () => {
     ])
     expect(JSON.parse(entries.get([...entries.keys()].find((key) => key.endsWith(gates[0]!.receipt.ownerId))!)!).releaseRevision).toBeUndefined()
     expect(JSON.parse(entries.get([...entries.keys()].find((key) => key.endsWith(gates[3]!.receipt.ownerId))!)!).releaseRevision).toBeUndefined()
-    expect(entries.size).toBe(6)
+    const released = [{ ...initial.owner, revision: initial.acknowledgedRevision }, gates[1]!.receipt, gates[2]!.receipt]
+    expect(entries.size).toBe(6 - released.length)
+    for (const previous of released) {
+      expect([...entries.keys()].some((key) => key.endsWith(previous.ownerId))).toBe(false)
+      expect(remote.receipts.get(previous.ownerId)).toMatchObject({ scope: previous.scope,
+        ownerKind: previous.ownerKind, ownerId: previous.ownerId,
+        revision: previous.revision + 1, complete: true, digests: [] })
+    }
+    for (const receipt of [gates[0]!.receipt, gates[3]!.receipt, gates[4]!.receipt]) {
+      const raw = [...entries].find(([key]) => key.endsWith(receipt.ownerId))?.[1]
+      expect(raw).toBeDefined()
+      const journal = JSON.parse(raw!)
+      expect(journal).toMatchObject({ owner: { scope: receipt.scope, ownerKind: receipt.ownerKind,
+        ownerId: receipt.ownerId, holderClasses: receipt.holderClasses }, digests: receipt.digests,
+        complete: receipt.complete, acknowledgedRevision: receipt.revision })
+      expect(journal.releaseRevision).toBeUndefined()
+    }
     await store.close()
   })
 
@@ -259,7 +277,8 @@ describe('ImageDocument local persistence', () => {
       const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
       const entries = new Map<string, string>()
       const storage = { getItem: (key: string) => entries.get(key) ?? null,
-        setItem: (key: string, value: string) => { entries.set(key, value) } }
+        setItem: (key: string, value: string) => { entries.set(key, value) },
+        removeItem: (key: string) => { entries.delete(key) } }
       vi.stubGlobal('localStorage', storage)
       const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
         sessionId: 'ordered-retained', scope: 'shared', documentKind: 'image', documentId: draft.document.lineage,
@@ -326,8 +345,12 @@ describe('ImageDocument local persistence', () => {
       if (accepted) {
         expect(remote.methods.releaseRetainedAssets).toHaveBeenCalledTimes(1)
         expect(remote.methods.releaseRetainedAssets.mock.calls[0]![0].ownerId).toBe(initial.owner.ownerId)
-        const key = [...entries.keys()].find((key) => key.endsWith(initial.owner.ownerId))!
-        await vi.waitFor(() => expect(JSON.parse(entries.get(key)!).acknowledgedRevision).toBe(2))
+        await vi.waitFor(() => {
+          expect([...entries.keys()].some((key) => key.endsWith(initial.owner.ownerId))).toBe(false)
+          expect(remote.receipts.get(initial.owner.ownerId)).toMatchObject({ scope: initial.owner.scope,
+            ownerKind: initial.owner.ownerKind, ownerId: initial.owner.ownerId,
+            revision: initial.acknowledgedRevision + 1, complete: true, digests: [] })
+        })
       } else expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
       await controller.close()
       await store.close()
