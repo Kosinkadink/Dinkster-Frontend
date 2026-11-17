@@ -70,6 +70,40 @@ async function open(
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 }
 
+test('templates fetch renderer dependencies before service controllers run', async ({
+  page,
+}) => {
+  await page.route('**/site/**', (route) =>
+    route.continue({ url: route.request().url().replace('/site/', '/') }),
+  )
+  await page.route('**/account.js', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: '' }),
+  )
+  await page.route('**/site/authorization.js', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: '' }),
+  )
+  for (const [template, renderer] of [
+    ['account', 'account-view.js'],
+    ['authorization', 'authorization.js'],
+  ]) {
+    await page.goto(`/${template}.html`)
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          performance
+            .getEntriesByType('resource')
+            .map((entry) => new URL(entry.name).pathname),
+        ),
+      )
+      .toEqual(
+        expect.arrayContaining([
+          `/site/${renderer}`,
+          expect.stringMatching(/^\/site\/assets\/[^/]+\.js$/),
+        ]),
+      )
+  }
+})
+
 for (const width of [1280, 390]) {
   test(`profile shared shell and keyboard labels at ${width}px`, async ({
     page,

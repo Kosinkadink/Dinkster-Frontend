@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [solid()],
   base: './',
   build: {
+    manifest: true,
     cssCodeSplit: false,
     assetsInlineLimit: 0,
     rollupOptions: {

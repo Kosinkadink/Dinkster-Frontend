@@ -752,6 +752,9 @@ with the signed consent token and explicit approve/deny submitter values.
 
 `pnpm --filter @dinkster/site build` creates the two HTML templates, renderer
 modules, one shared stylesheet, bundled fonts and a SHA-256 file manifest.
+Each template preloads its renderer and transitive static imports from Vite's
+build manifest so controller imports do not add serial discovery round trips.
+The build manifest itself is not distributed.
 `scripts/build_release.py` includes these under `static/site/` in the existing
 frontend wheel, covered by its version and wheel hash. Template configuration
 placeholders must be HTML-attribute escaped by the service. No Node tooling is
