@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, batch, createMemo, createSignal, type JSX } from 'solid-js'
 import { render } from 'solid-js/web'
 import { CreditCard, KeyRound, Package, Shield, User } from 'lucide-solid'
 import {
@@ -141,13 +141,15 @@ export function accountView(options: AccountViewOptions) {
   const [model, setModel] = createSignal<AccountModel>()
   const [pending, setPending] = createSignal<AccountControl>()
   const [edits, setEdits] = createSignal<Record<string, string>>({})
+  const baselines: Record<string, string> = {}
+  let sourceState: AccountModel['state'] | undefined
   const disabled = (control: AccountControl) =>
-    control.changed_fields?.some((id) => id in edits())
+    control.changed_fields?.every((id) => id in baselines)
       ? !control.changed_fields.some(
           (id) =>
-            id in edits() &&
-            edits()[id] !==
-              model()?.screen.blocks.find((block) => block.id === id)?.value,
+            (edits()[id] ??
+              model()?.screen.blocks.find((block) => block.id === id)?.value ??
+              '') !== baselines[id],
         )
       : !!control.disabled
   const change = (id: string, value: string) => {
@@ -221,7 +223,14 @@ export function accountView(options: AccountViewOptions) {
           </ProductNotice>
         }
       >
-        <ProductErrorBanner onDismiss={() => setDismissed(item)}>
+        <ProductErrorBanner
+          onDismiss={() => {
+            if (sourceState?.flash === item) sourceState.flash = null
+            else if (sourceState)
+              sourceState.dismissedBanner = model()?.screen.id ?? null
+            setDismissed(item)
+          }}
+        >
           {item.text} {item.link && action(item.link, true)}
         </ProductErrorBanner>
       </Show>
@@ -310,6 +319,7 @@ export function accountView(options: AccountViewOptions) {
                   data-account-field={item.id}
                   type={item.kind === 'password' ? 'password' : 'text'}
                   value={item.value ?? ''}
+                  disabled={!!pending()}
                   autocomplete="off"
                   inputmode={item.kind === 'code' ? 'numeric' : undefined}
                   maxlength={item.kind === 'code' ? 6 : undefined}
@@ -329,6 +339,7 @@ export function accountView(options: AccountViewOptions) {
               <ProductSelect
                 {...attributes}
                 data-account-field={item.id}
+                disabled={!!pending()}
                 value={
                   item.value ?? item.values?.[0] ?? item.options?.[0] ?? ''
                 }
@@ -512,8 +523,7 @@ export function accountView(options: AccountViewOptions) {
               <ProductToast
                 notification={notification()}
                 onDismiss={() => {
-                  const current = model()
-                  if (current) current.state.flash = null
+                  if (sourceState) sourceState.flash = null
                   setNotification(undefined)
                 }}
               />
@@ -526,7 +536,23 @@ export function accountView(options: AccountViewOptions) {
   return {
     render(next: AccountModel) {
       const previous = model()?.screen.id
-      setModel({ ...next, state: { ...next.state } })
+      sourceState = next.state
+      for (const control of next.screen.blocks) {
+        if (control.changed_fields && control.disabled === true) {
+          for (const id of control.changed_fields) {
+            baselines[id] =
+              next.screen.blocks.find((field) => field.id === id)?.value ?? ''
+          }
+        }
+      }
+      batch(() => {
+        setEdits({})
+        setModel({
+          ...next,
+          screen: { ...next.screen },
+          state: { ...next.state },
+        })
+      })
       document.title = `${next.screen.blocks.find((item) => item.t === 'h1')?.text ?? 'Account'} | Dinkster`
       if (next.state.flash !== lastFlash) {
         lastFlash = next.state.flash
@@ -538,6 +564,17 @@ export function accountView(options: AccountViewOptions) {
       }
       if (previous !== next.screen.id)
         reportProductEvent({ type: 'page-viewed', route: route() })
+    },
+    clear() {
+      sourceState = undefined
+      lastFlash = null
+      for (const id of Object.keys(baselines)) delete baselines[id]
+      batch(() => {
+        setModel(undefined)
+        setNotification(undefined)
+        setDismissed(undefined)
+        setEdits({})
+      })
     },
     dispose,
   }

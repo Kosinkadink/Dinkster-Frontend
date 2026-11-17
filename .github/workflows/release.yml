@@ -10,6 +10,8 @@ on:
       - scripts/build_release.py
       - scripts/test_build_release.py
       - frontend-release.json
+      - packages/site/**
+      - packages/ui/**
       - package.json
 
 permissions:
@@ -59,6 +61,12 @@ jobs:
           assert release['format'] == 'dinkster.frontend/1'
           assert root.joinpath('static/index.html').read_bytes()
           assert root.joinpath('static/branding/platform/dinkster.ico').read_bytes()
+          site = root.joinpath('static/site')
+          manifest = json.loads(site.joinpath('manifest.json').read_text())
+          assert manifest['format'] == 'dinkster.site/1'
+          import hashlib
+          for name, digest in manifest['files'].items():
+              assert hashlib.sha256(site.joinpath(name).read_bytes()).hexdigest() == digest
           PY
       - uses: actions/upload-artifact@v4
         with:

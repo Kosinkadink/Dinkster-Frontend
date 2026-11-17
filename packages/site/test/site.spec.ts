@@ -61,7 +61,7 @@ async function open(
     window.view = accountView({root:document.getElementById('root'), config:{providers:['google']},
       onAction: async control => { window.actions.push(control.text); await new Promise(resolve => { window.finish = resolve }); },
       onNavigate: id => { window.navigated = id; window.model.state.loading = true; window.model.screen.id = id; window.model.screen.nav = 'api-keys'; window.view.render(window.model); },
-      onChange: (id, value) => { const button = document.querySelector('[data-changed-fields]'); if (button) button.disabled = value === 'Alice'; }
+      onChange: (id, value) => { window.changed = {id, value}; }
     }); window.view.render(window.model);
   </script></body></html>`,
     }),
@@ -130,6 +130,9 @@ test('pending actions keep focus and cannot repeat; service refusal keeps entere
         ? { ...block, value: 'Rejected name', error: 'Use another name.' }
         : block,
     )
+    app.model.screen.blocks = app.model.screen.blocks.map((block) =>
+      block.t === 'button' ? { ...block, disabled: false } : block,
+    )
     app.model.state.flash = { tone: 'error', text: 'Save was refused.' }
     app.view.render(app.model)
     app.finish()
@@ -143,6 +146,44 @@ test('pending actions keep focus and cannot repeat; service refusal keeps entere
     path: 'test-results/captures/profile-refused.png',
     fullPage: true,
   })
+  await expect(save).toBeEnabled()
+  await page.getByLabel('Display name').fill('Alice')
+  await expect(save).toBeDisabled()
+  await page.getByLabel('Display name').fill('Corrected name')
+  await expect(save).toBeEnabled()
+  await page.getByRole('button', { name: 'Dismiss error' }).click()
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { model: AccountModel }).model.state.flash,
+    ),
+  ).toBeNull()
+  await page.evaluate(() => {
+    const app = window as unknown as {
+      model: AccountModel
+      view: { render: (model: AccountModel) => void }
+    }
+    app.model.screen.blocks = app.model.screen.blocks.map((block) =>
+      block.t === 'field'
+        ? { ...block, value: 'Corrected name', error: '' }
+        : block.t === 'button'
+          ? { ...block, disabled: true }
+          : block,
+    )
+    app.model.state.flash = { tone: 'success', text: 'Saved.' }
+    app.view.render(app.model)
+  })
+  await expect(save).toBeDisabled()
+  await expect(page.getByRole('status')).toContainText('Saved.')
+  await page.getByRole('button', { name: 'Dismiss notification' }).click()
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { model: AccountModel }).model.state.flash,
+    ),
+  ).toBeNull()
+  await page.getByLabel('Display name').fill('Another name')
+  await expect(save).toBeEnabled()
+  await page.getByLabel('Display name').fill('Corrected name')
+  await expect(save).toBeDisabled()
 })
 
 test('navigation marks current immediately during loading', async ({
@@ -176,33 +217,85 @@ test('account menu has name and email; sign out acts without confirmation', asyn
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
-test('authorization preserves POST form fields and escapes client labels', async ({
+test('clearing a show-once page removes secret DOM and permits a clean restored page', async ({
   page,
 }) => {
-  await page.route('**/fixture', (route) =>
-    route.fulfill({
-      contentType: 'text/html',
-      body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Authorization test</title><link rel="stylesheet" href="/assets/style.css"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="root"></div><script type="module">import {authorizationView} from '/authorization.js'; authorizationView(document.getElementById('root'), {clientName:'Example <script> app',scopes:['api:read','api:execute'],consentToken:'test-consent-only'});</script></body></html>`,
-    }),
-  )
-  await page.goto('/fixture')
+  const model = structuredClone(profile)
+  model.screen = {
+    id: 'account.api-keys.created',
+    layout: 'task',
+    blocks: [
+      { t: 'h1', text: 'API key created' },
+      {
+        t: 'key',
+        label: 'Copy this key now',
+        value: 'test-only-show-once-secret',
+        copy: 'Copy',
+      },
+      { t: 'codes', items: ['test-only-recovery-code'] },
+      { t: 'qr', src: '/favicon.svg', alt: 'Setup QR' },
+    ],
+  }
+  await open(page, model)
   await expect(
-    page.getByRole('heading', { name: 'Authorize Example <script> app' }),
+    page.getByText('test-only-show-once-secret', { exact: true }),
   ).toBeVisible()
-  await expect(page.locator('form')).toHaveAttribute('method', 'post')
-  await expect(page.locator('input[name="consent_token"]')).toHaveValue(
-    'test-consent-only',
+  await page.evaluate(() =>
+    (window as unknown as { view: { clear: () => void } }).view.clear(),
   )
-  const requests: string[] = []
-  await page.route('**/authorize', async (route) => {
-    requests.push(route.request().postData() ?? '')
-    await route.fulfill({ body: 'Authorized' })
-  })
-  await page.screenshot({
-    path: 'test-results/captures/authorization-1280.png',
-    fullPage: true,
-  })
-  await page.getByRole('button', { name: 'Deny', exact: true }).click()
-  await expect.poll(() => requests.length).toBe(1)
-  expect(requests[0]).toBe('consent_token=test-consent-only&action=deny')
+  await expect(page.getByRole('main')).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText(
+    'test-only-show-once-secret',
+  )
+  await expect(page.locator('body')).not.toContainText(
+    'test-only-recovery-code',
+  )
+  await expect(page.getByAltText('Setup QR')).toHaveCount(0)
+  await page.evaluate(
+    (restored) =>
+      (
+        window as unknown as { view: { render: (model: AccountModel) => void } }
+      ).view.render(restored),
+    profile,
+  )
+  await expect(
+    page.getByRole('heading', { name: 'Profile', exact: true }),
+  ).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(
+    'test-only-show-once-secret',
+  )
 })
+
+for (const choice of ['Allow', 'Deny'])
+  test(`authorization preserves POST form fields and escapes client labels for ${choice}`, async ({
+    page,
+  }) => {
+    await page.route('**/fixture', (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Authorization test</title><link rel="stylesheet" href="/assets/style.css"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="root"></div><script type="module">import {authorizationView} from '/authorization.js'; authorizationView(document.getElementById('root'), {clientName:'Example <script> app',scopes:['api:read','api:execute'],consentToken:'test-consent-only'});</script></body></html>`,
+      }),
+    )
+    await page.goto('/fixture')
+    await expect(
+      page.getByRole('heading', { name: 'Authorize Example <script> app' }),
+    ).toBeVisible()
+    await expect(page.locator('form')).toHaveAttribute('method', 'post')
+    await expect(page.locator('input[name="consent_token"]')).toHaveValue(
+      'test-consent-only',
+    )
+    const requests: string[] = []
+    await page.route('**/authorize', async (route) => {
+      requests.push(route.request().postData() ?? '')
+      await route.fulfill({ body: 'Authorized' })
+    })
+    await page.screenshot({
+      path: 'test-results/captures/authorization-1280.png',
+      fullPage: true,
+    })
+    await page.getByRole('button', { name: choice, exact: true }).click()
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]).toBe(
+      `consent_token=test-consent-only&action=${choice === 'Allow' ? 'approve' : 'deny'}`,
+    )
+  })

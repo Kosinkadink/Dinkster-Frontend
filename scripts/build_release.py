@@ -74,7 +74,13 @@ def build(
         ).encode(),
     }
     site = site if site is not None else root / "packages" / "site" / "dist"
-    for required in ("account.html", "authorization.html", "account-view.js", "authorization.js", "manifest.json"):
+    for required in (
+        "account.html",
+        "authorization.html",
+        "account-view.js",
+        "authorization.js",
+        "manifest.json",
+    ):
         if not (site / required).is_file():
             raise ValueError(f"site distribution must contain {required}")
     sources = [(dist, ""), (site, "site/")]
