@@ -118,8 +118,11 @@ cases. A violation exits nonzero with its source path and line.
 - Colors and font sizes come from tokens, not source literals. The stylesheet
   cannot define replacement custom properties; token definitions belong in
   `branding/tokens`.
-- The shared stylesheet is the only CSS source. JSX/HTML inline styling and
-  imperative DOM styling are rejected, except measured placement geometry.
+- The shared stylesheet is the only CSS source. Imports of other stylesheets,
+  JSX/HTML inline styling and imperative DOM styling are rejected, except
+  measured placement geometry. Native element attribute spreads are limited
+  to the named primitive implementations; screens pass native attributes
+  explicitly so style/class props cannot bypass the check.
 - Class names must be static names defined by that stylesheet. Conditional
   choices between shared classes are supported; caller-provided class strings
   and `classList` are not.

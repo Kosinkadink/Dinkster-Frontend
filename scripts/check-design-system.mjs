@@ -19,6 +19,13 @@ const colorLiteral =
   /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\s*\(/iu
 const colorProperty =
   /^(?:color|background(?:-color)?|(?:border|outline)(?:-(?:top|right|bottom|left|block|inline|start|end|color|width|style))*|fill|stroke|(?:box|text)-shadow|accent-color|caret-color|text-decoration-color)$/u
+const memberName = (node) =>
+  ts.isPropertyAccessExpression(node)
+    ? node.name.text
+    : ts.isElementAccessExpression(node) &&
+        ts.isStringLiteralLike(node.argumentExpression)
+      ? node.argumentExpression.text
+      : undefined
 const geometry = new Set([
   'left',
   'top',
@@ -58,7 +65,14 @@ export async function checkDesignSystem(args = []) {
     for (const match of rule.selector.matchAll(/\.([a-zA-Z_][\w-]*)/gu))
       classes.add(match[1])
   })
-  const checkDeclarations = (tree, path) =>
+  const checkDeclarations = (tree, path) => {
+    tree.walkAtRules('import', (rule) =>
+      report(
+        path,
+        rule.source.start.line,
+        'Stylesheet imports are outside the shared stylesheet',
+      ),
+    )
     tree.walkDecls((declaration) => {
       const property = declaration.prop.toLowerCase()
       const value = declaration.value
@@ -92,6 +106,7 @@ export async function checkDesignSystem(args = []) {
           report(path, line, 'Literal color or fallback; use a shared token')
       }
     })
+  }
   checkDeclarations(css, stylesheet)
 
   async function visitDirectory(directory) {
@@ -148,14 +163,39 @@ export async function checkDesignSystem(args = []) {
           'Class names must be statically declared in the shared stylesheet',
         )
     }
+    const checkStylesheetImport = (specifier, node) => {
+      if (
+        /\.(?:css|scss|sass|less)(?:[?#]|$)/iu.test(specifier) &&
+        specifier !== '@dinkster/ui/styles.css' &&
+        resolve(dirname(path), specifier) !==
+          resolve(repository, 'packages/ui/dist/dinkster.css')
+      )
+        report(
+          path,
+          line(node),
+          'Stylesheet imports must use @dinkster/ui/styles.css',
+        )
+    }
     const visit = (node) => {
       if (
-        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
-        controls.has(node.tagName.getText(source))
-      ) {
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteralLike(node.moduleSpecifier)
+      )
+        checkStylesheetImport(node.moduleSpecifier.text, node)
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const tag = node.tagName.getText(source)
-        if (!primitiveTags.get(path)?.has(tag))
+        if (controls.has(tag) && !primitiveTags.get(path)?.has(tag))
           report(path, line(node), `Raw ${tag}; use a shared Product component`)
+        if (
+          /^[a-z]/u.test(tag) &&
+          !primitiveTags.has(path) &&
+          node.attributes.properties.some(ts.isJsxSpreadAttribute)
+        )
+          report(
+            path,
+            line(node),
+            'Native element spreads can bypass shared styles; pass attributes explicitly',
+          )
       }
       if (ts.isJsxAttribute(node)) {
         if (node.name.text === 'style')
@@ -177,14 +217,9 @@ export async function checkDesignSystem(args = []) {
       if (
         (ts.isPropertyAccessExpression(node) ||
           ts.isElementAccessExpression(node)) &&
-        ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === 'style'
+        memberName(node.expression) === 'style'
       ) {
-        const name = ts.isPropertyAccessExpression(node)
-          ? node.name.text
-          : ts.isStringLiteralLike(node.argumentExpression)
-            ? node.argumentExpression.text
-            : undefined
+        const name = memberName(node)
         if (!geometry.has(name))
           report(
             path,
@@ -194,23 +229,25 @@ export async function checkDesignSystem(args = []) {
       }
       if (
         ts.isBinaryExpression(node) &&
-        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        ts.isPropertyAccessExpression(node.left)
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken
       ) {
-        if (node.left.name.text === 'className') classExpression(node.right)
-        if (node.left.name.text === 'style')
+        if (memberName(node.left) === 'className') classExpression(node.right)
+        if (memberName(node.left) === 'style')
           report(
             path,
             line(node),
             'Inline styles are outside the shared stylesheet',
           )
       }
-      if (
-        ts.isCallExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression)
-      ) {
-        const method = node.expression.name.text
+      if (ts.isCallExpression(node)) {
+        const method = memberName(node.expression)
         const [first, second] = node.arguments
+        if (
+          node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+          first &&
+          ts.isStringLiteralLike(first)
+        )
+          checkStylesheetImport(first.text, node)
         if (
           method === 'createElement' &&
           first &&
