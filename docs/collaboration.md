@@ -81,9 +81,10 @@ snapshot starts a separate generation. If an incomplete renderer publishes first
 complete renderer retries the identical snapshot through admission rather than
 publishing against stale bytes.
 Recovery and canonical workspace slots reuse this renderer's complete receipt
-for an identical document and revision in the same project, storage, backend,
-schema and connection lifetime. Workspace title or revision changes alone do
-not require new document-owner writes. Document candidates retain their own
+for an identical document in the same project, storage, backend, schema and
+connection lifetime. Workspace title or persisted revision changes alone do
+not change that snapshot's asset census or require new document-owner writes.
+Document candidates retain their own
 admission barrier. A reused receipt stays protected until its last local slot
 and in-flight admission end; overlapping publication cannot release it early.
 Publication rechecks that reused ownership has not begun retirement. Peer

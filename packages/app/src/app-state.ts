@@ -3872,7 +3872,6 @@ export class AppState {
     readonly complete: boolean
     readonly owners: readonly {
       readonly document: WorkflowDocument
-      readonly revision: number
       readonly backend: Backend
       readonly registry: SchemaRegistry | undefined
       readonly generation: number | undefined
@@ -4008,7 +4007,7 @@ export class AppState {
       reusable = native.map((source) => key.startsWith(documentCandidatePrefix()) ? undefined : admitted.find((owner) => {
         if (!owner.retained.complete || owner.project !== project || owner.storage !== storage ||
           owner.backend !== source.backend || owner.registry !== source.registry || owner.generation !== source.generation ||
-          owner.revision !== source.revision || canonicalJson(owner.document) !== canonicalJson(source.document)) return false
+          canonicalJson(owner.document) !== canonicalJson(source.document)) return false
         const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
         return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined
       }))

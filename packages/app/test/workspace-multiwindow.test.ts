@@ -253,7 +253,18 @@ describe('AppState multi-window workspace', () => {
       expect(app.problems.get().some((problem) => problem.code === 'workspace.recovery.storageFailed')).toBe(true)
     }
     capacity = Infinity
+    const acknowledgments: (() => void)[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      await new Promise<void>((resolve) => acknowledgments.push(resolve))
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
     app.flushPersistTabs(true)
+    await drainTasks()
+    expect(acknowledgments.length).toBeGreaterThan(0)
+    expect(app.problems.get().some((problem) => problem.code === 'workspace.recovery.storageFailed')).toBe(true)
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+    for (const acknowledge of acknowledgments) acknowledge()
     await drainTasks()
     const saved = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
     expect(saved.assetRetention).toMatchObject({ acknowledged: true, complete: true })
@@ -344,7 +355,7 @@ describe('AppState multi-window workspace', () => {
     else expect(localStorage.getItem(key)).toBe(JSON.stringify(candidate))
   })
 
-  it('does not admit unchanged documents for newer peer workspace metadata', async () => {
+  it.each([false, true])('does not admit unchanged documents for newer peer metadata, document revision=%s', async (advanceRevision) => {
     let commits = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
       const next = commits.then(callback)
@@ -366,7 +377,9 @@ describe('AppState multi-window workspace', () => {
     const key = 'dinkster.openTabsCandidate.peer'
     for (let revision = 1; revision <= 3; revision += 1) {
       const peer = { ...initial, workspaceRevision: (initial.workspaceRevision ?? 0) + revision,
-        tabs: initial.tabs.map((tab: { title: string }) => ({ ...tab, title: `Peer title ${revision}` })),
+        tabs: initial.tabs.map((tab: { title: string; documentRevision?: number }) => ({ ...tab, title: `Peer title ${revision}`,
+          ...(advanceRevision ? { documentRevision: (tab.documentRevision ?? 0) + revision } : {}),
+        })),
       }
       localStorage.setItem(key, JSON.stringify(peer))
       for (let repeat = 0; repeat < 3; repeat += 1) events.dispatchEvent(Object.assign(new Event('storage'), {
