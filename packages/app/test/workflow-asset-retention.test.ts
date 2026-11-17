@@ -198,6 +198,78 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
+  it('does not warn about ownership retired by an acknowledged workflow edit', async () => {
+    const f = recoveryFixture()
+    f.entries.clear()
+    vi.stubGlobal('localStorage', f.storage)
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const sockets: FakeSocket[] = []
+    class FakeSocket {
+      binaryType = ''
+      onopen: ((event: unknown) => void) | null = null
+      onclose: ((event: unknown) => void) | null = null
+      onmessage = null
+      onerror = null
+      constructor() { sockets.push(this) }
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+    const saved = new Map<string, RetainedAssets>()
+    const pending = deferred<RetainedAssets>()
+    let observed: RetainedAssets | undefined
+    const app = prepareWorkflowApp(new AppState())
+    try {
+      const backend = app.addBackend('http://native:8000', 'Recovery native', false, 'dinkster')!
+      const registry = { connection: backend.id, diagnostics: [], hash: 'test',
+        schemas: new Map([[schema.type, schema]]), resolve }
+      backend.registry.set(registry)
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        saved.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
+        const receipt = { ...owner, revision: 2, complete: true, digests: [] }
+        saved.set(owner.ownerId, receipt)
+        return receipt
+      })
+      const reads: AbortSignal[] = []
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner, signal) => {
+        if (owner.ownerId === observed?.ownerId && reads.length === 0) {
+          reads.push(signal!)
+          return pending.promise
+        }
+        return saved.get(owner.ownerId)
+      })
+      vi.stubGlobal('fetch', async (url: string) => new Response('{}', {
+        status: url.endsWith('/api/library/retention-clients') ? 404 : 503,
+      }))
+      backend.connection.connect()
+      await vi.waitFor(() => expect(sockets).toHaveLength(1))
+      sockets.at(-1)!.onopen?.({})
+      await new Promise<void>((done) => setImmediate(done))
+      backend.registry.set(registry)
+      expect(await app.openDocument(session().doc, 'Ordinary edit')).toEqual([])
+      app.setTabTarget(app.activeTab()!.id, backend.id)
+      expect((await app.dispatchTo(app.activeTab()!, replace('b'))).ok).toBe(true)
+      observed = [...saved.values()].reverse().find((receipt) => receipt.ownerKind === 'document' && receipt.digests.includes(asset('b').digest))!
+      expect(observed.complete).toBe(true)
+      const key = scopedStorageKey(`dinkster.workflow-retentions.${observed.ownerId}`)
+      events.dispatchEvent(Object.assign(new Event('storage'), { key, newValue: f.entries.get(key) }))
+      await vi.waitFor(() => expect(reads).toHaveLength(1))
+      expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
+      await vi.waitFor(() => expect(saved.get(observed!.ownerId)?.revision).toBe(2))
+      pending.resolve(observed)
+      await new Promise<void>((done) => setImmediate(done))
+      expect(app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')).toEqual([])
+      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('c')])
+    } finally { app.dispose() }
+  })
+
   it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending',
     'acknowledgment', 'release-acknowledgment', 'changed-roots', 'removed-intent', 'mismatched-receipt'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {

@@ -320,7 +320,9 @@ separate persistence path rather than being duplicated in each retention intent.
 Successful local command commits replace the editing session's acknowledged
 document/history receipt, including a receipt admitted during startup or import.
 The previous complete receipt retires only after the new complete inventory is
-acknowledged and committed on the same backend connection generation. Unknown
+acknowledged and committed on the same backend connection generation. Settled
+retirement refreshes the local ownership observer so an older in-flight read
+cannot report the retired receipt as unresolved. Unknown
 inventories, failed candidates and superseded sessions keep their protection;
 another session's receipt is independent even when it holds the same digests.
 Superseded receipts also protect roots still named by canonical tab snapshots,
