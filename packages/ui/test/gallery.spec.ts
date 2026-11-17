@@ -122,6 +122,13 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
     'Mint only',
   )
+  await page.getByLabel('Selected unavailable radio').scrollIntoViewIfNeeded()
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(900)
+  await expect(page.getByRole('banner')).toBeInViewport()
+  await expect(
+    page.getByRole('link', { name: 'Forms', exact: true }),
+  ).toBeInViewport()
+  await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
 })
 
 test('menus support pointer dismissal, keyboard navigation and immediate sign out', async ({
@@ -373,6 +380,8 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(
     page.getByText('Item removed', { exact: true }).first(),
   ).toBeVisible()
+  await page.clock.runFor(5000)
+  await expect(page.locator('.dinkster-toast')).toBeEmpty()
   await page.setViewportSize({ width: 390, height: 900 })
   await opener.click()
   await expect(dialog).toBeVisible()

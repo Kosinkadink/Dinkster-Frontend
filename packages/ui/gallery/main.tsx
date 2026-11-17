@@ -67,7 +67,7 @@ function Section(props: {
 }) {
   return (
     <ProductSection title={props.title}>
-      <p class="dinkster-metadata dinkster-mono">{props.components}</p>
+      <span class="dinkster-metadata dinkster-mono">{props.components}</span>
       {props.children}
     </ProductSection>
   )
@@ -340,7 +340,7 @@ function Gallery() {
               </Section>
             </Match>
             <Match when={route() === '#forms'}>
-              <p class="dinkster-metadata dinkster-mono">ProductForm</p>
+              <span class="dinkster-metadata dinkster-mono">ProductForm</span>
               <ProductNotice>
                 Save is available only after a change. Undo or a successful save
                 returns to the unchanged state.
