@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { buildDinksterRegistry, type RetainedAssets } from '@dinkster/client'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { asPromptId, diag, type DinksterNodesPayload } from '@dinkster/core'
 import { retainExecutionAssets } from '../src/workflow-asset-retention.js'
@@ -77,8 +77,12 @@ describe('live preview policy on submit', () => {
       const { backend, tab } = await nativeSetup()
       const digest = `blake3:${'a'.repeat(64)}`
       vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(digest)
-      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
-        ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
+      const receipts = new Map<string, RetainedAssets>()
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
       let sequence = 0
       vi.spyOn(backend.connection, 'submit').mockImplementation(async () => {
         if (route === 'rejected') return { ok: false, diagnostics: [] }
@@ -126,14 +130,20 @@ describe('live preview policy on submit', () => {
       if (route === 'disconnected' || route === 'reconnected-before-ack') {
         expect(sources().every(({ value }) => value.releaseRevision === undefined)).toBe(true)
       } else {
-        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(captured[0]!.key)!))
-          .toMatchObject({ releaseRevision: 1, acknowledgedRevision: 2 }))
+        await vi.waitFor(() => {
+          expect(localStorage.getItem(captured[0]!.key)).toBeNull()
+          expect(receipts.get(captured[0]!.value.owner.ownerId)).toEqual({ ...captured[0]!.value.owner,
+            revision: captured[0]!.value.acknowledgedRevision + 1, complete: true, digests: [] })
+        })
         expect(JSON.parse(localStorage.getItem(captured[1]!.key)!).releaseRevision).toBeUndefined()
         const second = executions[1]!.ref
         const replacement = await retainExecutionAssets(backend.connection, second, { complete: true, digests: [digest] })
         app.store.recordAssetRetentions(second, [replacement])
-        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(captured[1]!.key)!))
-          .toMatchObject({ releaseRevision: 1, acknowledgedRevision: 2 }))
+        await vi.waitFor(() => {
+          expect(localStorage.getItem(captured[1]!.key)).toBeNull()
+          expect(receipts.get(captured[1]!.value.owner.ownerId)).toEqual({ ...captured[1]!.value.owner,
+            revision: captured[1]!.value.acknowledgedRevision + 1, complete: true, digests: [] })
+        })
       }
     },
   )

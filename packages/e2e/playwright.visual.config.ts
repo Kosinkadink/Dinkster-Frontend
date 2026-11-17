@@ -11,5 +11,5 @@ const specs = readdirSync(new URL('./tests/', import.meta.url)).filter((name) =>
 
 export default defineConfig({
   ...base,
-  projects: [{ name: 'visual', testMatch: specs.map((name) => `tests/${name}`) }],
+  projects: [{ name: 'visual', testMatch: [...specs, 'canvas-work-counts.spec.ts'].map((name) => `tests/${name}`) }],
 })
