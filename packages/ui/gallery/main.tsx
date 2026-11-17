@@ -43,6 +43,7 @@ import {
   ProductSelect,
   ProductShell,
   ProductSpinner,
+  ProductStringsProvider,
   ProductTable,
   ProductTextArea,
   ProductTextInput,
@@ -656,6 +657,20 @@ function Gallery() {
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
                 </ProductButton>
+              </Section>
+              <Section
+                title="Replaced built-in text"
+                components="ProductStringsProvider"
+              >
+                <ProductStringsProvider strings={{ cancel: 'Keep the key' }}>
+                  <ProductConfirmation
+                    consequence="A product replaces the text the components supply, such as for another language."
+                    actionLabel="Remove this key"
+                    intent="remove"
+                    onConfirm={() => setDialog(true)}
+                    onCancel={() => complete('Key kept')}
+                  />
+                </ProductStringsProvider>
               </Section>
             </Match>
           </Switch>
