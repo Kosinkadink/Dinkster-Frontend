@@ -30,6 +30,11 @@ that supersedes startup. A superseded request, disconnected backend or changed
 project cannot publish restored results. Locale-only labels do not invalidate
 schema authority or interrupt restoration.
 
+If a refresh interrupts terminal output admission, source claims already
+acknowledged by this client remain tracked by ordinary result lifetime checks.
+They are not published as current output, and retire only when no current
+execution or replacement still needs them.
+
 Workflow edits invalidate only affected upstream recipe cones. A random
 selector invalidates values in its own downstream cone on every roll; unrelated
 cones remain reusable. Runs without complete compile and source-document proof

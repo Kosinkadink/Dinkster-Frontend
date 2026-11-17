@@ -456,7 +456,11 @@ describe('share', () => {
     { keepWorkflow: false, ordered: true },
     { keepWorkflow: true, ordered: true },
     { keepWorkflow: true, ordered: false },
-  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered', async ({ keepWorkflow, ordered }) => {
+    { keepWorkflow: true, ordered: true, pendingAdmission: true },
+    { keepWorkflow: true, ordered: true, peerWindow: true },
+    { keepWorkflow: true, ordered: true, peerWindow: true, peerJoin: true },
+    { keepWorkflow: true, ordered: true, unsettledRecovery: true },
+  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered, pending=$pendingAdmission, peer=$peerWindow, joined=$peerJoin, unsettled=$unsettledRecovery', async ({ keepWorkflow, ordered, pendingAdmission, peerWindow, peerJoin, unsettledRecovery }) => {
     let lock = Promise.resolve()
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
       const next = lock.then(callback)
@@ -465,6 +469,7 @@ describe('share', () => {
     } } })
     const server = new FakeCollabServer()
     const app = makeApp(server, false)
+    const peer = peerWindow ? makeApp(server, false) : undefined
     const documents = new SharedWorkerDocumentAuthority()
     const workspace = new SharedWorkerTabAuthority()
     const channels: MessageChannel[] = []
@@ -476,10 +481,15 @@ describe('share', () => {
       return channel.port2
     }
     const receipts = new Map<string, RetainedAssets>()
-    for (const backend of app.backends.get()) {
+    let holdAdmissions = false
+    const pendingAdmissions: Array<() => void> = []
+    for (const backend of [...app.backends.get(), ...(peer?.backends.get() ?? [])]) {
       vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         const receipt = { ...owner, ...declaration, revision: 1 }
         receipts.set(owner.ownerId, receipt)
+        if (holdAdmissions && app.backends.get().includes(backend) && (declaration.digests.length > 0 || peerWindow)) {
+          await new Promise<void>((resolve) => pendingAdmissions.push(resolve))
+        }
         return receipt
       })
       vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
@@ -501,6 +511,7 @@ describe('share', () => {
         },
       } })).ok).toBe(true)
       await (tab.store as SharedDocumentSession).settle()
+      if (unsettledRecovery) expect(await app.openDocument(tab.store.doc, 'Imported asset workflow')).toEqual([])
       expect(await app.shareActiveTab()).toBeUndefined()
       const shared = activeTab(app)
       expect([...receipts.values()].some((receipt) => receipt.digests.includes(digest))).toBe(true)
@@ -511,19 +522,50 @@ describe('share', () => {
       if (ordered) await sharedSession(app, shared.id).settle()
       expect(shared.store.undo()).toBe(true)
       await sharedSession(app, shared.id).settle()
-      await tick()
-      app.flushPersistTabs(true)
-      await until(() => {
-        const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? '{}')
-        return canonical.assetRetention?.complete === true && canonical.tabs?.some((entry: { doc: WorkflowDocument }) =>
-          JSON.stringify(entry.doc) === JSON.stringify(shared.store.doc))
-      }, 'settled shared recovery')
+      if (!unsettledRecovery) {
+        await tick()
+        app.flushPersistTabs(true)
+        await until(() => {
+          const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? '{}')
+          return canonical.assetRetention?.complete === true && canonical.tabs?.some((entry: { doc: WorkflowDocument }) =>
+            JSON.stringify(entry.doc) === JSON.stringify(shared.store.doc))
+        }, 'settled shared recovery')
+      }
+      if (peer !== undefined) {
+        await peer.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
+        await until(() => peer.tabs.get().some((entry) => entry.id === shared.id && 'status' in entry.store), 'peer promotion')
+        if (peerJoin) expect(await peer.joinCollabSession(app.collabFor(shared.id)!.descriptor.sessionId)).toBeUndefined()
+        peer.flushPersistTabs(true)
+        await tick()
+      }
+      holdAdmissions = pendingAdmission === true
       expect(await app.endCollabSession(shared.id)).toBeUndefined()
+      if (pendingAdmission) await until(() => pendingAdmissions.length > 0, 'pending ownership admission')
       if (keepWorkflow) app.createWorkflow()
+      if (peer !== undefined) {
+        const nextId = app.activeTabId.get()
+        await until(() => peer.tabs.get().some((entry) => entry.id === nextId), 'peer new workflow')
+        app.flushPersistTabs(true)
+        await tick()
+        holdAdmissions = !peerJoin
+      }
       expect(app.requestCloseTab(prior.id, () => true)).toBe(true)
+      if (peer !== undefined) {
+        await until(() => !peer.tabs.get().some((entry) => entry.id === prior.id), 'peer close')
+        peer.flushPersistTabs(true)
+        await vi.waitFor(() => {
+          const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? '{}')
+          expect(canonical.assetRetention?.complete).toBe(true)
+          expect(canonical.tabs?.some((entry: { doc: WorkflowDocument }) => entry.doc.lineage === prior.id)).toBe(false)
+        })
+      }
+      holdAdmissions = false
+      for (const resolve of pendingAdmissions) resolve()
       await vi.waitFor(() => expect([...receipts.values()].filter((receipt) => receipt.digests.includes(digest))).toEqual([]))
+      await vi.waitFor(() => expect(localStorage.getItem(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(prior.id)}`)).toBeNull())
     } finally {
       app.dispose()
+      peer?.dispose()
       for (const channel of channels) { channel.port1.close(); channel.port2.close() }
     }
   })

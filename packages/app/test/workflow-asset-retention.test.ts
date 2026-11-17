@@ -402,7 +402,7 @@ describe('retained app dispatch', () => {
   })
 
   it.each(['acknowledged', 'lost', 'rejected', 'removed', 'missing-seal', 'unoffered-output',
-    'unoffered-artifact', 'foreign-artifact', 'intermediate-offer', 'foreign-attempt'] as const)(
+    'unoffered-artifact', 'foreign-artifact', 'intermediate-offer', 'foreign-attempt', 'registry-refresh'] as const)(
     'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
@@ -445,6 +445,11 @@ describe('retained app dispatch', () => {
         return receipt
       })
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...saved.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        saved.set(owner.ownerId, receipt)
+        return receipt
+      })
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
       backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
       if (['missing-seal', 'unoffered-output', 'unoffered-artifact', 'foreign-artifact', 'foreign-attempt'].includes(scenario)) {
@@ -458,8 +463,17 @@ describe('retained app dispatch', () => {
       expect(app.store.get(ref)?.outputs).toEqual({})
       expect(app.store.get(ref)?.artifacts).toEqual([])
       if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'registry-refresh') backend.registry.set({ ...backend.registry.get()!, hash: 'refreshed' })
       admitted.resolve()
-      if (scenario === 'acknowledged' || scenario === 'lost' || scenario === 'intermediate-offer') {
+      if (scenario === 'registry-refresh') {
+        await new Promise<void>((done) => setImmediate(done))
+        backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+        await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
+        await vi.waitFor(() => {
+          const current = new Set(app!.store.get(ref)?.assetRetentions?.map((receipt) => receipt.ownerId))
+          expect([...saved.values()].filter((receipt) => !current.has(receipt.ownerId) && receipt.digests.length > 0)).toEqual([])
+        })
+      } else if (scenario === 'acknowledged' || scenario === 'lost' || scenario === 'intermediate-offer') {
         await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
@@ -1052,6 +1066,68 @@ describe('retained app dispatch', () => {
     expect(tab.store.historySnapshot()).toEqual(history)
   })
 
+  it.each(['stale', 'closed', 'independent', 'durable', 'disconnected', 'disposed'] as const)(
+    'ends rejected command ownership only after its live and durable sources end: %s', async (scenario) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp([schema], session().doc)
+        const receipts = new Map<string, RetainedAssets>()
+        const requested = deferred<RetainedAssets>()
+        const acknowledge = deferred<void>()
+        let rejected: RetainedAssets | undefined
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+          receipts.set(owner.ownerId, receipt)
+          if (!rejected && declaration.digests.includes(asset('b').digest)) {
+            rejected = receipt
+            requested.resolve(receipt)
+            await acknowledge.promise
+          }
+          return receipt
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+          receipts.set(owner.ownerId, receipt)
+          return receipt
+        })
+        await vi.advanceTimersByTimeAsync(500)
+        const tab = app.activeTab()!
+        const operation = app.dispatchRetainedTo(tab, replace('b'))
+        const candidate = await requested.promise
+        if (scenario === 'closed') app.closeTab(tab.id)
+        else expect((await app.dispatchRetainedTo(tab, replace('c'))).ok).toBe(true)
+        acknowledge.resolve()
+        expect((await operation).ok).toBe(false)
+        let independent: string | undefined
+        if (scenario === 'independent') {
+          const document = { ...session([asset('b')]).doc, lineage: asLineageId('independent') }
+          expect(await app.openDocument(document, 'Independent holder')).toEqual([])
+          independent = app.activeTab()!.id
+        }
+        if (scenario === 'durable') localStorage.setItem('dinkster.openTabsDocumentCandidate.independent-recovery',
+          JSON.stringify({ v: 1, stageId: 'independent', tab: {
+            title: 'Recovery', doc: { ...session([asset('b')]).doc, lineage: 'independent-recovery' },
+          } }))
+        if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+        if (scenario === 'disposed') app.dispose()
+        if (scenario !== 'closed') app.closeTab(tab.id)
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(receipts.get(candidate.ownerId)).toEqual(
+          ['independent', 'durable', 'disconnected', 'disposed'].includes(scenario) ? candidate
+            : { ...candidate, revision: candidate.revision + 1, complete: true, digests: [] })
+        if (independent !== undefined) {
+          app.closeTab(independent)
+          await vi.advanceTimersByTimeAsync(1000)
+          expect(receipts.get(candidate.ownerId)).toEqual({
+            ...candidate, revision: candidate.revision + 1, complete: true, digests: [],
+          })
+        }
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it.each((['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused', 'disconnected', 'disposed'] as const)
     .flatMap((scenario) => (['explicit', 'ordinary'] as const).map((route) => ({ scenario, route }))))(
     'publishes only a current acknowledged candidate: $route $scenario', async ({ scenario, route }) => {
@@ -1281,6 +1357,41 @@ describe('retained app dispatch', () => {
       } finally { vi.useRealTimers() }
     },
   )
+
+  it('retires a complete persisted snapshot after a catalog refresh and document replacement', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema], session().doc)
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const receipt = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(0)
+      const before = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+      const original: RetainedAssets = before.assetRetention.owners[0].retained
+      expect(original.complete).toBe(true)
+      expect(original.digests).toEqual([asset('a').digest])
+      app.registry.set({ ...app.registry.get()!, hash: 'refreshed' })
+      expect(app.activeTab()!.store.dispatch({ command: 'node.setTitle',
+        params: { graphId: 'g0', nodeId: 'n0', title: 'Changed snapshot' },
+      }).ok).toBe(true)
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(500)
+      const after = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+      expect(after.assetRetention.complete).toBe(true)
+      expect(after.tabs[0].doc.graphs.g0.nodes.n0.title).toBe('Changed snapshot')
+      expect(owners.get(original.ownerId)).toEqual({ ...original, revision: 2, complete: true, digests: [] })
+    } finally { vi.useRealTimers() }
+  })
 
   it.each(['resolved', 'during-admission', 'peer-overwrite', 'peer-during-admission', 'peer-different-document', 'locked-candidate', 'locked-unresolved', 'locked-refused', 'unresolved', 'different-document', 'refused'] as const)(
     'hands off a schema-absent persisted snapshot only to an acknowledged exact replacement: %s', async (scenario) => {

@@ -325,6 +325,10 @@ retirement refreshes the local ownership observer so an older in-flight read
 cannot report the retired receipt as unresolved. Unknown
 inventories, failed candidates and superseded sessions keep their protection;
 another session's receipt is independent even when it holds the same digests.
+Acknowledged command candidates remain tracked even when their destination changes
+or their commit is stale. A rejected candidate retires only after its admission
+settles and no live document or completely resolved durable recovery source names
+its roots, on the same backend connection generation.
 Superseded receipts also protect roots still named by canonical tab snapshots,
 workspace candidates, document recovery slots and operation-journal additions.
 If the replacement no longer covers a root, retirement waits for a complete
@@ -341,8 +345,12 @@ owners. Exact complete acknowledgment precedes retiring covered candidate and
 operation slots. A registry refresh during slot admission recomputes the captured
 document's roots and requires a fresh acknowledgment before publishing the slot
 or its shared-tab operation; later tab changes cannot skip that admission.
-A live window reconciles newly staged workspace candidates from
-its peers, retaining their captured roots before compaction. A disposed window
+A live window reconciles newly staged workspace candidates and canonical commits
+from its peers, retaining their captured roots before compaction. An identical
+complete canonical snapshot stays byte-identical while each window admits its own
+owners; peer receipts never replace local admission. The acknowledged snapshot
+then permits retirement of that window's captured closed documents and superseded
+slots without repeated cross-window writes. A disposed window
 only stages recovery data and cannot finish network admission or release owners.
 A local slot replacement retires its previous owners only after
 complete acknowledgment on the same backend/catalog lifetime; incomplete or
@@ -536,8 +544,14 @@ closed-lineage recovery slots. Journal additions are confirmed before worker rep
 An explicit confirmed Close Tab ends only the captured local document lifetime,
 after closed membership is admitted at the authoritative workspace revision. It
 hands off that lifetime's receipt and retires its recovery slot only when both
-the stage ID and content digest match the stage already incorporated into the
-canonical document. Staging, acknowledgment and retirement use the same
+the stage ID and content digest match the stage incorporated into the
+canonical document. A stage acknowledged or durably written with the exact
+closing document before Close may finish acknowledgment and canonical
+incorporation after Close. An edit still waiting to write its recovery stage
+cannot gain discard authority by acknowledging later. Reopening the same
+lineage hands its displaced live receipt to the new document's ordinary
+complete-replacement checks.
+Staging, acknowledgment and retirement use the same
 cross-window commit lock; retirement rechecks the exact admitted canonical
 snapshot and current recovery stage inside that lock. Without the lock, recovery
 sources stay protected. Newer, unmerged or different stages survive, as do live,
