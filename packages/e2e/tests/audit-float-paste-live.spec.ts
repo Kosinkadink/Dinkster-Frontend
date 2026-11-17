@@ -16,7 +16,7 @@
  * unavailable; the app's documented in-memory fallback covers the
  * copy/paste round trip exactly as it does for the user.
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 import { skipWithoutNativeCatalog, waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = '/tmp/audit-live-conflict-proof'

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../../e2e/visual.js'
 import axe from 'axe-core'
 import type { AccountModel } from '../src/account.js'
 
@@ -69,6 +69,20 @@ async function open(
   await page.goto('/fixture')
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 }
+
+test('captures reject missing product fonts rather than saving fallback pixels', async ({
+  page,
+}) => {
+  await page.route('**/missing.woff2', (route) =>
+    route.fulfill({ status: 404 }),
+  )
+  await page.goto('/account.html')
+  await page.setContent(
+    '<style>@font-face {font-family:"Noto Sans Missing";src:url("/missing.woff2")}body {font-family:"Noto Sans Missing"}</style><p>Product text</p>',
+  )
+  await expect(page.screenshot()).rejects.toThrow()
+  await expect(page.getByText('Product text').screenshot()).rejects.toThrow()
+})
 
 test('templates fetch renderer dependencies before service controllers run', async ({
   page,

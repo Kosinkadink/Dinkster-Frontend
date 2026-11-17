@@ -730,6 +730,15 @@ The specialized asset editor shell is parked in
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.
 
+## Font loading and captures
+
+Bundled Noto faces use `font-display: swap` so site text does not wait for a
+cold font transfer. Canvas startup still loads its measurement faces before
+rendering. The shared browser capture fixture in `packages/e2e/visual.ts` waits
+for `document.fonts.ready` and verifies the visible product font faces before
+page, locator or golden-image captures. Failed font loads reject the capture;
+screenshot baselines do not use fallback text.
+
 ## Account site assets
 
 `packages/site` builds the SolidJS account and authorization views on

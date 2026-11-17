@@ -7,7 +7,7 @@
  * full composition runs in the real browser: AppState native default ->
  * native client fetch, without a stock ComfyUI discovery fallback.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 import { openRailPanel } from './fixtures.js'
 
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']

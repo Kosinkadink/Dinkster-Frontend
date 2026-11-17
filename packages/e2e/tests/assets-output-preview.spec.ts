@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 
 const proofDir = resolve(import.meta.dirname, '../../../.amp/in/artifacts/native-output-preview')
 const longIdentityName = `middle-${'complete-identity-'.repeat(6)}.png`
