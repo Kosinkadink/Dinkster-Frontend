@@ -61,19 +61,29 @@ for (const width of [1280, 390]) {
   }
 }
 
-test('centered shell constrains desktop content without changing the default or narrow navigation', async ({
+test('centered page keeps a full-window top bar and unboxed navigation at desktop and narrow widths', async ({
   page,
 }) => {
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#forms')
-    expect((await page.locator('.dinkster-shell').boundingBox())?.width).toBe(
+    expect((await page.locator('.dinkster-topbar').boundingBox())?.width).toBe(
       width,
     )
-    await page.goto('/?shell=centered#forms')
-    const shell = await page.locator('.dinkster-shell').boundingBox()
-    expect(shell?.width).toBe(width === 1280 ? 1024 : 390)
-    expect(shell?.x).toBe(width === 1280 ? 128 : 0)
+    const content = await page.locator('.dinkster-shell-content').boundingBox()
+    const header = await page.locator('.dinkster-topbar-content').boundingBox()
+    expect(content?.width).toBe(width === 1280 ? 1040 : 358)
+    expect(content?.x).toBe(width === 1280 ? 120 : 16)
+    expect(header?.x).toBe(content?.x)
+    expect(header?.width).toBe(content?.width)
+    await expect(page.locator('.dinkster-sidebar')).toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)',
+    )
+    await expect(page.locator('.dinkster-sidebar')).toHaveCSS(
+      'border-right-width',
+      '0px',
+    )
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -82,6 +92,10 @@ test('centered shell constrains desktop content without changing the default or 
     if (width === 390) {
       await page.getByRole('button', { name: 'Toggle navigation' }).click()
       await expect(page.getByRole('navigation')).toBeVisible()
+      await page.screenshot({
+        path: 'test-results/captures/centered-navigation-390.png',
+        fullPage: true,
+      })
       await page.keyboard.press('Escape')
       await expect(page.getByRole('navigation')).toBeHidden()
     }

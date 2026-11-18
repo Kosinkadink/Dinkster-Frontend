@@ -24,7 +24,6 @@ export function authorizationView(
     () => (
       <div class="dinkster-root" data-density="site" data-theme="dark">
         <ProductShell
-          centered
           title="Dinkster"
           navigation={[]}
           currentHref=""

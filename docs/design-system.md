@@ -756,13 +756,14 @@ for `document.fonts.ready` and verifies the visible product font faces before
 page, locator or golden-image captures. Failed font loads reject the capture;
 screenshot baselines do not use fallback text.
 
-## Centered service shell
+## Centered page shell
 
-`ProductShell centered` constrains the sidebar and content to the shared
-1024px site-shell width and centers that block in the viewport. The default
-shell stays full width. Narrow navigation retains the standard 768px
-breakpoint. Actions keep their label-sized shared button geometry.
-The gallery exposes the variant with `?shell=centered` on any page.
+`ProductShell` uses one centered layout. The top bar spans the window;
+its contents and the sidebar/page share a 1040px maximum-width column.
+Navigation has no panel background or divider: the page background fills
+the window without visible column edges. Narrow navigation retains the
+standard 768px breakpoint. Actions keep their label-sized geometry.
+The gallery, account and authorization views use this same shell.
 
 ## Account site assets
 
