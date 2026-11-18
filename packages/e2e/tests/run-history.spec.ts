@@ -95,7 +95,7 @@ async function queueAndComplete(page: Page): Promise<string> {
     }
   })
   await page.mouse.click(p.x, p.y, { button: 'right' })
-  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to Selection' }).click()
+  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' }).click()
   // Wait on the store, not on the first execution-row: an all-cached rerun
   // completes near-instantly, and with an older completed run in the rail
   // the first row matches 'completed' before the NEW execution registers.
