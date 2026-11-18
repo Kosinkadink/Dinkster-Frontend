@@ -16,6 +16,7 @@
 .dinkster-root [hidden] { display: none !important; }
 :root:has(.dinkster-topbar) { scroll-padding-top: calc(var(--dinkster-top-bar-height) + var(--dinkster-space-16)); }
 .dinkster-shell { display: grid; min-height: 100dvh; grid-template: var(--dinkster-top-bar-height) 1fr / var(--dinkster-sidebar-width) minmax(0, 1fr); }
+.dinkster-shell[data-centered='true'] { width: 100%; max-width: var(--dinkster-site-shell-max-width); margin-inline: auto; }
 .dinkster-shell[data-navigation='false'] { grid-template-columns: minmax(0, 1fr); }
 .dinkster-topbar { position: sticky; top: 0; z-index: 1; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); padding-inline: var(--dinkster-space-24); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-panel); }
 .dinkster-sidebar { padding: var(--dinkster-space-16); border-right: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-panel); }

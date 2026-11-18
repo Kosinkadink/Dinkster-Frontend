@@ -30,6 +30,7 @@
     "borderWidth": 1,
     "topBarHeight": 56,
     "sidebarWidth": 240,
+    "siteShellMaxWidth": 1024,
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,

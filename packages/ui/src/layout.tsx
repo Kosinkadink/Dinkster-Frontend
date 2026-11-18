@@ -16,6 +16,7 @@ export interface ProductNavigationItem {
 
 export function ProductShell(props: {
   title: string
+  centered?: boolean
   navigation: readonly ProductNavigationItem[]
   currentHref: string
   onNavigate: (href: string) => void
@@ -29,6 +30,7 @@ export function ProductShell(props: {
   return (
     <div
       class="dinkster-shell"
+      data-centered={props.centered || undefined}
       data-navigation={props.navigation.length > 0}
       onKeyDown={(event) => {
         // A dialog or menu that is handling Escape keeps it.

@@ -61,6 +61,37 @@ for (const width of [1280, 390]) {
   }
 }
 
+test('centered shell constrains desktop content without changing the default or narrow navigation', async ({
+  page,
+}) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#forms')
+    expect((await page.locator('.dinkster-shell').boundingBox())?.width).toBe(
+      width,
+    )
+    await page.goto('/?shell=centered#forms')
+    const shell = await page.locator('.dinkster-shell').boundingBox()
+    expect(shell?.width).toBe(width === 1280 ? 1024 : 390)
+    expect(shell?.x).toBe(width === 1280 ? 128 : 0)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    if (width === 390) {
+      await page.getByRole('button', { name: 'Toggle navigation' }).click()
+      await expect(page.getByRole('navigation')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('navigation')).toBeHidden()
+    }
+    await page.screenshot({
+      path: `test-results/captures/centered-forms-${width}.png`,
+      fullPage: true,
+    })
+  }
+})
+
 test('account values copy exactly, history expands by keyboard and signed-out shell has no empty navigation', async ({
   page,
   context,

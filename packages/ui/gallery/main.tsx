@@ -115,6 +115,9 @@ function Gallery() {
   })
   return (
     <ProductShell
+      centered={
+        new URLSearchParams(window.location.search).get('shell') === 'centered'
+      }
       title="Component gallery"
       navigation={route() === '#signed-out' ? [] : navigation}
       currentHref={route()}
