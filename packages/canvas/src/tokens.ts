@@ -3,11 +3,27 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
   detailMinScale: 0.5,
+  imageOpacityScale: IMAGE_OPACITY_MAX,
+  editor: {
+    imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
+    boundingBox: { outsideColor: '#00000080', strokeColor: '#ffffff', strokeMinWidth: 1, strokeImageScale: 300 },
+    painter: { defaultDimension: 512, initialColor: '#ffffff', backgroundColor: '#000000', initialBrushSize: 24 },
+  },
+  memory: {
+    graphMinWidth: 240, graphFallbackWidth: 600, graphHeight: 96, graphTopInset: 8,
+    reservedOpacity: 0.34, footprintOpacity: 0.62, strokeWidth: 1, capacityDash: [4, 3],
+    heatmapMinWidth: 120, heatmapFallbackWidth: 480, cellPitch: 7, cellSize: 6,
+    pageColor(resident: boolean, fraction: number): string {
+      const target = resident ? [230, 126, 34] : [58, 58, 58]
+      const source = resident ? [255, 220, 0] : [200, 60, 60]
+      return `rgb(${target.map((channel, index) => Math.round(source[index]! * fraction + channel * (1 - fraction))).join(',')})`
+    },
+  },
   grid: { spacing: 32, minScreenSpacing: 12, dotRadius: 1.5 },
   hit: {
     pinRadius: 9,
@@ -493,8 +509,9 @@ export interface DesignTokens {
     readonly gridDot: string
     readonly nodeBody: string
     readonly nodeHeader: string
-    /** Structural node/pseudo-node outline, stronger than inset chrome. */
+    /** Structural and pseudo-node outline, stronger than inset chrome. */
     readonly nodeOutline: string
+    readonly nodeIdleOutline: string
     readonly nodeBorder: string
     readonly nodeSelectedBorder: string
     /** Neutral group tint and border when the document supplies no color. */
@@ -559,6 +576,7 @@ export interface DesignTokens {
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
+  readonly typeFallbackLightness: number
   readonly stateColors: Readonly<Record<NodeRunState, string>>
   readonly progressBar: string
 }
@@ -617,6 +635,7 @@ export const defaultTokens: DesignTokens = {
     'COMBO': '#5D4037',
     AUDIO: '#1565C0',
   },
+  typeFallbackLightness: 62,
   stateColors: {
     pending: '#5c5c5c',
     running: canvasSemanticTokens.meaning.info.border,
@@ -629,6 +648,24 @@ export const defaultTokens: DesignTokens = {
   progressBar: canvasSemanticTokens.meaning.info.border,
 }
 
+/** Named colors keep their hue while meeting contrast against each theme's node body. */
+export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'> {
+  return {
+    typeColors: {
+      ...defaultTokens.typeColors,
+      ...(theme === 'dark' ? {
+        STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+      } : {
+        CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
+        IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
+        STYLE_MODEL: '#6F9264', VAE: '#DE6060', NOISE: '#888888', GUIDER: '#3C9595',
+        SAMPLER: '#A67F7F', SIGMAS: '#739073', TAESD: '#9A8751',
+      }),
+    },
+    typeFallbackLightness: theme === 'dark' ? 62 : 36,
+  }
+}
+
 export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
   const tokens = semanticTokensForTheme(theme)
   return {
@@ -637,6 +674,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     nodeBody: tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
     nodeOutline: tokens.border.strong,
+    nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
     nodeSelectedBorder: tokens.border.selected,
     groupDefault: tokens.border.strong,
@@ -715,7 +753,7 @@ export function typeColor(tokens: DesignTokens, typeName: string): string {
   let h = 0
   for (let i = 0; i < base.length; i++) h = (h * 31 + base.charCodeAt(i)) >>> 0
   // The hsl() form cannot exactly collide with any hex table entry.
-  return `hsl(${h % 360} 45% 62%)`
+  return `hsl(${h % 360} 45% ${tokens.typeFallbackLightness}%)`
 }
 
 export interface PresentedType {

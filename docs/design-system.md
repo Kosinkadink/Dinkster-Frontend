@@ -50,6 +50,11 @@ notification lifetime, sentence case and hidden unconfigured services. It names
 tokens rather than colors and is exported as `@dinkster/branding/rules`. The
 portable distribution includes it in the SHA-256 manifest.
 
+App action labels, settings categories and panel headings use sentence case.
+Canvas context-menu actions set their labels at the registry source, including
+reset actions and plural counts. Proper names, acronyms and user-authored node,
+net and selector branch names retain their original capitalization.
+
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
 alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
@@ -504,8 +509,10 @@ meanings own their matching paint roles. The adapter remains the shared mutable
 all layout and text-measurement metrics, the data-type palette, and unmatched
 run/mute/bypass meanings remain unchanged. The focused multiline editor uses
 the corresponding CSS variables while retaining the same projected geometry.
-The strong-border role owns structural node and pseudo-node outlines; the
-subtle-border role remains available for inset preview and widget chrome.
+The subtle-border role owns idle ordinary-node outlines through `nodeIdleOutline`,
+as well as inset preview and widget chrome. The strong-border `nodeOutline` role
+owns structural borders and pseudo-node outlines. Run, problem, hover and selection
+outlines retain their separate meanings.
 
 Groups keep user-authored colors as document data. Uncolored groups use the
 semantic strong-border role for their existing fill, header, and border
@@ -645,6 +652,16 @@ not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
+The Idle outline page compares Previous outline with Quieter outline (current)
+on idle, hovered and selected nodes. The app and gallery default to the shared
+subtle idle border; the Previous outline selector overrides only that page's
+`nodeIdleOutline` role to retain the former strong-border comparison.
+
+The Pins and links page compares Current colors with Contrast-adjusted colors.
+The adjusted named palette keeps each hue and meets 3:1 against that theme's node
+body; colors already meeting the threshold remain unchanged. Unknown types keep
+their stable hashed hue with theme-specific lightness. The selector changes only
+this gallery page, not app defaults or other gallery pages.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
@@ -653,6 +670,26 @@ moves preserve the pictures. `packages/canvas/src/tokens.ts` owns shared
 semantic paint roles and the fixed `canvasPaintTokens` geometry. Existing
 geometry exports are aliases consumed by both drawing and hit testing;
 changing their source cannot leave an independent pointer target behind.
+
+`pnpm check:canvas-literals` checks canvas source and every app source file
+using the TypeScript AST. App paint operations are identified by their typed
+2D context, including editor previews, offscreen contexts, memory graphs and
+new painter helpers; unrelated DOM styles and data are not canvas paint.
+Fixed paint colors, sizes, opacity, font sizes and dash arrays belong in the canvas token file,
+not context assignments, drawing arguments or named geometry declarations.
+Constant aliases, including imports, helper returns, array lookups and
+array/object destructuring, do not hide literal paint values. Destructured
+bindings follow their selected source values and defaults. Later variable
+assignments and arguments passed to painter helpers are traced to the same
+value sources, using declarations rather than identifier spelling. Collection
+lookups inspect stored values, not data keys. Computed property names are
+resolved before checking context writes. Native `CanvasPattern` results are
+paint objects; image sources and repetition modes are not color literals.
+Paint used to draw a pattern's tile is checked normally.
+The check runs in fast CI and before the app production build. Coordinate
+origins, count/unit arithmetic, normalized clamps and fully opaque context
+resets are not designed dimensions; protocol and gesture policy remain outside
+paint ownership. A measured hex-value label is text, not a paint color.
 
 ### Extension descriptors
 
@@ -762,6 +799,22 @@ for `document.fonts.ready` and verifies the visible product font faces before
 page, locator or golden-image captures. Failed font loads reject the capture;
 screenshot baselines do not use fallback text.
 
+## Desktop information
+
+`ProductWindowChrome` reserves the native title-bar overlay area and the
+macOS traffic-light inset, uses the shared 56px bar and palette, and marks
+its empty background draggable while its contents remain non-draggable.
+The host supplies the exact title and platform. The gallery shows Windows,
+Linux and macOS geometry; native Electron control behavior is checked by
+the adopting Desktop application, not the browser gallery.
+
+`ProductAbout` renders the bundled theme-specific wordmark, product title and
+version with shared typography and spacing. Its `theme` follows the host
+window's theme; `title` carries the host's identity, including QA markings.
+`ProductStringsProvider` can replace the Version label. The component adds no
+controls, navigation or network activity. The gallery's Desktop information
+page shows dark and light appearances and the QA title at narrow widths.
+
 ## Account site assets
 
 `packages/site` builds the SolidJS account and authorization views on
@@ -782,8 +835,15 @@ variables; this removes secret DOM before a restored page is rendered.
 Authorization retains a native POST form
 with the signed consent token and explicit approve/deny submitter values.
 
-`pnpm --filter @dinkster/site build` creates the two HTML templates, renderer
-modules, one shared stylesheet, bundled fonts and a SHA-256 file manifest.
+`pnpm --filter @dinkster/site build` creates the account, authorization and
+portable Desktop About templates, renderer modules, one shared stylesheet,
+bundled fonts and a SHA-256 file manifest. `about.html` uses relative local
+assets and a self-only CSP with no network connection permission or inline
+styles/scripts. Desktop supplies `title` and `version` as URL query parameters;
+they render as text through `ProductAbout`. The view follows the OS color
+scheme, including changes while open, and reports only the no-send
+`desktop-about` route event. The existing wheel carries these files under
+`static/site/`; consumers retain that directory structure.
 Each template preloads its renderer and transitive static imports from Vite's
 build manifest so controller imports do not add serial discovery round trips.
 The build manifest itself is not distributed.

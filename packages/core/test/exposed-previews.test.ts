@@ -127,7 +127,7 @@ describe('preview exposure menu', () => {
     expect(items(target.doc)).toEqual([])
     const [before] = items(target.doc, true)
     expect(before).toMatchObject({
-      label: 'Promote to App View',
+      label: 'Promote to app view',
       checked: false,
       action: { kind: 'command', invocation: {
         command: 'previews.expose', params: { graphId: 'g0', nodeId: 'n1' },
@@ -136,7 +136,7 @@ describe('preview exposure menu', () => {
     if (before?.action?.kind !== 'command') throw new Error('expected command item')
     expect(target.dispatch(before.action.invocation).ok).toBe(true)
     expect(items(target.doc, true)[0]).toMatchObject({
-      label: 'Remove from App View',
+      label: 'Remove from app view',
       checked: true,
       action: { kind: 'command', invocation: {
         command: 'previews.unexpose', params: { graphId: 'g0', nodeId: 'n1' },

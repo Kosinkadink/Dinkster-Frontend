@@ -294,7 +294,7 @@ describe('ProblemsPanel browser interactions', () => {
     // Both fixture diagnostics have owning anchors, so both rows offer it.
     const buttons = root.querySelectorAll<HTMLButtonElement>('.problem-show-in-context')
     expect(buttons).toHaveLength(2)
-    expect(buttons[0]!.textContent).toBe('Show in Focused')
+    expect(buttons[0]!.textContent).toBe('Show in focused')
     buttons[0]!.click()
     expect(shown).toEqual([diagnostics[0]])
     unmount()

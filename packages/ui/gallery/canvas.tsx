@@ -4,6 +4,7 @@ import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
@@ -33,6 +34,8 @@ export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
+  const [outline, setOutline] = createSignal('quieter')
+  const [typeLook, setTypeLook] = createSignal('current')
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -41,14 +44,25 @@ export function CanvasGallery() {
     const currentTheme = theme()
     const currentPage = page()
     const currentWidget = widgetId()
+    const currentOutline = outline()
+    const currentTypeLook = typeLook()
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void document.fonts.ready.then(() => {
       if (disposed) return
+      const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
         ...defaultTokens,
-        colors: canvasColorsForTheme(currentTheme),
+        ...(currentPage === 'types' && currentTypeLook === 'contrast'
+          ? canvasTypePaintForTheme(currentTheme)
+          : {}),
+        colors: {
+          ...colors,
+          ...(currentPage === 'idle-outline' && currentOutline === 'previous'
+            ? { nodeIdleOutline: colors.nodeOutline }
+            : {}),
+        },
       }
       const measureContext = document.createElement('canvas').getContext('2d')!
       const measure: TextMeasurer = (text, role) => {
@@ -163,6 +177,8 @@ export function CanvasGallery() {
       }
       canvas.dataset.ready = `${currentPage}-${currentTheme}`
       canvas.dataset.widget = currentWidget
+      canvas.dataset.outline = currentOutline
+      canvas.dataset.typeLook = currentTypeLook
     })
     onCleanup(() => {
       disposed = true
@@ -201,6 +217,44 @@ export function CanvasGallery() {
           )}
         </For>
       </nav>
+      <Show when={page() === 'idle-outline'}>
+        <ProductField label="Outline look">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={outline()}
+              onChange={(event) => setOutline(event.currentTarget.value)}
+            >
+              <option value="previous">Previous outline</option>
+              <option value="quieter">Quieter outline (current)</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          The app uses the quieter idle outline from the shared subtle border.
+          Compare it with the previous outline. Hover and selection paint stay
+          unchanged.
+        </p>
+      </Show>
+      <Show when={page() === 'types'}>
+        <ProductField label="Type colors">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={typeLook()}
+              onChange={(event) => setTypeLook(event.currentTarget.value)}
+            >
+              <option value="current">Current colors</option>
+              <option value="contrast">Contrast-adjusted colors</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Compare the current palette with theme-specific colors that keep each
+          type's hue and reach at least 3:1 contrast against the node body. This
+          comparison does not change app colors or other gallery pages.
+        </p>
+      </Show>
       <Show when={page() === 'widget-states'}>
         <ProductField label="Widget kind">
           {(attributes) => (

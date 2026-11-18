@@ -2993,7 +2993,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           items: [
             {
               id: 'core.subgraph.extract',
-              label: 'Extract as Subgraph',
+              label: 'Extract as subgraph',
               icon: 'group',
               ...(props.app.keybindings.combo('subgraph.extract') ? { shortcut: props.app.keybindings.combo('subgraph.extract')! } : {}),
               action: { kind: 'host' as const, action: 'extractSubgraph' },
@@ -3001,7 +3001,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             },
             {
               id: 'core.subgraph.flatten',
-              label: 'Flatten Subgraph One Level',
+              label: 'Flatten subgraph one level',
               icon: 'ungroup',
               ...(props.app.keybindings.combo('subgraph.flatten') ? { shortcut: props.app.keybindings.combo('subgraph.flatten')! } : {}),
               action: { kind: 'host' as const, action: 'flattenSubgraph' },
@@ -4187,8 +4187,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly plannerAvailable: boolean
     } | undefined
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
+    let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
+    let viewportPause: ReturnType<typeof setTimeout> | undefined
+    const flushViewport = (): void => {
+      if (viewportPause !== undefined) clearTimeout(viewportPause)
+      viewportPause = undefined
+      const pending = pendingViewport
+      pendingViewport = undefined
+      if (pending) untrack(() => props.app.setGraphViewport(pending.tabId, pending.graphId, pending.viewport))
+    }
+    const unregisterViewportFlusher = props.app.registerTabViewFlusher(flushViewport)
     const unsubscribeTabViewport = renderer.onViewportChange((viewport) => {
-      if (sceneViewportOwner) props.app.setGraphViewport(sceneViewportOwner.tabId, sceneViewportOwner.graphId, viewport)
+      if (!sceneViewportOwner) return
+      pendingViewport = { ...sceneViewportOwner, viewport: { ...viewport } }
+      if (viewportPause !== undefined) clearTimeout(viewportPause)
+      viewportPause = setTimeout(flushViewport, 100)
     })
 
     // Scene: rebuilt when the tab, graph stack, document, or schemas change.
@@ -4391,6 +4404,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // (pin/unpin mutates the doc; closing here would eat the interaction).
 
       if (key !== sceneKey) {
+        flushViewport()
         setVsPopover(undefined) // different graph: the anchor means nothing
         setSelExecPopover(undefined)
         sceneKey = key
@@ -4940,7 +4954,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (sel.length === 1) {
         const defId = subgraphDefIdOf(def.nodes[sel[0]!]!.type)
         if (defId !== undefined && tab.store.doc.graphs[defId]) {
-          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open Subgraph' }))
+          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open subgraph' }))
         }
       }
       const flattenAvailable = canFlattenSubgraph()
@@ -4950,13 +4964,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       modifications.push(toolboxButton({
         id: 'core.extractSubgraph',
         icon: 'group',
-        label: 'Extract as Subgraph',
+        label: 'Extract as subgraph',
         disabled: !canExtractSubgraph(),
       }))
       modifications.push(toolboxButton({
         id: 'core.flattenSubgraph',
         icon: 'ungroup',
-        label: 'Flatten Subgraph One Level',
+        label: 'Flatten subgraph one level',
         disabled: !flattenAvailable || flattenRefusal !== undefined,
         ...(!flattenAvailable
           ? { reason: 'Select exactly one subgraph occurrence.' }
@@ -6216,6 +6230,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       minimap.dispose()
       unsubscribeEditorViewport()
       unsubscribeTabViewport()
+      flushViewport()
+      unregisterViewportFlusher()
       unsubscribePresenceViewport()
       hideCanvasTooltips()
       unsubscribeTooltipViewport()

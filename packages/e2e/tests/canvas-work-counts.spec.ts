@@ -3,6 +3,7 @@ import { expect, nativeTest as test } from './fixtures.js'
 declare global {
   interface Window {
     canvasWorkCounts: { armed?: string | undefined; calls: number; nextFrame?: number | undefined }
+    canvasDragDrawCounts: { armed: boolean; calls: number; immediate?: number | undefined; nextFrame?: number | undefined }
   }
 }
 
@@ -65,7 +66,31 @@ test('select, context menu and drag release do not compile availability before t
   await page.keyboard.press('Escape')
   await page.mouse.move(point.x, point.y)
   await page.mouse.down()
-  await page.mouse.move(point.x + 80, point.y + 50, { steps: 3 })
+  await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('canvas.graph-canvas')!
+    const ctx = canvas.getContext('2d')!
+    const original = ctx.fillRect.bind(ctx)
+    const counts = window.canvasDragDrawCounts = { armed: false, calls: 0 } as Window['canvasDragDrawCounts']
+    ctx.fillRect = (...args) => {
+      if (typeof ctx.fillStyle === 'string' && args[0] === 0 && args[1] === 0 && args[2] === canvas.clientWidth && args[3] === canvas.clientHeight) counts.calls++
+      original(...args)
+    }
+    window.addEventListener('pointermove', () => {
+      if (counts.armed) { counts.calls = 0; counts.nextFrame = undefined }
+    }, { capture: true })
+    window.addEventListener('pointermove', () => {
+      if (!counts.armed) return
+      counts.armed = false
+      counts.immediate = counts.calls
+      requestAnimationFrame(() => { counts.nextFrame = counts.calls })
+    })
+  })
+  for (const offset of [1, 2, 3]) {
+    await page.evaluate(() => { window.canvasDragDrawCounts.armed = true })
+    await page.mouse.move(point.x + 80 * offset / 3, point.y + 50 * offset / 3)
+    await expect.poll(() => page.evaluate(() => window.canvasDragDrawCounts.nextFrame)).toBe(1)
+    expect(await page.evaluate(() => window.canvasDragDrawCounts.immediate)).toBe(0)
+  }
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().dragOffsets?.has('n0'))).toBe(true)
   await arm('pointerup')
   await page.mouse.up()

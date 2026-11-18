@@ -15,9 +15,9 @@ vi.mock('@dinkster/canvas', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dinkster/canvas')>()
   return {
     ...actual,
-    drawMinimap: (ctx: CanvasRenderingContext2D, input: MinimapInput) => {
+    drawMinimapGraph: (ctx: CanvasRenderingContext2D, input: MinimapInput) => {
       drawInputs.push(input)
-      return actual.drawMinimap(ctx, input)
+      return actual.drawMinimapGraph(ctx, input)
     },
   }
 })
@@ -32,11 +32,13 @@ interface Harness {
     releasePointerCapture: ReturnType<typeof vi.fn>
   }
   readonly setViewport: ReturnType<typeof vi.fn>
+  readonly moveCamera: () => void
   readonly handle: { paint(): void; setStates(states: Readonly<Record<string, NodeProgress>>): void; dispose(): void }
 }
 
 function harness(opts?: {
   hasCapture?: boolean
+  offscreen?: boolean
   dpr?: number
   width?: number
   height?: number
@@ -47,7 +49,13 @@ function harness(opts?: {
 }): Harness {
   const listeners = new Map<string, (event: unknown) => void>()
   const context = new Proxy({}, { get: () => vi.fn() })
+  vi.stubGlobal('OffscreenCanvas', opts?.offscreen === false ? undefined : class {
+    width = 1
+    height = 1
+    getContext() { return context }
+  })
   const canvas = {
+    ownerDocument: { createElement: () => ({ width: 1, height: 1, getContext: () => context }) },
     width: 0,
     height: 0,
     clientWidth: opts?.width ?? 250,
@@ -68,13 +76,17 @@ function harness(opts?: {
     releasePointerCapture: vi.fn(),
   }
   const setViewport = vi.fn()
+  let viewportListener = () => {}
+  let scheduledFrame = () => {}
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { scheduledFrame = callback; return 1 })
+  vi.stubGlobal('cancelAnimationFrame', vi.fn())
   const renderer = {
     getScene: () => opts?.scene ?? ({ nodes: [], groups: [], links: [], reroutes: [] }),
     getViewport: () => ({ x: 0, y: 0, scale: 1 }),
     getPresence: () => [],
     getTokens: () => defaultTokens,
     setViewport,
-    onViewportChange: () => vi.fn(),
+    onViewportChange: (listener: () => void) => { viewportListener = listener; return vi.fn() },
   } as unknown as CanvasRenderer
   vi.stubGlobal('window', { devicePixelRatio: opts?.dpr ?? 1 })
   const handle = setupMinimap({
@@ -84,7 +96,7 @@ function harness(opts?: {
     settings: { get: (key: string) => opts?.settings?.[key] ?? false } as unknown as SettingsRegistry,
     markers: () => [],
   })
-  return { listeners, canvas, setViewport, handle }
+  return { listeners, canvas, setViewport, handle, moveCamera: () => { viewportListener(); scheduledFrame() } }
 }
 
 const pointer = { clientX: 20, clientY: 20, pointerId: 1, preventDefault: vi.fn(), stopPropagation: vi.fn() }
@@ -115,6 +127,31 @@ describe('minimap pointer gestures', () => {
     expect(input.groups).toHaveLength(1)
     expect(input.visibility).toEqual({ groups: false })
     expect(input.reroutes).toEqual([{ x: 5, y: 6 }])
+    h.handle.dispose()
+  })
+
+  it.each([66, 300, 1200].flatMap((count) => [true, false].map((offscreen) => ({ count, offscreen }))))('retains $count graph boxes through camera frames with OffscreenCanvas $offscreen', ({ count, offscreen }) => {
+    const scene = {
+      nodes: Array.from({ length: count }, (_, i) => ({
+        id: `n${i}`, x: i * 110, y: i % 3 * 80,
+        layout: { width: 100, height: 60 }, node: { mode: 'active' },
+      })),
+      groups: [],
+      links: Array.from({ length: count - 1 }, (_, i) => ({ x1: i * 110, y1: 10, x2: (i + 1) * 110, y2: 30 })),
+      reroutes: [],
+    } as unknown as ReturnType<CanvasRenderer['getScene']>
+    const h = harness({ scene, offscreen, settings: { 'canvas.minimap.noodles': true } })
+    expect(drawInputs).toHaveLength(1)
+    expect(drawInputs[0]!.nodes).toHaveLength(count)
+    expect(drawInputs[0]!.links).toHaveLength(count - 1)
+    for (let i = 0; i < 10; i++) h.moveCamera()
+    expect(drawInputs).toHaveLength(1)
+    h.handle.setStates({ n0: { state: 'error' } as NodeProgress })
+    h.moveCamera()
+    expect(drawInputs).toHaveLength(2)
+    expect(drawInputs[1]!.nodes[0]!.state).toBe('error')
+    h.handle.paint()
+    expect(drawInputs).toHaveLength(3)
     h.handle.dispose()
   })
 

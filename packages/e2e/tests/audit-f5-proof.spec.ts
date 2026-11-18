@@ -33,7 +33,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
   await page.getByTestId('settings-button').click()
-  await page.locator('.settings-categories').getByRole('button', { name: 'Canvas Grid' }).click()
+  await page.locator('.settings-categories').getByRole('button', { name: 'Canvas grid' }).click()
   const setting = page.locator('[data-setting-id]', { hasText: 'Show dot grid' }).getByRole('checkbox')
   await page.keyboard.press('Tab')
   await setting.focus()

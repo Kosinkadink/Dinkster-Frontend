@@ -11,7 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 // The renderer's rAF loop is irrelevant here: renderNow() paints
@@ -23,7 +23,9 @@ beforeAll(() => {
     constructor(readonly d: string) {}
   })
   vi.stubGlobal('OffscreenCanvas', class OffscreenCanvas {
-    getContext() { return recordingCtx().ctx }
+    readonly recording = recordingCtx()
+    constructor(readonly width: number, readonly height: number) {}
+    getContext() { return this.recording.ctx }
   })
 })
 afterAll(() => {
@@ -94,7 +96,10 @@ function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: PaintCall[] } {
         })
         if (prop === 'setLineDash') state.lineDash = [...(args[0] as readonly number[])]
         if (prop === 'restore') state = stack.pop() ?? state
-        if (prop === 'createPattern') return { toString: () => 'checkerboard' }
+        if (prop === 'createPattern') return {
+          toString: () => 'checkerboard',
+          setTransform: (matrix: DOMMatrix2DInit) => calls.push({ ...calls.at(-1)!, method: 'patternTransform', args: [matrix] }),
+        }
         return undefined
       }
     },
@@ -816,6 +821,49 @@ describe('diagnostic paint on the live renderer', () => {
       call.args[2] === defaultTokens.pinRadius)).toBe(true)
   })
 
+  it.each([66, 300, 1200])('bounds panned drawing work for %i nodes without rebuilding link lookups', (count) => {
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `paint-${count}`, root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Paint', nextOrdinal: count, nets: {}, reroutes: {},
+        nodes: Object.fromEntries(Array.from({ length: count }, (_, i) => [`n${i}`, {
+          id: `n${i}`, type: i % 2 === 0 ? 'PLAT' : 'SinkLatent', values: {},
+        }])),
+        links: Object.fromEntries(Array.from({ length: count / 2 }, (_, i) => [`l${i}`, {
+          id: `l${i}`, from: { node: `n${i * 2}`, port: 'out' }, to: { node: `n${i * 2 + 1}`, port: 'in' },
+        }])),
+      } },
+      view: { graphs: { g0: { nodes: Object.fromEntries(Array.from({ length: count }, (_, i) => [`n${i}`, {
+        position: { x: i % 20 * 320, y: Math.floor(i / 20) * 180 },
+      }])) } } },
+    }).document!
+    const scene = buildScene({ document: doc, graphId: 'g0', resolve: (t) => synthetic.get(t), tokens: defaultTokens, measure, widgetMeasure })
+    expect(scene.nodes).toHaveLength(count)
+    expect(scene.links).toHaveLength(count / 2)
+    let lookupPasses = 0
+    const links = new Proxy(scene.links, { get(target, key, receiver) {
+      if (key === 'filter') lookupPasses++
+      return Reflect.get(target, key, receiver)
+    } })
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setCanvasLayers([canvasGridLayer(defaultTokens)])
+    renderer.setScene({ ...scene, links })
+    expect(lookupPasses).toBe(4)
+    renderer.fitToScene()
+    renderer.renderNow()
+    lookupPasses = 0
+    calls.length = 0
+    const viewport = renderer.getViewport()
+    renderer.setViewport({ ...viewport, x: viewport.x + 11, y: viewport.y - 7 })
+    renderer.renderNow()
+    expect(lookupPasses).toBe(0)
+    expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
+    // The fixed fixtures allow a small drawing margin, not another per-dot grid path.
+    const callLimit = count === 66 ? 1250 : count === 300 ? 5600 : 21000
+    expect(calls.length).toBeLessThanOrEqual(callLimit)
+    renderer.dispose()
+  })
+
   it('grid dots: world-anchored, geometric spacing growth, and toggleable', () => {
     // Empty scene: every painted arc is a grid dot, so geometry assertions
     // need no filtering.
@@ -832,7 +880,9 @@ describe('diagnostic paint on the live renderer', () => {
       setup?.(renderer)
       renderer.renderNow()
       renderer.dispose()
-      return calls
+      const tileCalls = calls.filter((c) => c.method === 'createPattern').flatMap((c) =>
+        (c.args[0] as { recording: { calls: PaintCall[] } }).recording.calls)
+      return [...calls, ...tileCalls]
     }
     const dotXs = (calls: PaintCall[]) =>
       calls.filter((c) => c.method === 'arc').map((c) => c.args[0] as number)
@@ -842,6 +892,8 @@ describe('diagnostic paint on the live renderer', () => {
     const base = frame()
     expect(base.some((c) => c.method === 'fill' && c.fillStyle === gridDot)).toBe(true)
     const xs = dotXs(base)
+    expect(xs).toHaveLength(4)
+    expect(base.find((c) => c.method === 'patternTransform')?.args).toEqual([{ a: 1, d: 1 }])
     expect(xs.length).toBeGreaterThan(0)
     for (const x of xs) expect(Math.abs(x % 32)).toBe(0)
 
@@ -851,6 +903,20 @@ describe('diagnostic paint on the live renderer', () => {
     const zoomedXs = dotXs(zoomed)
     expect(zoomedXs.length).toBeGreaterThan(0)
     for (const x of zoomedXs) expect(Math.abs(x % 64)).toBe(0)
+    expect(zoomed.find((c) => c.method === 'patternTransform')?.args).toEqual([{ a: 64 / 13, d: 64 / 13 }])
+
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setCanvasLayers([canvasGridLayer(defaultTokens)])
+    renderer.setScene(empty)
+    renderer.renderNow()
+    calls.length = 0
+    renderer.setViewport({ x: -57, y: 89, scale: 1 })
+    renderer.renderNow()
+    expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
+    expect(dotXs(calls)).toHaveLength(0)
+    expect(calls.filter((c) => c.method === 'fillRect' && c.fillStyle === 'checkerboard')).toHaveLength(1)
+    renderer.dispose()
 
     // Preference off: no grid paint at all.
     const hidden = frame((r) => r.setGridVisible(false))
@@ -1097,7 +1163,7 @@ describe('node chrome paint on the live renderer', () => {
     renderer.dispose()
   })
 
-  it('keeps minimized previews compact when real imagery and header badges arrive', () => {
+  it.each(['dark', 'light'] as const)('keeps minimized previews compact and repaints checker colors from %s theme', (theme) => {
     const base = fixtureScene('clean')
     const source = nodeOf(base, 'img')
     const minimized = {
@@ -1119,7 +1185,7 @@ describe('node chrome paint on the live renderer', () => {
     }
     const image = {} as CanvasImageSource
     const { ctx, calls } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, colors: canvasColorsForTheme(theme) })
     renderer.setScene(emptyScene({ nodes: [minimized] }))
     renderer.setBadges({ [minimized.id]: [MUTED_BADGE] })
     renderer.setNodePreviews({ [minimized.id]: { image, width: 320, height: 240 } })
@@ -1129,6 +1195,19 @@ describe('node chrome paint on the live renderer', () => {
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image)).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === '320 x 240')).toBe(false)
+    const checkerColors = () => {
+      const pattern = calls.filter((call) => call.method === 'createPattern').at(-1)!
+      const tile = pattern.args[0] as { recording: { calls: PaintCall[] } }
+      return new Set(tile.recording.calls.filter((call) => call.method === 'fillRect').map((call) => call.fillStyle))
+    }
+    for (const next of [theme, theme === 'dark' ? 'light' : 'dark', theme] as const) {
+      const colors = canvasColorsForTheme(next)
+      renderer.setColors(colors)
+      renderer.renderNow()
+      expect(checkerColors()).toEqual(new Set([colors.widgetBackground, colors.nodeBorder]))
+      renderer.renderNow()
+      expect(checkerColors()).toEqual(new Set([colors.widgetBackground, colors.nodeBorder]))
+    }
     renderer.dispose()
   })
 
@@ -1476,12 +1555,15 @@ describe('node chrome paint on the live renderer', () => {
     })
   })
 
-  it('a recognized node paints no unrecognized error color', () => {
+  it.each([
+    ['dark', '#3B4148'],
+    ['light', '#D3D9DE'],
+  ] as const)('a recognized idle node uses the quiet %s outline without error paint', (theme, outline) => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const calls = paint(scene)
+    const calls = paintWithTokens(scene, { ...defaultTokens, colors: canvasColorsForTheme(theme) })
     expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#533a3c' || call.fillStyle === '#6b3d3b'))).toBe(false)
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.nodeOutline)
+    expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
   it('a document-error badge wins over running with an emphasized red node outline', () => {

@@ -4866,8 +4866,17 @@ export class AppState {
     }, 400)
   }
 
+  private readonly tabViewFlushers = new Set<() => void>()
+
+  /** Mounted views must publish their pending camera state before storage flushes. */
+  registerTabViewFlusher(flush: () => void): () => void {
+    this.tabViewFlushers.add(flush)
+    return () => { this.tabViewFlushers.delete(flush) }
+  }
+
   /** Write any pending (debounced) tab snapshot immediately. */
   flushPersistTabs(forceStage = false): void {
+    for (const flush of this.tabViewFlushers) flush()
     if (this.viewPersistTimer !== undefined) this.persistTabViewsNow()
     if (this.persistTimer === undefined) {
       if (forceStage) this.persistTabsNow(true)

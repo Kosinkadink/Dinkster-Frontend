@@ -13,6 +13,7 @@ export const defaultProductStrings = {
   undoChanges: 'Undo changes',
   saveFailed: 'Changes could not be saved. Try again.',
   loading: 'Loading',
+  version: 'Version',
   copy: 'Copy',
   copyFailed: 'Could not copy. Select and copy the value instead.',
 }

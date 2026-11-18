@@ -1,3 +1,4 @@
+import { canvasPaintTokens } from '@dinkster/canvas'
 import {
   IMAGE_FIXED_POINT_SCALE,
   IMAGE_OPACITY_MAX,
@@ -178,7 +179,7 @@ export class ImageDocumentPreviewRenderer {
     if (layer.maskIds.length > 0) await this.applyMasks(documentValue, layer, surface, scale)
     this.assertCurrent()
     target.save()
-    target.globalAlpha = layer.opacity / IMAGE_OPACITY_MAX
+    target.globalAlpha = layer.opacity / canvasPaintTokens.imageOpacityScale
     target.globalCompositeOperation = blendOperation[layer.blendMode]!
     if (layer.kind === 'group') applyTransform(target, layer.transform)
     target.drawImage(surface, 0, 0, documentValue.canvas.width, documentValue.canvas.height)

@@ -16,7 +16,8 @@
 
 import {
   canvasPaintTokens,
-  drawMinimap,
+  drawMinimapGraph,
+  drawMinimapOverlay,
   minimapToWorld,
   minimapWheelViewport,
   type CanvasRenderer,
@@ -84,8 +85,13 @@ export function setupMinimap(deps: {
   const { canvas, mainCanvas, renderer, settings } = deps
   let states: Readonly<Record<string, NodeProgress>> = {}
   let tf: MinimapTransform | undefined
+  const graphCanvas = typeof OffscreenCanvas === 'undefined'
+    ? canvas.ownerDocument.createElement('canvas')
+    : new OffscreenCanvas(1, 1)
+  let graphDirty = true
+  let graphScene: ReturnType<CanvasRenderer['getScene']> | undefined
 
-  function paint(): void {
+  function paint(graphChanged = true): void {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const dpr = window.devicePixelRatio || 1
@@ -93,56 +99,76 @@ export function setupMinimap(deps: {
     const height = canvas.clientHeight || MINIMAP_H
     const backingWidth = Math.round(width * dpr)
     const backingHeight = Math.round(height * dpr)
-    if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+    graphDirty ||= graphChanged
+    if (canvas.width !== backingWidth || canvas.height !== backingHeight || graphCanvas.width !== backingWidth || graphCanvas.height !== backingHeight) {
       canvas.width = backingWidth
       canvas.height = backingHeight
+      graphCanvas.width = backingWidth
+      graphCanvas.height = backingHeight
+      graphDirty = true
     }
+    const sc = renderer.getScene()
+    if (graphDirty || graphScene !== sc || sc.nodes.length + sc.groups.length === 0) {
+      const graphContext = graphCanvas.getContext('2d')!
+      graphContext.save()
+      graphContext.scale(dpr, dpr)
+      tf = drawMinimapGraph(graphContext, {
+        width,
+        height,
+        nodes: sc.nodes.map((n) => {
+          const state = states[n.id]?.state
+          return {
+            x: n.x,
+            y: n.y,
+            width: n.layout.width,
+            height: n.layout.height,
+            bypassed: n.node.mode === 'bypassed',
+            ...(n.color !== undefined ? { color: n.color } : {}),
+            ...(state !== undefined ? { state } : {}),
+          }
+        }),
+        groups: sc.groups.map((g) => ({
+          x: g.x,
+          y: g.y,
+          width: g.width,
+          height: g.height,
+          ...(g.color !== undefined ? { color: g.color } : {}),
+        })),
+        nodeColors: settings.get<boolean>('canvas.minimap.nodes'),
+        renderBypassState: settings.get<boolean>('canvas.minimap.bypass'),
+        renderErrorState: settings.get<boolean>('canvas.minimap.errors'),
+        visibility: { groups: settings.get<boolean>('canvas.minimap.groups') },
+        links: settings.get<boolean>('canvas.minimap.noodles') ? sc.links.filter((link) => link.hidden !== true).map((link) => ({
+          from: { x: link.x1, y: link.y1 },
+          to: { x: link.x2, y: link.y2 },
+        })) : [],
+        reroutes: settings.get<boolean>('canvas.minimap.reroutes') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
+        viewport: {
+          ...renderer.getViewport(),
+          canvasWidth: mainCanvas.clientWidth,
+          canvasHeight: mainCanvas.clientHeight,
+        },
+        tokens: renderer.getTokens(),
+      })
+      graphContext.restore()
+      graphScene = sc
+      graphDirty = false
+    }
+    ctx.clearRect(0, 0, backingWidth, backingHeight)
+    ctx.drawImage(graphCanvas, 0, 0)
     ctx.save()
     ctx.scale(dpr, dpr)
-    const sc = renderer.getScene()
-    tf = drawMinimap(ctx, {
-      markers: [...deps.markers()],
+    if (tf) drawMinimapOverlay(ctx, tf, {
       width,
       height,
-      nodes: sc.nodes.map((n) => {
-        const state = states[n.id]?.state
-        return {
-          x: n.x,
-          y: n.y,
-          width: n.layout.width,
-          height: n.layout.height,
-          bypassed: n.node.mode === 'bypassed',
-          ...(n.color !== undefined ? { color: n.color } : {}),
-          ...(state !== undefined ? { state } : {}),
-        }
-      }),
-      groups: sc.groups.map((g) => ({
-        x: g.x,
-        y: g.y,
-        width: g.width,
-        height: g.height,
-        ...(g.color !== undefined ? { color: g.color } : {}),
-      })),
-      nodeColors: settings.get<boolean>('canvas.minimap.nodes'),
-      renderBypassState: settings.get<boolean>('canvas.minimap.bypass'),
-      renderErrorState: settings.get<boolean>('canvas.minimap.errors'),
-      visibility: { groups: settings.get<boolean>('canvas.minimap.groups') },
-      links: settings.get<boolean>('canvas.minimap.noodles') ? sc.links.filter((link) => link.hidden !== true).map((link) => ({
-        from: { x: link.x1, y: link.y1 },
-        to: { x: link.x2, y: link.y2 },
-      })) : [],
-      reroutes: settings.get<boolean>('canvas.minimap.reroutes') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
       viewport: {
         ...renderer.getViewport(),
         canvasWidth: mainCanvas.clientWidth,
         canvasHeight: mainCanvas.clientHeight,
       },
-      // Remote participants' viewports (shared sessions): read from the same
-      // installed presence set the main canvas paints cursors from, so the
-      // two surfaces can never disagree about who is where.
-      remoteViewports: renderer.getPresence().flatMap((a) =>
-        a.view !== undefined ? [{ ...a.view, color: a.color }] : [],
-      ),
+      remoteViewports: renderer.getPresence().flatMap((actor) =>
+        actor.view === undefined ? [] : [{ ...actor.view, color: actor.color }]),
+      markers: deps.markers(),
       tokens: renderer.getTokens(),
     })
     ctx.restore()
@@ -151,7 +177,7 @@ export function setupMinimap(deps: {
   let frame = 0
   const schedule = (): void => {
     if (frame) return
-    frame = requestAnimationFrame(() => { frame = 0; paint() })
+    frame = requestAnimationFrame(() => { frame = 0; paint(false) })
   }
   const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : undefined
   resizeObserver?.observe(canvas)
@@ -225,6 +251,7 @@ export function setupMinimap(deps: {
     paint,
     setStates(next) {
       states = next
+      graphDirty = true
     },
     dispose() {
       if (frame) cancelAnimationFrame(frame)

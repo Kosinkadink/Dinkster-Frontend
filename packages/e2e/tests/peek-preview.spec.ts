@@ -106,7 +106,7 @@ async function queueAndComplete(page: Page): Promise<void> {
     }
   })
   await page.mouse.click(p.x, p.y, { button: 'right' })
-  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to Selection' }).click()
+  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' }).click()
   const row = page.getByTestId('execution-row').first()
   await expect(row).toBeVisible({ timeout: 10_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
