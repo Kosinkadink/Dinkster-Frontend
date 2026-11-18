@@ -310,6 +310,7 @@ describe('workflow retention recovery', () => {
     vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
     const saved = new Map<string, RetainedAssets>()
     const pending = deferred<RetainedAssets>()
+    const retirement = deferred<void>()
     let observed: RetainedAssets | undefined
     const app = prepareWorkflowApp(new AppState())
     try {
@@ -323,6 +324,7 @@ describe('workflow retention recovery', () => {
         return receipt
       })
       vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
+        if (owner.ownerId === observed?.ownerId) await retirement.promise
         const receipt = { ...owner, revision: 2, complete: true, digests: [] }
         saved.set(owner.ownerId, receipt)
         return receipt
@@ -352,12 +354,18 @@ describe('workflow retention recovery', () => {
       events.dispatchEvent(Object.assign(new Event('storage'), { key, newValue: f.entries.get(key) }))
       await vi.waitFor(() => expect(reads).toHaveLength(1))
       expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
-      await vi.waitFor(() => expect(saved.get(observed!.ownerId)?.revision).toBe(2))
+      await vi.waitFor(() => expect(app.retentionActivity().retirements).toBeGreaterThan(0))
+      expect(saved.get(observed.ownerId)?.revision).toBe(1)
+      retirement.resolve()
+      await vi.waitFor(() => {
+        expect(saved.get(observed!.ownerId)?.revision).toBe(2)
+        expect(app.retentionActivity().retirements).toBe(0)
+      })
       pending.resolve(observed)
       await new Promise<void>((done) => setImmediate(done))
       expect(app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')).toEqual([])
       expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('c')])
-    } finally { app.dispose() }
+    } finally { retirement.resolve(); app.dispose() }
   })
 
   it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending',
