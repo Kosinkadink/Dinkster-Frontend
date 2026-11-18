@@ -493,6 +493,7 @@ export interface DesignTokens {
   readonly fontFamily: string
   readonly fontSize: number
   readonly titleFontSize: number
+  readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
   readonly multilineText: {
     readonly fontSize: number
@@ -627,6 +628,7 @@ export const defaultTokens: DesignTokens = {
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
   titleFontSize: 13,
+  titleOverflow: 'squeeze',
   // Comfy-style prompt fields use 14px type with readable 20px leading and
   // 6px inset. Their 18px label band reduces dead space without changing
   // the independent 12px/24px compact-row rhythm.

@@ -77,24 +77,38 @@ for (const theme of ['dark', 'light'] as const) {
             page.getByRole('combobox', { name: 'Outline look' }),
           ).toHaveValue('quieter')
         }
-        for (const outline of id === 'idle-outline'
+        const titles = id === 'titles' || id === 'titles-content'
+        for (const look of id === 'idle-outline'
           ? ['previous', 'quieter']
-          : [undefined]) {
-          if (outline) {
+          : titles
+            ? ['squeeze', 'ellipsis']
+            : [undefined]) {
+          if (look) {
             await page
-              .getByRole('combobox', { name: 'Outline look' })
-              .selectOption(outline)
-            await expect(canvas).toHaveAttribute('data-outline', outline)
+              .getByRole('combobox', {
+                name: titles ? 'Title fitting' : 'Outline look',
+              })
+              .selectOption(look)
+            await expect(canvas).toHaveAttribute(
+              titles ? 'data-title-look' : 'data-outline',
+              look,
+            )
           }
           await expect(canvas).toHaveScreenshot(
-            `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}${outline ? `-${outline}` : ''}-${theme}.png`,
+            `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}${look ? `-${look}` : ''}-${theme}.png`,
           )
         }
-        if (id === 'idle-outline') {
+        if (id === 'idle-outline' || titles) {
+          const look = titles ? 'ellipsis' : 'previous'
           await page
-            .getByRole('combobox', { name: 'Outline look' })
-            .selectOption('previous')
-          await expect(canvas).toHaveAttribute('data-outline', 'previous')
+            .getByRole('combobox', {
+              name: titles ? 'Title fitting' : 'Outline look',
+            })
+            .selectOption(look)
+          await expect(canvas).toHaveAttribute(
+            titles ? 'data-title-look' : 'data-outline',
+            look,
+          )
           await page
             .getByRole('button', { name: 'Node anatomy', exact: true })
             .click()
