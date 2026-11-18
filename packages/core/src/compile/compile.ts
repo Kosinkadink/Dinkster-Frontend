@@ -433,7 +433,7 @@ function slotVariantsOf(fn: FlatNode, successful?: ReadonlySet<string>): Record<
     if (input.origin.kind === 'selector' && input.wire15Materialization && input.origin.selected !== undefined) {
       variants[name] = input.origin.selected
     }
-    if (fn.inputs[input.spec.id] !== undefined && input.origin.kind === 'slot') {
+    if (input.origin.kind === 'slot' && (successful === undefined || fn.inputs[input.spec.id] !== undefined)) {
       const selected = input.origin.selected
       if (selected !== undefined && input.origin.variants?.some((variant) => variant.key === selected)) variants[name] = selected
     }
@@ -2534,6 +2534,13 @@ function compileImpl(
         const widget = input.spec.widget
         const name = input.wire15Materialization ? input.address.port : input.apiName
         if (input.apiName === undefined || name === undefined) continue
+        if (input.origin.kind === 'slot' && input.origin.variants === undefined &&
+            fn.inputs[input.spec.id] === undefined && !fn.linkedInputs.has(input.spec.id)) {
+          // A parent-only key retains family membership without activating this slot.
+          const parentEnd = name.lastIndexOf('.')
+          if (input.wire15Materialization && parentEnd > 0) values[name.slice(0, parentEnd)] ??= null
+          continue
+        }
         if (input.wire15Materialization) values[name] = null
         if (input.origin.kind === 'selector' && input.origin.selected !== undefined) values[name] = input.origin.selected
         if (fn.elab.outputCountInputs.has(input.address.port) && !fn.linkedInputs.has(input.spec.id)) {

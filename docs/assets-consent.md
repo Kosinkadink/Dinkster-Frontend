@@ -40,7 +40,9 @@ the resolved literals using current project grants; the frontend maps those
 observations back to saved occurrences. Dynamic inputs retain stable member
 paths, active choices and output membership in the inspection graph. Other
 dynamic input keys carry null placeholders to preserve interface shape without
-forwarding their values. Invalid interfaces are omitted, not guessed.
+forwarding their values. Selected slot choices survive missing runtime values.
+Inactive open slots stay absent; a parent-only null key retains an enclosing
+family member without activating the slot. Invalid interfaces are omitted, not guessed.
 Admission records the final reachable execution inputs separately. Neither
 observation waits for hashes, starts downloads nor runs a graph. Library save still requires confirmed workflow
 asset ownership; observations do not make unresolved filename selections

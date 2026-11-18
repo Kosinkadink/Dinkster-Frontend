@@ -971,6 +971,64 @@ const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
 describe('dynamic interfaces', () => {
+  it('observes a selected native slot model without requiring its runtime value', () => {
+    const schema = wire15SchemaOf('SavedSlot', [{
+      role: 'dynamicSlot', id: 'source', required: true,
+      variants: [{ key: 'selected', type: { kind: 'concrete', types: ['IMAGE'] }, inputs: [{
+        role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+        widget: { type: 'ASSET', kind: 'model/lora', accept: [] },
+      }] }],
+    }])
+    const document = dynDoc({ nodes: { loader: { type: 'SavedSlot',
+      dynamic: { source: { selected: 'selected' } }, values: { 'source.file': 'adapter.bin' },
+    } } })
+    const input = { ...compileInput(document), resolve: () => schema }
+    expect(modelInputOccurrences(input)).toEqual([{
+      occurrence: { instancePath: [], node: 'loader' }, type: 'SavedSlot',
+      values: { source: null, 'source.file': 'adapter.bin' }, slotVariants: { source: 'selected' },
+    }])
+    const execution = compile(input)
+    expect(execution.ok).toBe(true)
+    if (execution.ok) expect(execution.artifact.prompt.loader?.slotVariants).toBeUndefined()
+  })
+
+  it('does not activate an absent native open slot while observing another model', () => {
+    const schema = wire15SchemaOf('InactiveSlot', [{
+      role: 'input', id: 'model', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+      widget: { type: 'ASSET', kind: 'model/checkpoint', accept: [] },
+    }, {
+      role: 'dynamicSlot', id: 'source', required: false,
+      slotType: { kind: 'concrete', types: ['IMAGE'] }, inputs: [{
+        role: 'dynamicCombo', id: 'choice', required: true, options: [{ key: 'active', inputs: [] }],
+      }],
+    }])
+    const document = dynDoc({ nodes: { loader: { type: 'InactiveSlot', values: { model: 'checkpoint.bin' } } } })
+    expect(modelInputOccurrences({ ...compileInput(document), resolve: () => schema })).toEqual([{
+      occurrence: { instancePath: [], node: 'loader' }, type: 'InactiveSlot', values: { model: 'checkpoint.bin' },
+    }])
+  })
+
+  it('preserves a family member without activating its absent open slot', () => {
+    const schema = wire15SchemaOf('InactiveFamilySlot', [{
+      role: 'input', id: 'model', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+      widget: { type: 'ASSET', kind: 'model/checkpoint', accept: [] },
+    }, {
+      role: 'inputFamily', id: 'sources', memberPrefix: 'source', minMembers: 1, maxMembers: 3,
+      template: [{ role: 'dynamicSlot', id: 'source', required: false,
+        slotType: { kind: 'concrete', types: ['IMAGE'] }, inputs: [{
+          role: 'dynamicCombo', id: 'choice', required: true, options: [{ key: 'active', inputs: [] }],
+        }],
+      }],
+    }])
+    const document = dynDoc({ nodes: { loader: { type: 'InactiveFamilySlot',
+      values: { model: 'checkpoint.bin' }, dynamic: { sources: { members: ['a'] } },
+    } } })
+    expect(modelInputOccurrences({ ...compileInput(document), resolve: () => schema })).toEqual([{
+      occurrence: { instancePath: [], node: 'loader' }, type: 'InactiveFamilySlot',
+      values: { model: 'checkpoint.bin', 'sources.a': null },
+    }])
+  })
+
   it('observes stable model family paths and recursive choices rather than positional aliases', () => {
     const model = wire15SchemaOf('Models', [{
       role: 'inputFamily', id: 'loras', memberPrefix: 'lora', minMembers: 0, maxMembers: 4,
