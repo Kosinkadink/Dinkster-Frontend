@@ -3617,6 +3617,7 @@ export class CanvasRenderer {
     dy = 0,
   ): void {
     const t = this.tokens
+    const paint = canvasPaintTokens.boundary
     const l = bnode.layout
     const x = bnode.x + dx
     const y = bnode.y + dy
@@ -3641,14 +3642,14 @@ export class CanvasRenderer {
     ctx.beginPath()
     ctx.roundRect(x, y, l.width, l.height, t.cornerRadius)
     ctx.strokeStyle = t.colors.nodeOutline
-    ctx.lineWidth = screenAwareStroke(1.25, scale, 1)
+    ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.minScreenStroke)
     ctx.stroke()
     ctx.restore()
     if (this.overlay.bodyDropNode === boundarySceneId(bnode.side)) {
       ctx.beginPath()
-      ctx.roundRect(x - 2, y - 2, l.width + 4, l.height + 4, t.cornerRadius + 2)
+      ctx.roundRect(x - paint.dropOutset, y - paint.dropOutset, l.width + paint.dropOutset * 2, l.height + paint.dropOutset * 2, t.cornerRadius + paint.dropOutset)
       ctx.strokeStyle = t.colors.dropTarget
-      ctx.lineWidth = screenAwareStroke(2, scale, 2)
+      ctx.lineWidth = screenAwareStroke(paint.dropStroke, scale, paint.dropStroke)
       ctx.stroke()
     }
     if (this.overlay.selection?.has(boundarySceneId(bnode.side))) {
@@ -3684,12 +3685,12 @@ export class CanvasRenderer {
         if (row.input) {
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.input.label, x + t.padX + t.pinRadius + 4, rowY + row.height / 2)
+          ctx.fillText(row.input.label, x + t.padX + t.pinRadius + paint.labelPinGap, rowY + row.height / 2)
         }
         if (row.output) {
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'right'
-          ctx.fillText(row.output.label, x + l.width - t.padX - t.pinRadius - 4, rowY + row.height / 2)
+          ctx.fillText(row.output.label, x + l.width - t.padX - t.pinRadius - paint.labelPinGap, rowY + row.height / 2)
           ctx.textAlign = 'left'
         }
         if (dim) ctx.globalAlpha = 1
@@ -3737,6 +3738,7 @@ export class CanvasRenderer {
     detailLevel: CanvasDetailLevel,
   ): void {
     const t = this.tokens
+    const paint = canvasPaintTokens.valueSource
     const r = vs.height / 2
     const selected = this.overlay.valueSourceSelection?.has(vs.id) ?? false
     const conflictColor = t.stateColors.error
@@ -3751,9 +3753,9 @@ export class CanvasRenderer {
     ctx.fill()
     ctx.strokeStyle = selected ? t.colors.nodeSelectedBorder : vs.conflict ? conflictColor : t.colors.nodeOutline
     ctx.lineWidth = screenAwareStroke(
-      selected || vs.conflict ? 2 : 1,
+      selected || vs.conflict ? paint.strongStroke : paint.stroke,
       scale,
-      selected || vs.conflict ? 2 : 1,
+      selected || vs.conflict ? paint.strongStroke : paint.stroke,
     )
     if (vs.conflict) ctx.setLineDash(screenAwareDash(canvasPaintTokens.stateDash.error.world, canvasPaintTokens.stateDash.error.screen, scale))
     ctx.stroke()
@@ -3762,35 +3764,35 @@ export class CanvasRenderer {
     const badge = valueSourceBadgeRect(vs)
     if (contentDetail) {
       // Title + value on one line: title in label color, value in value color.
-      const textRight = x + (badge.x - vs.x) - 4 // keep clear of the badge
+      const textRight = x + (badge.x - vs.x) - paint.badgeGap
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       const titleX = x + t.padX
       ctx.fillStyle = t.colors.label
-      ctx.fillText(vs.title, titleX, y + vs.height / 2 + 0.5, Math.max(0, textRight - titleX))
+      ctx.fillText(vs.title, titleX, y + vs.height / 2 + paint.baselineOffset, Math.max(0, textRight - titleX))
       const titleW = ctx.measureText(vs.title).width
-      const valueX = titleX + titleW + 8
+      const valueX = titleX + titleW + paint.valueGap
       if (valueX < textRight) {
         ctx.fillStyle = t.colors.value
-        ctx.fillText(vs.valueText, valueX, y + vs.height / 2 + 0.5, textRight - valueX)
+        ctx.fillText(vs.valueText, valueX, y + vs.height / 2 + paint.baselineOffset, textRight - valueX)
       }
       ctx.textBaseline = 'alphabetic'
 
       // Spec badge: filled = declared (pinned), hollow = derived, '!' = conflict.
       const bx = x + (badge.x - vs.x) + badge.width / 2
       const by = y + (badge.y - vs.y) + badge.height / 2
-      const badgeR = badge.width / 2 - 2
+      const badgeR = badge.width / 2 - paint.badgeRadiusInset
       ctx.beginPath()
       ctx.arc(bx, by, badgeR, 0, Math.PI * 2)
       if (vs.conflict) {
         ctx.fillStyle = conflictColor
         ctx.fill()
         ctx.fillStyle = t.colors.title
-        ctx.font = `700 ${t.fontSize - 2}px ${t.fontFamily}`
+        ctx.font = `${paint.badgeFontWeight} ${t.fontSize - paint.badgeFontReduction}px ${t.fontFamily}`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText('!', bx, by + 0.5)
+        ctx.fillText('!', bx, by + paint.baselineOffset)
         ctx.textAlign = 'left'
         ctx.textBaseline = 'alphabetic'
       } else if (vs.specState === 'declared') {
@@ -3798,7 +3800,7 @@ export class CanvasRenderer {
         ctx.fill()
       } else {
         ctx.strokeStyle = t.colors.label
-        ctx.lineWidth = 1.5
+        ctx.lineWidth = paint.badgeStroke
         ctx.stroke()
       }
     }
@@ -3833,6 +3835,7 @@ export class CanvasRenderer {
     detailLevel: CanvasDetailLevel,
   ): void {
     const t = this.tokens
+    const paint = canvasPaintTokens.selector
     const selected = this.overlay.selectorSelection?.has(sel.id) ?? false
     const scale = this.viewport.scale
     const contentDetail = detailLevel !== 'overview'
@@ -3841,9 +3844,9 @@ export class CanvasRenderer {
     // Selection halo behind the body (same treatment as nodes: white).
     if (selected) {
       ctx.beginPath()
-      ctx.roundRect(x - 3, y - 3, sel.width + 6, sel.height + 6, t.cornerRadius + 3)
+      ctx.roundRect(x - paint.selectionOutset, y - paint.selectionOutset, sel.width + paint.selectionOutset * 2, sel.height + paint.selectionOutset * 2, t.cornerRadius + paint.selectionOutset)
       ctx.strokeStyle = t.colors.nodeSelectedBorder
-      ctx.lineWidth = screenAwareStroke(2, scale, 2)
+      ctx.lineWidth = screenAwareStroke(paint.selectionStroke, scale, paint.selectionStroke)
       ctx.stroke()
     }
 
@@ -3859,7 +3862,7 @@ export class CanvasRenderer {
     ctx.beginPath()
     ctx.roundRect(x, y, sel.width, sel.height, t.cornerRadius)
     ctx.strokeStyle = t.colors.nodeOutline
-    ctx.lineWidth = screenAwareStroke(1.25, scale, 1)
+    ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.minScreenStroke)
     ctx.stroke()
 
     const badge = selectorBadgeRect(sel)
@@ -3871,7 +3874,7 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      ctx.fillText(sel.title, x + t.padX, y + sel.headerHeight / 2, Math.max(0, badge.x - sel.x - t.padX - 4))
+      ctx.fillText(sel.title, x + t.padX, y + sel.headerHeight / 2, Math.max(0, badge.x - sel.x - t.padX - paint.badgeGap))
 
       // Policy badge: fixed shows the active candidate's 1-based ordinal,
       // random shows '?'. An execution-recorded resolution (frozen/execution
@@ -3879,19 +3882,19 @@ export class CanvasRenderer {
       const bx = x + (badge.x - sel.x)
       const by = y + (badge.y - sel.y)
       ctx.beginPath()
-      ctx.roundRect(bx, by, badge.width, badge.height, 3)
+      ctx.roundRect(bx, by, badge.width, badge.height, paint.badgeRadius)
       ctx.fillStyle = sel.random ? t.colors.selection : t.colors.widgetBackground
       ctx.fill()
       if (!sel.random) {
         ctx.strokeStyle = t.colors.label
-        ctx.lineWidth = 1
+        ctx.lineWidth = paint.badgeStroke
         ctx.stroke()
       }
       const activeIndex = sel.candidates.findIndex((c) => c.id === activeId)
       ctx.fillStyle = t.colors.title
-      ctx.font = `${canvasPaintTokens.type.semiboldWeight} 9px ${t.fontFamily}`
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.badgeFontSize}px ${t.fontFamily}`
       ctx.textAlign = 'center'
-      ctx.fillText(activeIndex < 0 ? (sel.random ? '?' : '0') : `${activeIndex + 1}`, bx + badge.width / 2, by + badge.height / 2 + 0.5)
+      ctx.fillText(activeIndex < 0 ? (sel.random ? '?' : '0') : `${activeIndex + 1}`, bx + badge.width / 2, by + badge.height / 2 + paint.baselineOffset)
       ctx.textAlign = 'left'
     }
 
@@ -3910,12 +3913,12 @@ export class CanvasRenderer {
       if (rowDim) ctx.globalAlpha = SCOPE_DIM
       if (active) {
         ctx.fillStyle = t.colors.selection
-        ctx.fillRect(x + 1.5, cy - (t.rowHeight / 2 - 3), 2.5, t.rowHeight - 6)
+        ctx.fillRect(x + paint.accentInset, cy - (t.rowHeight / 2 - paint.accentVerticalInset), paint.accentWidth, t.rowHeight - paint.accentVerticalInset * 2)
       }
       if (contentDetail) {
         ctx.fillStyle = active ? t.colors.title : t.colors.label
         ctx.textAlign = 'left'
-        ctx.fillText(c.label, x + t.padX + t.pinRadius + 4, cy + 0.5, sel.width - t.padX * 2 - t.pinRadius - 4)
+        ctx.fillText(c.label, x + t.padX + t.pinRadius + paint.labelPinGap, cy + paint.baselineOffset, sel.width - t.padX * 2 - t.pinRadius - paint.labelPinGap)
       }
       this.drawSelectorPin(
         ctx,
@@ -4000,18 +4003,19 @@ const SCOPE_DIM = canvasPaintTokens.opacity.scopeDim
  * nor starves the other. */
 export const defaultWidgetPainter: WidgetPainter = (args) => {
   const { ctx, row, value, x, y, width, rowHeight, tokens } = args
+  const paint = canvasPaintTokens.widget
   ctx.fillStyle = tokens.colors.widgetBackground
   ctx.beginPath()
-  ctx.roundRect(x, y + 2, width, row.height - 4, 4)
+  ctx.roundRect(x, y + paint.verticalInset, width, row.height - paint.verticalInset * 2, paint.radius)
   ctx.fill()
   if (args.companion !== undefined) {
     const formatted = formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined)
-    const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + 12, measureWidth(ctx, formatted) + 12)
+    const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
-    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - 8)), x + field.left + 6, y + rowHeight / 2)
+    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + paint.labelInset, y + rowHeight / 2)
     paintCompanionValue(args)
     return
   }
@@ -4019,18 +4023,18 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   const controller = row.controllerMode !== undefined
     ? controllerChipRect(width, rowHeight)
     : undefined
-  const valueRight = controller === undefined ? width - 6 : controllerChipTextRight(width, rowHeight)
-  const usable = Math.max(0, valueRight - 6)
+  const valueRight = controller === undefined ? width - paint.labelInset : controllerChipTextRight(width, rowHeight)
+  const usable = Math.max(0, valueRight - paint.labelInset)
   const labelZone = shareRowWidth(
     usable,
-    measureWidth(ctx, row.label) + 12,
-    measureWidth(ctx, text) + 8,
+    measureWidth(ctx, row.label) + paint.labelWidthPadding,
+    measureWidth(ctx, text) + paint.fallbackValueWidthPadding,
     true,
   )
   const valueWidth = Math.max(0, usable - labelZone)
   ctx.fillStyle = tokens.colors.label
   ctx.textAlign = 'left'
-  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - 8)), x + 6, y + rowHeight / 2)
+  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)), x + paint.labelInset, y + rowHeight / 2)
   ctx.fillStyle = tokens.colors.value
   ctx.textAlign = 'right'
   const displayText = fitText(ctx, text, valueWidth)
@@ -4056,7 +4060,7 @@ export function paintStaleValueStrikethrough(
   const right = align === 'right' ? x : x + width
   ctx.save()
   ctx.strokeStyle = color
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = canvasPaintTokens.widget.staleValueStroke
   ctx.beginPath()
   ctx.moveTo(left, y)
   ctx.lineTo(right, y)
@@ -4082,7 +4086,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const text = (estimate ? '\u2248 ' : '') + (formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined)
-  const labelZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + 12, measureWidth(ctx, text) + 12)
+  const labelZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven
@@ -4099,11 +4103,11 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   if (unproven && displayText.length > 0) {
     ctx.save()
     ctx.strokeStyle = color
-    ctx.lineWidth = 1
+    ctx.lineWidth = canvasPaintTokens.widget.companion.stroke
     ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
     ctx.beginPath()
-    ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + 4)
-    ctx.lineTo(textRight, textY + 4)
+    ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + canvasPaintTokens.widget.companion.underlineOffset)
+    ctx.lineTo(textRight, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.stroke()
     ctx.restore()
   }
