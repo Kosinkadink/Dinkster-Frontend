@@ -2993,7 +2993,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           items: [
             {
               id: 'core.subgraph.extract',
-              label: 'Extract as Subgraph',
+              label: 'Extract as subgraph',
               icon: 'group',
               ...(props.app.keybindings.combo('subgraph.extract') ? { shortcut: props.app.keybindings.combo('subgraph.extract')! } : {}),
               action: { kind: 'host' as const, action: 'extractSubgraph' },
@@ -3001,7 +3001,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             },
             {
               id: 'core.subgraph.flatten',
-              label: 'Flatten Subgraph One Level',
+              label: 'Flatten subgraph one level',
               icon: 'ungroup',
               ...(props.app.keybindings.combo('subgraph.flatten') ? { shortcut: props.app.keybindings.combo('subgraph.flatten')! } : {}),
               action: { kind: 'host' as const, action: 'flattenSubgraph' },
@@ -4940,7 +4940,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (sel.length === 1) {
         const defId = subgraphDefIdOf(def.nodes[sel[0]!]!.type)
         if (defId !== undefined && tab.store.doc.graphs[defId]) {
-          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open Subgraph' }))
+          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open subgraph' }))
         }
       }
       const flattenAvailable = canFlattenSubgraph()
@@ -4950,13 +4950,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       modifications.push(toolboxButton({
         id: 'core.extractSubgraph',
         icon: 'group',
-        label: 'Extract as Subgraph',
+        label: 'Extract as subgraph',
         disabled: !canExtractSubgraph(),
       }))
       modifications.push(toolboxButton({
         id: 'core.flattenSubgraph',
         icon: 'ungroup',
-        label: 'Flatten Subgraph One Level',
+        label: 'Flatten subgraph one level',
         disabled: !flattenAvailable || flattenRefusal !== undefined,
         ...(!flattenAvailable
           ? { reason: 'Select exactly one subgraph occurrence.' }

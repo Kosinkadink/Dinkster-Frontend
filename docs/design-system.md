@@ -50,6 +50,10 @@ notification lifetime, sentence case and hidden unconfigured services. It names
 tokens rather than colors and is exported as `@dinkster/branding/rules`. The
 portable distribution includes it in the SHA-256 manifest.
 
+Canvas context-menu actions use sentence case at their registry source,
+including reset actions and plural counts. User-authored node, net and selector
+branch names retain their original capitalization.
+
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
 alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
