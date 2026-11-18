@@ -61,7 +61,10 @@ not an account service or a replacement for the app.
   bar and sidebar stay in place while the page scrolls; below the breakpoint
   the top bar stays and the opened navigation scrolls with the page. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
-  `ProductLoading` until data arrives. Navigation retains real link targets.
+  `ProductLoading` until data arrives. Selecting from open mobile navigation
+  moves focus into the persistent main region, so loading and loaded content
+  do not leave focus in the hidden sidebar. Desktop navigation keeps its link
+  focused. Navigation retains real link targets.
   `ProductPage` owns the page title and the normal/table content width;
   `ProductSection` owns a titled section inside it.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as

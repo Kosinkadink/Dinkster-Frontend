@@ -38,6 +38,7 @@ export function ProductShell(props: {
   const [open, setOpen] = createSignal(false)
   const navigationId = createUniqueId()
   let navigationToggle!: HTMLButtonElement
+  let main!: HTMLElement
   return (
     <div
       class="dinkster-shell"
@@ -102,8 +103,10 @@ export function ProductShell(props: {
                     )
                       return
                     event.preventDefault()
+                    const closing = open()
                     props.onNavigate(item.href)
                     setOpen(false)
+                    if (closing) main.focus()
                   }}
                 >
                   <ProductIcon icon={item.icon} />
@@ -114,7 +117,9 @@ export function ProductShell(props: {
           </nav>
         </aside>
       </Show>
-      <main class="dinkster-page">{props.children}</main>
+      <main class="dinkster-page" tabindex="-1" ref={main}>
+        {props.children}
+      </main>
     </div>
   )
 }
