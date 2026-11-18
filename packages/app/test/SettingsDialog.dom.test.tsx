@@ -239,7 +239,7 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
 
-    expect(root.querySelector('.settings-categories button.active')?.textContent).toBe('Canvas Grid')
+    expect(root.querySelector('.settings-categories button.active')?.textContent).toBe('Canvas grid')
     expect(root.querySelector('[data-setting-id]')?.textContent).toContain('Show grid')
     unmount()
   })

@@ -606,7 +606,7 @@ test('topbar Customize layout button opens the existing modal', async ({ page })
   const button = page.getByRole('button', { name: 'Customize layout' })
   await expect(button).toBeVisible()
   await button.click()
-  await expect(page.getByRole('dialog', { name: 'Customize Layout' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Customize layout' })).toBeVisible()
   await expect(page.getByTestId('customize-layout')).toBeVisible()
 })
 
