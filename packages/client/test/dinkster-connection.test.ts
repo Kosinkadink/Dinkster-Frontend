@@ -3867,6 +3867,23 @@ describe('memory telemetry transport', () => {
 
 })
 
+it('reads model observations with project scope and drops noncontract fields', async () => {
+  const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document!
+  const model = { nodePath: ['nested', 'loader'], input: 'model', kind: 'model/lora',
+    name: 'same.bin', size: 23, digest: `blake3:${'b'.repeat(64)}`,
+    sourceHints: { advisory: true, provider: 'civitai', repo: '12', revision: '37', file: 'same.bin' } }
+  let payload: unknown = { version: 1, models: [{ ...model, localBinding: 'private-grant',
+    accessToken: 'never-export', sourceHints: { ...model.sourceHints, accessToken: 'never-export' } }] }
+  const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
+  await expect(conn.inspectWorkflowModels(workflow)).resolves.toEqual({ version: 1, models: [model] })
+  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ document: workflow, project: 'default' })
+  expect(String(requests[0]?.url)).toContain('/api/workflows/model-provenance')
+  payload = { version: 1, models: [{ ...model, sourceHints: { advisory: false } }] }
+  await expect(conn.inspectWorkflowModels(workflow)).resolves.toBeUndefined()
+  payload = { version: 1, models: [{ ...model, name: '/private/models/same.bin' }] }
+  await expect(conn.inspectWorkflowModels(workflow)).resolves.toBeUndefined()
+})
+
 it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {
   const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document
   expect(workflow).toBeDefined()

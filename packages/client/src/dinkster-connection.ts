@@ -3399,6 +3399,47 @@ export class DinksterConnection {
     } }
   }
 
+  /** Observe saved model selections without hashing, downloading or running a graph. */
+  async inspectWorkflowModels(document: WorkflowDocument): Promise<JsonObject | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/workflows/model-provenance`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document, project: this.project ?? 'default' }),
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!res.ok) return undefined
+    const raw: unknown = await res.json()
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+    const body = raw as Record<string, unknown>
+    if (body['version'] !== 1 || !Array.isArray(body['models'])) return undefined
+    const models: JsonObject[] = []
+    for (const value of body['models']) {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+      const row = value as Record<string, unknown>
+      if (!Array.isArray(row['nodePath']) || !row['nodePath'].every((part) => typeof part === 'string') ||
+        typeof row['input'] !== 'string' || typeof row['kind'] !== 'string' || !row['kind'].startsWith('model/') ||
+        typeof row['name'] !== 'string' || /[/\\\\]/.test(row['name']) ||
+        !Number.isSafeInteger(row['size']) || (row['size'] as number) < 0 ||
+        (row['digest'] !== undefined && (typeof row['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(row['digest'])))) return undefined
+      const model: Record<string, Json> = { nodePath: row['nodePath'] as string[], input: row['input'],
+        kind: row['kind'], name: row['name'], size: row['size'] as number,
+        ...(typeof row['digest'] === 'string' ? { digest: row['digest'] } : {}) }
+      const hints = row['sourceHints']
+      if (typeof hints === 'object' && hints !== null && !Array.isArray(hints)) {
+        const rawHints = hints as Record<string, unknown>
+        if (rawHints['advisory'] !== true) return undefined
+        const safeHints: Record<string, Json> = { advisory: true }
+        for (const key of ['provider', 'repo', 'revision', 'file', 'source', 'sha256']) {
+          const hint = rawHints[key]
+          if (hint !== undefined && typeof hint !== 'string') return undefined
+          if (typeof hint === 'string') safeHints[key] = hint
+        }
+        model['sourceHints'] = safeHints
+      }
+      models.push(model)
+    }
+    return { version: 1, models }
+  }
+
   /** Read host requirements without granting download or installation consent. */
   async planWorkflowRequirements(document: WorkflowDocument): Promise<WorkflowRequirementPlan> {
     const res = await this.fetchFn(`${this.baseUrl}/api/workflows/plan`, {

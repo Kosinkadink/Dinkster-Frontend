@@ -684,6 +684,62 @@ describe('retained app dispatch', () => {
     }
   })
 
+  it.each(['observed', 'unavailable', 'empty'] as const)('exports captured model observations without changing the live document: %s', async (scenario) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const modelSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'model', optional: false,
+      type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'ASSET', options: { kind: 'model/checkpoint' } } }] }
+    app = createWorkflowApp([modelSchema])
+    const document = session([]).doc
+    const prior = { version: 1, models: [{ nodePath: ['g0', 'n0'], input: 'model', kind: 'model/checkpoint',
+      name: 'old.bin', size: 2 }] }
+    await app.openDocument({ ...document, meta: { ext: { 'dinkster.modelProvenance': prior } },
+      graphs: { g0: { ...document.graphs.g0!, nodes: {
+        n0: { ...document.graphs.g0!.nodes.n0!, values: { model: 'same.bin' } },
+      } } } }, 'Model observation')
+    const tab = app.activeTab()!
+    const before = tab.store.doc
+    const model = { nodePath: ['g0', 'n0'], input: 'model', kind: 'model/checkpoint',
+      name: 'same.bin', size: 31, digest: asset('b').digest,
+      sourceHints: { advisory: true, provider: 'civitai', repo: '19', revision: '43', file: 'same.bin' } }
+    const observation = { version: 1, models: scenario === 'empty' ? [] : [model] }
+    const inspect = vi.spyOn(app.connection, 'inspectWorkflowModels').mockResolvedValue(
+      scenario === 'unavailable' ? undefined : observation)
+    const downloads = captureDownloads()
+    expect(await app.exportWorkflow(tab.id)).toBe(true)
+    const saved = JSON.parse(await downloads[0]!.text()) as WorkflowDocument
+    expect(saved.meta?.ext?.['dinkster.modelProvenance']).toEqual(scenario === 'unavailable' ? prior : observation)
+    expect(saved.graphs.g0!.nodes.n0!.values.model).toBe('same.bin')
+    expect(inspect.mock.calls[0]![0].graphs.g0!.nodes.n0!.values.model).toBe('same.bin')
+    expect(tab.store.doc).toBe(before)
+    const roots = workflowAssetRoots(saved, { revision: 0, undo: [], redo: [] }, () => modelSchema)
+    expect(roots.refusal).toBeUndefined()
+    expect(roots.digests).not.toContain(asset('b').digest)
+    if (scenario === 'observed') {
+      const malformed: WorkflowDocument = { ...saved, meta: { ext: { 'dinkster.modelProvenance': {
+        version: 1, models: [{ ...model, hiddenAsset: asset('c') }],
+      } } } }
+      expect(workflowAssetRoots(malformed, { revision: 0, undo: [], redo: [] }, () => modelSchema).refusal)
+        .toBe('Workflow asset identity is malformed')
+    }
+  })
+
+  it('discards model observations and the export after its engine target changes', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([])
+    const tab = app.activeTab()!
+    const pending = deferred<core.JsonObject | undefined>()
+    vi.spyOn(app.connection, 'inspectWorkflowModels').mockReturnValue(pending.promise)
+    const downloads = captureDownloads()
+    const exporting = app.exportWorkflow(tab.id)
+    const backend = app.addBackend('http://replacement:8000', 'Replacement', false, 'dinkster')!
+    app.setTabTarget(tab.id, backend.id)
+    pending.resolve({ version: 1, models: [] })
+    expect(await exporting).toBe(false)
+    expect(downloads).toHaveLength(0)
+    expect(tab.store.doc.meta?.ext?.['dinkster.modelProvenance']).toBeUndefined()
+  })
+
   it('opens and executes valid active roots but keeps unsupported dormant ownership ineligible and publication refused', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const dynamic: NodeSchema = { ...schema, items: [{

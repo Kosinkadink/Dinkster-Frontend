@@ -20,6 +20,28 @@ list distinguishes restart from reconnect; an unavailable job returns no status
 rather than implicitly starting another transfer. Cancelling an HTTP read does
 not cancel a transfer; cancellation is a separate explicit job operation.
 
+## Saved model observations
+
+Save and workflow download optionally observe stored model inputs on the tab's
+current engine and project. The captured document receives
+`meta.ext.dinkster.modelProvenance`: graph/node definition path, input, model
+kind, basename, size and any already-known bound BLAKE3 identity. These are
+observations of saved literal selections, including disconnected definitions,
+not execution results or per-instance overrides. Admission records the final
+reachable execution inputs separately. Neither observation waits for hashes,
+starts downloads nor runs a graph.
+
+Provider `sourceHints` and recorded SHA-256 remain explicitly advisory; they
+are not proof of the source selected for an occurrence or usage permission.
+The response excludes local grants, physical paths and unrelated metadata.
+Optional inspection has a three-second deadline; unsupported, failed or
+old-engine/project/session replies do not block export or replace prior hints.
+An available empty response replaces old model observations. The live document,
+undo history and unrelated metadata stay unchanged. The synchronous
+`exportDocument` path does not initiate inspection. Saved observations are not
+asset ownership grants or additional download requirements; malformed or
+extended records retain conservative ownership checks.
+
 ## Captured-submission asset consent
 
 Native job preflight can reject a submission before anything is queued or downloaded. Dinkster then opens the queue-blocking Acquire missing assets decision. The plan is not derived from visible asset widgets: backend preflight may report node-triggered requirements in any graph.

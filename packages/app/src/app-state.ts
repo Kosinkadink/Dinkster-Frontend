@@ -8429,13 +8429,27 @@ export class AppState {
   }
 
   private async documentWithAssetLocations(tab: Tab): Promise<WorkflowDocument> {
-    const snapshot = this.stampedDocumentOf(tab)
+    let snapshot = this.stampedDocumentOf(tab)
+    if (tab.execution) return snapshot
+    const backend = this.backendForTab(tab)
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const models = backend.connection.inspectWorkflowModels(snapshot).catch(() => undefined)
     const check = this.workflowAssetChecks.get(tab.store)
-    if (!check) return snapshot
-    await check.completion
-    if (this.disposed || check.controller.signal.aborted || this.workflowAssetChecks.get(tab.store) !== check ||
-        !this.tabs.get().includes(tab) || this.backendForTab(tab) !== check.backend) return snapshot
-    return stampAssetLocations(snapshot, this.workflowAssetLocations.get(tab.store))
+    if (check) {
+      await check.completion
+      if (!this.disposed && !check.controller.signal.aborted && this.workflowAssetChecks.get(tab.store) === check &&
+          this.tabs.get().includes(tab) && this.backendForTab(tab) === check.backend) {
+        snapshot = stampAssetLocations(snapshot, this.workflowAssetLocations.get(tab.store))
+      }
+    }
+    const provenance = await models
+    if (provenance === undefined || this.disposed || !this.tabs.get().includes(tab) ||
+        this.backendForTab(tab) !== backend || activeProjectId() !== project ||
+        this.assetConnectionGenerations.get(backend.connection) !== generation) return snapshot
+    return { ...snapshot, meta: { ...snapshot.meta, ext: { ...snapshot.meta?.ext,
+      'dinkster.modelProvenance': provenance,
+    } } }
   }
 
   // -- Workflow library -------------------------------------------------------

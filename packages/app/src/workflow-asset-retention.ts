@@ -449,6 +449,25 @@ function censusWorkflowAssetRoots(
         }
       }
     }
+    const provenance = snapshot.meta?.ext?.['dinkster.modelProvenance'] as Record<string, unknown> | undefined
+    if (typeof provenance === 'object' && provenance !== null && !Array.isArray(provenance) &&
+      provenance['version'] === 1 && Array.isArray(provenance['models']) &&
+      Object.keys(provenance).every((key) => key === 'version' || key === 'models')) {
+      for (const row of provenance['models']) {
+        if (typeof row !== 'object' || row === null || Array.isArray(row)) continue
+        const hints = row['sourceHints']
+        if (Object.keys(row).every((key) => ['nodePath', 'input', 'kind', 'name', 'size', 'digest', 'sourceHints'].includes(key)) &&
+          Array.isArray(row['nodePath']) && row['nodePath'].every((part: unknown) => typeof part === 'string') &&
+          ['input', 'kind', 'name'].every((key) => typeof row[key] === 'string') &&
+          Number.isSafeInteger(row['size']) && row['size'] >= 0 &&
+          (row['digest'] === undefined || (typeof row['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(row['digest']))) &&
+          (hints === undefined || (typeof hints === 'object' && hints !== null && !Array.isArray(hints) &&
+            hints['advisory'] === true && Object.entries(hints).every(([key, value]) => key === 'advisory' ||
+              (['provider', 'repo', 'revision', 'file', 'source', 'sha256'].includes(key) && typeof value === 'string'))))) {
+          checkedOpaque.add(row)
+        }
+      }
+    }
     const schemas = documentNodeResolver(snapshot, resolve)
     if (Object.values(snapshot.graphs).some((graph) => Object.keys(graph.valueSources ?? {}).length > 0)) hasContextualValues = true
     // Instances and literal producers depend on schemas outside the changed node.
