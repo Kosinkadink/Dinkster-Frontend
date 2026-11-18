@@ -628,7 +628,7 @@ export const defaultTokens: DesignTokens = {
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
   titleFontSize: 13,
-  titleOverflow: 'squeeze',
+  titleOverflow: 'ellipsis',
   // Comfy-style prompt fields use 14px type with readable 20px leading and
   // 6px inset. Their 18px label band reduces dead space without changing
   // the independent 12px/24px compact-row rhythm.
