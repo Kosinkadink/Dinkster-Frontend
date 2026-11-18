@@ -792,8 +792,15 @@ variables; this removes secret DOM before a restored page is rendered.
 Authorization retains a native POST form
 with the signed consent token and explicit approve/deny submitter values.
 
-`pnpm --filter @dinkster/site build` creates the two HTML templates, renderer
-modules, one shared stylesheet, bundled fonts and a SHA-256 file manifest.
+`pnpm --filter @dinkster/site build` creates the account, authorization and
+portable Desktop About templates, renderer modules, one shared stylesheet,
+bundled fonts and a SHA-256 file manifest. `about.html` uses relative local
+assets and a self-only CSP with no network connection permission or inline
+styles/scripts. Desktop supplies `title` and `version` as URL query parameters;
+they render as text through `ProductAbout`. The view follows the OS color
+scheme, including changes while open, and reports only the no-send
+`desktop-about` route event. The existing wheel carries these files under
+`static/site/`; consumers retain that directory structure.
 Each template preloads its renderer and transitive static imports from Vite's
 build manifest so controller imports do not add serial discovery round trips.
 The build manifest itself is not distributed.
