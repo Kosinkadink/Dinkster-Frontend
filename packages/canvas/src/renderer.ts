@@ -778,7 +778,10 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
       while (spacing * viewport.scale < paint.minScreenSpacing) spacing *= 2
       const pixels = Math.max(1, Math.ceil(spacing * viewport.scale * (globalThis.devicePixelRatio ?? 1)))
       if (pattern === undefined || spacing !== patternSpacing || pixels !== patternPixels) {
-        const tile = new OffscreenCanvas(pixels, pixels)
+        const tile = typeof OffscreenCanvas === 'undefined'
+          ? context.canvas.ownerDocument.createElement('canvas')
+          : new OffscreenCanvas(pixels, pixels)
+        tile.width = tile.height = pixels
         const ctx = tile.getContext('2d')!
         const density = pixels / spacing
         ctx.scale(density, density)
