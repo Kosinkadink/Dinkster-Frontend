@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from 'solid-js'
 import { X } from 'lucide-solid'
 import type { DinksterConnection, ModelProviderName, ModelProviderSignIn, ModelProviderStatus } from '@dinkster/client'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
@@ -10,11 +10,13 @@ export type ModelProviderConnection = Pick<DinksterConnection, 'fetchModelProvid
 
 export function ModelProvider(props: { readonly connection: ModelProviderConnection; readonly provider?: ModelProviderName; readonly backendUrl?: string; readonly onChanged?: () => void }) {
   const message = useAppMessage()
-  const selectedProvider = () => props.provider ?? 'huggingface'
+  const selectedProvider = createMemo(() => props.provider ?? 'huggingface')
+  const providerConnection = createMemo(() => props.connection)
+  const backendUrl = createMemo(() => props.backendUrl)
   const label = () => ({ provider: selectedProvider() === 'civitai' ? 'Civitai' : 'Hugging Face' })
   const controlId = (kind: string) => `model-provider-${selectedProvider()}-${kind}`
   const local = () => {
-    const url = new URL(props.backendUrl || '/', window.location.href)
+    const url = new URL(backendUrl() || '/', window.location.href)
     return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
   }
   const [status, setStatus] = createSignal<ModelProviderStatus>()
@@ -58,8 +60,8 @@ export function ModelProvider(props: { readonly connection: ModelProviderConnect
     }, interval * 1000)
   }
   createEffect(() => {
-    const next = props.connection
-    const backend = props.backendUrl
+    const next = providerConnection()
+    const backend = backendUrl()
     const selected = selectedProvider()
     void backend
     generation++

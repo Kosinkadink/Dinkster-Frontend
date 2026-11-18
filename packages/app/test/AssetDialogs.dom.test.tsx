@@ -2,12 +2,12 @@
 
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AssetGuessCandidate, MissingAsset } from '@dinkster/client'
+import type { AssetGuessCandidate, MissingAsset, ModelProviderName } from '@dinkster/client'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 import { AssetConsentDialog } from '../src/AssetConsentDialog.js'
 import { ImportAssetResolutionDialog } from '../src/ImportAssetResolutionDialog.js'
-import { installImportAssetResolution } from '../src/dialog-requests.js'
+import { installAssetConsent, installImportAssetResolution } from '../src/dialog-requests.js'
 import '../src/locale.js'
 
 const digest = (character: string) => `blake3:${character.repeat(64)}`
@@ -249,6 +249,62 @@ describe('asset modal surfaces', () => {
       expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.disabled).toBe(true)
       expect(retry).not.toHaveBeenCalled()
     } finally { mounted.dispose() }
+  })
+
+  it.each([
+    ['civitai', 'refresh'], ['civitai', 'save'], ['huggingface', 'refresh'], ['huggingface', 'save'],
+  ] as const)('keeps a pending %s flow when the other provider does %s', async (pending, action) => {
+    const mounted = mountConsent(undefined)
+    const changed: ModelProviderName = pending === 'civitai' ? 'huggingface' : 'civitai'
+    const requirements = [{ name: 'hf.safetensors', kind: 'model/vae' }, { name: 'civitai.safetensors', kind: 'model/checkpoint' }]
+    const retry = vi.fn()
+    const cancel = vi.fn(async () => ({ status: 'cancelled' as const }))
+    const provider = {
+      fetchModelProvider: async (_signal?: AbortSignal, selected: ModelProviderName = 'huggingface') => ({ provider: selected, configured: false, pkceAvailable: true }),
+      saveModelProviderToken: async (_token: string, _signal?: AbortSignal, selected: ModelProviderName = 'huggingface') => ({ provider: selected, configured: true, pkceAvailable: true }),
+      forgetModelProvider: vi.fn(),
+      startModelProviderSignIn: async () => ({ method: 'pkce' as const, flowId: 'pending-original', authorizationUrl: 'https://example.invalid/authorize' }),
+      pollModelProviderSignIn: async () => ({ status: 'pending' as const }),
+      cancelModelProviderSignIn: cancel,
+    }
+    const connection = {
+      planModelDownload: async (requirement: { name: string }) => requirement.name === 'hf.safetensors'
+        ? { status: 'provider-grant-required' as const, provider: 'huggingface' as const }
+        : { status: 'civitai-access-required' as const, provider: 'civitai' as const },
+      startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'engine', jobs: [] }),
+      fetchModelDownload: vi.fn(), cancelModelDownload: vi.fn(),
+    }
+    const panel = (name: ModelProviderName) => mounted.root.querySelector<HTMLElement>(`[data-provider="${name}"]`)!
+    const button = (name: ModelProviderName, text: string) => [...panel(name).querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
+    try {
+      installAssetConsent({ slot: mounted.app.assetConsent,
+        result: { ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [], models: requirements }, retryWithAssets: retry },
+        modelDownloads: { connection, project: 'work', providerConnection: provider, backendUrl: 'http://localhost:3639' },
+        onSubmitted: vi.fn(), onRejected: vi.fn(), onTransportError: vi.fn(), onSuperseded: vi.fn(),
+      })
+      await mounted.app.assetConsent.get()!.reviewModel!(0)
+      await mounted.app.assetConsent.get()!.reviewModel!(1)
+      const label = pending === 'civitai' ? 'Civitai' : 'Hugging Face'
+      await vi.waitFor(() => expect(button(pending, `Sign in with ${label}`).disabled).toBe(false))
+      button(pending, `Sign in with ${label}`).click()
+      await vi.waitFor(() => expect(panel(pending).querySelector('a')?.textContent).toBe(`Continue at ${label}`))
+      const before = panel(pending)
+      const original = mounted.app.assetConsent.get()!
+      if (action === 'refresh') button(changed, 'Check sign-in status').click()
+      else {
+        button(changed, 'Use an access token instead').click()
+        const input = panel(changed).querySelector<HTMLInputElement>('input')!
+        input.value = 'synthetic-other-provider'; input.dispatchEvent(new Event('input', { bubbles: true }))
+        button(changed, 'Save token').click()
+      }
+      await vi.waitFor(() => expect(mounted.app.assetConsent.get()).not.toBe(original))
+      expect(panel(pending)).toBe(before)
+      expect(panel(pending).querySelector('a')?.textContent).toBe(`Continue at ${label}`)
+      expect(cancel).not.toHaveBeenCalled()
+      expect(connection.startModelDownload).not.toHaveBeenCalled()
+      expect(retry).not.toHaveBeenCalled()
+      expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.disabled).toBe(true)
+    } finally { mounted.app.assetConsent.set(undefined); mounted.dispose() }
   })
 
   it('uses shared modal chrome and blocks incidental dismissal while acquisition is busy', () => {
