@@ -38,7 +38,7 @@ async function exposePreview(page: Page, nodeId = 'widgets'): Promise<void> {
   const point = await canvasPoint(page, 'preview', nodeId)
   await page.mouse.click(point.x, point.y, { button: 'right' })
   const item = page.locator('[data-item-id="core.node.preview.expose.toggle"]')
-  await expect(item).toContainText('Promote to App View')
+  await expect(item).toContainText('Promote to app view')
   await item.click()
   await expect.poll(async () => (await activeDoc(page)).ext?.['dinkster.exposedPreviews'])
     .toEqual(expect.arrayContaining([expect.objectContaining({ graphId: 'g0', nodeId })]))
@@ -166,7 +166,7 @@ test('a compact pre-execution surface promotes to App View', async ({ page }) =>
 
   const point = await canvasPoint(page, 'preview', 'other')
   await page.mouse.click(point.x, point.y, { button: 'right' })
-  await expect(page.locator('[data-item-id="core.node.preview.expose.toggle"]')).toContainText('Promote to App View')
+  await expect(page.locator('[data-item-id="core.node.preview.expose.toggle"]')).toContainText('Promote to app view')
   await screenshotGraph('00-pre-execution-promotion.png')
   await page.locator('[data-item-id="core.node.preview.expose.toggle"]').click()
   await selectView(page, 'App view')

@@ -244,7 +244,7 @@ test('only opt-in review holds a lossy migration for badge Apply', async ({ page
   const popover = page.getByTestId('badge-popover')
   await expect(popover).toBeVisible()
   await expect(popover).toContainText('will be removed')
-  const apply = popover.getByRole('button', { name: 'Apply Replacement', exact: true })
+  const apply = popover.getByRole('button', { name: 'Apply replacement', exact: true })
   await expect(apply).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('migration-review.png') })
   await page.evaluate(() => {
