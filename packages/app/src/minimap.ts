@@ -85,7 +85,9 @@ export function setupMinimap(deps: {
   const { canvas, mainCanvas, renderer, settings } = deps
   let states: Readonly<Record<string, NodeProgress>> = {}
   let tf: MinimapTransform | undefined
-  const graphCanvas = new OffscreenCanvas(1, 1)
+  const graphCanvas = typeof OffscreenCanvas === 'undefined'
+    ? canvas.ownerDocument.createElement('canvas')
+    : new OffscreenCanvas(1, 1)
   let graphDirty = true
   let graphScene: ReturnType<CanvasRenderer['getScene']> | undefined
 
