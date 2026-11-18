@@ -2614,7 +2614,7 @@ export class CanvasRenderer {
 
   private drawBadgeTabs(ctx: CanvasRenderingContext2D, node: SceneNode, entries: readonly BadgePlacement[]): void {
     const t = this.tokens
-    const paint = canvasPaintTokens.badge.tab
+    const paint = { ...canvasPaintTokens.badge.tab, ...t.badgeTab }
     const hovered = this.overlay.hoveredBadge
     for (const entry of entries) {
       const { badge, x, y, width, height } = entry
@@ -2630,7 +2630,9 @@ export class CanvasRenderer {
         ? badge.placement === 'above' ? [canvasPaintTokens.badge.radius, canvasPaintTokens.badge.radius, 0, 0]
           : [0, 0, canvasPaintTokens.badge.radius, canvasPaintTokens.badge.radius]
         : canvasPaintTokens.badge.radius)
-      ctx.fillStyle = hover ? tintHex(fill, t.colors.title, paint.hoverTint) : fill
+      const background = hover ? tintHex(fill, t.colors.title, paint.hoverTint) : fill
+      const foreground = paint.foreground(background)
+      ctx.fillStyle = background
       ctx.fill()
       if (hover) {
         ctx.lineWidth = paint.hoverStroke
@@ -2638,7 +2640,7 @@ export class CanvasRenderer {
         ctx.stroke()
       }
       ctx.clip()
-      ctx.fillStyle = t.colors.title
+      ctx.fillStyle = foreground
       ctx.textBaseline = 'middle'
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${t.fontFamily}`
       if (entry.overflow) {
@@ -2650,7 +2652,7 @@ export class CanvasRenderer {
         const name = badge.icon ?? (badge.id.includes('error') || badge.id.includes('warning') ? 'triangle-alert'
           : badge.id.includes('info') ? 'info' : badge.id === MUTED_BADGE.id ? 'volume-x'
             : badge.id === BYPASSED_BADGE.id ? 'ban' : 'boxes')
-        paintToolboxIcon(ctx, name, iconX, y + (height - icon) / 2, icon, t.colors.title)
+        paintToolboxIcon(ctx, name, iconX, y + (height - icon) / 2, icon, foreground)
         if (external && !entry.compact) {
           const textX = iconX + icon + paint.iconGap
           ctx.textAlign = 'left'

@@ -575,18 +575,54 @@ describe('scene visual bounds and fitting', () => {
       renderer.setViewport({ x: 0, y: 0, scale })
       for (const state of ['pending', 'running', 'done', 'cached', 'skipped', 'error'] as const) {
         renderer.setNodeStates({ [node.id]: { state } })
-        renderer.setOverlay({ selection: new Set([node.id]) })
-        const entries = renderer.getNodeBadgeLayout(node)
-        const top = entries.find((entry) => entry.badge.placement === 'above')!
-        const bottom = entries.find((entry) => entry.badge.placement === 'below')!
-        expect(top.y + top.height).toBeLessThan(node.y)
-        expect(bottom.y).toBeGreaterThan(node.y + node.layout.height)
-        const bounds = sceneVisualBounds(renderer.getScene(), {}, renderer.getBadges(), (current) => renderer.getNodeBadgeBounds(current))!
-        expect(bounds.minY).toBeLessThan(top.y)
-        expect(bounds.maxY).toBeGreaterThan(bottom.y + bottom.height)
+        for (const selected of [false, true]) {
+          renderer.setOverlay({ selection: new Set(selected ? [node.id] : []) })
+          const entries = renderer.getNodeBadgeLayout(node)
+          const top = entries.find((entry) => entry.badge.placement === 'above')!
+          const bottom = entries.find((entry) => entry.badge.placement === 'below')!
+          const strong = state === 'running' || state === 'done' || state === 'error'
+          const outset = selected ? (scale === 0.5 ? 5 : 4)
+            : strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
+          expect(top.y + top.height).toBe(node.y - outset + 1)
+          expect(bottom.y).toBe(node.y + node.layout.height + outset - 1)
+          const bounds = sceneVisualBounds(renderer.getScene(), {}, renderer.getBadges(), (current) => renderer.getNodeBadgeBounds(current))!
+          expect(bounds.minY).toBe(top.y - 0.5)
+          expect(bounds.maxY).toBe(bottom.y + bottom.height + 0.5)
+        }
       }
     }
+    for (const scale of [0.5, 1]) {
+      renderer.setViewport({ x: 0, y: 0, scale })
+      renderer.setNodeStates({})
+      renderer.setScopeHighlight(undefined)
+      renderer.setOverlay({ bodyDropNode: node.id })
+      const drop = renderer.getNodeBadgeLayout(node)
+      const dropOutset = scale === 0.5 ? 3.5 : 2.75
+      expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset + 1)
+      renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set(), selectors: new Set(), selectorCandidates: new Set(), valueSources: new Set() })
+      const scoped = renderer.getNodeBadgeLayout(node)
+      const scopeOutset = scale === 0.5 ? 7 : 6.25
+      expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset + 1)
+    }
     renderer.dispose()
+  })
+
+  it('keeps tab labels readable on bright and dark fills in either theme, including hover', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      for (const hovered of [false, true]) {
+        const calls = paintWithTokens(emptyScene({ nodes: [node] }), {
+          ...defaultTokens, badgeLayout: 'tabs', colors: canvasColorsForTheme(theme),
+        }, (renderer) => {
+          renderer.setBadges({ [node.id]: [
+            { id: 'bright', glyph: 'Finished', color: '#00e6a0', placement: 'below', variant: 'label' },
+            { id: 'dark', glyph: 'Dark', color: '#243342', placement: 'above', variant: 'label' },
+          ] })
+          if (hovered) renderer.setOverlay({ hoveredBadge: { nodeId: node.id, badgeId: 'bright' } })
+        })
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Finished')?.fillStyle).toBe('#000000')
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Dark')?.fillStyle).toBe('#ffffff')
+      }
+    }
   })
 
   it('paints external tabs when the body is culled, including drag and resize projections', () => {
@@ -608,6 +644,17 @@ describe('scene visual bounds and fitting', () => {
     renderer.setOverlay({ resizePreview: { nodeId: edge.id, x: 50, y: 1214, width: 240, height: edge.layout.height } })
     renderer.renderNow()
     expect(paintsLabel()).toBe(true)
+    calls.length = 0
+    const minimized = { ...node, x: 30, y: -node.layout.headerHeight - 15, layout: { ...node.layout, height: node.layout.headerHeight, minimized: true as const } }
+    renderer.setOverlay({})
+    renderer.setScene(emptyScene({ nodes: [minimized] }))
+    renderer.setBadges({ [node.id]: [{ ...badge, placement: 'below' }] })
+    renderer.renderNow()
+    expect(paintsLabel()).toBe(true)
+    calls.length = 0
+    renderer.setOverlay({ dragOffsets: new Map([[node.id, { dx: 0, dy: -80 }]]) })
+    renderer.renderNow()
+    expect(paintsLabel()).toBe(false)
     renderer.dispose()
   })
 

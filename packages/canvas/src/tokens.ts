@@ -71,7 +71,17 @@ export const canvasPaintTokens = {
       overlap: 1,
       hoverStroke: 1,
       hoverTint: 0.22,
+      foreground(background: string): string {
+        if (!/^#[0-9a-f]{6}$/i.test(background)) return canvasSemanticTokens.text.primary
+        const channels = background.replace('#', '').match(/.{2}/g)!.map((channel) => {
+          const value = parseInt(channel, 16) / 255
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+        })
+        const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+        return luminance > 0.179 ? '#000000' : '#ffffff'
+      },
     },
+    roomierTab: { height: 20, fontSize: 12, inset: 16 },
     colors: {
       subgraph: '#4a4a5e',
       executionError: '#b3402f',
@@ -507,6 +517,7 @@ export interface DesignTokens {
   readonly fontSize: number
   readonly titleFontSize: number
   readonly badgeLayout: 'chips' | 'tabs'
+  readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
   readonly multilineText: {
@@ -643,6 +654,7 @@ export const defaultTokens: DesignTokens = {
   fontSize: 12,
   titleFontSize: 13,
   badgeLayout: 'chips',
+  badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
   // Comfy-style prompt fields use 14px type with readable 20px leading and
   // 6px inset. Their 18px label band reduces dead space without changing

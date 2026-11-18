@@ -198,7 +198,7 @@ export function layoutNodeBadges(
   if (options.tokens.badgeLayout === 'chips') return badges.map((badge, index) => ({
     ...badgeRect(node, index, badges), badge, compact: badge.variant !== 'label',
   }))
-  const paint = canvasPaintTokens.badge.tab
+  const paint = { ...canvasPaintTokens.badge.tab, ...options.tokens.badgeTab }
   const inset = Math.min(paint.inset, node.layout.width / 2)
   const available = Math.max(0, node.layout.width - inset * 2)
   const strip = paint.padding * 2 + paint.iconSize

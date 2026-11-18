@@ -43,6 +43,7 @@ export function CanvasGallery() {
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
   const [tabLook, setTabLook] = createSignal<'tabs' | 'chips'>('tabs')
+  const [tabSize, setTabSize] = createSignal(defaultTokens.badgeTab)
   const [badgeDetails, setBadgeDetails] = createSignal<BadgeHit>()
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
@@ -56,6 +57,7 @@ export function CanvasGallery() {
     const currentTypeLook = typeLook()
     const currentTitleLook = titleLook()
     const currentTabLook = tabLook()
+    const currentTabSize = tabSize()
     const tabsPage = currentPage === 'tabs' || currentPage === 'tabs-content'
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
@@ -77,6 +79,7 @@ export function CanvasGallery() {
       const tokens: DesignTokens = {
         ...defaultTokens,
         badgeLayout: tabsPage ? currentTabLook : defaultTokens.badgeLayout,
+        badgeTab: tabsPage ? currentTabSize : defaultTokens.badgeTab,
         titleOverflow:
           currentPage === 'titles' || currentPage === 'titles-content'
             ? currentTitleLook
@@ -256,10 +259,12 @@ export function CanvasGallery() {
       canvas.dataset.typeLook = currentTypeLook
       canvas.dataset.titleLook = currentTitleLook
       canvas.dataset.tabLook = currentTabLook
+      canvas.dataset.tabSize = `${currentTabSize.height}-${currentTabSize.fontSize}-${currentTabSize.inset}`
     })
     onCleanup(() => {
       disposed = true
       removeBadgeListeners?.()
+      canvas.removeAttribute('title')
       renderer?.dispose()
       delete canvas.dataset.ready
     })
@@ -375,10 +380,48 @@ export function CanvasGallery() {
             </ProductSelect>
           )}
         </ProductField>
+        <div class="dinkster-actions">
+          <For
+            each={
+              [
+                ['height', 'Tab height'],
+                ['fontSize', 'Tab text size'],
+                ['inset', 'Tab side inset'],
+              ] as const
+            }
+          >
+            {([key, label]) => (
+              <ProductField label={label}>
+                {(attributes) => (
+                  <ProductSelect
+                    {...attributes}
+                    value={tabSize()[key]}
+                    onChange={(event) =>
+                      setTabSize((size) => ({
+                        ...size,
+                        [key]: Number(event.currentTarget.value),
+                      }))
+                    }
+                  >
+                    <For
+                      each={[
+                        defaultTokens.badgeTab[key],
+                        canvasPaintTokens.badge.roomierTab[key],
+                      ]}
+                    >
+                      {(value) => <option value={value}>{value}px</option>}
+                    </For>
+                  </ProductSelect>
+                )}
+              </ProductField>
+            )}
+          </For>
+        </div>
         <p class="dinkster-description">
-          Gallery-only proposal: 16px high, 11px text, 12px side inset. These
-          dimensions are not approved. Hover a crowded strip to read it; click
-          +N to read the folded details. Production keeps current chips.
+          Gallery-only proposal. Adjust height, text size and side inset
+          independently; none of these dimensions is approved. Hover a crowded
+          strip to read it; click +N to read the folded details. Production
+          keeps current chips.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>

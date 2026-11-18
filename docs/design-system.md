@@ -67,8 +67,11 @@ zoom in both themes. Its Badge layout selector compares production chips with
 the opt-in renderer layout: small header marks, bounded identity tabs above,
 run details below, crowded icon strips and an overflow count. Hover reveals
 a strip label; clicking a tab or overflow opens its full details. The proposed
-16px height, 11px text and 12px side inset live in the typed canvas tokens;
-these dimensions are not approved and production continues to use chips.
+16px height, 11px text and 12px side inset live in the typed canvas tokens.
+The page lets height, text size and inset vary independently, including a
+20px/12px/16px comparison. None of these dimensions is approved and production
+continues to use chips. Candidate tab icons and labels choose a light or dark
+foreground against their actual fill, including the hovered fill.
 
 - `ProductShell` owns the full-width frame and responsive navigation. The top
   bar and sidebar stay in place while the page scrolls; below the breakpoint
