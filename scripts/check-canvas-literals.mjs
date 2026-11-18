@@ -49,12 +49,7 @@ export async function checkCanvasLiterals(args = []) {
   if (!roots.length)
     roots.push(
       resolve(repository, 'packages/canvas/src'),
-      ...[
-        'CanvasHost.tsx',
-        'palette-node-preview.ts',
-        'AppWidgetPreview.tsx',
-        'minimap.ts',
-      ].map((file) => resolve(repository, 'packages/app/src', file)),
+      resolve(repository, 'packages/app/src'),
     )
   const files = []
   async function collect(path) {
@@ -496,6 +491,13 @@ export async function checkCanvasLiterals(args = []) {
     const geometrySource =
       args.length > 0 ||
       file.startsWith(resolve(repository, 'packages/canvas/src') + '/')
+    const isCanvasContext = (node) => {
+      if (!node) return false
+      const type = checker.getTypeAtLocation(node)
+      return ['canvas', 'fillRect', 'getImageData', 'setLineDash'].every(
+        (name) => type.getProperty(name),
+      )
+    }
     const visit = (node) => {
       if (
         ts.isBinaryExpression(node) &&
@@ -504,7 +506,7 @@ export async function checkCanvasLiterals(args = []) {
       ) {
         const name = memberName(node.left)
         const kind = paintProperties.get(name)
-        if (kind) {
+        if (kind && (geometrySource || isCanvasContext(node.left.expression))) {
           // Canvas painters restore the context to fully opaque after dimming.
           if (
             !(
@@ -518,12 +520,22 @@ export async function checkCanvasLiterals(args = []) {
       }
       if (ts.isCallExpression(node)) {
         const name = memberName(node.expression)
-        if (name === 'setLineDash') inspect(node.arguments[0], 'dash')
-        else
-          for (const index of callArguments.get(name) ?? [])
-            inspect(node.arguments[index], 'size')
+        if (geometrySource || isCanvasContext(node.expression.expression)) {
+          if (name === 'setLineDash') inspect(node.arguments[0], 'dash')
+          else
+            for (const index of callArguments.get(name) ?? [])
+              inspect(node.arguments[index], 'size')
+        }
+        if (name === 'assign' && isCanvasContext(node.arguments[0]))
+          for (const argument of node.arguments.slice(1))
+            for (const [property, kind] of paintProperties)
+              for (const declaration of checker
+                .getTypeAtLocation(argument)
+                .getProperty(property)?.declarations ?? [])
+                for (const value of declarationValues(declaration))
+                  inspect(value, kind)
       }
-      if (ts.isPropertyAssignment(node)) {
+      if (geometrySource && ts.isPropertyAssignment(node)) {
         const name = ts.isComputedPropertyName(node.name)
           ? staticText(node.name.expression)
           : node.name.getText(source).replace(/^['"]|['"]$/gu, '')
@@ -562,7 +574,11 @@ export async function checkCanvasLiterals(args = []) {
                   : 'size',
             )
       }
-      if (ts.isStringLiteralLike(node) && colorLiteral.test(node.text)) {
+      if (
+        geometrySource &&
+        ts.isStringLiteralLike(node) &&
+        colorLiteral.test(node.text)
+      ) {
         // This measures a displayed hex value, not a paint color.
         const parent = node.parent
         if (

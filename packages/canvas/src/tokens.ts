@@ -3,11 +3,27 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
   detailMinScale: 0.5,
+  imageOpacityScale: IMAGE_OPACITY_MAX,
+  editor: {
+    imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
+    boundingBox: { outsideColor: '#00000080', strokeColor: '#ffffff', strokeMinWidth: 1, strokeImageScale: 300 },
+    painter: { defaultDimension: 512, initialColor: '#ffffff', backgroundColor: '#000000', initialBrushSize: 24 },
+  },
+  memory: {
+    graphMinWidth: 240, graphFallbackWidth: 600, graphHeight: 96, graphTopInset: 8,
+    reservedOpacity: 0.34, footprintOpacity: 0.62, strokeWidth: 1, capacityDash: [4, 3],
+    heatmapMinWidth: 120, heatmapFallbackWidth: 480, cellPitch: 7, cellSize: 6,
+    pageColor(resident: boolean, fraction: number): string {
+      const target = resident ? [230, 126, 34] : [58, 58, 58]
+      const source = resident ? [255, 220, 0] : [200, 60, 60]
+      return `rgb(${target.map((channel, index) => Math.round(source[index]! * fraction + channel * (1 - fraction))).join(',')})`
+    },
+  },
   grid: { spacing: 32, minScreenSpacing: 12, dotRadius: 1.5 },
   hit: {
     pinRadius: 9,

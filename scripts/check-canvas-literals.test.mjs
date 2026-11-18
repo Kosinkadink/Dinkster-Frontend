@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +19,84 @@ const checker = fileURLToPath(
 const tokens = fileURLToPath(
   new URL('../packages/canvas/src/tokens.ts', import.meta.url),
 )
+
+test('default build check covers new app painters without checking unrelated UI data', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'dinkster-canvas-roots-'))
+  const scripts = join(repository, 'scripts')
+  const app = join(repository, 'packages/app/src')
+  const canvas = join(repository, 'packages/canvas/src')
+  const source = join(app, 'editors/NewWidgetEditor.tsx')
+  try {
+    await mkdir(scripts, { recursive: true })
+    await mkdir(join(app, 'editors'), { recursive: true })
+    await mkdir(canvas, { recursive: true })
+    await copyFile(checker, join(scripts, 'check-canvas-literals.mjs'))
+    await symlink(
+      fileURLToPath(new URL('../node_modules', import.meta.url)),
+      join(repository, 'node_modules'),
+      'dir',
+    )
+    for (const file of [
+      'CanvasHost.tsx',
+      'palette-node-preview.ts',
+      'AppWidgetPreview.tsx',
+      'minimap.ts',
+    ])
+      await writeFile(join(app, file), '')
+    await writeFile(
+      join(canvas, 'tokens.ts'),
+      "export const paint = { stroke: 7.25, color: '#abcdef', opacity: 0.35, dash: [3, 8] }",
+    )
+    const run = () =>
+      spawnSync(
+        process.execPath,
+        [join(scripts, 'check-canvas-literals.mjs')],
+        { encoding: 'utf8' },
+      )
+    await writeFile(
+      source,
+      [
+        "import { paint } from '../../../canvas/src/tokens.js'",
+        'export function draw(ctx: CanvasRenderingContext2D) {',
+        '  ctx.lineWidth = paint.stroke; ctx.fillStyle = paint.color',
+        '  ctx.globalAlpha = paint.opacity; ctx.setLineDash(paint.dash)',
+        '}',
+        "const data = { strokeStyle: '#ffffff', lineWidth: 8, font: '14px serif' }",
+        "document.body.style.color = '#123456'",
+        'const model = { rect: (x: number) => x }; model.rect(23)',
+      ].join('\n'),
+    )
+    const accepted = run()
+    assert.equal(accepted.status, 0, accepted.stderr)
+    await writeFile(
+      source,
+      [
+        'export function draw(ctx: CanvasRenderingContext2D) {',
+        "  ctx.fillStyle = '#abcdef'",
+        '  ctx.lineWidth = 7.25',
+        '  ctx.globalAlpha = 0.35',
+        '  ctx.setLineDash([3, 8])',
+        '}',
+      ].join('\n'),
+    )
+    const rejected = run()
+    assert.equal(rejected.status, 1, rejected.stderr)
+    for (const kind of ['color', 'size', 'opacity', 'dash'])
+      assert.match(
+        rejected.stderr,
+        new RegExp(`NewWidgetEditor.tsx:\\d+:\\d+: Literal canvas ${kind}`),
+      )
+    await writeFile(
+      source,
+      'export function draw(ctx: CanvasRenderingContext2D) { Object.assign(ctx, { lineWidth: 7.25 }) }',
+    )
+    const assigned = run()
+    assert.equal(assigned.status, 1, assigned.stderr)
+    assert.match(assigned.stderr, /Literal canvas size/u)
+  } finally {
+    await rm(repository, { recursive: true, force: true })
+  }
+})
 
 test('canvas check rejects paint literals and aliases while accepting tokens and coordinate math', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'dinkster-canvas-literals-'))
