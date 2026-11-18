@@ -542,6 +542,34 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(page).toHaveScreenshot('dialog-open-390.png')
 })
 
+test('settings panels keep labels, bounded controls and helper text readable', async ({
+  page,
+}) => {
+  await page.goto('/#forms')
+  const input = page.getByLabel('Display name', { exact: true })
+  const helper = page.getByText('Your public name.', { exact: true })
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(input).toBeVisible()
+    const control = (await input.boundingBox())!
+    const description = (await helper.boundingBox())!
+    expect(control.width).toBeLessThanOrEqual(360)
+    expect(description.y).toBeGreaterThan(control.y + control.height)
+    await input.fill('Panel example')
+    await expect(input).toHaveValue('Panel example')
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: `test-results/captures/settings-panels-${width}.png`,
+      fullPage: true,
+    })
+  }
+  await expectNoAxeViolations(page)
+})
+
 test('a refused save and an open dialog have no accessibility violations', async ({
   page,
 }) => {

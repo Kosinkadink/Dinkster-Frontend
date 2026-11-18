@@ -403,6 +403,7 @@ function Gallery() {
                 {(form) => (
                   <>
                     <ProductField
+                      panel
                       label="Display name"
                       description="Your public name."
                       error={
@@ -426,7 +427,7 @@ function Gallery() {
                         />
                       )}
                     </ProductField>
-                    <ProductField label="Description">
+                    <ProductField panel label="Description">
                       {(attributes) => (
                         <ProductTextArea
                           {...attributes}

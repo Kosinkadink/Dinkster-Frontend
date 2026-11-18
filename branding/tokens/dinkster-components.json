@@ -33,6 +33,7 @@
     "siteShellMaxWidth": 1040,
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
+    "formControlMaxWidth": 360,
     "tableMaxWidth": 960,
     "pagePadding": 32,
     "menuWidth": 240,

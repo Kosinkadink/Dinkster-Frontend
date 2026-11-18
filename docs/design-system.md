@@ -37,9 +37,11 @@ as `@dinkster/ui/styles.css`. Its classes live only in `packages/ui/styles.css`;
 the build adds the same semantic variables the app uses and expands the shared
 768px breakpoint. Consumers copy the entire distribution, not the CSS alone.
 Use `dinkster-root` on the page root and `data-density="site"` for 14px site
-text; the default density is the app's 13px. The full-width shell has a 56px
-top bar, 240px sidebar, 720px content column (960px for tables) and 32px page
-padding. Below the standard breakpoint, the sidebar is hidden unless opened.
+text; the default density is the app's 13px. The shell has a full-window 56px
+top bar and a centered 1040px frame containing unboxed 240px navigation and
+page content. One background fills the window. The normal content column is
+720px (960px for tables), with 32px page padding. Below the standard
+breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
 CSS does not implement keyboard interaction or confirmation policy.
 
@@ -57,7 +59,7 @@ component gallery on loopback port 5276 after `pnpm build:ui`; production galler
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
-- `ProductShell` owns the full-width frame and responsive navigation. The top
+- `ProductShell` owns the centered frame and responsive navigation. The top
   bar and sidebar stay in place while the page scrolls; below the breakpoint
   the top bar stays and the opened navigation scrolls with the page. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
@@ -74,7 +76,12 @@ not an account service or a replacement for the app.
   The variant gallery is deliberately not a real screen's action hierarchy.
 - `ProductField` binds its label, description and error to its child control;
   an error carries the error icon. Pass its attributes to `ProductTextInput`,
-  `ProductTextArea` or `ProductSelect`.
+  `ProductTextArea` or `ProductSelect`. Use `panel` for a settings row: its
+  label sits left and its control right, in a bordered panel with a 360px
+  maximum control width. At narrow widths the label stacks above the control.
+  Descriptions and errors remain below the panel. `ProductFacts` and
+  `ProductList` use the same panel surface and borders with row separators;
+  section headings remain on the page, outside the panels.
   Native checkbox/radio behavior remains in `ProductCheckbox`/`ProductRadio`.
 - `ProductForm` takes an initial record of text and true/false values once per
   mounted form. Its render callback receives values, a field setter, dirty and

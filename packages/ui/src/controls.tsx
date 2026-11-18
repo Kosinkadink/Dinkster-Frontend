@@ -202,6 +202,7 @@ export function ProductRadio(
 
 export function ProductField(props: {
   label: string
+  panel?: boolean
   description?: string
   error?: string
   children: (attributes: {
@@ -213,16 +214,23 @@ export function ProductField(props: {
   const id = createUniqueId()
   return (
     <div class="dinkster-field">
-      <label for={id}>{props.label}</label>
-      {props.children({
-        id,
-        get 'aria-describedby'() {
-          return props.error || props.description ? `${id}-message` : undefined
-        },
-        get 'aria-invalid'() {
-          return props.error ? 'true' : undefined
-        },
-      })}
+      <div
+        class="dinkster-field-control"
+        data-panel={props.panel ? 'true' : undefined}
+      >
+        <label for={id}>{props.label}</label>
+        {props.children({
+          id,
+          get 'aria-describedby'() {
+            return props.error || props.description
+              ? `${id}-message`
+              : undefined
+          },
+          get 'aria-invalid'() {
+            return props.error ? 'true' : undefined
+          },
+        })}
+      </div>
       <Show when={props.error || props.description}>
         <p
           id={`${id}-message`}
