@@ -25,6 +25,9 @@ a fresh renderer at each identical state. It compares complete raw RGBA
 frames without a tolerance, including fractional-DPR pans, exposed edges,
 zoom detail changes, selection, drag, edit, theme, style and resize. Separate
 counting checks require camera-only reuse and bounded image copies for the
-fixed 66-, 300- and 1200-node fixtures. Frame-time tools and measured results
-are documented in [Performance baselines](perf.md); timings are reports, not
-CI assertions.
+fixed 66-, 300- and 1200-node fixtures. Comparison canvases explicitly disable
+frequent-readback optimization so retained and fresh references request the
+same readback policy throughout repeated pixel inspection.
+This affects comparison setup only, not production rendering. Frame-time tools
+and measured results are documented in [Performance baselines](perf.md);
+timings are reports, not CI assertions.

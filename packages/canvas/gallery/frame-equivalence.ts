@@ -103,6 +103,8 @@ export async function compareCanvasFrames(
   document.body.append(host)
   const createRenderer = () => {
     const canvas = document.createElement('canvas')
+    // Match the readback policy of retained and fresh canvases throughout history.
+    canvas.getContext('2d', { willReadFrequently: false })
     canvas.style.width = `${width}px`
     canvas.style.height = `${height}px`
     host.append(canvas)

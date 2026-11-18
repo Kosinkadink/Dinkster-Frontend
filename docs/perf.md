@@ -118,6 +118,26 @@ The separate 97-case fresh-renderer browser comparison and 90 unchanged
 gallery comparisons pass. Four fractional-DPR anatomy/overview captures in
 both themes are byte-identical to the prior renderer and were inspected.
 
+## GPU frame readback control (2026-11-18)
+
+The earlier fitted-frame mismatch is reproducible without changing the
+painter, scene or camera. On the same production-optimized 1200-node fitted
+canvas, five consecutive invalidated redraws with default context options
+have adjacent RGBA channel differences of 0, 33786, 0 and 0. Chromium also
+warns about repeated readbacks. Explicitly choosing either
+`willReadFrequently: false` or `true` at initial context creation yields
+zero differences for all four adjacent comparisons, without a warning.
+Fresh full-scene and region-culled renderers also match at 300 and 1200
+nodes, with and without app layers. These controls isolate the diagnostic's
+readback-policy transition, not a culling change or a frame-time cause.
+
+The whole-frame helper now explicitly chooses `willReadFrequently: false`
+for both retained and fresh canvases. On Chromium 149 Vulkan, six execution-
+state cases fail before this setup change; all 97 cases pass after it, with
+identical zero-tolerance assertions. Production contexts are unchanged.
+These pixel controls do not accept a performance target, explain the user's
+original slow spells or replace any preceding timing sample.
+
 ## Canvas click and save reporting (2026-11-17)
 
 The reporting tools in `scripts/canvas-performance/` retain the input and
