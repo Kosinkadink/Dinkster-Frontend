@@ -210,7 +210,14 @@ function minimapNodeColor(color: string | undefined, fallback: string): string {
  * (callers need it to map pointer events back to world space). Clears the
  * full target rectangle first; returns undefined for an empty scene.
  */
-export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput): MinimapTransform | undefined {
+export function drawMinimap(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, input: MinimapInput): MinimapTransform | undefined {
+  const tf = drawMinimapGraph(ctx, input)
+  if (tf) drawMinimapOverlay(ctx, tf, input)
+  return tf
+}
+
+/** Paint graph geometry without camera or bookmark overlays. */
+export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, input: MinimapInput): MinimapTransform | undefined {
   const t = input.tokens
   const { width, height } = input
   ctx.clearRect(0, 0, width, height)
@@ -284,6 +291,19 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
     ctx.fill()
   }
 
+  return tf
+}
+
+/** Paint camera rectangles and bookmarks over the retained graph drawing. */
+export function drawMinimapOverlay(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  tf: MinimapTransform,
+  input: Pick<MinimapInput, 'tokens' | 'width' | 'height' | 'viewport' | 'remoteViewports' | 'markers'>,
+): void {
+  const t = input.tokens
+  const { width, height } = input
+  const px = (wx: number) => wx * tf.scale + tf.offsetX
+  const py = (wy: number) => wy * tf.scale + tf.offsetY
   // Remote frames first, local rectangle on top: at overview scale
   // overlapping viewports are common, and "where am I" must stay readable.
   for (const rv of input.remoteViewports ?? []) {
@@ -325,5 +345,4 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, input: MinimapInput):
     ctx.textBaseline = 'middle'
     ctx.fillText(m.label, mx, my)
   }
-  return tf
 }

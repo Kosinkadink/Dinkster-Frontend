@@ -4187,8 +4187,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly plannerAvailable: boolean
     } | undefined
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
+    let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
+    let viewportPause: ReturnType<typeof setTimeout> | undefined
+    const flushViewport = (): void => {
+      if (viewportPause !== undefined) clearTimeout(viewportPause)
+      viewportPause = undefined
+      const pending = pendingViewport
+      pendingViewport = undefined
+      if (pending) untrack(() => props.app.setGraphViewport(pending.tabId, pending.graphId, pending.viewport))
+    }
+    const unregisterViewportFlusher = props.app.registerTabViewFlusher(flushViewport)
     const unsubscribeTabViewport = renderer.onViewportChange((viewport) => {
-      if (sceneViewportOwner) props.app.setGraphViewport(sceneViewportOwner.tabId, sceneViewportOwner.graphId, viewport)
+      if (!sceneViewportOwner) return
+      pendingViewport = { ...sceneViewportOwner, viewport: { ...viewport } }
+      if (viewportPause !== undefined) clearTimeout(viewportPause)
+      viewportPause = setTimeout(flushViewport, 100)
     })
 
     // Scene: rebuilt when the tab, graph stack, document, or schemas change.
@@ -4391,6 +4404,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // (pin/unpin mutates the doc; closing here would eat the interaction).
 
       if (key !== sceneKey) {
+        flushViewport()
         setVsPopover(undefined) // different graph: the anchor means nothing
         setSelExecPopover(undefined)
         sceneKey = key
@@ -6216,6 +6230,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       minimap.dispose()
       unsubscribeEditorViewport()
       unsubscribeTabViewport()
+      flushViewport()
+      unregisterViewportFlusher()
       unsubscribePresenceViewport()
       hideCanvasTooltips()
       unsubscribeTooltipViewport()

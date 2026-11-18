@@ -765,6 +765,9 @@ export function sceneVisualBounds(
 
 /** Core's sparse world-anchored grid uses the same layer door as packs. */
 export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
+  let pattern: CanvasPattern | null | undefined
+  let patternSpacing = 0
+  let patternPixels = 0
   return {
     id: 'core.canvas.grid',
     position: 'background',
@@ -773,19 +776,28 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
       const paint = canvasPaintTokens.grid
       let spacing: number = paint.spacing
       while (spacing * viewport.scale < paint.minScreenSpacing) spacing *= 2
-      const minX = Math.floor(viewport.x / spacing) * spacing
-      const minY = Math.floor(viewport.y / spacing) * spacing
-      const maxX = viewport.x + viewport.width
-      const maxY = viewport.y + viewport.height
-      context.beginPath()
-      for (let y = minY; y <= maxY; y += spacing) {
-        for (let x = minX; x <= maxX; x += spacing) {
-          context.moveTo(x + paint.dotRadius, y)
-          context.arc(x, y, paint.dotRadius, 0, Math.PI * 2)
+      const pixels = Math.max(1, Math.ceil(spacing * viewport.scale * (globalThis.devicePixelRatio ?? 1)))
+      if (pattern === undefined || spacing !== patternSpacing || pixels !== patternPixels) {
+        const tile = new OffscreenCanvas(pixels, pixels)
+        const ctx = tile.getContext('2d')!
+        const density = pixels / spacing
+        ctx.scale(density, density)
+        ctx.beginPath()
+        // Each corner supplies one quarter of the world-origin dot across repeats.
+        for (const y of [0, spacing]) for (const x of [0, spacing]) {
+          ctx.moveTo(x + paint.dotRadius, y)
+          ctx.arc(x, y, paint.dotRadius, 0, Math.PI * 2)
         }
+        ctx.fillStyle = tokens.colors.gridDot
+        ctx.fill()
+        pattern = context.createPattern(tile, 'repeat')
+        pattern?.setTransform({ a: 1 / density, d: 1 / density })
+        patternSpacing = spacing
+        patternPixels = pixels
       }
-      context.fillStyle = tokens.colors.gridDot
-      context.fill()
+      if (!pattern) return
+      context.fillStyle = pattern
+      context.fillRect(viewport.x, viewport.y, viewport.width, viewport.height)
     },
   }
 }
@@ -824,6 +836,7 @@ export class CanvasRenderer {
   setScene(scene: Scene): void {
     this.baseScene = scene
     this.scene = this.sceneWithBodyRegions(scene)
+    this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
       type: node.node.type,
@@ -1431,9 +1444,7 @@ export class CanvasRenderer {
     if (this.dirty || animateExecution) this.scheduleFrame()
   }
 
-  private render(): void {
-    const ctx = this.canvas.getContext('2d')
-    if (!ctx) return
+  private refreshConnectivity(): void {
     this.connectedInputPins = new Set(
       [
         ...this.scene.links
@@ -1488,6 +1499,11 @@ export class CanvasRenderer {
           return `${to.node}\u0000${portEndKey(to)}`
         }),
     )
+  }
+
+  private render(): void {
+    const ctx = this.canvas.getContext('2d')
+    if (!ctx) return
     const dpr = globalThis.devicePixelRatio ?? 1
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
