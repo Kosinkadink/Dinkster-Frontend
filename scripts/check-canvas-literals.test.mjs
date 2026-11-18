@@ -29,6 +29,8 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
         "// ctx.lineWidth = 7; ctx.fillStyle = '#abcdef' are comments.",
         'const item = values[2]',
         'const version = 45',
+        'const ellipsize = value => value; ellipsize(20)',
+        'const choose = (data, value) => value; ctx.lineWidth = choose(7.25, paint.pin.outlineStroke)',
         "const colorLabel = measureWidth(ctx, '#ffffff')",
         'const radius = paint.pin.optionalMinRadius',
         'const key = "line" + "Width"',
@@ -36,6 +38,11 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
         'const entries = [paint.pin.outlineStroke]',
         'ctx[key] = make()',
         'ctx.lineWidth = entries.at(0)',
+        'const table = new Map([["key", paint.pin.outlineStroke]]); table.set("other", paint.pin.outlineStroke); ctx.lineWidth = table.get("key")',
+        'const measurements = new Map(); measurements.set(20, paint.pin.outlineStroke); ctx.lineWidth = measurements.get(20)',
+        'let assigned; assigned = paint.pin.outlineStroke; ctx.lineWidth = assigned',
+        'const applyPaint = (data, stroke) => { ctx.lineWidth = stroke }; applyPaint(7.25, paint.pin.outlineStroke)',
+        'const outer = (stroke) => { const inner = (stroke) => { ctx.lineWidth = stroke }; inner(paint.pin.outlineStroke) }; outer(7.25)',
         'const [, arrayToken] = [7.25, paint.pin.outlineStroke]',
         'const { value: objectToken } = { unrelated: 7.25, value: paint.pin.outlineStroke }',
         'const { pin: { outlineStroke } } = paint',
@@ -60,6 +67,41 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
     const accepted = run()
     assert.equal(accepted.status, 0, accepted.stderr)
     for (const [plant, kind] of [
+      ['let pinStroke; pinStroke = 7.25; ctx.lineWidth = pinStroke', 'size'],
+      [
+        'const paint = (pinStroke) => { ctx.lineWidth = pinStroke }; paint(7.25)',
+        'size',
+      ],
+      ["let value; value = 'red'; ctx.fillStyle = value", 'color'],
+      [
+        'function apply(value) { ctx.globalAlpha = value }; apply(0.35)',
+        'opacity',
+      ],
+      [
+        'const apply = (...values) => ctx.setLineDash(values); apply(3, 8)',
+        'dash',
+      ],
+      [
+        'const apply = ({ value }) => { ctx.lineWidth = value }; apply({ value: 7.25 })',
+        'size',
+      ],
+      [
+        'const apply = value => { ctx.lineWidth = value }; const alias = apply; alias(7.25)',
+        'size',
+      ],
+      [
+        'const apply = value => { ctx.lineWidth = value }; const forward = value => apply(value); forward(7.25)',
+        'size',
+      ],
+      ['let key; key = "lineWidth"; ctx[key] = 7.25', 'size'],
+      [
+        'const table = new Map(); table.set("stroke", 7.25); ctx.lineWidth = table.get("stroke")',
+        'size',
+      ],
+      [
+        'const table = new Map([["stroke", 7.25]]); ctx.lineWidth = table.get("stroke")',
+        'size',
+      ],
       ['const [literal] = [7.25]; ctx.lineWidth = literal', 'size'],
       [
         'const { value: literal } = { get value() { return 7.25 } }; ctx.lineWidth = literal',

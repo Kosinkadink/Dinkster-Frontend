@@ -6,7 +6,7 @@ import ts from 'typescript'
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tokenFile = resolve(repository, 'packages/canvas/src/tokens.ts')
 const geometry =
-  /(?:width|height|size|radius|inset|padding|gap|stroke|offset|margin|spacing|overhang|clearance|opacity|alpha|dash|fontWeight|scaleFloor)/iu
+  /\b(?:width|height|size|radius|inset|padding|gap|stroke|offset|margin|spacing|overhang|clearance|opacity|alpha|dash|font weight|scale floor)\b/iu
 const colorLiteral =
   /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\s*\(/iu
 const paintProperties = new Map([
@@ -93,6 +93,67 @@ export async function checkCanvasLiterals(args = []) {
       symbol = checker.getAliasedSymbol(symbol)
     return symbol?.declarations ?? []
   }
+  const assignedValues = new Map()
+  const parameterValues = new Map()
+  const addValue = (map, declaration, value) => {
+    const values = map.get(declaration) ?? []
+    values.push(value)
+    map.set(declaration, values)
+  }
+  const isMapCall = (node) => {
+    const declaration = checker.getResolvedSignature(node)?.declaration
+    return (
+      declaration?.getSourceFile().isDeclarationFile &&
+      ['Map', 'ReadonlyMap', 'WeakMap'].includes(declaration.parent.name?.text)
+    )
+  }
+  const indexValues = (node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      ts.isIdentifier(node.left) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    )
+      for (const declaration of declarationsOf(node.left))
+        addValue(
+          assignedValues,
+          declaration,
+          node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            ? node.right
+            : node,
+        )
+    if (ts.isCallExpression(node)) {
+      if (
+        memberName(node.expression) === 'set' &&
+        isMapCall(node) &&
+        node.arguments[1]
+      )
+        for (const declaration of declarationsOf(node.expression.expression))
+          addValue(assignedValues, declaration, node.arguments[1])
+      const callable = checker.getResolvedSignature(node)?.declaration
+      const parameters =
+        callable && files.includes(callable.getSourceFile().fileName)
+          ? callable.parameters
+          : []
+      for (const [index, parameter] of parameters.entries()) {
+        const arguments_ = parameter.dotDotDotToken
+          ? node.arguments.slice(index)
+          : node.arguments.slice(index, index + 1)
+        for (const argument of arguments_)
+          addValue(parameterValues, parameter, argument)
+      }
+    }
+    ts.forEachChild(node, indexValues)
+  }
+  const declarationValues = (declaration) => [
+    ...(ts.isBindingElement(declaration)
+      ? bindingValues(declaration)
+      : declaration.initializer
+        ? [declaration.initializer]
+        : []),
+    ...(assignedValues.get(declaration) ?? []),
+    ...(parameterValues.get(declaration) ?? []),
+  ]
   const returnExpressions = (node) => {
     if (!node.body) return []
     if (!ts.isBlock(node.body)) return [node.body]
@@ -112,9 +173,7 @@ export async function checkCanvasLiterals(args = []) {
     const owner = pattern.parent
     const sources = ts.isBindingElement(owner)
       ? bindingValues(owner, seen)
-      : owner.initializer
-        ? [owner.initializer]
-        : []
+      : declarationValues(owner)
     const index = pattern.elements.indexOf(binding)
     const key = ts.isArrayBindingPattern(pattern)
       ? String(index)
@@ -222,11 +281,7 @@ export async function checkCanvasLiterals(args = []) {
     }
     if (ts.isIdentifier(node)) {
       for (const declaration of declarationsOf(node)) {
-        const values = ts.isBindingElement(declaration)
-          ? bindingValues(declaration)
-          : declaration.initializer
-            ? [declaration.initializer]
-            : []
+        const values = declarationValues(declaration)
         for (const value of values) {
           const text = staticText(value, new Set(seen))
           if (text !== undefined) return text
@@ -305,6 +360,10 @@ export async function checkCanvasLiterals(args = []) {
         ts.SyntaxKind.SlashToken,
         ts.SyntaxKind.PlusToken,
         ts.SyntaxKind.MinusToken,
+        ts.SyntaxKind.AsteriskEqualsToken,
+        ts.SyntaxKind.SlashEqualsToken,
+        ts.SyntaxKind.PlusEqualsToken,
+        ts.SyntaxKind.MinusEqualsToken,
       ].includes(operator)
       for (const operand of [node.left, node.right]) {
         if (
@@ -339,13 +398,9 @@ export async function checkCanvasLiterals(args = []) {
     ) {
       const declarations = declarationsOf(node)
       for (const declaration of declarations) {
-        if (ts.isBindingElement(declaration)) {
-          for (const value of bindingValues(declaration))
-            inspect(value, kind, seen)
-        } else if (declaration.initializer)
-          inspect(declaration.initializer, kind, seen)
-        else if (ts.isFunctionLike(declaration))
-          inspect(declaration, kind, seen)
+        for (const value of declarationValues(declaration))
+          inspect(value, kind, seen)
+        if (ts.isFunctionLike(declaration)) inspect(declaration, kind, seen)
       }
       if (!declarations.length && ts.isElementAccessExpression(node))
         inspect(node.expression, kind, seen)
@@ -356,15 +411,34 @@ export async function checkCanvasLiterals(args = []) {
         inspect(expression, kind, seen)
       return
     }
+    if (
+      ts.isNewExpression(node) &&
+      checker.getTypeAtLocation(node).symbol?.name === 'Map'
+    ) {
+      for (const argument of node.arguments ?? [])
+        if (ts.isArrayLiteralExpression(argument))
+          for (const entry of argument.elements)
+            inspect(
+              ts.isArrayLiteralExpression(entry) ? entry.elements[1] : entry,
+              kind,
+              seen,
+            )
+        else inspect(argument, kind, seen)
+      return
+    }
     if (ts.isCallExpression(node)) {
       const method = memberName(node.expression)
       if (
+        (method === 'get' && isMapCall(node)) ||
         ['at', 'slice', 'substring', 'toString', 'padStart'].includes(method)
       ) {
         inspect(node.expression.expression, kind, seen)
         return
       }
       inspect(node.expression, kind, seen)
+      const callable = checker.getResolvedSignature(node)?.declaration
+      if (callable?.body && files.includes(callable.getSourceFile().fileName))
+        return
       for (const argument of node.arguments) {
         if (
           ['max', 'min'].includes(method) &&
@@ -401,6 +475,12 @@ export async function checkCanvasLiterals(args = []) {
     }
     ts.forEachChild(node, (child) => inspect(child, kind, seen))
   }
+  for (const source of program.getSourceFiles())
+    if (
+      !source.isDeclarationFile &&
+      !program.isSourceFileFromExternalLibrary(source)
+    )
+      indexValues(source)
   for (const file of files) {
     if (file === tokenFile) continue
     const source = program.getSourceFile(file)
@@ -454,7 +534,11 @@ export async function checkCanvasLiterals(args = []) {
         !ts.isObjectBindingPattern(node.name)
       ) {
         const name = node.name.getText(source)
-        if (geometry.test(name))
+        if (
+          geometry.test(
+            name.replace(/([a-z\d])([A-Z])/gu, '$1 $2').replaceAll('_', ' '),
+          )
+        )
           for (const value of ts.isBindingElement(node)
             ? bindingValues(node)
             : node.initializer
