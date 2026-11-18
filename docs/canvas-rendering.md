@@ -6,8 +6,10 @@ A camera-only move reuses visible tiles when the scale and backing density
 match. The logical camera retains fractional movement, while painting rounds
 translation to physical pixels. This keeps retained text sharp without
 resampling and limits visual translation steps to one physical pixel. Newly
-exposed tiles are painted from the scene. Tiles outside the visible working
-set are closed rather than retained indefinitely.
+exposed tiles are painted from the scene. A rebuild bins node and link bounds
+once into missing tiles, including paint padding and bleed; each tile keeps
+the same graph order, clipping and raster origin. Tiles outside the visible
+working set are closed rather than retained indefinitely.
 
 Tiles are copied at their original pixel size, never stretched. Zoom changes
 repaint at the new scale, preserving sharp text and geometry. Scene, overlay, preview, execution-state, theme and style

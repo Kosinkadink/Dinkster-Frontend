@@ -1593,40 +1593,74 @@ export class CanvasRenderer {
       this.graphTileTransform = transform
     }
     const used = new Set<string>()
-    let scene: Scene | undefined
-    for (let row = Math.floor(-pixelY / size); row * size + pixelY < pixelHeight; row++) {
-      for (let column = Math.floor(-pixelX / size); column * size + pixelX < pixelWidth; column++) {
+    const firstColumn = Math.floor(-pixelX / size)
+    const lastColumn = Math.ceil((pixelWidth - pixelX) / size) - 1
+    const firstRow = Math.floor(-pixelY / size)
+    const lastRow = Math.ceil((pixelHeight - pixelY) / size) - 1
+    type TileScene = { nodes: SceneNode[]; links: Scene['links'][number][] }
+    let scenes: Map<string, TileScene> | undefined
+    for (let row = firstRow; row <= lastRow; row++) {
+      for (let column = firstColumn; column <= lastColumn; column++) {
         const key = `${column}/${row}`
         used.add(key)
         let tile = this.graphTiles.get(key)
         if (tile === undefined) {
-          if (scene === undefined) {
-            // Cull once to complete tile bounds, including offscreen bleed;
-            // each tile still applies its own exact painter and clipping.
-            const left = (Math.floor(-pixelX / size) * size - bleed) / (densityX * scale)
-            const top = (Math.floor(-pixelY / size) * size - bleed) / (densityY * scale)
-            const right = (Math.ceil((pixelWidth - pixelX) / size) * size + bleed) / (densityX * scale)
-            const bottom = (Math.ceil((pixelHeight - pixelY) / size) * size + bleed) / (densityY * scale)
+          if (scenes === undefined) {
+            scenes = new Map()
+            for (let r = firstRow; r <= lastRow; r++) {
+              for (let c = firstColumn; c <= lastColumn; c++) {
+                const id = `${c}/${r}`
+                if (!this.graphTiles.has(id)) scenes.set(id, { nodes: [], links: [] })
+              }
+            }
+            // Bin once, including paint padding and bleed. Each tile keeps its
+            // canonical origin, clipping and original scene order.
+            const assign = (bounds: ReturnType<typeof linkBounds>, append: (scene: TileScene) => void) => {
+              // Include neighboring bins before applying the painter's exact
+              // world-space comparisons: multiplication can round an edge out.
+              const left = Math.max(firstColumn, Math.floor((bounds.minX * densityX * scale - bleed) / size) - 1)
+              const right = Math.min(lastColumn, Math.floor((bounds.maxX * densityX * scale + bleed) / size) + 1)
+              const top = Math.max(firstRow, Math.floor((bounds.minY * densityY * scale - bleed) / size) - 1)
+              const bottom = Math.min(lastRow, Math.floor((bounds.maxY * densityY * scale + bleed) / size) + 1)
+              for (let r = top; r <= bottom; r++) {
+                for (let c = left; c <= right; c++) {
+                  const scene = scenes!.get(`${c}/${r}`)
+                  if (!scene) continue
+                  const x = (c * size - bleed) / (densityX * scale)
+                  const y = (r * size - bleed) / (densityY * scale)
+                  const w = (size + bleed * 2) / (densityX * scale)
+                  const h = (size + bleed * 2) / (densityY * scale)
+                  if (bounds.maxX < x || bounds.minX > x + w || bounds.maxY < y || bounds.minY > y + h) continue
+                  append(scene)
+                }
+              }
+            }
             const pad = structureCullPad(scale, this.tokens.pinRadius, this.getDetailLevel())
             const paintPad = linkCullPad(scale)
             const off = (id: string) => this.overlay.dragOffsets?.get(id) ?? ZERO_OFFSET
-            scene = {
-              ...this.scene,
-              nodes: this.scene.nodes.filter((entry) => {
-                const node = this.nodeForPaint(entry)
-                const offset = off(node.id)
-                return node.x + offset.dx + node.layout.width + pad >= left && node.x + offset.dx - pad <= right &&
-                  node.y + offset.dy + node.layout.height + pad >= top && node.y + offset.dy - pad <= bottom
-              }),
-              links: this.scene.links.filter((link) => {
-                const from = this.linkEndForPaint(link.from, 'out', link.x1, link.y1)
-                const to = this.linkEndForPaint(link.to, 'in', link.x2, link.y2)
-                const a = off(sceneEndId(link.from))
-                const b = off(sceneEndId(link.to))
-                const bounds = linkBounds(from.x + a.dx, from.y + a.dy, to.x + b.dx, to.y + b.dy)
-                return bounds.maxX + paintPad >= left && bounds.minX - paintPad <= right &&
-                  bounds.maxY + paintPad >= top && bounds.minY - paintPad <= bottom
-              }),
+            for (const entry of this.scene.nodes) {
+              const node = this.nodeForPaint(entry)
+              const offset = off(node.id)
+              const layout = node.layout
+              assign({
+                minX: node.x + offset.dx - pad,
+                maxX: node.x + offset.dx + layout.width + pad,
+                minY: node.y + offset.dy - pad,
+                maxY: node.y + offset.dy + layout.height + pad,
+              }, (scene) => scene.nodes.push(entry))
+            }
+            for (const link of this.scene.links) {
+              const from = this.linkEndForPaint(link.from, 'out', link.x1, link.y1)
+              const to = this.linkEndForPaint(link.to, 'in', link.x2, link.y2)
+              const a = off(sceneEndId(link.from))
+              const b = off(sceneEndId(link.to))
+              const bounds = linkBounds(from.x + a.dx, from.y + a.dy, to.x + b.dx, to.y + b.dy)
+              assign({
+                minX: bounds.minX - paintPad,
+                maxX: bounds.maxX + paintPad,
+                minY: bounds.minY - paintPad,
+                maxY: bounds.maxY + paintPad,
+              }, (scene) => scene.links.push(link))
             }
           }
           const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
@@ -1641,7 +1675,7 @@ export class CanvasRenderer {
             y: -originY / (densityY * scale),
             w: (size + bleed * 2) / (densityX * scale),
             h: (size + bleed * 2) / (densityY * scale),
-          }, scale, scene)
+          }, scale, { ...this.scene, ...scenes.get(key)! })
           tile = surface.transferToImageBitmap()
           this.graphTiles.set(key, tile)
         }

@@ -138,6 +138,56 @@ identical zero-tolerance assertions. Production contexts are unchanged.
 These pixel controls do not accept a performance target, explain the user's
 original slow spells or replace any preceding timing sample.
 
+## Per-tile candidate binning (2026-11-18)
+
+Missing tiles receive only intersecting nodes and links, in scene order.
+Bounds are computed once per rebuild, including live offsets, resize geometry,
+paint padding and bleed. Conservative neighboring bins are checked with the
+painter's world-space comparisons so floating-point edge rounding cannot
+exclude a touched tile. Tile raster origins, clipping and transfers are unchanged.
+
+Production-optimized test-mode build, X570 RTX 4090, Chromium 149 Vulkan,
+uncapped 2560x1440, unchanged audit harness, 2500 ms inputs. Before values at
+300/1200 nodes are the single region-culling run above; the 66-node baseline
+is the earlier three-run aligned median. After is one candidate run. These
+are not paired causal estimates. CPU validation overlapped candidate timing.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 1.8/17.6 | 8.6/13.2 | 8.5/13.7 | not measured | 5.6/16.8 |
+| 66/fit | 16.0/17.6 | 16.8/17.5 | 5.0/15.0 | 5.6/17.6 | not measured | 3.0/24.7 |
+| 300/read | 5.1/17.5 | 3.7/17.5 | 6.3/11.7 | 5.4/13.9 | 7.1/23.7 | 8.1/24.9 |
+| 300/fit | 2.0/17.5 | 2.0/17.5 | 9.0/28.7 | 9.5/32.7 | 12.4/37.6 | 9.7/30.9 |
+| 1200/read | 5.9/17.4 | 1.3/17.5 | 8.6/13.9 | 7.1/12.2 | 13.6/17.5 | 7.7/16.7 |
+| 1200/fit | 1.1/17.4 | 3.6/17.5 | 22.0/43.6 | 22.5/48.1 | 27.6/64.0 | 25.0/64.8 |
+
+A separate same-browser instrumented comparison calls the actual preceding
+and candidate tile methods across 12 scales. Excluding the first scale,
+300-node fitted endpoint projections fall from 13624 to 570 per frame and
+node-candidate visits from 7200 to 366; at 1200 fitted they fall from 31946
+to 2280 and 16882 to 1225. Graph-painter calls remain 24 and 15 respectively.
+Synchronous fitted render means are 6.12 -> 5.02 ms at 300 nodes but
+15.95 -> 17.63 ms at 1200. Thus work counts improve without establishing
+fitted-frame speedup. Sixteen raw GPU frame comparisons across both sizes,
+readable/fitted cameras, exposed pans and zoom match the prior renderer.
+
+The fixed 66/300/1200 tests retain fractional reuse and lifetime assertions
+and bound public link-endpoint reads by the scene count plus 128. The prior
+renderer fails all three: 390>194, 1056>428 and 1956>1328. A separate boundary
+probe finds 245 missed inclusions in 5856 arithmetic-only bin checks; the
+conservative world-space check has none. The preliminary arithmetic-only
+candidate's timing and captures are retained separately, not substituted
+for final measurements. Four final anatomy/overview captures at DPR1.25
+are byte-identical to prior-renderer controls and were inspected.
+
+Readable pan renderer p50/p95 remains 0.1/0.2-0.3 ms, while frame p95 stays
+near 17.5 ms. Fitted zoom/drag remain expensive. Wheel flooding queues events
+across cells, with seconds-long input delays that are not isolated clicks;
+the preceding queue and shared-host limitations still apply. No target,
+slow-spell cause, display refresh rate or whole-issue acceptance is claimed.
+
 ## Canvas click and save reporting (2026-11-17)
 
 The reporting tools in `scripts/canvas-performance/` retain the input and

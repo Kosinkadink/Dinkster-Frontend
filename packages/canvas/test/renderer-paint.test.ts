@@ -470,6 +470,7 @@ describe('graph image reuse', () => {
       const base = fixtureScene('clean')
       const node = base.nodes[0]!
       let offscreenLayoutReads = 0
+      let linkEndpointReads = 0
       renderer.setScene({
         ...base,
         nodes: Array.from({ length: count }, (_, i) => ({
@@ -482,13 +483,21 @@ describe('graph image reuse', () => {
             return node.layout
           },
         })),
-        links: [],
+        links: Array.from({ length: count }, (_, i) => ({
+          ...typedLensLink(`cached-link-${i}`, 'FLOAT', i % 20 * 320 + 10, Math.floor(i / 20) * 180 + 10, i % 20 * 320 + 60, Math.floor(i / 20) * 180 + 10),
+          get x1() {
+            linkEndpointReads++
+            return i % 20 * 320 + 10
+          },
+        })),
       })
       renderer.setViewport({ x: 0, y: 0, scale: 1 })
       offscreenLayoutReads = 0
+      linkEndpointReads = 0
       renderer.renderNow()
-      // Nodes beyond the complete tile region are inspected once, not per tile.
+      // Geometry is inspected once for binning, then only in intersecting tiles.
       expect(offscreenLayoutReads).toBeLessThanOrEqual(count)
+      expect(linkEndpointReads).toBeLessThanOrEqual(count + 128)
       const initial = images.length
       expect(initial).toBeGreaterThan(0)
       expect(painted.calls.some((call) => call.method === 'fillText')).toBe(true)
