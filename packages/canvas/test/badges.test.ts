@@ -13,7 +13,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { badgeRect, BYPASSED_BADGE, ERROR_BADGE, executionErrorBadge, hitTestBadge, LOG_INFO_BADGE, MUTED_BADGE, SUBGRAPH_BADGE, type BadgeMap } from '../src/badges.js'
+import { badgeRect, BYPASSED_BADGE, ERROR_BADGE, executionErrorBadge, hitTestBadge, layoutNodeBadges, nodeBadgeBounds, LOG_INFO_BADGE, MUTED_BADGE, SUBGRAPH_BADGE, type BadgeMap, type NodeBadge } from '../src/badges.js'
 import { buildScene, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
@@ -35,6 +35,65 @@ function sceneOf(workflow: string, graphId = 'g0'): Scene {
     widgetMeasure,
   })
 }
+
+describe('attached tab geometry', () => {
+  const scene = sceneOf('exec-basic')
+  const original = scene.nodes[0]!
+  const tokens = { ...defaultTokens, badgeLayout: 'tabs' as const }
+  const badges: NodeBadge[] = Array.from({ length: 9 }, (_, index) => ({
+    id: `detail.${index}`, glyph: `Detail ${index + 1}`, placement: 'below',
+    variant: 'label', color: '#345678',
+  }))
+
+  it('keeps lanes bounded, retains every overflow entry and expands hovered strips on top', () => {
+    const node = { ...original, x: 41, y: 83, layout: { ...original.layout, width: 112 } }
+    const options = { tokens, outset: 4 }
+    const entries = layoutNodeBadges(node, badges, options)
+    expect(entries).toHaveLength(3)
+    expect(entries[0]!.badge.id).toBe('detail.0')
+    expect(entries[0]!.compact).toBe(true)
+    expect(entries[2]!.badge.glyph).toBe('+7')
+    expect(entries[2]!.overflow).toEqual(badges.slice(2))
+    for (const entry of entries) {
+      expect(entry.x).toBeGreaterThanOrEqual(53)
+      expect(entry.x + entry.width).toBeLessThanOrEqual(141)
+      expect(entry.y).toBe(83 + node.layout.height + 3)
+    }
+    const hovered = layoutNodeBadges(node, badges, { ...options, hoveredId: 'detail.1' })
+    expect(hovered.at(-1)!.badge.id).toBe('detail.1')
+    expect(hovered.at(-1)!.compact).toBe(false)
+    expect(hovered.at(-1)!.width).toBeGreaterThan(entries[1]!.width)
+    expect(hovered.at(-1)!.x + hovered.at(-1)!.width).toBeLessThanOrEqual(141)
+    const stacked = { ...scene, nodes: [node] }
+    const expanded = hovered.at(-1)!
+    const hit = hitTestBadge(stacked, { [node.id]: badges }, expanded.x + 1, expanded.y + 1, () => hovered)
+    expect(hit?.badge.id).toBe('detail.1')
+    const overflow = entries[2]!
+    expect(hitTestBadge(stacked, { [node.id]: badges }, overflow.x + 1, overflow.y + 1, () => entries)?.overflow).toEqual(badges.slice(2))
+  })
+
+  it('includes top and bottom lanes with hover stroke and live node coordinates', () => {
+    const node = { ...original, x: -37, y: 19, layout: { ...original.layout, width: 112 } }
+    const list = [{ ...badges[0]!, placement: 'above' as const }, ...badges]
+    const bounds = nodeBadgeBounds(node, list, { tokens, outset: 4 })
+    expect(bounds.x).toBe(-37)
+    expect(bounds.y).toBe(-0.5)
+    expect(bounds.width).toBe(112)
+    expect(bounds.y + bounds.height).toBe(19 + node.layout.height + 19.5)
+    const shifted = nodeBadgeBounds({ ...node, x: 64, y: 72 }, list, { tokens, outset: 4 })
+    expect(shifted.x - bounds.x).toBe(101)
+    expect(shifted.y - bounds.y).toBe(53)
+    expect(shifted.width).toBe(bounds.width)
+    expect(shifted.height).toBe(bounds.height)
+  })
+
+  it('preserves chip rectangles unless tabs are explicitly selected', () => {
+    const list = [SUBGRAPH_BADGE, ...badges]
+    const entries = layoutNodeBadges(original, list, { tokens: defaultTokens })
+    expect(entries.map(({ x, y, width, height }) => ({ x, y, width, height })))
+      .toEqual(list.map((_, index) => badgeRect(original, index, list)))
+  })
+})
 
 describe('hitTestBadge', () => {
   const scene = sceneOf('exec-basic')
