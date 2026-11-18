@@ -2095,7 +2095,19 @@ describe('badge and toolbox paint on the live renderer', () => {
     }))
 
     expect(decorated.some((call) =>
-      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)`,
+      call.method === 'fillText' && call.args[0] === 'Sink decorated (...' && call.args.length === 3,
+    )).toBe(true)
+    const spacious = {
+      ...scene,
+      nodes: scene.nodes.map((node) => node.id === target.id
+        ? { ...node, layout: { ...node.layout, width: 280 } }
+        : node),
+    }
+    const fitting = paintWith(spacious, (renderer) => renderer.setNodeDecorations({
+      [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
+    }))
+    expect(fitting.some((call) =>
+      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)` && call.args.length === 3,
     )).toBe(true)
     expect(decorated.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
       .not.toEqual(baseline.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
@@ -2184,13 +2196,16 @@ describe('badge and toolbox paint on the live renderer', () => {
     }
 
     const leftmost = badgeRect(n, badges.length - 1, badges)
-    const title = calls.find((call) => call.method === 'fillText' && call.args[0] === n.layout.title)
-    expect(title?.args[3]).toBe(Math.max(0, leftmost.x - n.x - defaultTokens.padX - 4))
+    expect(leftmost.x).toBeLessThan(n.x + defaultTokens.padX)
+    const title = calls.find((call) => call.method === 'fillText' &&
+      call.args[1] === n.x + defaultTokens.padX && call.args[2] === n.y + n.layout.headerHeight / 2)
+    expect(title?.args).toEqual(['', n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
 
     const singleCalls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE] }))
     const singleRect = badgeRect(n, 0, [MUTED_BADGE])
     const singleTitle = singleCalls.find((call) => call.method === 'fillText' && call.args[0] === n.layout.title)
-    expect(singleTitle?.args[3]).toBe(singleRect.x - n.x - defaultTokens.padX - 4)
+    expect(singleTitle?.args).toEqual([n.layout.title, n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
+    expect(n.layout.title.length * 6).toBeLessThan(singleRect.x - n.x - defaultTokens.padX - 4)
   })
 
   it('paints mode badges with the active theme tokens', () => {

@@ -4,6 +4,50 @@ import {
   galleryWidgetInputs,
 } from '../../canvas/gallery/fixtures.js'
 
+test('Canvas waits for the bundled italic face before publishing title paint', async ({
+  page,
+}) => {
+  let release!: () => void
+  let requested!: () => void
+  const fontRequested = new Promise<void>((resolve) => {
+    requested = resolve
+  })
+  const fontReleased = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/NotoSans-Italic-*.woff2', async (route) => {
+    requested()
+    await fontReleased
+    await route.continue()
+  })
+  try {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto('/#canvas', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Node titles', exact: true }).click()
+    await fontRequested
+    const canvas = page.getByRole('img', {
+      name: 'titles in dark theme',
+      exact: true,
+    })
+    await expect(canvas).not.toHaveAttribute('data-ready', /.+/)
+    await page
+      .getByRole('button', { name: 'Node anatomy', exact: true })
+      .click()
+    const anatomy = page.getByRole('img', {
+      name: 'anatomy in dark theme',
+      exact: true,
+    })
+    await expect(anatomy).not.toHaveAttribute('data-ready', /.+/)
+    release()
+    await expect(anatomy).toHaveAttribute('data-ready', 'anatomy-dark')
+    await page.getByRole('button', { name: 'Node titles', exact: true }).click()
+    await expect(canvas).toHaveAttribute('data-ready', 'titles-dark')
+    await expect(canvas).toHaveScreenshot('titles-ellipsis-dark.png')
+  } finally {
+    release()
+  }
+})
+
 for (const theme of ['dark', 'light'] as const) {
   test(`Previous type colors stay isolated, ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
@@ -78,6 +122,11 @@ for (const theme of ['dark', 'light'] as const) {
           ).toHaveValue('quieter')
         }
         const titles = id === 'titles' || id === 'titles-content'
+        if (titles) {
+          await expect(
+            page.getByRole('combobox', { name: 'Title fitting' }),
+          ).toHaveValue('ellipsis')
+        }
         for (const look of id === 'idle-outline'
           ? ['previous', 'quieter']
           : titles
@@ -99,7 +148,7 @@ for (const theme of ['dark', 'light'] as const) {
           )
         }
         if (id === 'idle-outline' || titles) {
-          const look = titles ? 'ellipsis' : 'previous'
+          const look = titles ? 'squeeze' : 'previous'
           await page
             .getByRole('combobox', {
               name: titles ? 'Title fitting' : 'Outline look',
