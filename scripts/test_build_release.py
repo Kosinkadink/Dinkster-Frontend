@@ -26,6 +26,8 @@ class BuildReleaseTest(unittest.TestCase):
             for name in (
                 "account.html",
                 "authorization.html",
+                "about.html",
+                "about.js",
                 "account-view.js",
                 "authorization.js",
                 "manifest.json",
@@ -69,6 +71,8 @@ class BuildReleaseTest(unittest.TestCase):
             for name in (
                 "account.html",
                 "authorization.html",
+                "about.html",
+                "about.js",
                 "account-view.js",
                 "authorization.js",
                 "manifest.json",

@@ -36,6 +36,8 @@
     "pagePadding": 32,
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,
+    "aboutWordmarkMaxWidth": 360,
+    "macWindowControlsInset": 80,
     "iconSize": 16,
     "railIconSize": 20,
     "menuRowHeight": 28
