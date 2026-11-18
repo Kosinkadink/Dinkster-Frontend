@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 import { waitForStartupOwnership } from './fixtures.js'
 
 const backend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'

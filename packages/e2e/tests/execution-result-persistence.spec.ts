@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 
 const SOURCE_DIGEST = `blake3:${'d'.repeat(64)}`
 const CLIENT_ID = 'issue-347-client:local'

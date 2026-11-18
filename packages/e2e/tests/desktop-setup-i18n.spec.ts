@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 

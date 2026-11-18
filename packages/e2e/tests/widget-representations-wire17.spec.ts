@@ -3,7 +3,7 @@
  * the Playwright base directly to discover the deployed schema without
  * seeded editing documents.
  */
-import { expect, test as base, type Page } from '@playwright/test'
+import { expect, test as base, type Page } from '../visual.js'
 import { waitForStartupOwnership } from './fixtures.js'
 import { widgetDiagnostics } from './widget-diagnostics.js'
 

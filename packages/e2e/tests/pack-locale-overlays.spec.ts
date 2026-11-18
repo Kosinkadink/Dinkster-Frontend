@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 import { evidencePath } from './evidence-output.js'
 
 const EN_DIGEST = `sha256:${'a'.repeat(64)}`

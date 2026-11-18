@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 
 const nativeTable = {
   schemaVersion: 1,

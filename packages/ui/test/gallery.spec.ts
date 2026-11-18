@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '../../e2e/visual.js'
 import axe from 'axe-core'
 
 declare global {

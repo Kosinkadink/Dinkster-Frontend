@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 import { waitForStartupOwnership } from './fixtures.js'
 
 // Served-app proof for the subgraph Autogrow ghost-input defect: real

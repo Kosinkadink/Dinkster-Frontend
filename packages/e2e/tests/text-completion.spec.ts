@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '../visual.js'
 import { mkdirSync } from 'node:fs'
 
 const PROOF_DIR = process.env['DINKSTER_COMPLETION_PROOF_DIR'] ?? '/tmp/dinkster-31-after'

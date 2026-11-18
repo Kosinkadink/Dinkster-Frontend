@@ -1,0 +1,25 @@
+{
+  "name": "@dinkster/site",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -w build:ui && vite build && tsx build.ts",
+    "typecheck": "tsc --noEmit",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@dinkster/ui": "workspace:*",
+    "lucide-solid": "^1.25.0",
+    "solid-js": "^1.9.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.10.0",
+    "axe-core": "4.14.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}
