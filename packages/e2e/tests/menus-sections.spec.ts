@@ -335,7 +335,7 @@ test('multi-selection: right-click a selected node acts on the whole selection',
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '2')
 
   await page.mouse.click(...xy(await headerPoint(page, 'n0')), { button: 'right' })
-  await expect(menuItem(page, 'core.node.delete')).toContainText('Delete 2 Nodes')
+  await expect(menuItem(page, 'core.node.delete')).toContainText('Delete 2 nodes')
   await openSubmenu(page, 'core.node.mode')
   await menuItem(page, 'core.node.mode.bypassed').click()
   const doc = await activeDoc(page)
@@ -598,12 +598,12 @@ test('noodle into a collapsed section stays anchored on the header row', async (
 test('right-click on the section strip offers Collapse/Expand', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await sectionPoint(page, 's0', 'adv')), { button: 'right' })
-  await expect(menuItem(page, 'core.section.toggle')).toContainText('Collapse Section')
+  await expect(menuItem(page, 'core.section.toggle')).toContainText('Collapse section')
   await menuItem(page, 'core.section.toggle').click()
   expect((await sectionState(page, 's0')).viewSections).toEqual({ adv: { collapsed: true } })
 
   await page.mouse.click(...xy(await sectionPoint(page, 's0', 'adv')), { button: 'right' })
-  await expect(menuItem(page, 'core.section.toggle')).toContainText('Expand Section')
+  await expect(menuItem(page, 'core.section.toggle')).toContainText('Expand section')
   await page.keyboard.press('Escape')
 })
 
@@ -682,7 +682,7 @@ test('collapsed section carries hiddenModified; section reset clears it in ONE u
 test('node reset covers all widgets; hidden on nodes without resettable widgets', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await headerPoint(page, 's0')), { button: 'right' })
-  await expect(menuItem(page, 'core.node.reset')).toContainText('Reset All Widgets to Defaults')
+  await expect(menuItem(page, 'core.node.reset')).toContainText('Reset all widgets to defaults')
   await menuItem(page, 'core.node.reset').click()
   const doc = await activeDoc(page)
   expect(doc.graphs['g0']!.nodes['s0']!.values['w']).toBe(20)

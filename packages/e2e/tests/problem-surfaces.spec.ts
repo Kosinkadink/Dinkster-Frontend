@@ -250,7 +250,7 @@ test('the whole-document list navigates to a problem\'s owning context', async (
 
   const row = problemsPanel.locator('details.problem', { hasText: 'proof.targetSuspicious' })
   await row.locator('summary').click()
-  await row.getByRole('button', { name: 'Show in Focused' }).click()
+  await row.getByRole('button', { name: 'Show in focused' }).click()
 
   // The owner is focused on canvas and the Focused tab takes over, showing
   // exactly the owner's problems.

@@ -160,7 +160,7 @@ test('grouped forwarded disconnect compacts atomically and never recycles identi
   })
   await page.mouse.click(occurrenceHeader.x, occurrenceHeader.y, { button: 'right' })
   await expect(page.getByTestId('context-menu').locator('[data-item-id="core.node.compactDynamic"]'))
-    .toHaveText('Remove Unused Dynamic Inputs')
+    .toHaveText('Remove unused dynamic inputs')
   await page.keyboard.press('Escape')
 
   const persisted = await pinPoint(page, 'm0', false)

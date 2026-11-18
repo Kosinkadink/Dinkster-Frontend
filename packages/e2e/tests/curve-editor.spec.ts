@@ -328,7 +328,7 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
     [...window.__dinksterTest!.app.store.executions.get().values()].map((execution) => execution.ref.prompt))
   const evaluateHeader = await headerPoint(page, 'evaluate')
   await page.mouse.click(evaluateHeader.x, evaluateHeader.y, { button: 'right' })
-  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to Selection' }).click()
+  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' }).click()
   const newPrompt = (existing: readonly unknown[]) =>
     [...window.__dinksterTest!.app.store.executions.get().values()]
       .find((execution) => !existing.includes(execution.ref.prompt))?.ref.prompt
