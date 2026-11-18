@@ -1,6 +1,7 @@
 import {
   CORE_VIRTUAL_NODE_KINDS,
   coreVirtualNodeKind,
+  documentResolver,
   loadDocument,
   type NodeSchema,
 } from '@dinkster/core'
@@ -221,4 +222,115 @@ export function structuralGalleryScene(
     widgetMeasure,
     renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
   })
+}
+
+/** Explicit document names stage the ruled look without changing app derivation. */
+export function boundaryNamesGalleryScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  exactIds: boolean,
+) {
+  const inputs = [
+    'image',
+    'positive_prompt',
+    'masks_m4',
+    'cfgScale',
+    'named_input',
+  ]
+  const definition: NodeSchema = {
+    ...blur,
+    type: 'Boundary example',
+    displayName: 'Boundary example',
+    items: [
+      ...inputs.map((id) => ({
+        kind: 'input' as const,
+        id,
+        type: image,
+        optional: false,
+      })),
+      { kind: 'output', id: 'IMAGE', type: image },
+      { kind: 'output', id: 'refined_image', type: image },
+      {
+        kind: 'output',
+        id: 'preview',
+        type: image,
+        displayName: 'Chosen preview',
+      },
+    ],
+  }
+  const document = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery-boundary-names',
+    root: 'root',
+    graphs: {
+      root: {
+        id: 'root',
+        name: 'Root',
+        nextOrdinal: 2,
+        nodes: { instance: { id: 'instance', type: '#body', values: {} } },
+        links: {},
+        nets: {},
+        reroutes: {},
+      },
+      body: {
+        id: 'body',
+        name: 'Subgraph',
+        nextOrdinal: 2,
+        nodes: { inner: { id: 'inner', type: definition.type, values: {} } },
+        links: {},
+        nets: {},
+        reroutes: {},
+        boundary: {
+          inputs: inputs.map((id) => ({
+            id,
+            ...(id === 'named_input'
+              ? { displayName: 'Source image' }
+              : exactIds
+                ? { displayName: id }
+                : {}),
+            binds: { kind: 'port', node: 'inner', port: id },
+          })),
+          outputs: [
+            {
+              id: 'result',
+              ...(exactIds ? { displayName: 'IMAGE' } : {}),
+              binds: { kind: 'port', node: 'inner', port: 'IMAGE' },
+            },
+            {
+              id: 'refined_image',
+              ...(exactIds ? { displayName: 'refined_image' } : {}),
+              binds: { kind: 'port', node: 'inner', port: 'refined_image' },
+            },
+            {
+              id: 'preview',
+              displayName: 'Chosen preview',
+              binds: { kind: 'port', node: 'inner', port: 'preview' },
+            },
+          ],
+        },
+      },
+    },
+    view: {
+      graphs: {
+        root: { nodes: { instance: { position: { x: 360, y: 370 } } } },
+        body: {
+          nodes: { inner: { position: { x: 360, y: 80 } } },
+          boundary: {
+            inputs: { position: { x: 24, y: 80 } },
+            outputs: { position: { x: 720, y: 80 } },
+          },
+        },
+      },
+    },
+  }).document
+  if (!document) throw new Error('Invalid boundary naming gallery document')
+  const resolve = documentResolver(document, (type) =>
+    type === definition.type ? definition : undefined,
+  )
+  const sceneInput = { document, resolve, tokens, measure, widgetMeasure }
+  const inside = buildScene({ ...sceneInput, graphId: 'body' })
+  const outside = buildScene({ ...sceneInput, graphId: 'root' })
+  return { ...inside, nodes: [...inside.nodes, ...outside.nodes] }
 }

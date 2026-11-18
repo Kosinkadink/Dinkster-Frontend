@@ -42,6 +42,9 @@ export function CanvasGallery() {
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
+  const [boundaryNames, setBoundaryNames] = createSignal<'current' | 'ids'>(
+    'ids',
+  )
   const [tabLook, setTabLook] = createSignal<'tabs' | 'chips'>('tabs')
   const [tabSize, setTabSize] = createSignal(defaultTokens.badgeTab)
   const [badgeDetails, setBadgeDetails] = createSignal<BadgeHit>()
@@ -56,6 +59,7 @@ export function CanvasGallery() {
     const currentOutline = outline()
     const currentTypeLook = typeLook()
     const currentTitleLook = titleLook()
+    const currentBoundaryNames = boundaryNames()
     const currentTabLook = tabLook()
     const currentTabSize = tabSize()
     const tabsPage = currentPage === 'tabs' || currentPage === 'tabs-content'
@@ -114,6 +118,7 @@ export function CanvasGallery() {
         measure,
         widgetMeasure,
         galleryWidgetInputs.find((input) => input.id === currentWidget)!,
+        currentBoundaryNames,
       )
       canvas.style.width = `${fixture.width}px`
       canvas.style.height = `${fixture.height}px`
@@ -258,6 +263,7 @@ export function CanvasGallery() {
       canvas.dataset.outline = currentOutline
       canvas.dataset.typeLook = currentTypeLook
       canvas.dataset.titleLook = currentTitleLook
+      canvas.dataset.boundaryNames = currentBoundaryNames
       canvas.dataset.tabLook = currentTabLook
       canvas.dataset.tabSize = `${currentTabSize.height}-${currentTabSize.fontSize}-${currentTabSize.inset}`
     })
@@ -317,6 +323,28 @@ export function CanvasGallery() {
           The app uses the quieter idle outline from the shared subtle border.
           Compare it with the previous outline. Hover and selection paint stay
           unchanged.
+        </p>
+      </Show>
+      <Show when={page() === 'boundary-names'}>
+        <ProductField label="Boundary names">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={boundaryNames()}
+              onChange={(event) =>
+                setBoundaryNames(event.currentTarget.value as 'current' | 'ids')
+              }
+            >
+              <option value="ids">Ids as written (gallery only)</option>
+              <option value="current">Generated names (current)</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Compare exact ids with current generated names inside a subgraph and
+          on its collapsed occurrence. Custom display names stay unchanged;
+          unnamed outputs retain their capitalized data type. Only this gallery
+          document stages the new names. App naming is unchanged.
         </p>
       </Show>
       <Show when={page() === 'types'}>
