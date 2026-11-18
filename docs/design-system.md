@@ -654,6 +654,16 @@ semantic paint roles and the fixed `canvasPaintTokens` geometry. Existing
 geometry exports are aliases consumed by both drawing and hit testing;
 changing their source cannot leave an independent pointer target behind.
 
+`pnpm check:canvas-literals` checks canvas source and the app's canvas preview,
+host and minimap consumers using the TypeScript AST. Fixed paint colors,
+sizes, opacity, font sizes and dash arrays belong in the canvas token file,
+not context assignments, drawing arguments or named geometry declarations.
+Constant aliases, including imports, do not hide their literal initializers.
+The check runs in fast CI and before the app production build. Coordinate
+origins, count/unit arithmetic, normalized clamps and fully opaque context
+resets are not designed dimensions; protocol and gesture policy remain outside
+paint ownership. A measured hex-value label is text, not a paint color.
+
 ### Extension descriptors
 
 Extensions never receive canvas, DOM, CSS, theme, app-store, socket, network,

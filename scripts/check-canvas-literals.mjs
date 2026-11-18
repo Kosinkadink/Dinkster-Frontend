@@ -1,0 +1,296 @@
+import { readdir } from 'node:fs/promises'
+import { dirname, relative, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import ts from 'typescript'
+
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const tokenFile = resolve(repository, 'packages/canvas/src/tokens.ts')
+const geometry =
+  /(?:width|height|size|radius|inset|padding|gap|stroke|offset|margin|spacing|overhang|clearance|opacity|alpha|dash|fontWeight|scaleFloor)/iu
+const colorLiteral =
+  /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\s*\(/iu
+const paintProperties = new Map([
+  ['fillStyle', 'color'],
+  ['strokeStyle', 'color'],
+  ['shadowColor', 'color'],
+  ['lineWidth', 'size'],
+  ['shadowBlur', 'size'],
+  ['shadowOffsetX', 'size'],
+  ['shadowOffsetY', 'size'],
+  ['lineDashOffset', 'size'],
+  ['globalAlpha', 'opacity'],
+  ['font', 'font'],
+])
+const callArguments = new Map([
+  ['arc', [0, 1, 2]],
+  ['arcTo', [0, 1, 2, 3, 4]],
+  ['ellipse', [0, 1, 2, 3]],
+  ['rect', [0, 1, 2, 3]],
+  ['roundRect', [0, 1, 2, 3, 4]],
+  ['fillRect', [0, 1, 2, 3]],
+  ['strokeRect', [0, 1, 2, 3]],
+  ['moveTo', [0, 1]],
+  ['lineTo', [0, 1]],
+  ['bezierCurveTo', [0, 1, 2, 3, 4, 5]],
+  ['quadraticCurveTo', [0, 1, 2, 3]],
+  ['fillText', [1, 2, 3]],
+  ['strokeText', [1, 2, 3]],
+])
+const memberName = (node) =>
+  ts.isPropertyAccessExpression(node)
+    ? node.name.text
+    : ts.isElementAccessExpression(node) &&
+        ts.isStringLiteralLike(node.argumentExpression)
+      ? node.argumentExpression.text
+      : undefined
+
+export async function checkCanvasLiterals(args = []) {
+  const roots = []
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== '--source' || !args[index + 1])
+      throw new Error(
+        'Usage: check-canvas-literals.mjs [--source <directory>]...',
+      )
+    roots.push(resolve(args[++index]))
+  }
+  if (!roots.length)
+    roots.push(
+      resolve(repository, 'packages/canvas/src'),
+      ...[
+        'CanvasHost.tsx',
+        'palette-node-preview.ts',
+        'AppWidgetPreview.tsx',
+        'minimap.ts',
+      ].map((file) => resolve(repository, 'packages/app/src', file)),
+    )
+  const files = []
+  async function collect(path) {
+    if (/\.[cm]?[jt]sx?$/u.test(path)) files.push(path)
+    else
+      for (const entry of await readdir(path, { withFileTypes: true })) {
+        if (['node_modules', 'dist', '.git'].includes(entry.name)) continue
+        if (entry.isDirectory() || /\.[cm]?[jt]sx?$/u.test(entry.name))
+          await collect(resolve(path, entry.name))
+      }
+  }
+  for (const root of roots) await collect(root)
+  const program = ts.createProgram(files, {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    jsx: ts.JsxEmit.Preserve,
+    allowJs: true,
+  })
+  const checker = program.getTypeChecker()
+  const problems = new Set()
+  const report = (node, kind) => {
+    const source = node.getSourceFile()
+    const { line, character } = source.getLineAndCharacterOfPosition(
+      node.getStart(),
+    )
+    problems.add(
+      `${relative(repository, source.fileName)}:${line + 1}:${character + 1}: Literal canvas ${kind}; use packages/canvas/src/tokens.ts`,
+    )
+  }
+  const inspect = (node, kind, seen = new Set()) => {
+    if (!node || node.getSourceFile().fileName === tokenFile || seen.has(node))
+      return
+    seen.add(node)
+    if (ts.isNumericLiteral(node)) {
+      // Zero is a coordinate origin/empty extent, not a designed dimension.
+      if (kind !== 'size' || Number(node.text) !== 0) report(node, kind)
+      return
+    }
+    if (ts.isStringLiteralLike(node)) {
+      if (
+        kind === 'color' ||
+        (kind === 'font' &&
+          /\d+(?:\.\d+)?(?:px|pt|em|rem)\b|^\s*[1-9]\d{2}\s/u.test(node.text))
+      )
+        report(node, kind)
+      return
+    }
+    if (ts.isConditionalExpression(node)) {
+      for (const branch of [node.whenTrue, node.whenFalse]) {
+        if (ts.isNumericLiteral(branch) && branch.text === '1') continue
+        inspect(branch, kind, seen)
+      }
+      return
+    }
+    if (ts.isBinaryExpression(node)) {
+      const operator = node.operatorToken.kind
+      // Halves, diameters and unit increments describe coordinate/count math.
+      if (ts.isNumericLiteral(node.left) && ts.isNumericLiteral(node.right)) {
+        inspect(node.left, kind, seen)
+        inspect(node.right, kind, seen)
+        return
+      }
+      const arithmetic = [
+        ts.SyntaxKind.AsteriskToken,
+        ts.SyntaxKind.SlashToken,
+        ts.SyntaxKind.PlusToken,
+        ts.SyntaxKind.MinusToken,
+      ].includes(operator)
+      for (const operand of [node.left, node.right]) {
+        if (
+          operator === ts.SyntaxKind.QuestionQuestionToken &&
+          operand === node.right &&
+          ts.isNumericLiteral(operand) &&
+          operand.text === '1'
+        )
+          continue
+        if (
+          kind === 'opacity' &&
+          arithmetic &&
+          ts.isNumericLiteral(operand) &&
+          [1, 2].includes(Number(operand.text))
+        )
+          continue
+        if (
+          kind === 'size' &&
+          arithmetic &&
+          ts.isNumericLiteral(operand) &&
+          [0, 1, 2, 0.5].includes(Number(operand.text))
+        )
+          continue
+        inspect(operand, kind, seen)
+      }
+      return
+    }
+    if (
+      ts.isIdentifier(node) ||
+      ts.isPropertyAccessExpression(node) ||
+      ts.isElementAccessExpression(node)
+    ) {
+      let symbol = checker.getSymbolAtLocation(
+        ts.isPropertyAccessExpression(node) ? node.name : node,
+      )
+      if (symbol?.flags & ts.SymbolFlags.Alias)
+        symbol = checker.getAliasedSymbol(symbol)
+      for (const declaration of symbol?.declarations ?? []) {
+        if (declaration.initializer)
+          inspect(declaration.initializer, kind, seen)
+      }
+      return
+    }
+    if (ts.isCallExpression(node)) {
+      const method = memberName(node.expression)
+      if (['at', 'slice', 'substring'].includes(method)) return
+      for (const argument of node.arguments) {
+        if (
+          ['max', 'min'].includes(method) &&
+          ts.isNumericLiteral(argument) &&
+          argument.text === '1'
+        )
+          continue
+        inspect(argument, ['sin', 'cos'].includes(method) ? 'size' : kind, seen)
+      }
+      return
+    }
+    if (ts.isTemplateExpression(node)) {
+      if (
+        kind === 'font' &&
+        [
+          node.head.text,
+          ...node.templateSpans.map((span) => span.literal.text),
+        ].some((text) =>
+          /\d+(?:\.\d+)?(?:px|pt|em|rem)\b|^\s*[1-9]\d{2}\s/u.test(text),
+        )
+      )
+        report(node, kind)
+      for (const span of node.templateSpans)
+        inspect(span.expression, kind, seen)
+      return
+    }
+    ts.forEachChild(node, (child) => inspect(child, kind, seen))
+  }
+  for (const file of files) {
+    if (file === tokenFile) continue
+    const source = program.getSourceFile(file)
+    const geometrySource =
+      args.length > 0 ||
+      file.startsWith(resolve(repository, 'packages/canvas/src') + '/')
+    const visit = (node) => {
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      ) {
+        const name = memberName(node.left)
+        const kind = paintProperties.get(name)
+        if (kind) {
+          // Canvas painters restore the context to fully opaque after dimming.
+          if (
+            !(
+              name === 'globalAlpha' &&
+              ts.isNumericLiteral(node.right) &&
+              node.right.text === '1'
+            )
+          )
+            inspect(node.right, kind)
+        }
+      }
+      if (ts.isCallExpression(node)) {
+        const name = memberName(node.expression)
+        if (name === 'setLineDash') inspect(node.arguments[0], 'dash')
+        else
+          for (const index of callArguments.get(name) ?? [])
+            inspect(node.arguments[index], 'size')
+      }
+      if (ts.isPropertyAssignment(node)) {
+        const name = node.name.getText(source).replace(/^['"]|['"]$/gu, '')
+        const kind =
+          paintProperties.get(name) ??
+          (name === 'color' && geometrySource ? 'color' : undefined)
+        if (kind) inspect(node.initializer, kind)
+      }
+      if (
+        geometrySource &&
+        (ts.isVariableDeclaration(node) ||
+          ts.isPropertyAssignment(node) ||
+          ts.isPropertyDeclaration(node) ||
+          ts.isParameter(node)) &&
+        node.initializer
+      ) {
+        const name = node.name.getText(source)
+        if (geometry.test(name))
+          inspect(
+            node.initializer,
+            /opacity|alpha/iu.test(name)
+              ? 'opacity'
+              : /dash/iu.test(name)
+                ? 'dash'
+                : 'size',
+          )
+      }
+      if (ts.isStringLiteralLike(node) && colorLiteral.test(node.text)) {
+        // This measures a displayed hex value, not a paint color.
+        const parent = node.parent
+        if (
+          !(
+            ts.isCallExpression(parent) &&
+            ts.isIdentifier(parent.expression) &&
+            parent.expression.text === 'measureWidth' &&
+            parent.arguments[1] === node
+          )
+        )
+          report(node, 'color')
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  if (problems.size) throw new Error([...problems].sort().join('\n'))
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  try {
+    await checkCanvasLiterals(process.argv.slice(2))
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  }
+}
