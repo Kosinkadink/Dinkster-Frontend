@@ -333,6 +333,8 @@ interface DinksterTestBridge {
     }
     menuRegistry: import('@dinkster/core').MenuRegistry
     flushPersistTabs(forceStage?: boolean): void
+    graphViewport(tabId: string, graphId: string): { x: number; y: number; scale: number } | undefined
+    setGraphViewport(tabId: string, graphId: string, viewport: { x: number; y: number; scale: number }): void
     confirmStartupOwnership(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
