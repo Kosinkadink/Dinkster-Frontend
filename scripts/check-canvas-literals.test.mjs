@@ -36,6 +36,16 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
         'const entries = [paint.pin.outlineStroke]',
         'ctx[key] = make()',
         'ctx.lineWidth = entries.at(0)',
+        'const [, arrayToken] = [7.25, paint.pin.outlineStroke]',
+        'const { value: objectToken } = { unrelated: 7.25, value: paint.pin.outlineStroke }',
+        'const { pin: { outlineStroke } } = paint',
+        'const [defaultToken = paint.pin.outlineStroke] = []',
+        'ctx.lineWidth = arrayToken',
+        'ctx.lineWidth = objectToken',
+        'ctx.lineWidth = outlineStroke',
+        'ctx.lineWidth = defaultToken',
+        'const [, ...tokenDashes] = [7.25, ...paint.dash.anyPin]',
+        'ctx.setLineDash(tokenDashes)',
         'ctx.lineWidth = paint.pin.outlineStroke',
         'ctx.fillStyle = theme.colors.nodeBody',
         'ctx.globalAlpha = paint.overlay.marqueeOpacity',
@@ -50,6 +60,45 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
     const accepted = run()
     assert.equal(accepted.status, 0, accepted.stderr)
     for (const [plant, kind] of [
+      ['const [literal] = [7.25]; ctx.lineWidth = literal', 'size'],
+      [
+        'const { value: literal } = { get value() { return 7.25 } }; ctx.lineWidth = literal',
+        'size',
+      ],
+      [
+        'const value = 7.25; const { value: literal } = { value }; ctx.lineWidth = literal',
+        'size',
+      ],
+      [
+        'const make = () => [7.25]; const [literal] = make(); ctx.lineWidth = literal',
+        'size',
+      ],
+      [
+        'const [literal] = flag ? [7.25] : [0]; ctx.lineWidth = literal',
+        'size',
+      ],
+      ['const [...literal] = [...[3, 8]]; ctx.setLineDash(literal)', 'dash'],
+      [
+        "const { value: literal } = { value: 'red' }; ctx.fillStyle = literal",
+        'color',
+      ],
+      ['const [[literal]] = [[0.35]]; ctx.globalAlpha = literal', 'opacity'],
+      ['const [literal] = [[3, 8]]; ctx.setLineDash(literal)', 'dash'],
+      ['const [literal = 7.25] = []; ctx.lineWidth = literal', 'size'],
+      ['const [, ...literal] = [0, 3, 8]; ctx.setLineDash(literal)', 'dash'],
+      [
+        'const data = [0, 7.25]; const [, literal] = data; ctx.lineWidth = literal',
+        'size',
+      ],
+      [
+        'const { nested: { value: literal } } = { nested: { value: 7.25 } }; ctx.lineWidth = literal',
+        'size',
+      ],
+      [
+        'const data = { value: 7.25 }; const { value: literal } = data; ctx.lineWidth = literal',
+        'size',
+      ],
+      ["const [key] = ['lineWidth']; ctx[key] = 7.25", 'size'],
       ["const paint = '#abc'", 'color'],
       ["ctx['strokeStyle'] = 'rebeccapurple'", 'color'],
       ["const badge = { color: 'rebeccapurple' }", 'color'],

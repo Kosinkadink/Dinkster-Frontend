@@ -658,9 +658,10 @@ changing their source cannot leave an independent pointer target behind.
 host and minimap consumers using the TypeScript AST. Fixed paint colors,
 sizes, opacity, font sizes and dash arrays belong in the canvas token file,
 not context assignments, drawing arguments or named geometry declarations.
-Constant aliases, including imports, helper returns and array lookups, do not
-hide literal paint values. Computed property names are resolved before checking
-context writes.
+Constant aliases, including imports, helper returns, array lookups and
+array/object destructuring, do not hide literal paint values. Destructured
+bindings follow their selected source values and defaults. Computed property
+names are resolved before checking context writes.
 The check runs in fast CI and before the app production build. Coordinate
 origins, count/unit arithmetic, normalized clamps and fully opaque context
 resets are not designed dimensions; protocol and gesture policy remain outside

@@ -84,6 +84,11 @@ export async function checkCanvasLiterals(args = []) {
       if (name !== undefined)
         symbol = checker.getTypeAtLocation(node.expression).getProperty(name)
     }
+    const shorthand = symbol?.declarations?.find(
+      ts.isShorthandPropertyAssignment,
+    )
+    if (shorthand)
+      symbol = checker.getShorthandAssignmentValueSymbol(shorthand) ?? symbol
     if (symbol?.flags & ts.SymbolFlags.Alias)
       symbol = checker.getAliasedSymbol(symbol)
     return symbol?.declarations ?? []
@@ -99,6 +104,91 @@ export async function checkCanvasLiterals(args = []) {
     }
     visit(node.body)
     return expressions
+  }
+  const bindingValues = (binding, seen = new Set()) => {
+    if (seen.has(binding)) return []
+    seen.add(binding)
+    const pattern = binding.parent
+    const owner = pattern.parent
+    const sources = ts.isBindingElement(owner)
+      ? bindingValues(owner, seen)
+      : owner.initializer
+        ? [owner.initializer]
+        : []
+    const index = pattern.elements.indexOf(binding)
+    const key = ts.isArrayBindingPattern(pattern)
+      ? String(index)
+      : binding.propertyName
+        ? ts.isComputedPropertyName(binding.propertyName)
+          ? staticText(binding.propertyName.expression)
+          : binding.propertyName.text
+        : binding.name.text
+    const select = (source, visited = new Set()) => {
+      if (!source || visited.has(source)) return []
+      visited.add(source)
+      if (
+        ts.isParenthesizedExpression(source) ||
+        ts.isAsExpression(source) ||
+        ts.isNonNullExpression(source) ||
+        ts.isSatisfiesExpression(source)
+      )
+        return select(source.expression, visited)
+      if (ts.isConditionalExpression(source))
+        return [source.whenTrue, source.whenFalse].flatMap((branch) =>
+          select(branch, new Set(visited)),
+        )
+      if (ts.isCallExpression(source)) {
+        const returned = declarationsOf(source.expression).flatMap(
+          (declaration) =>
+            returnExpressions(declaration.initializer ?? declaration),
+        )
+        return returned.length
+          ? returned.flatMap((value) => select(value, new Set(visited)))
+          : [source]
+      }
+      if (ts.isArrayLiteralExpression(source)) {
+        // A preceding spread makes the selected runtime index uncertain.
+        if (
+          source.elements
+            .slice(0, index + (binding.dotDotDotToken ? 0 : 1))
+            .some(ts.isSpreadElement)
+        )
+          return [...source.elements]
+        return binding.dotDotDotToken
+          ? source.elements.slice(index)
+          : source.elements[index] &&
+              !ts.isOmittedExpression(source.elements[index])
+            ? [source.elements[index]]
+            : []
+      }
+      if (source.getSourceFile().fileName === tokenFile) return []
+      if (binding.dotDotDotToken) return [source]
+      if (key === undefined) return [source]
+      const property = checker.getTypeAtLocation(source).getProperty(key)
+      if (property)
+        return (property.declarations ?? []).flatMap((declaration) =>
+          ts.isShorthandPropertyAssignment(declaration)
+            ? [declaration.name]
+            : declaration.initializer
+              ? [declaration.initializer]
+              : ts.isFunctionLike(declaration)
+                ? returnExpressions(declaration)
+                : [],
+        )
+      return declarationsOf(source).flatMap((declaration) =>
+        declaration.initializer
+          ? select(declaration.initializer, visited)
+          : ts.isBindingElement(declaration)
+            ? bindingValues(declaration, seen).flatMap((value) =>
+                select(value, visited),
+              )
+            : [],
+      )
+    }
+    return [
+      ...sources.flatMap((source) => select(source)),
+      ...(binding.initializer ? [binding.initializer] : []),
+    ]
   }
   const staticText = (node, seen = new Set()) => {
     if (!node || seen.has(node)) return undefined
@@ -132,8 +222,15 @@ export async function checkCanvasLiterals(args = []) {
     }
     if (ts.isIdentifier(node)) {
       for (const declaration of declarationsOf(node)) {
-        if (declaration.initializer)
-          return staticText(declaration.initializer, seen)
+        const values = ts.isBindingElement(declaration)
+          ? bindingValues(declaration)
+          : declaration.initializer
+            ? [declaration.initializer]
+            : []
+        for (const value of values) {
+          const text = staticText(value, new Set(seen))
+          if (text !== undefined) return text
+        }
       }
     }
     if (ts.isCallExpression(node)) {
@@ -242,7 +339,10 @@ export async function checkCanvasLiterals(args = []) {
     ) {
       const declarations = declarationsOf(node)
       for (const declaration of declarations) {
-        if (declaration.initializer)
+        if (ts.isBindingElement(declaration)) {
+          for (const value of bindingValues(declaration))
+            inspect(value, kind, seen)
+        } else if (declaration.initializer)
           inspect(declaration.initializer, kind, seen)
         else if (ts.isFunctionLike(declaration))
           inspect(declaration, kind, seen)
@@ -348,19 +448,26 @@ export async function checkCanvasLiterals(args = []) {
         (ts.isVariableDeclaration(node) ||
           ts.isPropertyAssignment(node) ||
           ts.isPropertyDeclaration(node) ||
-          ts.isParameter(node)) &&
-        node.initializer
+          ts.isParameter(node) ||
+          ts.isBindingElement(node)) &&
+        !ts.isArrayBindingPattern(node.name) &&
+        !ts.isObjectBindingPattern(node.name)
       ) {
         const name = node.name.getText(source)
         if (geometry.test(name))
-          inspect(
-            node.initializer,
-            /opacity|alpha/iu.test(name)
-              ? 'opacity'
-              : /dash/iu.test(name)
-                ? 'dash'
-                : 'size',
-          )
+          for (const value of ts.isBindingElement(node)
+            ? bindingValues(node)
+            : node.initializer
+              ? [node.initializer]
+              : [])
+            inspect(
+              value,
+              /opacity|alpha/iu.test(name)
+                ? 'opacity'
+                : /dash/iu.test(name)
+                  ? 'dash'
+                  : 'size',
+            )
       }
       if (ts.isStringLiteralLike(node) && colorLiteral.test(node.text)) {
         // This measures a displayed hex value, not a paint color.
