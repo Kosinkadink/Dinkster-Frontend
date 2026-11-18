@@ -150,6 +150,45 @@ describe('open-tab persistence', () => {
       .toContain('late-workspace-admission')
   })
 
+  it('keeps unchanged local ownership after a peer replaces the canonical stage', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const receipts = new Map<string, RetainedAssets>()
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(Object.values(app.retentionActivity())
+      .some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    const journals = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.')).sort()
+      .map((key) => [key, localStorage.getItem(key)])
+    const settled = journals()
+    const owners = [...receipts]
+    const peer = JSON.parse(localStorage.getItem(TABS_KEY)!)
+    peer.assetRetention.stageId = 'peer-canonical-stage'
+    peer.assetRetention.owners = peer.assetRetention.owners.map((owner: { retained: RetainedAssets }) => ({
+      ...owner, retained: { ...owner.retained, ownerId: 'workflow-candidate:peer' },
+    }))
+    localStorage.setItem(TABS_KEY, JSON.stringify(peer))
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(journals()).toEqual(settled)
+    expect([...receipts]).toEqual(owners)
+  })
+
   it('persists camera and scroll changes without validating, serializing or checksumming workflows', async () => {
     const first = createEditableApp()
     await vi.advanceTimersByTimeAsync(1000)
