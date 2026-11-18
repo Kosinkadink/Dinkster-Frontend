@@ -11,7 +11,7 @@ if (styles.length !== 1)
 const manifest: Manifest = JSON.parse(
   await readFile(new URL('.vite/manifest.json', dist), 'utf8'),
 )
-function modulePreloads(entry: string) {
+function modulePreloads(entry: string, prefix = '/site/') {
   const files = new Set<string>()
   function collect(key: string) {
     const chunk = manifest[key]!
@@ -21,7 +21,7 @@ function modulePreloads(entry: string) {
   }
   collect(entry)
   return [...files]
-    .map((file) => `<link rel="modulepreload" href="/site/${file}">`)
+    .map((file) => `<link rel="modulepreload" href="${prefix}${file}">`)
     .join('')
 }
 await rm(new URL('.vite/', dist), { recursive: true })
@@ -33,6 +33,10 @@ await writeFile(
 await writeFile(
   new URL('authorization.html', dist),
   `${head}${modulePreloads('src/authorization.tsx')}<title>Authorize application | Dinkster</title><meta name="authorization-config" content="__AUTHORIZATION_CONFIG__"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="authorization-root"></div><script type="module" src="/site/authorization.js"></script></body></html>\n`,
+)
+await writeFile(
+  new URL('about.html', dist),
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="./assets/${styles[0]}">${modulePreloads('src/about.tsx', './')}<title>Dinkster Desktop</title></head><body class="dinkster-root"><div id="about-root"></div><script type="module" src="./about.js"></script></body></html>\n`,
 )
 const files: Record<string, string> = {}
 async function collect(directory: URL, prefix = '') {
