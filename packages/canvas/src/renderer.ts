@@ -925,8 +925,8 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
-  setColors(colors: DesignTokens['colors']): void {
-    this.tokens = { ...this.tokens, colors }
+  setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
+    this.tokens = { ...this.tokens, ...typePaint, colors }
     this.previewChecker = undefined
     this.invalidate()
   }

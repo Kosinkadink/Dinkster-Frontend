@@ -581,6 +581,34 @@ export interface DesignTokens {
   readonly progressBar: string
 }
 
+export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'> = {
+  typeColors: {
+    CLIP: '#FFD500',
+    CLIP_VISION: '#A8DADC',
+    CLIP_VISION_OUTPUT: '#ad7452',
+    CONDITIONING: '#FFA931',
+    CONTROL_NET: '#6EE7B7',
+    IMAGE: '#64B5F6',
+    LATENT: '#FF9CF9',
+    MASK: '#81C784',
+    MODEL: '#B39DDB',
+    STYLE_MODEL: '#C2FFAE',
+    VAE: '#FF6E6E',
+    NOISE: '#B0B0B0',
+    GUIDER: '#66FFFF',
+    SAMPLER: '#ECB4B4',
+    SIGMAS: '#CDFFCD',
+    TAESD: '#DCC274',
+    STRING: '#2E7D32',
+    INT: '#7B1FA2',
+    FLOAT: '#00838F',
+    BOOLEAN: '#C2185B',
+    COMBO: '#5D4037',
+    AUDIO: '#1565C0',
+  },
+  typeFallbackLightness: 62,
+}
+
 export const defaultTokens: DesignTokens = {
   rowHeight: 24,
   headerHeight: 28,
@@ -611,31 +639,7 @@ export const defaultTokens: DesignTokens = {
     scrollbarInset: 2,
   },
   colors: canvasColorsForTheme('dark'),
-  typeColors: {
-    CLIP: '#FFD500',
-    CLIP_VISION: '#A8DADC',
-    CLIP_VISION_OUTPUT: '#ad7452',
-    CONDITIONING: '#FFA931',
-    CONTROL_NET: '#6EE7B7',
-    IMAGE: '#64B5F6',
-    LATENT: '#FF9CF9',
-    MASK: '#81C784',
-    MODEL: '#B39DDB',
-    STYLE_MODEL: '#C2FFAE',
-    VAE: '#FF6E6E',
-    NOISE: '#B0B0B0',
-    GUIDER: '#66FFFF',
-    SAMPLER: '#ECB4B4',
-    SIGMAS: '#CDFFCD',
-    TAESD: '#DCC274',
-    STRING: '#2E7D32',
-    INT: '#7B1FA2',
-    FLOAT: '#00838F',
-    BOOLEAN: '#C2185B',
-    'COMBO': '#5D4037',
-    AUDIO: '#1565C0',
-  },
-  typeFallbackLightness: 62,
+  ...canvasTypePaintForTheme('dark'),
   stateColors: {
     pending: '#5c5c5c',
     running: canvasSemanticTokens.meaning.info.border,
@@ -652,7 +656,7 @@ export const defaultTokens: DesignTokens = {
 export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'> {
   return {
     typeColors: {
-      ...defaultTokens.typeColors,
+      ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
         STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
       } : {

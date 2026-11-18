@@ -15,7 +15,9 @@ export function SchemaPreview(props: { readonly schema: NodeSchema; readonly wid
   onMount(() => {
     const observer = new ResizeObserver(paint)
     if (canvas.parentElement) observer.observe(canvas.parentElement)
-    onCleanup(() => observer.disconnect())
+    const themeObserver = new MutationObserver(paint)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    onCleanup(() => { observer.disconnect(); themeObserver.disconnect() })
   })
   return <>
     <canvas ref={canvas} class="palette-node-preview" data-testid="search-node-preview" role="img" aria-label={message('palette.preview.aria', { name: props.schema.displayName })} />

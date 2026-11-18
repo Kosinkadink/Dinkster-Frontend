@@ -657,11 +657,12 @@ on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's
 `nodeIdleOutline` role to retain the former strong-border comparison.
 
-The Pins and links page compares Current colors with Contrast-adjusted colors.
-The adjusted named palette keeps each hue and meets 3:1 against that theme's node
-body; colors already meeting the threshold remain unchanged. Unknown types keep
-their stable hashed hue with theme-specific lightness. The selector changes only
-this gallery page, not app defaults or other gallery pages.
+The app canvas and gallery use contrast-adjusted type colors in both themes.
+The named palette keeps each hue and meets 3:1 against that theme's node body;
+colors already meeting the threshold remain unchanged. Unknown types keep their
+stable hashed hue with theme-specific lightness. Live app theme changes update
+chrome and type paint together. The Pins and links page retains Previous colors
+as a page-only comparison; it cannot change app defaults or other gallery pages.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
