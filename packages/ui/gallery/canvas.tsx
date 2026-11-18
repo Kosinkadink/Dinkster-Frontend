@@ -8,6 +8,7 @@ import {
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
+  previousCanvasTypePaint,
   drawMinimap,
   type TextMeasurer,
   type WidgetMeasure,
@@ -54,9 +55,9 @@ export function CanvasGallery() {
       const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
         ...defaultTokens,
-        ...(currentPage === 'types' && currentTypeLook === 'contrast'
-          ? canvasTypePaintForTheme(currentTheme)
-          : {}),
+        ...(currentPage === 'types' && currentTypeLook === 'previous'
+          ? previousCanvasTypePaint
+          : canvasTypePaintForTheme(currentTheme)),
         colors: {
           ...colors,
           ...(currentPage === 'idle-outline' && currentOutline === 'previous'
@@ -244,15 +245,15 @@ export function CanvasGallery() {
               value={typeLook()}
               onChange={(event) => setTypeLook(event.currentTarget.value)}
             >
-              <option value="current">Current colors</option>
-              <option value="contrast">Contrast-adjusted colors</option>
+              <option value="current">Contrast-adjusted colors (current)</option>
+              <option value="previous">Previous colors</option>
             </ProductSelect>
           )}
         </ProductField>
         <p class="dinkster-description">
-          Compare the current palette with theme-specific colors that keep each
-          type's hue and reach at least 3:1 contrast against the node body. This
-          comparison does not change app colors or other gallery pages.
+          Current type colors keep each type's hue and reach at least 3:1 contrast
+          against the node body. Previous colors overrides only this comparison;
+          app colors and other gallery pages keep the current palette.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>

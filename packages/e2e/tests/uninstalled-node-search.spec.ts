@@ -43,6 +43,19 @@ test('uninstalled search renders the same real preview as installed search and n
   const preview = page.getByTestId('search-node-preview')
   await expect(preview).toHaveAttribute('data-preview-ready', 'image.catalog')
   const uninstalledPixels = await preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'light' })
+  await expect.poll(() => preview.evaluate((element) => {
+    const canvas = element as HTMLCanvasElement
+    const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] === 79 && pixels[i + 1] === 142 && pixels[i + 2] === 193 && pixels[i + 3] === 255) return true
+    }
+    return false
+  })).toBe(true)
+  const uninstalledLightPixels = await preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
+  expect(uninstalledLightPixels).not.toBe(uninstalledPixels)
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'dark' })
+  await expect.poll(() => preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(uninstalledPixels)
   const proof = process.env['DINKSTER_SEARCH_PROOF_DIR']
   if (proof) { mkdirSync(proof, { recursive: true }); await page.screenshot({ path: join(proof, 'uninstalled-search.png') }) }
   await row.click()
@@ -70,12 +83,30 @@ test('uninstalled search renders the same real preview as installed search and n
   await expect(row).not.toContainText('Not installed')
   await expect(preview).toHaveAttribute('data-preview-ready', 'image.catalog')
   expect(await preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(uninstalledPixels)
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'light' })
+  await expect.poll(() => preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(uninstalledLightPixels)
   if (proof) await page.screenshot({ path: join(proof, 'installed-search.png') })
   await page.setViewportSize({ width: 620, height: 820 })
   await expect(preview).toBeVisible()
   if (proof) await page.screenshot({ path: join(proof, 'installed-search-narrow.png') })
   await row.click()
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-placement-ghost', 'visible')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.mouse.dblclick(700, 600)
+  await expect(page.getByTestId('node-palette')).toBeVisible()
+  await page.getByTestId('palette-search').fill('catalog-resample')
+  const palettePreview = page.getByTestId('palette-node-preview')
+  await expect(palettePreview).toHaveAttribute('data-preview-ready', 'image.catalog')
+  const paletteDarkPixels = await palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'light' })
+  await expect.poll(() => palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).not.toBe(paletteDarkPixels)
+  const paletteLightPixels = await palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'dark' })
+  await expect.poll(() => palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(paletteDarkPixels)
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'light' })
+  await expect.poll(() => palettePreview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())).toBe(paletteLightPixels)
+  if (proof) await page.screenshot({ path: join(proof, 'palette-search-light.png') })
 })
 
 async function openInstallPrompt(page: Page) {

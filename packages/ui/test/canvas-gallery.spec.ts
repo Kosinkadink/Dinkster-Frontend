@@ -5,7 +5,7 @@ import {
 } from '../../canvas/gallery/fixtures.js'
 
 for (const theme of ['dark', 'light'] as const) {
-  test(`Contrast-adjusted type colors, ${theme}`, async ({ page }) => {
+  test(`Previous type colors stay isolated, ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto('/#canvas')
     await page
@@ -23,9 +23,10 @@ for (const theme of ['dark', 'light'] as const) {
     })
     const look = page.getByRole('combobox', { name: 'Type colors' })
     await expect(look).toHaveValue('current')
-    await look.selectOption('contrast')
-    await expect(canvas).toHaveAttribute('data-type-look', 'contrast')
-    await expect(canvas).toHaveScreenshot(`types-contrast-${theme}.png`)
+    await expect(canvas).toHaveScreenshot(`types-${theme}.png`)
+    await look.selectOption('previous')
+    await expect(canvas).toHaveAttribute('data-type-look', 'previous')
+    await expect(canvas).toHaveScreenshot(`types-previous-${theme}.png`)
     await page
       .getByRole('button', { name: 'Node anatomy', exact: true })
       .click()

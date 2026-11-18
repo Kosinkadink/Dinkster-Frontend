@@ -9,6 +9,8 @@ import {
 import {
   CanvasRenderer,
   canvasPaintTokens,
+  canvasColorsForTheme,
+  canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
   layoutNode,
@@ -50,6 +52,8 @@ export function palettePreviewLayout(
 /** The same renderer and widget views paint both installed and registry previews. */
 export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema, widgets: WidgetRegistry, isSubgraph = false): void {
   canvas.removeAttribute('data-preview-ready')
+  const theme = document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark'
+  const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme) }
   const context = document.createElement('canvas').getContext('2d')
   if (!context) throw new Error('Canvas2D is unavailable')
   const measure: TextMeasurer = (text, style) => {
@@ -65,13 +69,13 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
     const view = widgets.viewsFor(spec.widgetType).find((candidate) => candidate.id === viewId)
     return view ? { viewId, rows: view.measure(spec).rows } : undefined
   }
-  const { node, layout } = palettePreviewLayout(schema, defaultTokens, measure, widgetMeasure)
+  const { node, layout } = palettePreviewLayout(schema, tokens, measure, widgetMeasure)
   const paint = canvasPaintTokens.preview.palette
   const availableWidth = Math.max(1, (canvas.parentElement?.clientWidth ?? layout.width + paint.availableWidthPadding) - paint.availableWidthPadding)
   const scale = Math.min(1, availableWidth / layout.width, paint.maxHeight / layout.height)
   canvas.style.width = `${Math.max(1, Math.ceil(layout.width * scale + paint.inset * 2))}px`
   canvas.style.height = `${Math.max(1, Math.ceil(layout.height * scale + paint.inset * 2))}px`
-  const renderer = new CanvasRenderer(canvas, defaultTokens, createRegistryPainter(widgets))
+  const renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(widgets))
   try {
     renderer.setGridVisible(false)
     renderer.setScene({

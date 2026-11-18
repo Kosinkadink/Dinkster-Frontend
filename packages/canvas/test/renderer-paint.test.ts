@@ -11,7 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 // The renderer's rAF loop is irrelevant here: renderNow() paints
@@ -1160,6 +1160,29 @@ describe('node chrome paint on the live renderer', () => {
     // One circular proxy contributes one fill path and one outline path.
     expect(proxyArcs).toHaveLength(2)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Preview')).toBe(true)
+    renderer.dispose()
+  })
+
+  it('repaints mounted type pins and links in both theme directions while color-only updates preserve their palette', () => {
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setScene(fixtureScene('clean'))
+    for (const [theme, imageColor, latentColor] of [
+      ['light', '#4F8EC1', '#B770B2'],
+      ['dark', '#64B5F6', '#FF9CF9'],
+      ['light', '#4F8EC1', '#B770B2'],
+    ] as const) {
+      renderer.setColors(canvasColorsForTheme(theme), canvasTypePaintForTheme(theme))
+      calls.length = 0
+      renderer.renderNow()
+      expect(calls.some((call) => call.method === 'fill' && call.fillStyle === imageColor)).toBe(true)
+      expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === latentColor)).toBe(true)
+      renderer.setColors(canvasColorsForTheme(theme === 'light' ? 'dark' : 'light'))
+      calls.length = 0
+      renderer.renderNow()
+      expect(calls.some((call) => call.method === 'fill' && call.fillStyle === imageColor)).toBe(true)
+      expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === latentColor)).toBe(true)
+    }
     renderer.dispose()
   })
 
