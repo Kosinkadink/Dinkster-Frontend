@@ -598,9 +598,13 @@ snapshot and current recovery stage inside that lock. Without the lock, recovery
 sources stay protected. Newer, unmerged or different stages survive, as do live,
 undo, frozen, shared, restored and pending-read holders with independent receipts.
 A close does not release recovered historical receipts or grant discard authority.
-Synchronous per-window recovery retains dirty documents if teardown cannot await
-the locked document stage. Canonical snapshots record the exact dirty workspace
-stages already incorporated, so another admission or restart does not replay the
+Explicit flushes prepare recovery synchronously before Close or pagehide can
+capture or end the document lifetime; ordinary debounced saves keep workflow
+preparation off-thread. Pending off-thread preparation counts as retention
+activity until it settles. Synchronous per-window recovery retains dirty
+documents if teardown cannot await the locked document stage. Canonical snapshots
+record the exact dirty workspace stages already incorporated, so another admission
+or restart does not replay the
 same captured edits over the selected document. A new workspace stage still
 contributes even at an equal captured document revision. Incorporation metadata
 covers only currently present dirty snapshots and does not confer receipt-release

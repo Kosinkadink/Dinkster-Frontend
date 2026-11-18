@@ -24,6 +24,7 @@ import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
 import { IMAGE_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
+import { preparePersistenceValue } from '../src/workflow-persistence-value.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -1028,7 +1029,7 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
-  it.each(['ordinary', 'canonical-first', 'notification-burst'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
+  it.each(['ordinary', 'canonical-first', 'notification-burst', 'worker-preparation', 'worker-in-flight'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
     const events = new EventTarget()
     vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
     vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
@@ -1075,7 +1076,7 @@ describe('AppState multi-window workspace', () => {
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
     let releaseCommit = () => {}
-    if (timing !== 'ordinary') {
+    if (timing === 'canonical-first' || timing === 'notification-burst') {
       void navigator.locks.request('dinkster.openTabs.commit', {}, () => new Promise<void>((resolve) => { releaseCommit = resolve }))
       await drainTasks()
       const notify = () => events.dispatchEvent(Object.assign(new Event('storage'), {
@@ -1091,10 +1092,33 @@ describe('AppState multi-window workspace', () => {
         expect((await navigator.locks.query()).pending).toHaveLength(1)
       }
     }
+    const workerResponses: (() => void)[] = []
+    let holdWorker = timing === 'worker-in-flight'
+    if (timing === 'worker-preparation' || holdWorker) vi.stubGlobal('Worker', class {
+      onmessage: ((event: MessageEvent) => void) | undefined
+      postMessage(message: { id: number; value?: unknown; json?: string }): void {
+        const data = structuredClone(message)
+        const respond = () => {
+          const value: unknown = data.json === undefined ? data.value : JSON.parse(data.json)
+          this.onmessage?.({ data: { id: data.id, value, prepared: preparePersistenceValue(value),
+            ...(data.json === undefined ? {} : { json: data.json }) } } as MessageEvent)
+        }
+        if (holdWorker && workerResponses.length === 0) workerResponses.push(respond)
+        else queueMicrotask(respond)
+      }
+      terminate(): void {}
+    })
+    if (holdWorker) {
+      await vi.waitFor(() => expect(workerResponses.length).toBeGreaterThan(0))
+      expect(app.retentionActivity().preparations).toBeGreaterThan(0)
+      expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n1', title: 'Newer edit at Close',
+      } })).ok).toBe(true)
+    }
     expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
     expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
     await drainTasks()
-    if (timing !== 'ordinary') {
+    if (timing === 'canonical-first' || timing === 'notification-burst') {
       app.flushPersistTabs(true)
       await drainTasks()
       releaseCommit()
@@ -1110,6 +1134,11 @@ describe('AppState multi-window workspace', () => {
     await drainTasks()
     app.flushPersistTabs(true)
     await drainTasks()
+    expect(localStorage.getItem(key)).toBeNull()
+    holdWorker = false
+    for (const respond of workerResponses.splice(0)) respond()
+    await drainTasks()
+    expect(app.retentionActivity().preparations).toBe(0)
     expect(localStorage.getItem(key)).toBeNull()
     expect(JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs.some(
       (saved: { doc: WorkflowDocument }) => saved.doc.lineage === tab.id)).toBe(false)

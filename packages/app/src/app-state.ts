@@ -4879,15 +4879,15 @@ export class AppState {
     for (const flush of this.tabViewFlushers) flush()
     if (this.viewPersistTimer !== undefined) this.persistTabViewsNow()
     if (this.persistTimer === undefined) {
-      if (forceStage) this.persistTabsNow(true)
+      if (forceStage) this.persistTabsNow(true, true)
       return
     }
     clearTimeout(this.persistTimer)
     this.persistTimer = undefined
-    this.persistTabsNow(forceStage)
+    this.persistTabsNow(forceStage, true)
   }
 
-  private persistTabsNow(forceStage = false): void {
+  private persistTabsNow(forceStage = false, synchronous = false): void {
     if (!forceStage && this.workspaceAuthorityEnabled && this.workspaceTabPending > 0) {
       if (!this.disposed) this.schedulePersistTabs()
       return
@@ -4912,9 +4912,14 @@ export class AppState {
           }
         }),
     }
-    this.reconcilePersistedTabs(state)
+    // Close and pagehide must capture recovery before their synchronous boundary.
+    // Debounced autosaves still prepare workflow bytes off-thread.
+    this.persistencePreparationSequence += 1
+    this.reconcilePersistedTabs(state, synchronous)
   }
 
+  private persistencePreparationSequence = 0
+  private pendingPersistencePreparations = 0
   private pendingPersistedTabsCommits = 0
   private queuedPersistedTabsCommit: { readonly storage: Storage | undefined; readonly project: string } | undefined
   private readonly recoveryStorageProblemsOwner = Symbol('workspace-recovery-storage')
@@ -4925,9 +4930,12 @@ export class AppState {
     if (!prepared && state !== undefined && !this.disposed && typeof Worker !== 'undefined') {
       const storage = globalThis.localStorage
       const project = activeProjectId()
+      const sequence = this.persistencePreparationSequence
+      this.pendingPersistencePreparations += 1
       void this.workflowPersistenceCodec.prepare(state).then(() => {
-        if (!this.disposed && globalThis.localStorage === storage && activeProjectId() === project) this.reconcilePersistedTabs(state, true)
-      }).catch(() => undefined)
+        if (this.persistencePreparationSequence === sequence && !this.disposed &&
+          globalThis.localStorage === storage && activeProjectId() === project) this.reconcilePersistedTabs(state, true)
+      }).catch(() => undefined).finally(() => { this.pendingPersistencePreparations -= 1 })
       return
     }
     commitPersistedTabs(state, this.workspaceActorId,
@@ -8610,6 +8618,7 @@ export class AppState {
       workspaceOperations: this.workspaceTabPending,
       persistenceTimer: this.persistTimer !== undefined,
       queuedCommit: this.queuedPersistedTabsCommit !== undefined,
+      preparations: this.pendingPersistencePreparations,
       commits: this.pendingPersistedTabsCommits,
       incompleteSlots: [...this.persistedWorkflowSlots].filter(([, slot]) => !slot.complete).map(([key]) => key),
     }
