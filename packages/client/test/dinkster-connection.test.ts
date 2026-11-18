@@ -354,6 +354,12 @@ describe('model provider credentials', () => {
         return jsonResponse(status, payload)
       } })
     expect(await connection.fetchModelProvider(undefined, 'civitai')).toEqual(payload)
+    for (const pkceAvailable of [false, true]) {
+      payload = { provider: 'civitai', configured: false, pkceAvailable, token: 'private-civitai-canary' }
+      expect(await connection.fetchModelProvider(undefined, 'civitai')).toEqual({ provider: 'civitai', configured: false, pkceAvailable })
+    }
+    payload = { provider: 'civitai', configured: false, pkceAvailable: 'yes' }
+    await expect(connection.fetchModelProvider(undefined, 'civitai')).rejects.toThrow('Invalid provider status')
     payload = { provider: 'huggingface', configured: true }
     await expect(connection.fetchModelProvider(undefined, 'civitai')).rejects.toThrow('Invalid provider status')
     payload = { provider: 'civitai', configured: true, token: 'private-civitai-canary' }

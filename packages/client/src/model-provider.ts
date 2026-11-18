@@ -4,6 +4,7 @@ export interface ModelProviderStatus {
   readonly provider: ModelProviderName
   readonly configured: boolean
   readonly expired?: boolean
+  readonly pkceAvailable?: boolean
 }
 
 export type ModelProviderSignIn =
@@ -39,8 +40,10 @@ function providerUrl(value: string, provider: ModelProviderName, device = false)
 export function decodeModelProviderStatus(raw: unknown, provider: ModelProviderName = 'huggingface'): ModelProviderStatus {
   const row = object(raw)
   if (row['provider'] !== provider || typeof row['configured'] !== 'boolean' ||
-    (row['expired'] !== undefined && typeof row['expired'] !== 'boolean')) throw new Error('Invalid provider status')
-  return { provider, configured: row['configured'], ...(row['expired'] === true ? { expired: true } : {}) }
+    (row['expired'] !== undefined && typeof row['expired'] !== 'boolean') ||
+    (row['pkceAvailable'] !== undefined && typeof row['pkceAvailable'] !== 'boolean')) throw new Error('Invalid provider status')
+  return { provider, configured: row['configured'], ...(row['expired'] === true ? { expired: true } : {}),
+    ...(row['pkceAvailable'] === undefined ? {} : { pkceAvailable: row['pkceAvailable'] }) }
 }
 
 export function decodeModelProviderSignIn(raw: unknown, provider: ModelProviderName = 'huggingface'): ModelProviderSignIn {

@@ -188,7 +188,9 @@ area. Hugging Face and Civitai sign-in are separate, engine-private connections.
 Local loopback browsers use PKCE. Remote Hugging Face connections use a provider
 device code; remote Civitai connections offer the masked access-token fallback
 instead of browser sign-in. Local Civitai browser sign-in requires a public client
-configured on the engine. Continue at the selected provider opens its validated
+configured on the engine. The panel hides Civitai browser sign-in until the engine
+explicitly reports it available; the masked token fallback remains available.
+Continue at the selected provider opens its validated
 origin in a separate tab; Hugging Face device verification also accepts HTTPS
 `hf.co`. The panel checks completion. Switching engine or provider clears private
 input and cancels any pending flow through its original engine and provider.

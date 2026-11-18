@@ -85,7 +85,7 @@ it('keeps a late local Civitai sign-in bound to its original provider after swit
   const cancelled = vi.fn(connection.cancelModelProviderSignIn)
   connection.startModelProviderSignIn = start
   connection.cancelModelProviderSignIn = cancelled
-  connection.fetchModelProvider = async (_signal, selected = 'huggingface') => ({ provider: selected, configured: false })
+  connection.fetchModelProvider = async (_signal, selected = 'huggingface') => ({ provider: selected, configured: false, pkceAvailable: true })
   const dispose = render(() => <ModelProvider provider={provider()} connection={connection} backendUrl="http://localhost:3639" />, root)
   try {
     await vi.waitFor(() => expect(button('Sign in with Civitai').disabled).toBe(false))
@@ -97,6 +97,19 @@ it('keeps a late local Civitai sign-in bound to its original provider after swit
     expect(root.textContent).toContain('Hugging Face sign-in')
     expect(root.querySelector('a')).toBeNull()
     expect(root.textContent).not.toContain('Complete sign-in at Civitai')
+  } finally { dispose() }
+})
+
+it.each([undefined, false, true])('shows local Civitai browser sign-in only with explicit capability: %s', async (available) => {
+  const { connection, root, button } = fixture()
+  connection.fetchModelProvider = async () => ({ provider: 'civitai', configured: false,
+    ...(available === undefined ? {} : { pkceAvailable: available }) })
+  const dispose = render(() => <ModelProvider provider="civitai" connection={connection} backendUrl="http://localhost:3639" />, root)
+  try {
+    await vi.waitFor(() => expect(button('Use an access token instead').disabled).toBe(false))
+    expect(!!button('Sign in with Civitai')).toBe(available === true)
+    button('Use an access token instead').click()
+    expect(root.querySelector<HTMLInputElement>('#model-provider-civitai-token')!.type).toBe('password')
   } finally { dispose() }
 })
 

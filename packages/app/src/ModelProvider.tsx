@@ -18,6 +18,9 @@ export function ModelProvider(props: { readonly connection: ModelProviderConnect
     return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
   }
   const [status, setStatus] = createSignal<ModelProviderStatus>()
+  const canSignIn = () => selectedProvider() === 'civitai'
+    ? local() && status()?.pkceAvailable === true
+    : !local() || status()?.pkceAvailable !== false
   const [flow, setFlow] = createSignal<ModelProviderSignIn>()
   const [busy, setBusy] = createSignal(false)
   const [fallback, setFallback] = createSignal(false)
@@ -80,7 +83,7 @@ export function ModelProvider(props: { readonly connection: ModelProviderConnect
   }
   const refresh = () => { void perform(() => connection.fetchModelProvider(undefined, provider)) }
   const signIn = async () => {
-    if (busy() || active || (provider === 'civitai' && !local())) return
+    if (busy() || active || !canSignIn()) return
     const owner = generation
     const target = connection
     const selected = provider
@@ -124,7 +127,7 @@ export function ModelProvider(props: { readonly connection: ModelProviderConnect
     </>}</Show>
     <Show when={!flow()}><div class="project-folder-actions">
       <ProductButton disabled={busy()} onClick={refresh}>{message('modelProvider.refresh')}</ProductButton>
-      <Show when={selectedProvider() !== 'civitai' || local()}><ProductButton disabled={busy()} onClick={() => void signIn()}>{message('modelProvider.signIn', label())}</ProductButton></Show>
+      <Show when={canSignIn()}><ProductButton disabled={busy()} onClick={() => void signIn()}>{message('modelProvider.signIn', label())}</ProductButton></Show>
       <ProductButton disabled={busy()} onClick={() => { setFallback(!fallback()); setToken(''); setForgetting(false) }}>{message('modelProvider.fallback')}</ProductButton>
       <Show when={status()?.configured || status()?.expired}><ProductButton disabled={busy()} onClick={() => { setForgetting(true); setFallback(false); setToken('') }}>{message('modelProvider.forget')}</ProductButton></Show>
     </div></Show>
