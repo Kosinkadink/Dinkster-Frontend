@@ -8,6 +8,8 @@
     "build:ui": "pnpm --filter @dinkster/ui build",
     "build:site": "pnpm --filter @dinkster/site build",
     "check:design-system": "node scripts/check-design-system.mjs",
+    "check:canvas-literals": "node scripts/check-canvas-literals.mjs",
+    "test:canvas-literals": "node --test scripts/check-canvas-literals.test.mjs",
     "test:design-system": "node --test scripts/check-design-system.test.mjs",
     "check:raw-controls": "node scripts/check-raw-controls.mjs",
     "check:raw-controls:write": "node scripts/check-raw-controls.mjs --write",
