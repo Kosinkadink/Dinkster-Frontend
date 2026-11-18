@@ -134,11 +134,14 @@ describe('minimap pointer gestures', () => {
         id: `n${i}`, x: i * 110, y: i % 3 * 80,
         layout: { width: 100, height: 60 }, node: { mode: 'active' },
       })),
-      groups: [], links: [], reroutes: [],
+      groups: [],
+      links: Array.from({ length: count - 1 }, (_, i) => ({ x1: i * 110, y1: 10, x2: (i + 1) * 110, y2: 30 })),
+      reroutes: [],
     } as unknown as ReturnType<CanvasRenderer['getScene']>
-    const h = harness({ scene })
+    const h = harness({ scene, settings: { 'canvas.minimap.noodles': true } })
     expect(drawInputs).toHaveLength(1)
     expect(drawInputs[0]!.nodes).toHaveLength(count)
+    expect(drawInputs[0]!.links).toHaveLength(count - 1)
     for (let i = 0; i < 10; i++) h.moveCamera()
     expect(drawInputs).toHaveLength(1)
     h.handle.setStates({ n0: { state: 'error' } as NodeProgress })
