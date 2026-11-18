@@ -8,6 +8,7 @@ import {
 } from '@dinkster/core'
 import {
   CanvasRenderer,
+  canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
   layoutNode,
@@ -53,7 +54,7 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
   if (!context) throw new Error('Canvas2D is unavailable')
   const measure: TextMeasurer = (text, style) => {
     context.font = style === 'title' || style === 'renamedTitle'
-      ? `${style === 'renamedTitle' ? 'italic ' : ''}600 ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
+      ? `${style === 'renamedTitle' ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
       : `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`
     return context.measureText(text).width
   }
@@ -65,10 +66,11 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
     return view ? { viewId, rows: view.measure(spec).rows } : undefined
   }
   const { node, layout } = palettePreviewLayout(schema, defaultTokens, measure, widgetMeasure)
-  const availableWidth = Math.max(1, (canvas.parentElement?.clientWidth ?? layout.width + 16) - 16)
-  const scale = Math.min(1, availableWidth / layout.width, 240 / layout.height)
-  canvas.style.width = `${Math.max(1, Math.ceil(layout.width * scale + 12))}px`
-  canvas.style.height = `${Math.max(1, Math.ceil(layout.height * scale + 12))}px`
+  const paint = canvasPaintTokens.preview.palette
+  const availableWidth = Math.max(1, (canvas.parentElement?.clientWidth ?? layout.width + paint.availableWidthPadding) - paint.availableWidthPadding)
+  const scale = Math.min(1, availableWidth / layout.width, paint.maxHeight / layout.height)
+  canvas.style.width = `${Math.max(1, Math.ceil(layout.width * scale + paint.inset * 2))}px`
+  canvas.style.height = `${Math.max(1, Math.ceil(layout.height * scale + paint.inset * 2))}px`
   const renderer = new CanvasRenderer(canvas, defaultTokens, createRegistryPainter(widgets))
   try {
     renderer.setGridVisible(false)
@@ -77,7 +79,7 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
       nodes: [{ id: node.id, x: 0, y: 0, node, layout, isSubgraph }],
       links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     })
-    renderer.setViewport({ x: 6, y: 6, scale })
+    renderer.setViewport({ x: paint.inset, y: paint.inset, scale })
     renderer.renderNow()
     canvas.dataset.previewReady = schema.type
   } finally { renderer.dispose() }

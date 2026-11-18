@@ -17,6 +17,7 @@ import {
   CANVAS_DETAIL_MIN_SCALE,
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
   hitTest,
@@ -4152,7 +4153,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const measure: TextMeasurer = (text, role) => {
       measureCtx.font =
         role === 'title' || role === 'renamedTitle'
-          ? `${role === 'renamedTitle' ? 'italic ' : ''}600 ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
+          ? `${role === 'renamedTitle' ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
           : `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`
       return measureCtx.measureText(text).width
     }
@@ -4166,7 +4167,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     const placementGeometryForEntry = (entry: PaletteEntry): PlacementGeometry => {
       if (entry.schema === undefined) {
-        return { width: 180, height: 88, headerHeight: defaultTokens.headerHeight }
+        return { ...canvasPaintTokens.preview.unknownPlacement, headerHeight: defaultTokens.headerHeight }
       }
       const { layout } = palettePreviewLayout(entry.schema, defaultTokens, measure, widgetMeasure)
       return { width: layout.width, height: layout.height, headerHeight: layout.headerHeight }

@@ -75,6 +75,7 @@ export const canvasPaintTokens = {
     minimizedMinWidth: 80,
     titleWidthPadding: canvasSemanticTokens.space[8],
     portLabelPadding: 6,
+    labelPinGap: canvasSemanticTokens.space[4],
     pairedPortGap: canvasSemanticTokens.space[24],
     sectionWidthPadding: 18,
     growthWidthPadding: 18,
@@ -271,6 +272,8 @@ export const canvasPaintTokens = {
     cullScreenPadding: 1,
   },
   type: {
+    multilineLeadingNumerator: 4,
+    multilineLeadingDenominator: 3,
     semiboldWeight: 600,
     smallMinSize: 9,
     smallReduction: 1,
@@ -297,6 +300,9 @@ export const canvasPaintTokens = {
     listIndent: canvasSemanticTokens.space[16],
   },
   preview: {
+    palette: { availableWidthPadding: 16, maxHeight: 240, inset: 6 },
+    appWidgetFallbackWidth: 320,
+    unknownPlacement: { width: 180, height: 88 },
     stroke: 1,
     minRadius: 2,
     radiusInset: 1,
@@ -362,6 +368,10 @@ export const canvasPaintTokens = {
     nameOffset: 3,
   },
   widget: {
+    minLabelWidth: 44,
+    minValueWidth: 56,
+    labelValueGap: 5,
+    labelWidthBias: 1.5,
     textPadding: 2,
     verticalInset: 2,
     radius: canvasSemanticTokens.space[4],
@@ -400,6 +410,8 @@ export const canvasPaintTokens = {
     growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
   },
   minimap: {
+    fallbackWidth: 250,
+    fallbackHeight: 200,
     margin: canvasSemanticTokens.space[8],
     maxScale: 0.25,
     viewportInset: 2,

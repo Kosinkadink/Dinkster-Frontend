@@ -2881,14 +2881,14 @@ export class CanvasRenderer {
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
             ctx.textAlign = 'left'
-            ctx.fillText(row.input.label, node.x + t.padX + t.pinRadius + 4, rowY + row.height / 2)
+            ctx.fillText(row.input.label, node.x + t.padX + t.pinRadius + canvasPaintTokens.node.labelPinGap, rowY + row.height / 2)
             ctx.globalAlpha = rowAlpha
           }
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             ctx.fillStyle = t.colors.label
             ctx.textAlign = 'right'
-            ctx.fillText(row.output.label, node.x + l.width - t.padX - t.pinRadius - 4, rowY + row.height / 2)
+            ctx.fillText(row.output.label, node.x + l.width - t.padX - t.pinRadius - canvasPaintTokens.node.labelPinGap, rowY + row.height / 2)
             ctx.textAlign = 'left'
             ctx.globalAlpha = rowAlpha
           }

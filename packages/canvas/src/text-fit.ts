@@ -16,12 +16,14 @@
  * metrics change under a fixed font string (e.g. a webfont finishing load).
  */
 
+import { canvasPaintTokens } from './tokens.js'
+
 const MAX_ENTRIES = 8192
 const ELLIPSIS = '...'
 
 /** Compact multiline rhythm shared by canvas previews and the DOM editor. */
 export function multilineLineHeight(fontSize: number): number {
-  return Math.ceil(fontSize * 4 / 3)
+  return Math.ceil(fontSize * canvasPaintTokens.type.multilineLeadingNumerator / canvasPaintTokens.type.multilineLeadingDenominator)
 }
 
 interface FontCache {
@@ -136,12 +138,12 @@ export function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 }
 
 /** Readability floors: below these, a zone shows nothing useful. */
-const MIN_LABEL = 44
-const MIN_VALUE = 56
-const LABEL_VALUE_GAP = 5
+const MIN_LABEL = canvasPaintTokens.widget.minLabelWidth
+const MIN_VALUE = canvasPaintTokens.widget.minValueWidth
+const LABEL_VALUE_GAP = canvasPaintTokens.widget.labelValueGap
 /** The label absorbs this multiple of its proportional deficit share: values
  * are what you read; full names live in the tooltip/editor. */
-const LABEL_BIAS = 1.5
+const LABEL_BIAS = canvasPaintTokens.widget.labelWidthBias
 
 /**
  * Deficit-proportional label/value split for one widget row.
