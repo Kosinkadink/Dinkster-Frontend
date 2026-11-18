@@ -1,8 +1,56 @@
 import { describe, expect, it } from 'vitest'
 
-import { defaultTokens, presentedType, typeColor, typeDisplayAliases, typeExprCanonicalLabel } from '../src/tokens.js'
+import { canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, presentedType, typeColor, typeDisplayAliases, typeExprCanonicalLabel } from '../src/tokens.js'
+
+const channels = (color: string): number[] => {
+  if (color.startsWith('#')) return color.slice(1).match(/../g)!.map((value) => parseInt(value, 16) / 255)
+  const [hue, saturation, lightness] = color.match(/[\d.]+/g)!.map(Number)
+  const s = saturation! / 100
+  const l = lightness! / 100
+  const a = s * Math.min(l, 1 - l)
+  return [0, 8, 4].map((offset) => {
+    const k = (offset + hue! / 30) % 12
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+  })
+}
+const luminance = (color: string): number => channels(color)
+  .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+  .reduce((total, value, index) => total + value * [0.2126, 0.7152, 0.0722][index]!, 0)
+const contrast = (a: string, b: string): number =>
+  (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05)
+const hue = (color: string): number => {
+  const [r, g, b] = channels(color) as [number, number, number]
+  const max = Math.max(r, g, b)
+  const delta = max - Math.min(r, g, b)
+  if (delta === 0) return 0
+  return ((max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4) * 60 + 360) % 360
+}
 
 describe('defaultTokens', () => {
+  it('keeps named and unknown type hues while meeting theme contrast in the gallery palette', () => {
+    for (const theme of ['dark', 'light'] as const) {
+      const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme) }
+      for (const name of Object.keys(defaultTokens.typeColors)) {
+        const previous = typeColor(defaultTokens, name)
+        const color = typeColor(tokens, name)
+        expect(contrast(color, tokens.colors.nodeBody), `${theme} ${name}`).toBeGreaterThanOrEqual(3)
+        const difference = Math.abs(hue(color) - hue(previous))
+        expect(Math.min(difference, 360 - difference), name).toBeLessThan(1.5)
+        if (contrast(previous, tokens.colors.nodeBody) >= 3) expect(color).toBe(previous)
+        expect(typeColor(tokens, `list<asset<${name}>>`)).toBe(color)
+      }
+      const hues = new Set<number>()
+      for (let index = 0; hues.size < 360 && index < 100000; index++) {
+        const name = `gallery.unknown_${index}`
+        const previous = typeColor(defaultTokens, name)
+        const color = typeColor(tokens, name)
+        hues.add(hue(color))
+        expect(hue(color)).toBeCloseTo(hue(previous))
+        expect(contrast(color, tokens.colors.nodeBody), `${theme} ${color}`).toBeGreaterThanOrEqual(3)
+      }
+      expect(hues.size).toBe(360)
+    }
+  })
 
   it('presents canonical types and the ComfyUI image and mask bridges', () => {
     const comfyImage = presentedType(defaultTokens, { kind: 'concrete', name: 'comfy.IMAGE' })

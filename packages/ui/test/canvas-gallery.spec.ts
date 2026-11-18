@@ -5,6 +5,37 @@ import {
 } from '../../canvas/gallery/fixtures.js'
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`Contrast-adjusted type colors, ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto('/#canvas')
+    await page
+      .getByRole('button', {
+        name: `${theme === 'dark' ? 'Dark' : 'Light'} theme`,
+        exact: true,
+      })
+      .click()
+    await page
+      .getByRole('button', { name: 'Pins and links', exact: true })
+      .click()
+    const canvas = page.getByRole('img', {
+      name: `types in ${theme} theme`,
+      exact: true,
+    })
+    const look = page.getByRole('combobox', { name: 'Type colors' })
+    await expect(look).toHaveValue('current')
+    await look.selectOption('contrast')
+    await expect(canvas).toHaveAttribute('data-type-look', 'contrast')
+    await expect(canvas).toHaveScreenshot(`types-contrast-${theme}.png`)
+    await page
+      .getByRole('button', { name: 'Node anatomy', exact: true })
+      .click()
+    const anatomy = page.getByRole('img', {
+      name: `anatomy in ${theme} theme`,
+      exact: true,
+    })
+    await expect(anatomy).toHaveAttribute('data-ready', `anatomy-${theme}`)
+    await expect(anatomy).toHaveScreenshot(`anatomy-${theme}.png`)
+  })
   for (const [id, label] of canvasGalleryPages) {
     for (const input of id === 'widget-states'
       ? galleryWidgetInputs
@@ -70,7 +101,10 @@ for (const theme of ['dark', 'light'] as const) {
             name: `anatomy in ${theme} theme`,
             exact: true,
           })
-          await expect(anatomy).toHaveAttribute('data-ready', `anatomy-${theme}`)
+          await expect(anatomy).toHaveAttribute(
+            'data-ready',
+            `anatomy-${theme}`,
+          )
           await expect(anatomy).toHaveScreenshot(`anatomy-${theme}.png`)
         }
         expect(errors).toEqual([])

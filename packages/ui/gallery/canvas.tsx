@@ -4,6 +4,7 @@ import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
@@ -34,6 +35,7 @@ export function CanvasGallery() {
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
   const [outline, setOutline] = createSignal('quieter')
+  const [typeLook, setTypeLook] = createSignal('current')
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -43,6 +45,7 @@ export function CanvasGallery() {
     const currentPage = page()
     const currentWidget = widgetId()
     const currentOutline = outline()
+    const currentTypeLook = typeLook()
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
@@ -51,6 +54,9 @@ export function CanvasGallery() {
       const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
         ...defaultTokens,
+        ...(currentPage === 'types' && currentTypeLook === 'contrast'
+          ? canvasTypePaintForTheme(currentTheme)
+          : {}),
         colors: {
           ...colors,
           ...(currentPage === 'idle-outline' && currentOutline === 'previous'
@@ -172,6 +178,7 @@ export function CanvasGallery() {
       canvas.dataset.ready = `${currentPage}-${currentTheme}`
       canvas.dataset.widget = currentWidget
       canvas.dataset.outline = currentOutline
+      canvas.dataset.typeLook = currentTypeLook
     })
     onCleanup(() => {
       disposed = true
@@ -227,6 +234,25 @@ export function CanvasGallery() {
           The app uses the quieter idle outline from the shared subtle border.
           Compare it with the previous outline. Hover and selection paint stay
           unchanged.
+        </p>
+      </Show>
+      <Show when={page() === 'types'}>
+        <ProductField label="Type colors">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={typeLook()}
+              onChange={(event) => setTypeLook(event.currentTarget.value)}
+            >
+              <option value="current">Current colors</option>
+              <option value="contrast">Contrast-adjusted colors</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Compare the current palette with theme-specific colors that keep each
+          type's hue and reach at least 3:1 contrast against the node body. This
+          comparison does not change app colors or other gallery pages.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>
