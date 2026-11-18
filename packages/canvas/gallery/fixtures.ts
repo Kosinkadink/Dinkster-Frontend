@@ -41,6 +41,7 @@ import { structuralGalleryScene } from './structure.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
+  ['idle-outline', 'Idle outline'],
   ['states', 'Node states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
@@ -449,6 +450,13 @@ export function createCanvasGalleryFixture(
         }
       })
     }
+  } else if (page === 'idle-outline') {
+    for (const id of ['Idle', 'Hovered', 'Selected']) add(id, sample)
+    fixture.overlay = {
+      selection: new Set(['Selected']),
+      hoveredNode: 'Hovered',
+    }
+    fixture.height = 440
   } else if (page === 'states') {
     const ids = [
       'Default',
