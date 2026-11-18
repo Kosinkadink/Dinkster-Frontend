@@ -37,7 +37,10 @@ import {
   type ToolboxRow,
   type WidgetMeasure,
 } from '../src/index.js'
-import { structuralGalleryScene } from './structure.js'
+import {
+  boundaryNamesGalleryScene,
+  structuralGalleryScene,
+} from './structure.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
@@ -55,6 +58,7 @@ export const canvasGalleryPages = [
   ['widget-states', 'Widget states'],
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
+  ['boundary-names', 'Subgraph names'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
   ['zoom', 'Controls zoom'],
@@ -200,6 +204,7 @@ export function createCanvasGalleryFixture(
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   widgetInput: InputSpec = galleryWidgetInputs[2]!,
+  boundaryNames: 'current' | 'ids' = 'ids',
 ): CanvasGalleryFixture {
   const fixture: CanvasGalleryFixture = {
     scene: {
@@ -414,14 +419,27 @@ export function createCanvasGalleryFixture(
   } else if (
     page === 'structure' ||
     page === 'boundary' ||
+    page === 'boundary-names' ||
     page === 'minimap'
   ) {
-    const scene = structuralGalleryScene(
-      tokens,
-      measure,
-      widgetMeasure,
-      page === 'boundary',
-    )
+    const scene =
+      page === 'boundary-names'
+        ? boundaryNamesGalleryScene(
+            tokens,
+            measure,
+            widgetMeasure,
+            boundaryNames === 'ids',
+          )
+        : structuralGalleryScene(
+            tokens,
+            measure,
+            widgetMeasure,
+            page === 'boundary',
+          )
+    if (page === 'boundary-names') {
+      labels.push({ text: 'Inside the subgraph', x: 24, y: 40 })
+      labels.push({ text: 'Collapsed occurrence', x: 360, y: 340 })
+    }
     fixture.scene = {
       ...scene,
       nodes: [...scene.nodes],

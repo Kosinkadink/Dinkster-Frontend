@@ -204,6 +204,20 @@ for (const theme of ['dark', 'light'] as const) {
           exact: true,
         })
         await expect(canvas).toHaveAttribute('data-ready', `${id}-${theme}`)
+        if (id === 'boundary-names') {
+          const names = page.getByRole('combobox', {
+            name: 'Boundary names',
+            exact: true,
+          })
+          await expect(names).toHaveValue('ids')
+          await names.selectOption('current')
+          await expect(canvas).toHaveAttribute('data-boundary-names', 'current')
+          await expect(canvas).toHaveScreenshot(
+            `boundary-names-current-${theme}.png`,
+          )
+          await names.selectOption('ids')
+          await expect(canvas).toHaveAttribute('data-boundary-names', 'ids')
+        }
         if (input) {
           await page
             .getByRole('combobox', { name: 'Widget kind' })
@@ -257,6 +271,21 @@ for (const theme of ['dark', 'light'] as const) {
           await expect(canvas).toHaveScreenshot(
             `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}${look ? `-${look}` : ''}-${theme}.png`,
           )
+        }
+        if (id === 'boundary-names') {
+          await page
+            .getByRole('combobox', { name: 'Boundary names', exact: true })
+            .selectOption('current')
+          await expect(canvas).toHaveAttribute('data-boundary-names', 'current')
+          await page
+            .getByRole('button', { name: 'Subgraph boundaries', exact: true })
+            .click()
+          await expect(
+            page.getByRole('img', {
+              name: `boundary in ${theme} theme`,
+              exact: true,
+            }),
+          ).toHaveScreenshot(`boundary-${theme}.png`)
         }
         if (id === 'idle-outline' || titles) {
           const look = titles ? 'squeeze' : 'previous'
