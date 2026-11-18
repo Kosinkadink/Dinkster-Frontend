@@ -161,7 +161,7 @@ describe('core contributions', () => {
     const items = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 's1' }, { doc: shared }))
       .flatMap((group) => group.items)
     expect(items.find((item) => item.id === 'core.node.localize')).toMatchObject({
-      label: 'Make Unique',
+      label: 'Make unique',
       icon: 'copy-plus',
       action: { kind: 'command', invocation: { command: 'occurrence.localize', params: { graphId: 'g0', nodeId: 's1' } } },
     })
@@ -191,8 +191,8 @@ describe('core contributions', () => {
     expect(mode.children!.every((i) => i.checked === false)).toBe(true)
     // Delete label reflects the count.
     const edit = groups.find((g) => g.group === '90-edit')!
-    expect(edit.items.find((item) => item.id === 'core.node.copy')!.label).toBe('Copy Selected Nodes')
-    expect(edit.items.find((item) => item.id === 'core.node.delete')!.label).toBe('Delete 2 Nodes')
+    expect(edit.items.find((item) => item.id === 'core.node.copy')!.label).toBe('Copy selected nodes')
+    expect(edit.items.find((item) => item.id === 'core.node.delete')!.label).toBe('Delete 2 nodes')
   })
 
   it('minimizes or restores the whole selected node set with one command', () => {
@@ -253,7 +253,7 @@ describe('core contributions', () => {
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document, selection }))
     const compact = requireAction(groups.flatMap((group) => group.items)
       .find((entry) => entry.id === 'core.node.compactDynamic')!)
-    expect(compact.label).toBe('Remove Unused Dynamic Inputs from 2 Nodes')
+    expect(compact.label).toBe('Remove unused dynamic inputs from 2 nodes')
     expect(compact.action).toEqual({
       kind: 'command',
       invocation: {
@@ -389,7 +389,7 @@ describe('core contributions', () => {
       { doc: renamedDoc, nodeDisplayName: 'K Sampler' },
     ))
     expect(renamed.flatMap((g) => g.items).find((i) => i.id === 'core.node.resetName')).toMatchObject({
-      label: 'Reset Name',
+      label: 'Reset name',
       action: {
         kind: 'command',
         invocation: { command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: null } },
@@ -427,7 +427,7 @@ describe('core contributions', () => {
     // Node target offers grouping the selection as a host action.
     const nodeMenu = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] } }))
     const groupSel = nodeMenu.flatMap((g) => g.items).find((i) => i.id === 'core.node.groupSelection')!
-    expect(groupSel.label).toBe('Group 2 Nodes')
+    expect(groupSel.label).toBe('Group 2 nodes')
     expect(groupSel.action).toEqual({ kind: 'host', action: 'groupSelection' })
 
     // Group target: rename (host), color presets (checked on current), delete.
@@ -493,7 +493,7 @@ describe('core contributions', () => {
     const reg = coreRegistry()
     const collapsed = reg.resolve(ctx({ kind: 'section', nodeId: 'n1', sectionId: 'adv', collapsed: true }))
     expect(collapsed[0]!.items[0]).toMatchObject({
-      label: 'Expand Section',
+      label: 'Expand section',
       action: {
         kind: 'command',
         invocation: {
@@ -503,7 +503,7 @@ describe('core contributions', () => {
       },
     })
     const open = reg.resolve(ctx({ kind: 'section', nodeId: 'n1', sectionId: 'adv', collapsed: false }))
-    expect(open[0]!.items[0]!.label).toBe('Collapse Section')
+    expect(open[0]!.items[0]!.label).toBe('Collapse section')
   })
 
   it('queue-selection rides the selection and drops unknown nodes', () => {
@@ -513,7 +513,7 @@ describe('core contributions', () => {
     )
     const item = groups.flatMap((g) => g.items).find((i) => i.id === 'core.node.queueSelection')
     expect(item).toMatchObject({
-      label: 'Execute up to Selection',
+      label: 'Execute up to selection',
       action: { kind: 'host', action: 'queueSelection', params: { nodeIds: ['n1', 'n2'] } },
     })
   })
@@ -684,7 +684,7 @@ describe('named net contributions', () => {
     }
     expect(items(authored, source).some((i) => i.id === 'core.net.stubResetPosition')).toBe(false)
     expect(items(authored, sink).find((i) => i.id === 'core.net.stubResetPosition')).toMatchObject({
-      label: 'Reset Tag Position',
+      label: 'Reset tag position',
       action: {
         kind: 'command',
         invocation: {
@@ -739,7 +739,7 @@ describe('value source contributions', () => {
         ),
       )
       .flatMap((g) => g.items)
-    expect(items.find((i) => i.id === 'core.valueSource.delete')!.label).toBe('Delete 2 Value Sources')
+    expect(items.find((i) => i.id === 'core.valueSource.delete')!.label).toBe('Delete 2 value sources')
   })
 
 })
@@ -754,7 +754,7 @@ describe('selector contributions', () => {
           selectors: {
             s1: {
               id: asSelectorId('s1'),
-              candidates: [{ id: asSelectorCandidateId('c1') }, { id: asSelectorCandidateId('c2'), title: 'draft' }],
+              candidates: [{ id: asSelectorCandidateId('c1') }, { id: asSelectorCandidateId('c2'), title: 'Draft CASE' }],
               policy: { kind: 'fixed', candidate: asSelectorCandidateId('c1') },
             },
             s2: {
@@ -789,9 +789,9 @@ describe('selector contributions', () => {
       },
     })
     // Titled candidates label by title; untitled by 1-based ordinal.
-    expect(fixed2).toMatchObject({ label: 'Select: draft', checked: false })
+    expect(fixed2).toMatchObject({ label: 'Select: Draft CASE', checked: false })
     expect(random).toMatchObject({
-      label: 'Select: Random',
+      label: 'Select: random',
       checked: false,
       action: {
         kind: 'command',
@@ -808,7 +808,7 @@ describe('selector contributions', () => {
   it('offers Remove Branch per candidate, but never for the last candidate', () => {
     const items = selItems('s1')
     expect(items.find((i) => i.id === 'core.selector.removeCandidate.c1')).toMatchObject({
-      label: 'Remove Branch 1',
+      label: 'Remove branch 1',
       action: {
         kind: 'command',
         invocation: {
@@ -817,7 +817,7 @@ describe('selector contributions', () => {
         },
       },
     })
-    expect(items.find((i) => i.id === 'core.selector.removeCandidate.c2')).toMatchObject({ label: 'Remove Branch draft' })
+    expect(items.find((i) => i.id === 'core.selector.removeCandidate.c2')).toMatchObject({ label: 'Remove branch Draft CASE' })
     // s2 has one candidate: no removal offered at all.
     const single = selItems('s2')
     expect(single.some((i) => i.id.startsWith('core.selector.removeCandidate'))).toBe(false)
@@ -826,13 +826,13 @@ describe('selector contributions', () => {
   it('delete rides the selection and drops unknown selectors', () => {
     const alone = selItems('s1')
     expect(alone.find((i) => i.id === 'core.selector.delete')).toMatchObject({
-      label: 'Delete Selector',
+      label: 'Delete selector',
       action: { kind: 'host', action: 'deleteSelection' },
     })
     const riding = selItems('s1', {
       selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: ['s1', 's2', 'ghost'] },
     })
-    expect(riding.find((i) => i.id === 'core.selector.delete')!.label).toBe('Delete 2 Selectors')
+    expect(riding.find((i) => i.id === 'core.selector.delete')!.label).toBe('Delete 2 selectors')
   })
 
 })

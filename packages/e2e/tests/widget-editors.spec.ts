@@ -1739,7 +1739,7 @@ test('static COMBO popover filters, navigates folders, cancels, and handles no o
   const point = await rowPoint(page, 'choice')
   await page.mouse.click(point.x, point.y, { button: 'right' })
   const reset = page.locator('[data-item-id="core.widget.reset"]')
-  await expect(reset).toContainText('Reset to Default')
+  await expect(reset).toContainText('Reset to default')
   await expect(reset).not.toHaveClass(/disabled/)
   await reset.click()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.alpha')

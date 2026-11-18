@@ -50,6 +50,11 @@ notification lifetime, sentence case and hidden unconfigured services. It names
 tokens rather than colors and is exported as `@dinkster/branding/rules`. The
 portable distribution includes it in the SHA-256 manifest.
 
+App action labels, settings categories and panel headings use sentence case.
+Canvas context-menu actions set their labels at the registry source, including
+reset actions and plural counts. Proper names, acronyms and user-authored node,
+net and selector branch names retain their original capitalization.
+
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
 alongside the components. `pnpm --filter @dinkster/ui dev` serves the live dark
@@ -654,9 +659,11 @@ semantic paint roles and the fixed `canvasPaintTokens` geometry. Existing
 geometry exports are aliases consumed by both drawing and hit testing;
 changing their source cannot leave an independent pointer target behind.
 
-`pnpm check:canvas-literals` checks canvas source and the app's canvas preview,
-host and minimap consumers using the TypeScript AST. Fixed paint colors,
-sizes, opacity, font sizes and dash arrays belong in the canvas token file,
+`pnpm check:canvas-literals` checks canvas source and every app source file
+using the TypeScript AST. App paint operations are identified by their typed
+2D context, including editor previews, offscreen contexts, memory graphs and
+new painter helpers; unrelated DOM styles and data are not canvas paint.
+Fixed paint colors, sizes, opacity, font sizes and dash arrays belong in the canvas token file,
 not context assignments, drawing arguments or named geometry declarations.
 Constant aliases, including imports, helper returns, array lookups and
 array/object destructuring, do not hide literal paint values. Destructured
@@ -664,7 +671,9 @@ bindings follow their selected source values and defaults. Later variable
 assignments and arguments passed to painter helpers are traced to the same
 value sources, using declarations rather than identifier spelling. Collection
 lookups inspect stored values, not data keys. Computed property names are
-resolved before checking context writes.
+resolved before checking context writes. Native `CanvasPattern` results are
+paint objects; image sources and repetition modes are not color literals.
+Paint used to draw a pattern's tile is checked normally.
 The check runs in fast CI and before the app production build. Coordinate
 origins, count/unit arithmetic, normalized clamps and fully opaque context
 resets are not designed dimensions; protocol and gesture policy remain outside

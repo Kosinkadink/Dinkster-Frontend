@@ -79,7 +79,7 @@ export function resetMenuContributions(
       // Widget rows carry the elaborated key as inputId (spec.id post-rewrite).
       const w = widgets?.find((r) => r.item.spec.id === t.inputId)
       if (!w) return []
-      return [resetItem(ctx, 'core.widget.reset', 'Reset to Default', t.nodeId, [w])]
+      return [resetItem(ctx, 'core.widget.reset', 'Reset to default', t.nodeId, [w])]
     },
   }
 
@@ -95,7 +95,7 @@ export function resetMenuContributions(
       )
       if (widgets === undefined || widgets.length === 0) return []
       return [
-        resetItem(ctx, 'core.section.reset', 'Reset Section to Defaults', t.nodeId, widgets),
+        resetItem(ctx, 'core.section.reset', 'Reset section to defaults', t.nodeId, widgets),
       ]
     },
   }
@@ -110,7 +110,7 @@ export function resetMenuContributions(
       const widgets = resettableOf(ctx, t.nodeId, getResolver)
       if (widgets === undefined || widgets.length === 0) return []
       return [
-        resetItem(ctx, 'core.node.reset', 'Reset All Widgets to Defaults', t.nodeId, widgets),
+        resetItem(ctx, 'core.node.reset', 'Reset all widgets to defaults', t.nodeId, widgets),
       ]
     },
   }

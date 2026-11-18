@@ -646,7 +646,7 @@ const sectionRow = (page: Page, nodeId: string, sectionId: string) =>
 test('widget context menu resets to the LIVE schema default; undo restores', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await widgetPoint(page, 's0', 'w')), { button: 'right' })
-  await expect(menuItem(page, 'core.widget.reset')).toContainText('Reset to Default')
+  await expect(menuItem(page, 'core.widget.reset')).toContainText('Reset to default')
   await menuItem(page, 'core.widget.reset').click()
 
   let doc = await activeDoc(page)
