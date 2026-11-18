@@ -659,9 +659,11 @@ semantic paint roles and the fixed `canvasPaintTokens` geometry. Existing
 geometry exports are aliases consumed by both drawing and hit testing;
 changing their source cannot leave an independent pointer target behind.
 
-`pnpm check:canvas-literals` checks canvas source and the app's canvas preview,
-host and minimap consumers using the TypeScript AST. Fixed paint colors,
-sizes, opacity, font sizes and dash arrays belong in the canvas token file,
+`pnpm check:canvas-literals` checks canvas source and every app source file
+using the TypeScript AST. App paint operations are identified by their typed
+2D context, including editor previews, offscreen contexts, memory graphs and
+new painter helpers; unrelated DOM styles and data are not canvas paint.
+Fixed paint colors, sizes, opacity, font sizes and dash arrays belong in the canvas token file,
 not context assignments, drawing arguments or named geometry declarations.
 Constant aliases, including imports, helper returns, array lookups and
 array/object destructuring, do not hide literal paint values. Destructured

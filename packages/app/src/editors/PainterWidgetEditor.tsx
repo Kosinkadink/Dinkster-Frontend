@@ -1,3 +1,4 @@
+import { canvasPaintTokens } from '@dinkster/canvas'
 import { defaultRenditionOf } from '@dinkster/client'
 import { asNodeId, asPortId, buildRerouteIndex, companionSourcesOf, isAssetRefValue, occurrencesForView, portRefKey } from '@dinkster/core'
 import { createSignal, onCleanup, onMount, Show, type Component } from 'solid-js'
@@ -27,13 +28,13 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     ? graph?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
     : undefined
   const dimension = (name: string): number => {
-    const value = node?.values[name] ?? 512
-    return typeof value === 'number' && Number.isSafeInteger(value) && 64 <= value && 4096 >= value ? value : 512
+    const value = node?.values[name] ?? canvasPaintTokens.editor.painter.defaultDimension
+    return typeof value === 'number' && Number.isSafeInteger(value) && 64 <= value && 4096 >= value ? value : canvasPaintTokens.editor.painter.defaultDimension
   }
   let width = dimension('width')
   let height = dimension('height')
-  const [color, setColor] = createSignal('#ffffff')
-  const [size, setSize] = createSignal(24)
+  const [color, setColor] = createSignal<string>(canvasPaintTokens.editor.painter.initialColor)
+  const [size, setSize] = createSignal<number>(canvasPaintTokens.editor.painter.initialBrushSize)
   const [erase, setErase] = createSignal(false)
   const [busy, setBusy] = createSignal(true)
   const [error, setError] = createSignal<string>()
@@ -84,7 +85,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         }
       }
       const source = imageSource ?? (colorSource?.kind === 'producer' ? colorSource : undefined)
-      let background = colorSource?.kind === 'literal' ? colorSource.value : node?.values.bg_color ?? '#000000'
+      let background = colorSource?.kind === 'literal' ? colorSource.value : node?.values.bg_color ?? canvasPaintTokens.editor.painter.backgroundColor
       if (source !== undefined) {
         const unavailable = (): Error => { return new Error(message('painterWidget.sourceUnavailable')) }
         if (source.kind !== 'producer') throw unavailable()
@@ -143,7 +144,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       }
       if (imageSource === undefined) {
         const context = base.getContext('2d')!
-        context.fillStyle = typeof background === 'string' ? background : '#000000'
+        context.fillStyle = typeof background === 'string' ? background : canvasPaintTokens.editor.painter.backgroundColor
         context.fillRect(0, 0, width, height)
       }
       baseReady = true

@@ -1,3 +1,4 @@
+import { canvasPaintTokens } from '@dinkster/canvas'
 import { boundingBoxKind, type BoundingBox } from '@dinkster/widgets'
 import { defaultRenditionOf } from '@dinkster/client'
 import { asNodeId, companionSourcesOf, occurrencesForView } from '@dinkster/core'
@@ -94,13 +95,13 @@ const BoundingBoxImplementation: Component<WidgetEditorImplementationProps> = (p
     const y = Math.min(region.y, image.height - 1)
     const width = Math.min(region.width, image.width - x)
     const height = Math.min(region.height, image.height - y)
-    context.fillStyle = '#00000080'
+    context.fillStyle = canvasPaintTokens.editor.boundingBox.outsideColor
     context.beginPath()
     context.rect(0, 0, image.width, image.height)
     context.rect(x, y, width, height)
     context.fill('evenodd')
-    context.strokeStyle = '#ffffff'
-    context.lineWidth = Math.max(1, image.width / 300)
+    context.strokeStyle = canvasPaintTokens.editor.boundingBox.strokeColor
+    context.lineWidth = Math.max(canvasPaintTokens.editor.boundingBox.strokeMinWidth, image.width / canvasPaintTokens.editor.boundingBox.strokeImageScale)
     context.strokeRect(x, y, width, height)
   })
   const commit = (): void => { if (valid()) void props.commitValue(box()) }
