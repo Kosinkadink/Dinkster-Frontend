@@ -27,7 +27,7 @@ import { credentialFetch, mintDelegation, type CollabCredentials, type Delegatio
 import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
-  type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
+  type ModelProviderName, type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
 import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs,
   type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob } from './model-downloads.js'
 import {
@@ -3513,40 +3513,42 @@ export class DinksterConnection {
     }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
   }
 
-  async fetchModelProvider(signal?: AbortSignal): Promise<ModelProviderStatus> {
-    return decodeModelProviderStatus(await this.modelProviderRequest('', 'GET', undefined, signal))
+  async fetchModelProvider(signal?: AbortSignal, provider: ModelProviderName = 'huggingface'): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest(provider, '', 'GET', undefined, signal), provider)
   }
 
-  async saveModelProviderToken(token: string, signal?: AbortSignal): Promise<ModelProviderStatus> {
-    return decodeModelProviderStatus(await this.modelProviderRequest('', 'PUT', { token }, signal))
+  async saveModelProviderToken(token: string, signal?: AbortSignal, provider: ModelProviderName = 'huggingface'): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest(provider, '', 'PUT', { token }, signal), provider)
   }
 
-  async forgetModelProvider(signal?: AbortSignal): Promise<ModelProviderStatus> {
-    return decodeModelProviderStatus(await this.modelProviderRequest('', 'DELETE', undefined, signal))
+  async forgetModelProvider(signal?: AbortSignal, provider: ModelProviderName = 'huggingface'): Promise<ModelProviderStatus> {
+    return decodeModelProviderStatus(await this.modelProviderRequest(provider, '', 'DELETE', undefined, signal), provider)
   }
 
-  async startModelProviderSignIn(method: 'pkce' | 'device', signal?: AbortSignal): Promise<ModelProviderSignIn> {
-    return decodeModelProviderSignIn(await this.modelProviderRequest('/sign-in', 'POST', { method }, signal))
+  async startModelProviderSignIn(method: 'pkce' | 'device', signal?: AbortSignal, provider: ModelProviderName = 'huggingface'): Promise<ModelProviderSignIn> {
+    if (provider === 'civitai' && method === 'device') throw new Error('Civitai requires local sign-in or the token fallback')
+    return decodeModelProviderSignIn(await this.modelProviderRequest(provider, '/sign-in', 'POST', { method }, signal), provider)
   }
 
-  async pollModelProviderSignIn(flowId: string, signal?: AbortSignal): Promise<ModelProviderPoll> {
-    return decodeModelProviderPoll(await this.modelProviderRequest(`/sign-in/${encodeURIComponent(flowId)}`, 'POST', undefined, signal))
+  async pollModelProviderSignIn(flowId: string, signal?: AbortSignal, provider: ModelProviderName = 'huggingface'): Promise<ModelProviderPoll> {
+    return decodeModelProviderPoll(await this.modelProviderRequest(provider, `/sign-in/${encodeURIComponent(flowId)}`, 'POST', undefined, signal), provider)
   }
 
-  async cancelModelProviderSignIn(flowId: string): Promise<ModelProviderPoll> {
-    return decodeModelProviderPoll(await this.modelProviderRequest(`/sign-in/${encodeURIComponent(flowId)}`, 'DELETE'))
+  async cancelModelProviderSignIn(flowId: string, provider: ModelProviderName = 'huggingface'): Promise<ModelProviderPoll> {
+    return decodeModelProviderPoll(await this.modelProviderRequest(provider, `/sign-in/${encodeURIComponent(flowId)}`, 'DELETE'), provider)
   }
 
-  private async modelProviderRequest(path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  private async modelProviderRequest(provider: ModelProviderName, path: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    const name = provider === 'civitai' ? 'Civitai' : 'Hugging Face'
     return requestWithDeadline(async (deadline) => {
-      const res = await this.fetchFn(`${this.baseUrl}/api/models/providers/huggingface${path}?scope=local`, {
+      const res = await this.fetchFn(`${this.baseUrl}/api/models/providers/${provider}${path}?scope=local`, {
         method, signal: deadline, cache: 'no-store', redirect: 'error',
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       })
       // Never reflect provider replies or credential-bearing bodies into errors.
-      if (!res.ok) throw new Error(`Hugging Face request failed: ${res.status}`)
+      if (!res.ok) throw new Error(`${name} request failed: ${res.status}`)
       return res.json() as Promise<unknown>
-    }, 'Hugging Face request timed out. Check sign-in status before retrying.', signal)
+    }, `${name} request timed out. Check sign-in status before retrying.`, signal)
   }
 
   async fetchModelSettings(): Promise<ModelSettingsState> {

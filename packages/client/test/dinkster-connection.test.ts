@@ -342,6 +342,52 @@ describe('model provider credentials', () => {
     await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
   })
 
+  it('binds Civitai credentials and sign-in URLs to the selected provider', async () => {
+    const calls: { url: string; method: string }[] = []
+    let payload: unknown = { provider: 'civitai', configured: false }
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        expect(init?.redirect).toBe('error')
+        expect(init?.cache).toBe('no-store')
+        calls.push({ url, method: init?.method ?? 'GET' })
+        return jsonResponse(status, payload)
+      } })
+    expect(await connection.fetchModelProvider(undefined, 'civitai')).toEqual(payload)
+    payload = { provider: 'huggingface', configured: true }
+    await expect(connection.fetchModelProvider(undefined, 'civitai')).rejects.toThrow('Invalid provider status')
+    payload = { provider: 'civitai', configured: true, token: 'private-civitai-canary' }
+    expect(await connection.saveModelProviderToken('private-civitai-canary', undefined, 'civitai')).toEqual({ provider: 'civitai', configured: true })
+    expect(calls.at(-1)).toEqual({ url: '/engine/api/models/providers/civitai?scope=local', method: 'PUT' })
+    await connection.forgetModelProvider(undefined, 'civitai')
+    expect(calls.at(-1)?.method).toBe('DELETE')
+    payload = { method: 'pkce', flowId: 'civitai / flow', authorizationUrl: 'https://auth.civitai.com/api/auth/oauth/authorize?client_id=public' }
+    expect(await connection.startModelProviderSignIn('pkce', undefined, 'civitai')).toEqual(payload)
+    await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
+    for (const authorizationUrl of ['https://huggingface.co/oauth/authorize', 'https://civitai.com/api/auth/oauth/authorize',
+      'http://auth.civitai.com/api/auth/oauth/authorize', 'https://auth.civitai.com.evil.example/api/auth/oauth/authorize',
+      'https://auth.civitai.com:444/api/auth/oauth/authorize', 'https://user@auth.civitai.com/api/auth/oauth/authorize',
+      'https://auth.civitai.com/api/auth/oauth/token']) {
+      payload = { method: 'pkce', flowId: 'owned', authorizationUrl }
+      await expect(connection.startModelProviderSignIn('pkce', undefined, 'civitai')).rejects.toThrow('Invalid provider URL')
+    }
+    const before = calls.length
+    await expect(connection.startModelProviderSignIn('device', undefined, 'civitai')).rejects.toThrow('Civitai requires local sign-in')
+    expect(calls).toHaveLength(before)
+    payload = { method: 'device', flowId: 'owned', verificationUri: 'https://hf.co/oauth/device', userCode: 'CODE', interval: 5, expiresIn: 60 }
+    await expect(connection.startModelProviderSignIn('pkce', undefined, 'civitai')).rejects.toThrow('Invalid provider sign-in')
+    payload = { status: 'signed-in', provider: 'huggingface' }
+    await expect(connection.pollModelProviderSignIn('civitai / flow', undefined, 'civitai')).rejects.toThrow('Invalid provider sign-in status')
+    payload = { status: 'signed-in', provider: 'civitai' }
+    expect(await connection.pollModelProviderSignIn('civitai / flow', undefined, 'civitai')).toEqual({ status: 'signed-in' })
+    expect(calls.at(-1)?.url).toBe('/engine/api/models/providers/civitai/sign-in/civitai%20%2F%20flow?scope=local')
+    payload = { status: 'cancelled' }
+    await connection.cancelModelProviderSignIn('civitai / flow', 'civitai')
+    expect(calls.at(-1)?.method).toBe('DELETE')
+    status = 409; payload = { error: 'private-civitai-canary' }
+    await expect(connection.saveModelProviderToken('private-civitai-canary', undefined, 'civitai')).rejects.toThrow('Civitai request failed: 409')
+  })
+
   it('returns credential and provider-grant refusals without treating either as download consent', async () => {
     let error = 'credential-required'
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',

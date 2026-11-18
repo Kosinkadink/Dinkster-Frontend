@@ -9,6 +9,23 @@ frontend decodes only version 1. Compatibility across wire versions begins at
 public release; after that point, a wire change will add a separate decoder and
 a documented support window.
 
+## Model provider connection contract
+
+`DinksterConnection` credential and sign-in operations accept an explicit
+`huggingface` or `civitai` provider, defaulting to Hugging Face. Requests use
+only the selected engine's provider route, disable caching and reject redirects.
+Status and successful sign-in responses must identify the selected provider;
+returned status discards unknown fields rather than exposing credential data.
+Errors include the provider name and HTTP status, never provider response bodies.
+
+PKCE URLs require HTTPS and the exact selected authorization host and path:
+`huggingface.co/oauth/authorize` or
+`auth.civitai.com/api/auth/oauth/authorize`. Credentials, fragments, alternate
+ports and cross-provider URLs are refused. Only Hugging Face supports device
+sign-in, whose verification URL may also use HTTPS `hf.co`. Civitai device
+requests are refused before sending a request. These client contracts do not
+replace download consent or grant upstream model access.
+
 ## Output mount wire contract
 
 `GET /api/mounts` accepts `outputMount: null` and
