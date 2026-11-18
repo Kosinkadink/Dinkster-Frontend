@@ -24,6 +24,7 @@
 .dinkster-nav-item:hover { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
 .dinkster-nav-item[aria-current='page'] { background: var(--dinkster-surface-selected); color: var(--dinkster-text-primary); border-left-color: var(--dinkster-accent-border); }
 .dinkster-page { min-width: 0; padding: var(--dinkster-page-padding); }
+.dinkster-root .dinkster-page:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .dinkster-content { max-width: var(--dinkster-content-max-width); }
 .dinkster-content[data-width='table'] { max-width: var(--dinkster-table-max-width); }
 .dinkster-stack { display: grid; gap: var(--dinkster-space-16); }
