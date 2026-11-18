@@ -112,6 +112,11 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
       [
         `import { canvasPaintTokens as paint } from ${JSON.stringify(tokens)}`,
         "// ctx.lineWidth = 7; ctx.fillStyle = '#abcdef' are comments.",
+        'declare const ctx: CanvasRenderingContext2D',
+        'declare const tile: OffscreenCanvas',
+        "const pattern = ctx.createPattern(tile, 'repeat'); if (pattern) ctx.fillStyle = pattern",
+        "ctx.strokeStyle = ctx.createPattern(tile, 'no-repeat')!",
+        "const makePattern = () => ctx.createPattern(tile, 'repeat-x'); ctx.fillStyle = makePattern()!",
         'const item = values[2]',
         'const version = 45',
         'const ellipsize = value => value; ellipsize(20)',
@@ -227,6 +232,14 @@ test('canvas check rejects paint literals and aliases while accepting tokens and
       ],
       ["const [key] = ['lineWidth']; ctx[key] = 7.25", 'size'],
       ["const paint = '#abc'", 'color'],
+      [
+        "const tile = new OffscreenCanvas(32, 32); const context = tile.getContext('2d')!; context.fillStyle = 'rebeccapurple'; const pattern = context.createPattern(tile, 'repeat'); context.fillStyle = pattern!",
+        'color',
+      ],
+      [
+        "const makePattern = () => 'red'; ctx.fillStyle = makePattern()",
+        'color',
+      ],
       ["ctx['strokeStyle'] = 'rebeccapurple'", 'color'],
       ["const badge = { color: 'rebeccapurple' }", 'color'],
       ["ctx.fillStyle = 'rgb(20 30 40 / 0.6)'", 'color'],

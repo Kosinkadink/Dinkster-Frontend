@@ -671,7 +671,9 @@ bindings follow their selected source values and defaults. Later variable
 assignments and arguments passed to painter helpers are traced to the same
 value sources, using declarations rather than identifier spelling. Collection
 lookups inspect stored values, not data keys. Computed property names are
-resolved before checking context writes.
+resolved before checking context writes. Native `CanvasPattern` results are
+paint objects; image sources and repetition modes are not color literals.
+Paint used to draw a pattern's tile is checked normally.
 The check runs in fast CI and before the app production build. Coordinate
 origins, count/unit arithmetic, normalized clamps and fully opaque context
 resets are not designed dimensions; protocol and gesture policy remain outside
