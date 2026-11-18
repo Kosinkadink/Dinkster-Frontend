@@ -509,8 +509,10 @@ meanings own their matching paint roles. The adapter remains the shared mutable
 all layout and text-measurement metrics, the data-type palette, and unmatched
 run/mute/bypass meanings remain unchanged. The focused multiline editor uses
 the corresponding CSS variables while retaining the same projected geometry.
-The strong-border role owns structural node and pseudo-node outlines; the
-subtle-border role remains available for inset preview and widget chrome.
+The subtle-border role owns idle ordinary-node outlines through `nodeIdleOutline`,
+as well as inset preview and widget chrome. The strong-border `nodeOutline` role
+owns structural borders and pseudo-node outlines. Run, problem, hover and selection
+outlines retain their separate meanings.
 
 Groups keep user-authored colors as document data. Uncolored groups use the
 semantic strong-border role for their existing fill, header, and border
@@ -650,9 +652,10 @@ not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
-The Idle outline page compares the current outline with the shared subtle border
-on idle, hovered and selected nodes. Its Outline look selector affects only that
-gallery page; app canvas tokens and all other gallery pages keep their existing paint.
+The Idle outline page compares Previous outline with Quieter outline (current)
+on idle, hovered and selected nodes. The app and gallery default to the shared
+subtle idle border; the Previous outline selector overrides only that page's
+`nodeIdleOutline` role to retain the former strong-border comparison.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.

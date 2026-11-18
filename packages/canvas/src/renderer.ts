@@ -2655,7 +2655,7 @@ export class CanvasRenderer {
               ? t.colors.blockingWarning
               : progress
                 ? t.stateColors[progress.state]
-                : t.colors.nodeOutline
+                : t.colors.nodeIdleOutline
     const strongOutline = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress?.state === 'done'
     const outline = canvasPaintTokens.node.outline
     const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : outline.idle

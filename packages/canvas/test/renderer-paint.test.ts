@@ -1555,12 +1555,15 @@ describe('node chrome paint on the live renderer', () => {
     })
   })
 
-  it('a recognized node paints no unrecognized error color', () => {
+  it.each([
+    ['dark', '#3B4148'],
+    ['light', '#D3D9DE'],
+  ] as const)('a recognized idle node uses the quiet %s outline without error paint', (theme, outline) => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const calls = paint(scene)
+    const calls = paintWithTokens(scene, { ...defaultTokens, colors: canvasColorsForTheme(theme) })
     expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#533a3c' || call.fillStyle === '#6b3d3b'))).toBe(false)
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.nodeOutline)
+    expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
   it('a document-error badge wins over running with an emphasized red node outline', () => {
