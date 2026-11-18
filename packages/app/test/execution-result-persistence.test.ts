@@ -159,7 +159,7 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
-  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()
     if (mode === 'census-timeout') locks.set('dinkster-result-holders:unresponsive', { name: 'dinkster-result-holders:unresponsive', mode: 'exclusive' })
@@ -202,6 +202,12 @@ describe('startup result source admission', () => {
     }))
     saveExecutionResult({ ...test.saved, assetRetentions: mode === 'independent-unreferenced' ? controls.slice(1) : controls }, test.backendIdentity)
     let holder: AppState | undefined
+    if (mode === 'holder-adopts-during-release') holder = new AppState()
+    const concurrentHolder = mode === 'holder-starts-during-release' || mode === 'holder-adopts-during-release'
+    let releaseFirst: (() => void) | undefined
+    let firstReleaseStarted: (() => void) | undefined
+    const firstRelease = new Promise<void>((resolve) => { firstReleaseStarted = resolve })
+    const releaseResponse = new Promise<void>((resolve) => { releaseFirst = resolve })
     if (mode === 'independent-unreferenced' || mode === 'peer-held') {
       holder = new AppState()
       holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
@@ -251,6 +257,10 @@ describe('startup result source admission', () => {
       if (init?.method === 'DELETE' && url.pathname.includes('/retentions/shown-result/')) {
         expect(new Headers(init.headers).get('X-Dinkster-Retention-Generation')).toBe(rotated)
         const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        if (concurrentHolder && id === stale[0]!.ownerId) {
+          firstReleaseStarted!()
+          await releaseResponse
+        }
         const old = owners.get(id)!
         const released = { ...old, revision: 2, complete: true, digests: [] }
         delete released.sourceToken
@@ -261,14 +271,29 @@ describe('startup result source admission', () => {
     })
     try {
       const pinnedExecution = pinned === undefined ? undefined : test.app.executionForTab(pinned)
-      await test.app.start()
+      const starting = test.app.start()
+      if (concurrentHolder) {
+        await firstRelease
+        holder ??= new AppState()
+        holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+          assetRetentions: [stale[1]!] })
+        expect(holder.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
+        releaseFirst!()
+      }
+      await starting
       if (mode === 'replacement-retry') {
         expect(owners.get(stale[0]!.ownerId)).toEqual(stale[0])
         replacementRefused = false
         await test.app.refreshBackendSchemas(test.backend)
       }
-      const reclaim = mode === 'reopened' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held'
+      if (concurrentHolder) {
+        expect(owners.get(stale[1]!.ownerId)).toEqual(stale[1])
+        expect(JSON.parse(localStorage.getItem(keyFor(stale[1]!))!)).toMatchObject({ acknowledgedRevision: 1 })
+        expect(holder!.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
+      }
+      const reclaim = mode === 'reopened' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder
       for (const owner of stale) {
+        if (concurrentHolder && owner !== stale[0]) continue
         const released = reclaim && !((mode === 'live-pin' || mode === 'peer-held') && owner === stale[0])
         expect(owners.get(owner.ownerId)).toEqual(released ? { ...owner, sourceToken: undefined, revision: 2, complete: true, digests: [] } : owner)
         if (released) expect(localStorage.getItem(keyFor(owner))).toBeNull()
@@ -291,7 +316,7 @@ describe('startup result source admission', () => {
         expect(localStorage.getItem(keyFor(protectedOwner))).toBeNull()
       }
       expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0 })
-    } finally { holder?.dispose(); test.app.dispose() }
+    } finally { releaseFirst?.(); holder?.dispose(); test.app.dispose() }
   })
 
   it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {
