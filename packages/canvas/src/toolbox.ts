@@ -188,7 +188,7 @@ export function toolboxLayout(
   const pad = TOOLBOX_PAD / scale
   const selectionGap = clearanceScreenPx / scale
   const separatorWidth = TOOLBOX_SEPARATOR_WIDTH / scale
-  const separatorHeight = buttonSize * 0.6
+  const separatorHeight = buttonSize * canvasPaintTokens.toolbox.separatorHeightRatio
   const rowWidths = renderableRows.map((row) =>
     row.reduce((sum, entry) => sum + (entry.kind === 'button' ? buttonSize : separatorWidth), 0)
       + Math.max(0, row.length - 1) * gap,

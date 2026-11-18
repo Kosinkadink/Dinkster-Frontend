@@ -2141,6 +2141,7 @@ export class CanvasRenderer {
   private drawPresence(ctx: CanvasRenderingContext2D, scale: number): void {
     if (this.presence.length === 0) return
     const t = this.tokens
+    const paint = canvasPaintTokens.presence
     const rerouteSelectors = new Map<string, PresenceActor[]>()
     for (const actor of this.presence) {
       for (const id of actor.rerouteSelection ?? []) {
@@ -2184,8 +2185,8 @@ export class CanvasRenderer {
         if (start !== undefined) {
           ctx.save()
           ctx.strokeStyle = actor.color
-          ctx.lineWidth = 2.5
-          ctx.globalAlpha = 0.55
+          ctx.lineWidth = paint.linkStroke
+          ctx.globalAlpha = paint.ghostOpacity
           ctx.setLineDash([...canvasPaintTokens.dash.remote])
           const inputOrigin = origin.kind !== 'widgetTap' && origin.side === 'in'
           this.drawLink(
@@ -2197,7 +2198,7 @@ export class CanvasRenderer {
             undefined,
             {
               color: actor.color,
-              width: 2.5,
+              width: paint.linkStroke,
             },
           )
           ctx.restore()
@@ -2209,8 +2210,8 @@ export class CanvasRenderer {
       if (actor.drag !== undefined && actor.drag.size > 0) {
         ctx.save()
         ctx.strokeStyle = actor.color
-        ctx.lineWidth = 1.5
-        ctx.globalAlpha = 0.55
+        ctx.lineWidth = paint.dragStroke
+        ctx.globalAlpha = paint.ghostOpacity
         ctx.setLineDash([...canvasPaintTokens.dash.remote])
         for (const node of this.scene.nodes) {
           const o = actor.drag.get(node.id)
@@ -2236,12 +2237,12 @@ export class CanvasRenderer {
           const o = actor.drag?.get(node.id) ?? this.overlay.dragOffsets?.get(node.id)
           ctx.save()
           ctx.strokeStyle = actor.color
-          ctx.lineWidth = 1
-          ctx.globalAlpha = 0.5
+          ctx.lineWidth = paint.hoverStroke
+          ctx.globalAlpha = paint.hoverOpacity
           ctx.beginPath()
           ctx.roundRect(
-            node.x + (o?.dx ?? 0) - 4, node.y + (o?.dy ?? 0) - 4,
-            node.layout.width + 8, node.layout.height + 8, t.cornerRadius + 4,
+            node.x + (o?.dx ?? 0) - paint.hoverOutset, node.y + (o?.dy ?? 0) - paint.hoverOutset,
+            node.layout.width + paint.hoverOutset * 2, node.layout.height + paint.hoverOutset * 2, t.cornerRadius + paint.hoverOutset,
           )
           ctx.stroke()
           ctx.restore()
@@ -2250,8 +2251,8 @@ export class CanvasRenderer {
       if (actor.selection.size === 0 && (actor.rerouteSelection?.size ?? 0) === 0) continue
       ctx.save()
       ctx.strokeStyle = actor.color
-      ctx.lineWidth = 2
-      ctx.globalAlpha = 0.9
+      ctx.lineWidth = paint.selectionStroke
+      ctx.globalAlpha = paint.selectionOpacity
       for (const node of this.scene.nodes) {
         if (!actor.selection.has(node.id)) continue
         // Ride the actor's OWN drag offsets when it is mid-drag (peers see
@@ -2261,7 +2262,7 @@ export class CanvasRenderer {
         const nx = node.x + (o?.dx ?? 0)
         const ny = node.y + (o?.dy ?? 0)
         ctx.beginPath()
-        ctx.roundRect(nx - 7, ny - 7, node.layout.width + 14, node.layout.height + 14, t.cornerRadius + 7)
+        ctx.roundRect(nx - paint.selectionOutset, ny - paint.selectionOutset, node.layout.width + paint.selectionOutset * 2, node.layout.height + paint.selectionOutset * 2, t.cornerRadius + paint.selectionOutset)
         ctx.stroke()
       }
       for (const reroute of this.scene.reroutes) {
@@ -2271,7 +2272,7 @@ export class CanvasRenderer {
         ctx.beginPath()
         ctx.arc(
           reroute.x + (o?.dx ?? 0), reroute.y + (o?.dy ?? 0),
-          REROUTE_RADIUS + 6 + rank * 3, 0, Math.PI * 2,
+          REROUTE_RADIUS + paint.rerouteOutset + rank * paint.rerouteRankGap, 0, Math.PI * 2,
         )
         ctx.stroke()
       }
@@ -2287,30 +2288,30 @@ export class CanvasRenderer {
       // Pointer triangle with a dark seam so it reads on any node color.
       ctx.beginPath()
       ctx.moveTo(0, 0)
-      ctx.lineTo(0, 16)
-      ctx.lineTo(4.6, 12.2)
-      ctx.lineTo(11, 11)
+      ctx.lineTo(0, paint.cursor.tailY)
+      ctx.lineTo(paint.cursor.notchX, paint.cursor.notchY)
+      ctx.lineTo(paint.cursor.tip, paint.cursor.tip)
       ctx.closePath()
       ctx.fillStyle = actor.color
       ctx.strokeStyle = t.colors.canvasBackground
-      ctx.lineWidth = 1.25
+      ctx.lineWidth = paint.cursor.stroke
       ctx.fill()
       ctx.stroke()
       // Label pill anchored to the pointer tail.
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.fontSize}px ${t.fontFamily}`
       const label = actor.label
       const tw = ctx.measureText(label).width
-      const px = 12
-      const py = 18
-      const padX = 5
-      const h = t.fontSize + 7
+      const px = paint.label.x
+      const py = paint.label.y
+      const padX = paint.label.paddingX
+      const h = t.fontSize + paint.label.heightPadding
       ctx.beginPath()
       ctx.roundRect(px, py, tw + padX * 2, h, h / 2)
       ctx.fillStyle = actor.color
       ctx.fill()
-      ctx.fillStyle = '#fff'
+      ctx.fillStyle = paint.label.color
       ctx.textBaseline = 'middle'
-      ctx.fillText(label, px + padX, py + h / 2 + 0.5)
+      ctx.fillText(label, px + padX, py + h / 2 + paint.label.baselineOffset)
       ctx.restore()
     }
   }
@@ -2654,10 +2655,11 @@ export class CanvasRenderer {
     if (dash !== undefined) ctx.setLineDash([])
     if (running && !this.reducedMotion) this.drawRunningAccent(ctx, node.x, node.y, l.width, l.height)
     if (node.regionKind !== undefined) {
+      const paint = canvasPaintTokens.region
       ctx.beginPath()
-      ctx.roundRect(node.x + 3, node.y + 3, l.width - 6, l.height - 6, Math.max(0, t.cornerRadius - 3))
+      ctx.roundRect(node.x + paint.inset, node.y + paint.inset, l.width - paint.inset * 2, l.height - paint.inset * 2, Math.max(0, t.cornerRadius - paint.inset))
       ctx.strokeStyle = outlineColor
-      ctx.lineWidth = screenAwareStroke(1, scale, 1)
+      ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.stroke)
       ctx.stroke()
     }
 
@@ -2702,22 +2704,23 @@ export class CanvasRenderer {
         : node.x + l.width - t.padX
       let titleX = node.x + t.padX
       if (node.regionKind !== undefined) {
-        const glyphX = titleX + 6
+        const paint = canvasPaintTokens.region
+        const glyphX = titleX + paint.glyphInset
         const glyphY = node.y + l.headerHeight / 2
         ctx.beginPath()
-        ctx.arc(glyphX, glyphY, 5, Math.PI * 0.25, Math.PI * 1.8)
+        ctx.arc(glyphX, glyphY, paint.glyphRadius, Math.PI * paint.glyphStartAngle, Math.PI * paint.glyphEndAngle)
         ctx.strokeStyle = t.colors.title
-        ctx.lineWidth = 1.4
+        ctx.lineWidth = paint.glyphStroke
         ctx.stroke()
         ctx.beginPath()
-        ctx.moveTo(glyphX + 5, glyphY - 2)
-        ctx.lineTo(glyphX + 7, glyphY + 2)
-        ctx.lineTo(glyphX + 2, glyphY + 1)
+        ctx.moveTo(glyphX + paint.arrow.startX, glyphY + paint.arrow.startY)
+        ctx.lineTo(glyphX + paint.arrow.tipX, glyphY + paint.arrow.tipY)
+        ctx.lineTo(glyphX + paint.arrow.endX, glyphY + paint.arrow.endY)
         ctx.fillStyle = t.colors.title
         ctx.fill()
-        ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${Math.max(9, t.titleFontSize - 2)}px ${t.fontFamily}`
-        ctx.fillText(node.regionKind, titleX + 16, glyphY)
-        titleX += 16 + ctx.measureText(node.regionKind).width + 8
+        ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction)}px ${t.fontFamily}`
+        ctx.fillText(node.regionKind, titleX + paint.labelInset, glyphY)
+        titleX += paint.labelInset + ctx.measureText(node.regionKind).width + paint.titleGap
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
       ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
