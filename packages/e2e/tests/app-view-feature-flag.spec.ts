@@ -82,8 +82,8 @@ test('default-off restores app tabs as Graph and hides every App View entry poin
 test('opting in restores authored controls and disabling returns to Graph without deleting exposure', async ({ page }) => {
   await page.getByTestId('settings-button').click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.locator('.settings-categories').getByRole('button', { name: 'Features App View', exact: true }).click()
-  const toggle = settings.getByRole('checkbox', { name: 'Enable App View (experimental)' })
+  await settings.locator('.settings-categories').getByRole('button', { name: 'Features app view', exact: true }).click()
+  const toggle = settings.getByRole('checkbox', { name: 'Enable app view (experimental)' })
   await expect(toggle).not.toBeChecked()
   mkdirSync(evidenceGroupDir('app-view-feature-flag'), { recursive: true })
   await page.screenshot({ path: evidencePath('app-view-feature-flag', 'settings-off.png') })

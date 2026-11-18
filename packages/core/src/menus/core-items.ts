@@ -116,7 +116,7 @@ const nodePreviews: MenuContribution = {
         invocation: { command: 'node.setPreviews', params: { graphId: ctx.graphId, nodeIds: [...nodeIds], previews: mode } },
       },
     }))
-    return [{ id: 'core.node.previews', label: 'Live Previews', icon: 'eye', children }]
+    return [{ id: 'core.node.previews', label: 'Live previews', icon: 'eye', children }]
   },
 }
 
@@ -155,7 +155,7 @@ const nodeMirrorPreviews: MenuContribution = {
         invocation: { command: 'node.setMirrorPreviews', params: { graphId: ctx.graphId, nodeIds: [...nodeIds], mirrorPreviews: value } },
       },
     }))
-    return [{ id: 'core.node.mirrorPreviews', label: 'Mirror Estimates', icon: 'eye', children }]
+    return [{ id: 'core.node.mirrorPreviews', label: 'Mirror estimates', icon: 'eye', children }]
   },
 }
 
@@ -235,7 +235,7 @@ const nodeOpenSubgraph: MenuContribution = {
     return [
       {
         id: 'core.node.openSubgraph',
-        label: 'Open Subgraph',
+        label: 'Open subgraph',
         icon: 'folder-open',
         action: { kind: 'host', action: 'openSubgraph', params: { nodeId: ctx.target.nodeId } },
       },
@@ -275,7 +275,7 @@ const nodeLocalize: MenuContribution = {
     if (occurrences < 2) return []
     return [{
       id: 'core.node.localize',
-      label: 'Make Unique',
+      label: 'Make unique',
       icon: 'copy-plus',
       action: {
         kind: 'command',
@@ -296,7 +296,7 @@ const nodeResetSize: MenuContribution = {
     return [
       {
         id: 'core.node.resetSize',
-        label: 'Reset Size',
+        label: 'Reset size',
         action: {
           kind: 'command',
           invocation: {
@@ -335,7 +335,7 @@ const nodeResetName: MenuContribution = {
     if (!node || node.title === undefined || node.title === (ctx.nodeDisplayName ?? node.type)) return []
     return [{
       id: 'core.node.resetName',
-      label: 'Reset Name',
+      label: 'Reset name',
       action: {
         kind: 'command',
         invocation: { command: 'node.setTitle', params: { graphId: ctx.graphId, nodeId: ctx.target.nodeId, title: null } },
@@ -364,7 +364,7 @@ const nodeCompactDynamic: MenuContribution = {
     }))
     return [{
       id: 'core.node.compactDynamic',
-      label: nodeIds.length > 1 ? `Remove Unused Dynamic Inputs from ${nodeIds.length} Nodes` : 'Remove Unused Dynamic Inputs',
+      label: nodeIds.length > 1 ? `Remove unused dynamic inputs from ${nodeIds.length} nodes` : 'Remove unused dynamic inputs',
       action: {
         kind: 'command',
         invocation: invocations.length === 1
@@ -385,7 +385,7 @@ const nodeDelete: MenuContribution = {
     return [
       {
         id: 'core.node.delete',
-        label: count > 1 ? `Delete ${count} Nodes` : 'Delete',
+        label: count > 1 ? `Delete ${count} nodes` : 'Delete',
         icon: 'trash-2',
         ...(ctx.shortcuts?.['edit.delete'] !== undefined ? { shortcut: ctx.shortcuts['edit.delete'] } : {}),
         action: { kind: 'host', action: 'deleteSelection' },
@@ -402,7 +402,7 @@ const nodeCopy: MenuContribution = {
     if (ctx.target.kind !== 'node') return []
     return [{
       id: 'core.node.copy',
-      label: targetNodeIds(ctx, ctx.target.nodeId).length > 1 ? 'Copy Selected Nodes' : 'Copy',
+      label: targetNodeIds(ctx, ctx.target.nodeId).length > 1 ? 'Copy selected nodes' : 'Copy',
       icon: 'copy',
       action: { kind: 'host', action: 'copySelection' },
     }]
@@ -426,7 +426,7 @@ const nodeQueueSelection: MenuContribution = {
     return [
       {
         id: 'core.node.queueSelection',
-        label: 'Execute up to Selection',
+        label: 'Execute up to selection',
         action: { kind: 'host', action: 'queueSelection', params: { nodeIds: [...nodeIds] } },
       },
     ]
@@ -446,7 +446,7 @@ const linkDelete: MenuContribution = {
       t.netId !== undefined && 'node' in t.to
         ? { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams(t.to) } }
         : { command: 'link.disconnect', params: { graphId: ctx.graphId, linkId: t.linkId } }
-    return [{ id: 'core.link.delete', label: 'Delete Link', action: { kind: 'command', invocation } }]
+    return [{ id: 'core.link.delete', label: 'Delete link', action: { kind: 'command', invocation } }]
   },
 }
 
@@ -474,7 +474,7 @@ const rerouteDissolve: MenuContribution = {
     return [
       {
         id: 'core.reroute.dissolve',
-        label: ids.length > 1 ? `Dissolve ${ids.length} Reroutes` : 'Dissolve Reroute',
+        label: ids.length > 1 ? `Dissolve ${ids.length} reroutes` : 'Dissolve reroute',
         action: {
           kind: 'command',
           invocation: {
@@ -485,7 +485,7 @@ const rerouteDissolve: MenuContribution = {
       },
       {
         id: 'core.reroute.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} Reroutes` : 'Delete Reroute',
+        label: ids.length > 1 ? `Delete ${ids.length} reroutes` : 'Delete reroute',
         action: {
           kind: 'command',
           invocation: {
@@ -523,7 +523,7 @@ const valueSourceDelete: MenuContribution = {
     return [
       {
         id: 'core.valueSource.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} Value Sources` : 'Delete Value Source',
+        label: ids.length > 1 ? `Delete ${ids.length} value sources` : 'Delete value source',
         action: { kind: 'host', action: 'deleteSelection' },
       },
     ]
@@ -568,7 +568,7 @@ const selectorPolicy: MenuContribution = {
     }))
     items.push({
       id: 'core.selector.policy.random',
-      label: 'Select: Random',
+      label: 'Select: random',
       checked: sel.policy.kind === 'random',
       action: {
         kind: 'command',
@@ -593,7 +593,7 @@ const selectorAddCandidate: MenuContribution = {
     return [
       {
         id: 'core.selector.addCandidate',
-        label: 'Add Branch',
+        label: 'Add branch',
         action: {
           kind: 'command',
           invocation: {
@@ -618,7 +618,7 @@ const selectorRemoveCandidate: MenuContribution = {
     if (!sel || sel.candidates.length <= 1) return []
     return sel.candidates.map((c, i) => ({
       id: `core.selector.removeCandidate.${c.id}`,
-      label: `Remove Branch ${candidateLabel(c, i)}`,
+      label: `Remove branch ${candidateLabel(c, i)}`,
       action: {
         kind: 'command',
         invocation: {
@@ -642,7 +642,7 @@ const selectorRename: MenuContribution = {
     return [
       {
         id: 'core.selector.rename',
-        label: 'Rename Selector...',
+        label: 'Rename selector...',
         action: { kind: 'host', action: 'renameSelector', params: { selectorId: sel.id } },
       },
     ]
@@ -662,7 +662,7 @@ const selectorDelete: MenuContribution = {
     return [
       {
         id: 'core.selector.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} Selectors` : 'Delete Selector',
+        label: ids.length > 1 ? `Delete ${ids.length} selectors` : 'Delete selector',
         action: { kind: 'host', action: 'deleteSelection' },
       },
     ]
@@ -679,7 +679,7 @@ const canvasAddSelector: MenuContribution = {
     return [
       {
         id: 'core.canvas.addSelector',
-        label: 'Add Selector',
+        label: 'Add selector',
         action: {
           kind: 'command',
           invocation: {
@@ -708,7 +708,7 @@ const linkAddReroute: MenuContribution = {
     return [
       {
         id: 'core.link.addReroute',
-        label: 'Add Reroute',
+        label: 'Add reroute',
         action: {
           kind: 'command',
           invocation: {
@@ -744,7 +744,7 @@ const pinPromoteToNet: MenuContribution = {
     return [
       {
         id: 'core.pin.promoteToNet',
-        label: 'Promote to Named Net...',
+        label: 'Promote to named net...',
         action: { kind: 'host', action: 'promoteToNet', params: { source: portParams({ node: t.nodeId, port: t.portId, members: t.members }) } },
       },
     ]
@@ -773,7 +773,7 @@ const pinConnectToNet: MenuContribution = {
         const connected = net.sinks.some((s) => samePortRef(s, toRef))
         return {
           id: `core.pin.connectToNet.${net.id}`,
-          label: `Connect to Net '${net.name}'`,
+          label: `Connect to net '${net.name}'`,
           checked: connected,
           action: {
             kind: 'command',
@@ -813,13 +813,13 @@ function netManageItems(ctx: MenuContext, netId: string): MenuItem[] {
       label: `Display for '${net.name}'`,
       children: [
         modeItem('noodle', 'Noodles'),
-        modeItem('tags', 'Tags Only'),
-        modeItem('guide', 'Tags + Guide'),
+        modeItem('tags', 'Tags only'),
+        modeItem('guide', 'Tags + guide'),
       ],
     },
     {
       id: 'core.net.rename',
-      label: `Rename Net '${net.name}'...`,
+      label: `Rename net '${net.name}'...`,
       action: { kind: 'host', action: 'renameNet', params: { netId } },
     },
   ]
@@ -867,7 +867,7 @@ const netStubResetPosition: MenuContribution = {
     return [
       {
         id: 'core.net.stubResetPosition',
-        label: 'Reset Tag Position',
+        label: 'Reset tag position',
         action: {
           kind: 'command',
           invocation: {
@@ -898,7 +898,7 @@ const netStubDisconnect: MenuContribution = {
     return [
       {
         id: 'core.net.stubDisconnect',
-        label: 'Disconnect This Input',
+        label: 'Disconnect this input',
         action: {
           kind: 'command',
           invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId, members: t.members }) } },
@@ -922,7 +922,7 @@ const netDelete: MenuContribution = {
     return [
       {
         id: 'core.net.delete',
-        label: `Delete Net '${net.name}'`,
+        label: `Delete net '${net.name}'`,
         action: {
           kind: 'command',
           invocation: { command: 'net.remove', params: { graphId: ctx.graphId, netId } },
@@ -941,7 +941,7 @@ const canvasAddNode: MenuContribution = {
     return [
       {
         id: 'core.canvas.addNode',
-        label: 'Add Node...',
+        label: 'Add node...',
         action: { kind: 'host', action: 'openPalette' },
       },
     ]
@@ -957,7 +957,7 @@ const canvasCreateSubgraph: MenuContribution = {
     if (ctx.target.kind !== 'canvas') return []
     return [{
       id: 'core.canvas.createSubgraph',
-      label: 'Create Empty Subgraph',
+      label: 'Create empty subgraph',
       action: { kind: 'host', action: 'createSubgraph' },
     }]
   },
@@ -972,7 +972,7 @@ const canvasCreateRegions: MenuContribution = {
     if (ctx.target.kind !== 'canvas') return []
     return (['map', 'fold', 'while'] as const).map((kind) => ({
       id: `core.canvas.create${kind[0]!.toUpperCase()}${kind.slice(1)}Region`,
-      label: `Create ${kind[0]!.toUpperCase()}${kind.slice(1)} Region`,
+      label: `Create ${kind} region`,
       action: { kind: 'host' as const, action: 'createRegion', params: { kind } },
     }))
   },
@@ -995,7 +995,7 @@ const canvasAddValueSource: MenuContribution = {
     return [
       {
         id: 'core.canvas.addValueSource',
-        label: 'Add Value Source',
+        label: 'Add value source',
         action: {
           kind: 'command',
           invocation: {
@@ -1022,7 +1022,7 @@ const canvasAddGroup: MenuContribution = {
     return [
       {
         id: 'core.canvas.addGroup',
-        label: 'Add Group',
+        label: 'Add group',
         action: {
           kind: 'command',
           invocation: {
@@ -1058,7 +1058,7 @@ const nodeGroupSelection: MenuContribution = {
     return [
       {
         id: 'core.node.groupSelection',
-        label: count > 1 ? `Group ${count} Nodes` : 'Group Node',
+        label: count > 1 ? `Group ${count} nodes` : 'Group node',
         action: { kind: 'host', action: 'groupSelection' },
       },
     ]
@@ -1076,7 +1076,7 @@ const groupRename: MenuContribution = {
     return [
       {
         id: 'core.group.rename',
-        label: 'Rename Group...',
+        label: 'Rename group...',
         action: { kind: 'host', action: 'renameGroup', params: { groupId: ctx.target.groupId } },
       },
     ]
@@ -1120,7 +1120,7 @@ const groupDelete: MenuContribution = {
     return [
       {
         id: 'core.group.delete',
-        label: 'Delete Group',
+        label: 'Delete group',
         action: {
           kind: 'command',
           invocation: {
@@ -1143,7 +1143,7 @@ const sectionToggle: MenuContribution = {
     return [
       {
         id: 'core.section.toggle',
-        label: t.collapsed ? 'Expand Section' : 'Collapse Section',
+        label: t.collapsed ? 'Expand section' : 'Collapse section',
         action: {
           kind: 'command',
           invocation: {
@@ -1204,7 +1204,7 @@ const nodePreviewExpose: MenuContribution = {
     const exposed = isPreviewExposed(ctx.doc, ctx.graphId, ctx.target.nodeId)
     return [{
       id: 'core.node.preview.expose.toggle',
-      label: exposed ? 'Remove from App View' : 'Promote to App View',
+      label: exposed ? 'Remove from app view' : 'Promote to app view',
       checked: exposed,
       action: {
         kind: 'command',
