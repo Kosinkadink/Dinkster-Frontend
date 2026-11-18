@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, Index, Show } from 'solid-js'
-import type { MissingAsset } from '@dinkster/client'
+import type { MissingAsset, ModelProviderName } from '@dinkster/client'
 import type { AppState } from './app-state.js'
 import { useAssetDecisionViewport } from './asset-decision-viewport.js'
 import { formatByteSize } from './collections.js'
@@ -62,6 +62,13 @@ export function AssetConsentDialog(props: { app: AppState }) {
   }
   const selectable = () => (request()?.assets ?? []).filter((asset) => asset.fetchable)
   const models = () => request()?.models ?? []
+  const requiredProviders = (): readonly ModelProviderName[] => [...new Set(models().flatMap((entry) => {
+    const status = entry.job?.error ?? entry.plan?.status
+    if (!['credential-required', 'provider-grant-required', 'civitai-access-required'].includes(status ?? '')) return []
+    const plan = entry.plan
+    const provider = entry.job?.provider ?? (plan && 'provider' in plan ? plan.provider : undefined)
+    return [provider ?? (status === 'civitai-access-required' ? 'civitai' : 'huggingface')]
+  }))]
   const nextDownload = () => models().findIndex((entry) => entry.plan?.status === 'consent-required' && !entry.pending)
   const modelsReady = () => models().every((entry) => !entry.pending && (entry.plan?.status === 'local' || entry.job?.status === 'completed'))
   const canRun = () => modelsReady() && (models().length > 0 || selected().size > 0)
@@ -207,11 +214,10 @@ export function AssetConsentDialog(props: { app: AppState }) {
             </li>
           }}</Index>
         </ul>
-        <Show when={request()?.providerConnection && models().some((entry) =>
-          ['credential-required', 'provider-grant-required'].includes(entry.job?.error ?? entry.plan?.status ?? ''))}>
-          <ModelProvider connection={request()!.providerConnection!}
+        <Show when={request()?.providerConnection}>
+          <For each={requiredProviders()}>{(provider) => <ModelProvider provider={provider} connection={request()!.providerConnection!}
             {...(request()?.providerBackendUrl === undefined ? {} : { backendUrl: request()!.providerBackendUrl! })}
-            onChanged={() => request()?.providerChanged?.()} />
+            onChanged={() => request()?.providerChanged?.()} />}</For>
         </Show>
         <Show when={selectable().length === 0 && request()?.assets.some((asset) => !asset.disabledLocations?.length)}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.unresolvable')}</ProductNotice>

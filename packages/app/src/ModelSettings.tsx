@@ -148,7 +148,10 @@ export function ModelSettings(props: {
         <ProductButton disabled={busy()} onClick={() => { resetForm(); void load() }}>{message('projectFolders.refresh')}</ProductButton>
       </div>
       <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
-      <Show when={props.providerConnection}>{(connection) => <ModelProvider connection={connection()} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={() => props.onChanged?.()} />}</Show>
+      <Show when={props.providerConnection}>{(connection) => <>
+        <ModelProvider connection={connection()} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={() => props.onChanged?.()} />
+        <ModelProvider provider="civitai" connection={connection()} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={() => props.onChanged?.()} />
+      </>}</Show>
       <Show when={state()}>{(current) => <>
         <p>{message('modelSettings.project', { project: current().project })}</p>
         <Show when={props.visibilityConnection}>

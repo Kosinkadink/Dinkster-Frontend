@@ -391,12 +391,12 @@ describe('model provider credentials', () => {
   it('returns credential and provider-grant refusals without treating either as download consent', async () => {
     let error = 'credential-required'
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: error === 'civitai-access-required' ? 'civitai' : 'huggingface', requirementId: 'opaque' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required', provider: 'huggingface' })
     error = 'provider-grant-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required', provider: 'huggingface' })
     error = 'civitai-access-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required' })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required', provider: 'civitai' })
     error = 'unrecognized-private-message'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
   })

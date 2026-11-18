@@ -184,10 +184,14 @@ projects without deleting files; removing the download default selects the next
 writable location, or leaves downloads unconfigured. Concurrent edits require a
 refresh before saving. Fixed worker grants display a restart notice.
 The same Model management section appears in Desktop's Existing model folders
-area. Hugging Face Sign-In is engine-private: local loopback browsers use PKCE,
-while remote engines use a provider device code. Continue at Hugging Face opens
-the validated provider origin in a separate tab; device verification also accepts
-Hugging Face's HTTPS `hf.co` short domain. The panel checks completion.
+area. Hugging Face and Civitai sign-in are separate, engine-private connections.
+Local loopback browsers use PKCE. Remote Hugging Face connections use a provider
+device code; remote Civitai connections offer the masked access-token fallback
+instead of browser sign-in. Local Civitai browser sign-in requires a public client
+configured on the engine. Continue at the selected provider opens its validated
+origin in a separate tab; Hugging Face device verification also accepts HTTPS
+`hf.co`. The panel checks completion. Switching engine or provider clears private
+input and cancels any pending flow through its original engine and provider.
 Cancel stops the pending sign-in flow, not a model download. A masked access-token
 fallback clears the input after submission and is never saved in browser storage.
 Check sign-in status reconciles uncertain replies without repeating a mutation.

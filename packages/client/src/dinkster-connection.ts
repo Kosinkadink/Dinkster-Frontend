@@ -3506,7 +3506,7 @@ export class DinksterConnection {
         const raw: unknown = await res.json().catch(() => undefined)
         if (path === 'plan' && res.status === 409 && record(raw) &&
           (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'civitai-access-required' || raw['error'] === 'model-hidden'))
-          return { status: raw['error'] }
+          return decodeModelDownloadPlan({ status: raw['error'], ...(raw['provider'] === undefined ? {} : { provider: raw['provider'] }) })
         throw new Error(`Model download ${method} failed: ${res.status}`)
       }
       return res.json() as Promise<unknown>

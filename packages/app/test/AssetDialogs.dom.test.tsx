@@ -229,6 +229,28 @@ describe('asset modal surfaces', () => {
     } finally { mounted.dispose() }
   })
 
+  it('offers only Civitai connection for repeated Civitai refusals without granting download consent', async () => {
+    const retry = vi.fn()
+    const fetchModelProvider = vi.fn(async (_signal, provider = 'huggingface') => ({ provider: provider as 'civitai' | 'huggingface', configured: false }))
+    const provider = { fetchModelProvider, saveModelProviderToken: vi.fn(), forgetModelProvider: vi.fn(),
+      startModelProviderSignIn: vi.fn(), pollModelProviderSignIn: vi.fn(), cancelModelProviderSignIn: vi.fn() }
+    const mounted = mountConsent({ assets: [], busy: false, retry, providerConnection: provider,
+      providerBackendUrl: 'https://remote.example',
+      models: ['first.safetensors', 'second.safetensors'].map((name) => ({
+        requirement: { name, kind: 'model/checkpoint' }, pending: false,
+        plan: { status: 'civitai-access-required' as const },
+      })) })
+    try {
+      await vi.waitFor(() => expect(fetchModelProvider).toHaveBeenCalledWith(undefined, 'civitai'))
+      const connections = mounted.root.querySelectorAll('[data-testid="model-provider"]')
+      expect(connections).toHaveLength(1)
+      expect(connections[0]!.getAttribute('data-provider')).toBe('civitai')
+      expect(mounted.root.textContent).toContain('Civitai sign-in')
+      expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')!.disabled).toBe(true)
+      expect(retry).not.toHaveBeenCalled()
+    } finally { mounted.dispose() }
+  })
+
   it('uses shared modal chrome and blocks incidental dismissal while acquisition is busy', () => {
     const mounted = mountConsent({ assets: [asset], busy: true, retry: vi.fn() })
     const dialog = mounted.root.querySelector<HTMLDialogElement>('[data-testid="asset-consent-dialog"]')!
