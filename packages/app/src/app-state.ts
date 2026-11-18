@@ -4123,7 +4123,19 @@ export class AppState {
             canonical?.complete && storage.getItem(tabsKey()) === canonical.raw ? canonical.owners : [])
             return undefined
           }
-          this.persistedWorkflowSlots.set(key, { raw: slot.raw, complete: false,
+          const complete = key.startsWith(documentCandidatePrefix()) &&
+            native.length === sources.length && owners.every((retained) => retained.complete) &&
+            sources.every(({ backend, registry }) => backend.registry.get() === registry)
+          // A displaced shared stage does not make our finished local admission
+          // pending forever. Keep its own receipts without publishing over a peer.
+          const raw = slot.raw === pending && complete ? persistenceJson({ ...value, assetRetention: {
+            stageId, acknowledged: true, complete, owners: owners.map((retained, index) => ({
+              connectionId: native[index]!.backend.connection.id,
+              assetBaseUrl: native[index]!.backend.connection.assetUrl(''),
+              documentLineage: native[index]!.document.lineage, retained,
+            })),
+          } }) : slot.raw
+          this.persistedWorkflowSlots.set(key, { raw, complete: slot.raw === pending ? complete : slot.complete,
             owners: [...new Set([...slot.owners, ...previousOwners]),
               ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
             ],
@@ -4173,7 +4185,7 @@ export class AppState {
               canonical?.complete && storage.getItem(tabsKey()) === canonical.raw ? canonical.owners : [])
             return undefined
           }
-          this.persistedWorkflowSlots.set(key, { raw: slot.raw, complete: false,
+          this.persistedWorkflowSlots.set(key, { raw: slot.raw, complete: slot.raw !== pending && slot.complete,
             owners: [...new Set([...slot.owners, ...previousOwners]), ...replacements] })
           return undefined
         }

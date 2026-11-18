@@ -150,6 +150,62 @@ describe('open-tab persistence', () => {
       .toContain('late-workspace-admission')
   })
 
+  it('settles local document ownership after a peer supersedes its pending recovery stage', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0,
+      nodes: { n0: { ...seedBasic.graphs.g0.nodes.n0, type: 'X', values: {} } }, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    let acknowledge: (() => void) | undefined
+    let hold = false
+    const waiting: (() => void)[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      if (hold) await new Promise<void>((resolve) => {
+        waiting.push(resolve)
+        acknowledge = () => { hold = false; for (const release of waiting.splice(0)) release() }
+      })
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, digests: [], complete: true }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }])
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(app.retentionActivity().incompleteSlots).toEqual([])
+    const tab = app.activeTab()!
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Changed document',
+    } })).ok).toBe(true)
+    hold = true
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(acknowledge).toBeDefined()
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    const pending = JSON.parse(localStorage.getItem(key)!)
+    expect(pending.assetRetention.acknowledged).toBe(false)
+    const peer = { ...pending, stageId: 'peer-document-stage',
+      assetRetention: { stageId: 'peer-retention-stage', acknowledged: true, complete: true, owners: [] } }
+    localStorage.setItem(key, JSON.stringify(peer))
+    acknowledge!()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(app.retentionActivity().incompleteSlots).toEqual([])
+    expect(Object.values(app.retentionActivity())
+      .some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    const saved = JSON.parse(localStorage.getItem(TABS_KEY)!)
+    expect(saved.tabs.find((saved: { doc: { lineage: string } }) => saved.doc.lineage === tab.id)
+      .doc.graphs.g0.nodes.n0.title).toBe('Changed document')
+    expect(localStorage.getItem(key)).toBe(JSON.stringify(peer))
+  })
+
   it('keeps unchanged local ownership after a peer replaces the canonical stage', async () => {
     const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
     localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
