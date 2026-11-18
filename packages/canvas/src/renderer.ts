@@ -824,6 +824,7 @@ export class CanvasRenderer {
   setScene(scene: Scene): void {
     this.baseScene = scene
     this.scene = this.sceneWithBodyRegions(scene)
+    this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
       type: node.node.type,
@@ -1431,9 +1432,7 @@ export class CanvasRenderer {
     if (this.dirty || animateExecution) this.scheduleFrame()
   }
 
-  private render(): void {
-    const ctx = this.canvas.getContext('2d')
-    if (!ctx) return
+  private refreshConnectivity(): void {
     this.connectedInputPins = new Set(
       [
         ...this.scene.links
@@ -1488,6 +1487,11 @@ export class CanvasRenderer {
           return `${to.node}\u0000${portEndKey(to)}`
         }),
     )
+  }
+
+  private render(): void {
+    const ctx = this.canvas.getContext('2d')
+    if (!ctx) return
     const dpr = globalThis.devicePixelRatio ?? 1
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
