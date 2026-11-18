@@ -43,9 +43,9 @@ The native startup and full-validation jobs use
 `.github/actions/prepare-native-generation` to capture every official pack
 and its shared helper library from the pinned `dinkster-nodes` revision,
 plus the engine's dev pack. Contributor setup builds their dependency locks,
-stages verified sources and prepares catalogs in one CPU generation. It then
+stages verified sources and prepares catalogs in one CPU snapshot. It then
 stops its setup server. The native servers and execution workers use that
-same generation and interpreter, exported as `DINKSTER_E2E_GENERATION` and
+same snapshot and interpreter, exported as `DINKSTER_E2E_GENERATION` and
 `DINKSTER_E2E_DINKSTER_PYTHON`. Checkout `.venv` environments and
 `prepare-catalogs --defaults` cannot substitute for this captured pack set.
 

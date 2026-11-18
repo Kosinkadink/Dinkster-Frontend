@@ -65,7 +65,7 @@ token. Planning returns review text and does not install. A managed bare-host
 plan returns a nonempty `commands` string array instead of `confirmation`;
 the Problems panel shows and copies these exact host-supplied commands, without
 an HTTP confirmation button. Run them in a terminal on the backend host to
-plan and apply the managed generation. After activation and reconnect, the
+plan and apply the managed snapshot. After activation and reconnect, the
 existing document re-resolves against the newly installed schemas.
 Desktop gateway plans return `confirmation` instead of `commands` and retain
 the explicit HTTP confirmation flow. A response with both execution modes,
