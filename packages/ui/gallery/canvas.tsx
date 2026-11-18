@@ -33,6 +33,7 @@ export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
+  const [outline, setOutline] = createSignal('current')
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -41,14 +42,21 @@ export function CanvasGallery() {
     const currentTheme = theme()
     const currentPage = page()
     const currentWidget = widgetId()
+    const currentOutline = outline()
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void document.fonts.ready.then(() => {
       if (disposed) return
+      const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
         ...defaultTokens,
-        colors: canvasColorsForTheme(currentTheme),
+        colors: {
+          ...colors,
+          ...(currentPage === 'idle-outline' && currentOutline === 'quieter'
+            ? { nodeOutline: colors.nodeBorder }
+            : {}),
+        },
       }
       const measureContext = document.createElement('canvas').getContext('2d')!
       const measure: TextMeasurer = (text, role) => {
@@ -163,6 +171,7 @@ export function CanvasGallery() {
       }
       canvas.dataset.ready = `${currentPage}-${currentTheme}`
       canvas.dataset.widget = currentWidget
+      canvas.dataset.outline = currentOutline
     })
     onCleanup(() => {
       disposed = true
@@ -201,6 +210,25 @@ export function CanvasGallery() {
           )}
         </For>
       </nav>
+      <Show when={page() === 'idle-outline'}>
+        <ProductField label="Outline look">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={outline()}
+              onChange={(event) => setOutline(event.currentTarget.value)}
+            >
+              <option value="current">Current outline</option>
+              <option value="quieter">Quieter outline</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Compare the current idle outline with the shared subtle border. Hover
+          and selection paint stay unchanged. This preview does not change the
+          app canvas.
+        </p>
+      </Show>
       <Show when={page() === 'widget-states'}>
         <ProductField label="Widget kind">
           {(attributes) => (
