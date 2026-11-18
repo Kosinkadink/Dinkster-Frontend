@@ -18,6 +18,7 @@ import {
   canonicalTypeIdOf,
   companionSourcesOf,
   compile,
+  modelInputOccurrences,
   compositorStateOf,
   documentResolver,
   coreCommandRegistry,
@@ -8434,7 +8435,14 @@ export class AppState {
     const backend = this.backendForTab(tab)
     const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(backend.connection)
-    const models = backend.connection.inspectWorkflowModels(snapshot).catch(() => undefined)
+    const input = this.compileInputForTab(tab, { kind: 'full' })
+    let occurrences
+    try {
+      occurrences = input === undefined ? undefined : modelInputOccurrences({ ...input, document: snapshot })
+    } catch {
+      // Optional observations cannot prevent saving an incomplete document.
+    }
+    const models = backend.connection.inspectWorkflowModels(snapshot, occurrences).catch(() => undefined)
     const check = this.workflowAssetChecks.get(tab.store)
     if (check) {
       await check.completion

@@ -3875,13 +3875,36 @@ it('reads model observations with project scope and drops noncontract fields', a
   let payload: unknown = { version: 1, models: [{ ...model, localBinding: 'private-grant',
     accessToken: 'never-export', sourceHints: { ...model.sourceHints, accessToken: 'never-export' } }] }
   const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
-  await expect(conn.inspectWorkflowModels(workflow)).resolves.toEqual({ version: 1, models: [model] })
+  await expect(conn.inspectWorkflowModels(workflow)).resolves.toEqual({ version: 1, scope: 'definitions', models: [model] })
   expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ document: workflow, project: 'default' })
   expect(String(requests[0]?.url)).toContain('/api/workflows/model-provenance')
   payload = { version: 1, models: [{ ...model, sourceHints: { advisory: false } }] }
   await expect(conn.inspectWorkflowModels(workflow)).resolves.toBeUndefined()
   payload = { version: 1, models: [{ ...model, name: '/private/models/same.bin' }] }
   await expect(conn.inspectWorkflowModels(workflow)).resolves.toBeUndefined()
+})
+
+it('maps host observations to repeated saved occurrences and refuses unknown returned coordinates', async () => {
+  const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document!
+  const occurrences = ['first', 'second'].map((id, index) => ({
+    occurrence: { instancePath: [asNodeId(id), asNodeId('nested')], node: asNodeId('loader') },
+    type: 'Loader', values: { model: index === 0 ? 'one.bin' : 'two.bin' },
+  }))
+  let nodePath = [workflow.root, '1']
+  const { conn, requests } = submitHarness(() => jsonResponse(200, { version: 1, models: [
+    { nodePath, input: 'model', kind: 'model/lora', name: 'two.bin', size: 7 },
+  ] }))
+  await expect(conn.inspectWorkflowModels(workflow, occurrences)).resolves.toEqual({ version: 1, scope: 'instances', models: [
+    { nodePath: [workflow.root, 'second', 'nested', 'loader'], input: 'model', kind: 'model/lora', name: 'two.bin', size: 7 },
+  ] })
+  const projected = JSON.parse(String(requests[0]?.init?.body)).document
+  expect(Object.keys(projected.graphs)).toEqual([workflow.root])
+  expect(projected.graphs[workflow.root].nodes).toEqual({
+    '0': { id: '0', type: 'Loader', values: { model: 'one.bin' } },
+    '1': { id: '1', type: 'Loader', values: { model: 'two.bin' } },
+  })
+  nodePath = [workflow.root, '2']
+  await expect(conn.inspectWorkflowModels(workflow, occurrences)).resolves.toBeUndefined()
 })
 
 it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {

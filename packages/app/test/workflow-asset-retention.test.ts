@@ -688,7 +688,7 @@ describe('retained app dispatch', () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const modelSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'model', optional: false,
       type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'ASSET', options: { kind: 'model/checkpoint' } } }] }
+      widget: { widgetType: 'ASSET', kind: 'model/checkpoint', selection: true, options: {} } }] }
     app = createWorkflowApp([modelSchema])
     const document = session([]).doc
     const prior = { version: 1, models: [{ nodePath: ['g0', 'n0'], input: 'model', kind: 'model/checkpoint',
@@ -722,6 +722,59 @@ describe('retained app dispatch', () => {
       expect(workflowAssetRoots(malformed, { revision: 0, undo: [], redo: [] }, () => modelSchema).refusal)
         .toBe('Workflow asset identity is malformed')
     }
+  })
+
+  it.each(['download', 'save'] as const)('exports nested instance model overrides from an incomplete workflow: %s', async (action) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const first = action === 'save' ? asset('a') : 'one.bin'
+    const second = action === 'save' ? asset('c') : 'two.bin'
+    const middle = action === 'save' ? asset('d') : 'middle.bin'
+    const definition = action === 'save' ? asset('e') : 'definition.bin'
+    const modelSchema: NodeSchema = { ...schema, items: [
+      { kind: 'input', id: 'model', optional: false, type: { kind: 'concrete', name: action === 'save' ? 'ASSET' : 'STRING' },
+        widget: { widgetType: 'ASSET', kind: 'model/checkpoint', selection: true, options: {} } },
+      { kind: 'input', id: 'unfilled', optional: false, type: { kind: 'concrete', name: 'STRING' } },
+    ] }
+    const base = session([]).doc
+    const root = base.graphs.g0!
+    const document: WorkflowDocument = { ...base, graphs: {
+      g0: { ...root, nodes: {
+        first: { id: asNodeId('first'), type: '#outer', values: { model: first } },
+        second: { id: asNodeId('second'), type: '#outer', values: { model: second } },
+      } },
+      outer: { ...root, id: asGraphDefId('outer'), nodes: {
+        nested: { id: asNodeId('nested'), type: '#inner', values: { model: middle } },
+      }, boundary: { inputs: [{ id: asPortId('model'), binds: { kind: 'port', node: asNodeId('nested'), port: asPortId('model') } }], outputs: [] } },
+      inner: { ...root, id: asGraphDefId('inner'), nodes: {
+        loader: { id: asNodeId('loader'), type: 'Loader', values: { model: definition } },
+      }, boundary: { inputs: [{ id: asPortId('model'), binds: { kind: 'port', node: asNodeId('loader'), port: asPortId('model') } }], outputs: [] } },
+    } }
+    app = createWorkflowApp([modelSchema], document)
+    const before = app.activeTab()!.store.doc
+    const observations = { version: 1, scope: 'instances', models: [
+      { nodePath: ['g0', 'second', 'nested', 'loader'], input: 'model', kind: 'model/checkpoint',
+        name: action === 'save' ? 'c.bin' : 'two.bin', size: 7, digest: asset(action === 'save' ? 'c' : 'b').digest },
+    ] }
+    const inspect = vi.spyOn(app.connection, 'inspectWorkflowModels').mockResolvedValue(observations)
+    const downloads = captureDownloads()
+    const upload = vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('c').digest)
+    vi.spyOn(app.connection, 'createLibraryRecord').mockResolvedValue({
+      id: 'saved-models', scope: 'local', name: 'Saved models', digest: asset('c').digest,
+      mediaType: 'application/json', labels: [], created: 1, modified: 1, revision: 1,
+    })
+    const compiled = app.compileTab(app.activeTab()!)
+    expect(compiled?.ok && compiled.artifact.diagnostics.some((d) => d.code === 'compile.input.missing')).toBe(true)
+    const success = await (action === 'download' ? app.exportWorkflow(app.activeTab()!.id) : app.saveWorkflow(app.activeTab()!.id))
+    expect(success, JSON.stringify(app.problems.get())).toBe(true)
+    expect(inspect.mock.calls[0]![1]).toEqual([
+      { occurrence: { instancePath: ['first', 'nested'], node: 'loader' }, type: 'Loader', values: { model: first } },
+      { occurrence: { instancePath: ['second', 'nested'], node: 'loader' }, type: 'Loader', values: { model: second } },
+    ])
+    const saved = JSON.parse(action === 'download' ? await downloads[0]!.text() : upload.mock.calls[0]![0] as string) as WorkflowDocument
+    expect(saved.meta?.ext?.['dinkster.modelProvenance']).toEqual(observations)
+    expect(workflowAssetRoots(saved, { revision: 0, undo: [], redo: [] }, () => modelSchema).digests)
+      .not.toContain(asset('b').digest)
+    expect(app.activeTab()!.store.doc).toBe(before)
   })
 
   it('discards model observations and the export after its engine target changes', async () => {

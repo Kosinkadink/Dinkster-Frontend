@@ -452,7 +452,8 @@ function censusWorkflowAssetRoots(
     const provenance = snapshot.meta?.ext?.['dinkster.modelProvenance'] as Record<string, unknown> | undefined
     if (typeof provenance === 'object' && provenance !== null && !Array.isArray(provenance) &&
       provenance['version'] === 1 && Array.isArray(provenance['models']) &&
-      Object.keys(provenance).every((key) => key === 'version' || key === 'models')) {
+      (provenance['scope'] === undefined || provenance['scope'] === 'definitions' || provenance['scope'] === 'instances') &&
+      Object.keys(provenance).every((key) => key === 'version' || key === 'models' || key === 'scope')) {
       for (const row of provenance['models']) {
         if (typeof row !== 'object' || row === null || Array.isArray(row)) continue
         const hints = row['sourceHints']

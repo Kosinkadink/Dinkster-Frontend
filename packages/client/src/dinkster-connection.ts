@@ -79,6 +79,8 @@ import {
   type ReadonlySignal,
   type SchemaResolver,
   type WorkflowDocument,
+  type ModelInputOccurrence,
+  asNodeId,
   loadDocument,
 } from '@dinkster/core'
 import type { FetchLike, SchemaRegistry, SubmitResult } from './connection-contract.js'
@@ -3400,10 +3402,19 @@ export class DinksterConnection {
   }
 
   /** Observe saved model selections without hashing, downloading or running a graph. */
-  async inspectWorkflowModels(document: WorkflowDocument): Promise<JsonObject | undefined> {
+  async inspectWorkflowModels(document: WorkflowDocument, occurrences?: readonly ModelInputOccurrence[]): Promise<JsonObject | undefined> {
+    const root = document.graphs[document.root]
+    const observedDocument = occurrences === undefined || root === undefined ? document : {
+      ...document,
+      graphs: { [document.root]: { ...root, links: {}, nets: {}, nodes: Object.fromEntries(
+        occurrences.map((row, index) => [String(index), {
+          id: asNodeId(String(index)), type: row.type, values: row.values,
+        }]),
+      ) } },
+    }
     const res = await this.fetchFn(`${this.baseUrl}/api/workflows/model-provenance`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ document, project: this.project ?? 'default' }),
+      body: JSON.stringify({ document: observedDocument, project: this.project ?? 'default' }),
       signal: AbortSignal.timeout(3000),
     })
     if (!res.ok) return undefined
@@ -3420,7 +3431,14 @@ export class DinksterConnection {
         typeof row['name'] !== 'string' || /[/\\\\]/.test(row['name']) ||
         !Number.isSafeInteger(row['size']) || (row['size'] as number) < 0 ||
         (row['digest'] !== undefined && (typeof row['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(row['digest'])))) return undefined
-      const model: Record<string, Json> = { nodePath: row['nodePath'] as string[], input: row['input'],
+      let nodePath = row['nodePath'] as string[]
+      if (occurrences !== undefined) {
+        const index = Number(nodePath[1])
+        const occurrence = occurrences[index]?.occurrence
+        if (nodePath.length !== 2 || nodePath[0] !== document.root || String(index) !== nodePath[1] || occurrence === undefined) return undefined
+        nodePath = [document.root, ...occurrence.instancePath, occurrence.node]
+      }
+      const model: Record<string, Json> = { nodePath, input: row['input'],
         kind: row['kind'], name: row['name'], size: row['size'] as number,
         ...(typeof row['digest'] === 'string' ? { digest: row['digest'] } : {}) }
       const hints = row['sourceHints']
@@ -3437,7 +3455,7 @@ export class DinksterConnection {
       }
       models.push(model)
     }
-    return { version: 1, models }
+    return { version: 1, scope: occurrences === undefined ? 'definitions' : 'instances', models }
   }
 
   /** Read host requirements without granting download or installation consent. */

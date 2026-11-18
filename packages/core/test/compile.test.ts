@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
+import { compile, modelInputOccurrences, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import type { WorkflowDocument } from '../src/format/document.js'
@@ -36,6 +36,55 @@ const compileInput = (
   scope,
   connection: asConnectionId('c0'),
   schemaHash: 'test-schema-hash',
+})
+
+describe('saved model occurrences', () => {
+  it('omits driven model inputs instead of reporting their stale widget selection', () => {
+    const document = loadWorkflow('minimal')
+    const resolver: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'CLIPTextEncode' || schema === undefined) return schema
+      return { ...schema, items: schema.items.map((item) => item.kind === 'input' ? {
+        ...item, widget: { widgetType: 'ASSET' as const, kind: 'model/checkpoint', selection: true as const, options: {} },
+      } : item) }
+    }
+    const root = document.graphs[document.root]!
+    const consumer = Object.values(root.nodes).find((node) => node.type === 'CLIPTextEncode')!
+    const snapshot: WorkflowDocument = { ...document, graphs: { ...document.graphs,
+      [document.root]: { ...root, nodes: { ...root.nodes,
+        [consumer.id]: { ...consumer, values: { clip: 'stale.bin' } },
+      } },
+    } }
+    const observed = modelInputOccurrences(compileInput(snapshot, { kind: 'full' }, resolver))
+    expect(observed).toBeDefined()
+    expect(observed!.some((row) => row.occurrence.node === consumer.id)).toBe(false)
+  })
+
+  it('observes a declared model default when the saved widget has no value', () => {
+    const document = loadWorkflow('minimal')
+    const root = document.graphs[document.root]!
+    const loader = root.nodes['n0']!
+    const resolver: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      return type !== loader.type || schema === undefined ? schema : { ...schema, items: schema.items.map((item) =>
+        item.kind !== 'input' ? item : { ...item, widget: { widgetType: 'ASSET' as const,
+          options: {}, kind: 'model/checkpoint', selection: true as const, default: 'default.bin' } }) }
+    }
+    const snapshot = { ...document, graphs: { ...document.graphs, [document.root]: { ...root,
+      nodes: { ...root.nodes, n0: { ...loader, values: {} } },
+    } } }
+    expect(modelInputOccurrences(compileInput(snapshot, { kind: 'full' }, resolver))).toEqual([
+      { occurrence: { instancePath: [], node: 'n0' }, type: loader.type, values: { ckpt_name: 'default.bin' } },
+    ])
+  })
+
+  it('does not choose a random selector branch during a saved observation', () => {
+    const input = { ...compileInput(loadWorkflow('selector')),
+      pickCandidate: () => { throw new Error('Save must not roll a selector') },
+      candidateOverride: () => { throw new Error('Save must not replay an execution') },
+    }
+    expect(modelInputOccurrences(input)).toBeUndefined()
+  })
 })
 
 describe('golden pairs', () => {

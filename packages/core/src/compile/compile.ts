@@ -406,6 +406,21 @@ export function compile(input: CompileInput): CompileResult {
   return compileImpl(input, false).result
 }
 
+export interface ModelInputOccurrence {
+  readonly occurrence: Occurrence
+  readonly type: string
+  readonly values: Readonly<Record<string, Json>>
+}
+
+/** Saved instance literals, resolved without queue-time choices or execution validation. */
+export function modelInputOccurrences(input: Omit<CompileInput, 'pickCandidate' | 'candidateOverride'>): readonly ModelInputOccurrence[] | undefined {
+  return compileImpl({
+    query: 'modelInputs', document: input.document, resolve: input.resolve,
+    revision: input.revision, scope: input.scope, connection: input.connection, schemaHash: input.schemaHash,
+    ...(input.graphFeatures === undefined ? {} : { graphFeatures: input.graphFeatures }),
+  }, false).models
+}
+
 interface ValueSourceConsumer {
   readonly sources: readonly ControllerInputSource[]
   readonly terminal: ControllerNodeInputSource
@@ -447,16 +462,17 @@ interface CompileTraversalResult {
  * A would-run artifact must be DISCARDED - its prompt stages one arbitrary
  * branch per undecided selector and must never be submitted.
  */
+function compileImpl(input: CompileInput & { readonly query: 'modelInputs' }, wouldRun: boolean): { models: readonly ModelInputOccurrence[] | undefined }
 function compileImpl(input: CompileInput, wouldRun: boolean): CompileTraversalResult
 function compileImpl(input: ValueSourceQuery, wouldRun: boolean): { consumers: readonly ValueSourceConsumer[] }
 function compileImpl(
-  input: CompileInput | ValueSourceQuery,
+  input: CompileInput | ValueSourceQuery | (CompileInput & { readonly query: 'modelInputs' }),
   wouldRun: boolean,
-): CompileTraversalResult | { consumers: readonly ValueSourceConsumer[] } {
+): CompileTraversalResult | { consumers: readonly ValueSourceConsumer[] } | { models: readonly ModelInputOccurrence[] | undefined } {
   const doc = input.document
-  const queryingSources = 'query' in input
-  const options = queryingSources ? undefined : input
-  const scope: ExecutionScope = queryingSources ? { kind: 'full' } : input.scope
+  const queryingSources = 'query' in input && input.query === 'valueSources'
+  const options = 'scope' in input ? input : undefined
+  const scope: ExecutionScope = options?.scope ?? { kind: 'full' }
   const sourceConsumers: ValueSourceConsumer[] = []
   const resolve = documentResolver(doc, input.resolve)
   const resolveNode = documentNodeResolver(doc, input.resolve)
@@ -599,7 +615,7 @@ function compileImpl(
     }
   }
   scanRegions(doc.root, [], new Set())
-  if (!queryingSources && diags.some((diagnostic) => diagnostic.severity === 'error')) {
+  if (!('query' in input) && diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
   // -- Occurrence contexts and forwarding state
@@ -2485,7 +2501,30 @@ function compileImpl(
     }
   }
 
-  if ('query' in input) return { consumers: sourceConsumers }
+  if ('query' in input && input.query === 'valueSources') return { consumers: sourceConsumers }
+  if ('query' in input && input.query === 'modelInputs') {
+    if ([...diags, ...[...stagedNodeDiagnostics.values()].flat()].some((d) => d.severity === 'error')) {
+      return { models: undefined }
+    }
+    return { models: [...flat.values()].flatMap((fn) => {
+      const values: Record<string, Json> = {}
+      for (const input of fn.elab.inputs) {
+        const widget = input.spec.widget
+        if (input.apiName === undefined || input.spec.hidden === true ||
+            (input.origin.kind === 'member' && input.origin.ghost === true) ||
+            widget?.widgetType !== 'ASSET' || !widget.kind?.startsWith('model/') ||
+            fn.linkedInputs.has(input.spec.id)) continue
+        const staged = fn.inputs[input.spec.id]
+        const value = staged === undefined ? effectiveWidgetDefault(widget) : staged
+        if (value === undefined) continue
+        const literal = parseTypedLiteralWire(value)?.value ?? value
+        if (typeof literal === 'string' || (typeof literal === 'object' && literal !== null && !Array.isArray(literal))) {
+          values[input.apiName] = structuredClone(literal) as Json
+        }
+      }
+      return Object.keys(values).length === 0 ? [] : [{ occurrence: fn.occ, type: fn.node.type, values }]
+    }) }
+  }
 
   // -- Scope: full = closure of output nodes; partial = closure of targets ---
 

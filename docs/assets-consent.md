@@ -24,12 +24,25 @@ not cancel a transfer; cancellation is a separate explicit job operation.
 
 Save and workflow download optionally observe stored model inputs on the tab's
 current engine and project. The captured document receives
-`meta.ext.dinkster.modelProvenance`: graph/node definition path, input, model
-kind, basename, size and any already-known bound BLAKE3 identity. These are
-observations of saved literal selections, including disconnected definitions,
-not execution results or per-instance overrides. Admission records the final
-reachable execution inputs separately. Neither observation waits for hashes,
-starts downloads nor runs a graph.
+`meta.ext.dinkster.modelProvenance`: input, model kind, basename, size and any
+already-known bound BLAKE3 identity. With `scope: instances`, node paths start
+at the root graph and include each enclosing instance and the terminal node.
+Promoted values resolve outside-in, so repeated instances can select different
+models. Stored literals on disconnected instantiated nodes are included;
+uninstantiated definitions, muted/bypassed nodes and runtime-fed inputs are not.
+These are saved selections, not proof of execution or region iteration values.
+
+Ambiguous lowering, including unresolved random selectors, falls back to
+`scope: definitions` with graph/node definition paths rather than inventing an
+instance selection. Older saved observations without scope are definition-local.
+Missing unrelated execution inputs do not prevent inspection. The host observes
+the resolved literals using current project grants; the frontend maps those
+observations back to saved occurrences. Admission records the final reachable
+execution inputs separately. Neither observation waits for hashes, starts
+downloads nor runs a graph. Library save still requires confirmed workflow
+asset ownership; observations do not make unresolved filename selections
+eligible for publication. Local download retains its existing repairable-workflow
+behavior.
 
 Provider `sourceHints` and recorded SHA-256 remain explicitly advisory; they
 are not proof of the source selected for an occurrence or usage permission.
