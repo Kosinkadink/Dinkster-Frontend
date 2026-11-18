@@ -649,7 +649,10 @@ cover controls, content and overview detail. The minimap includes groups, links 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
 Intentional paint changes include reviewed picture differences; token-only
-moves preserve the pictures.
+moves preserve the pictures. `packages/canvas/src/tokens.ts` owns shared
+semantic paint roles and the fixed `canvasPaintTokens` geometry. Existing
+geometry exports are aliases consumed by both drawing and hit testing;
+changing their source cannot leave an independent pointer target behind.
 
 ### Extension descriptors
 
