@@ -36,6 +36,7 @@ const descriptor = { typeId: 'VIDEO', fingerprint: 'retained-source', meta: {
   probe: { width: 1080, height: 1920, rotation: 90, color_space: 'HDR PQ' },
   effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 240 },
 } }
+const startupLineages = new WeakMap<Page, string>()
 const imported = { vendor: { future: [1, 'keep'] }, trim: { start_time: 1.25, duration: 3.5, extra: true }, crop: { x: 100, y: 40, width: 1280, height: 720, extra: 'keep' } }
 
 test.beforeEach(async ({ page }) => {
@@ -65,6 +66,14 @@ async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: 
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })).toBe(true)
+  if (!startupLineages.has(page)) {
+    const startup = await page.evaluate(() => {
+      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+      return { lineage: doc.lineage, nodes: Object.values(doc.graphs).flatMap((graph) => Object.keys(graph.nodes)) }
+    })
+    expect(startup.nodes).toEqual([])
+    startupLineages.set(page, startup.lineage)
+  }
   await page.evaluate(async ({ kind, values, linked }) => {
     const app = window.__dinksterTest!.app
     await app.openDocument({
@@ -154,7 +163,21 @@ async function retainRoundTrip(
   expect(await page.evaluate(async (text) => (await window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true)), savedText)).toEqual([])
   const afterSaveReload = await persistedState(page)
   const retainedImportOwners: string[] = []
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+  await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+    const lineage = await page.evaluate((url) => {
+      const ownerId = decodeURIComponent(new URL(url).pathname.split('/').at(-1)!)
+      const key = Object.keys(localStorage).find((candidate) => candidate.endsWith(`workflow-retentions.${ownerId}`))
+      return key === undefined ? undefined : JSON.parse(localStorage.getItem(key)!).documentLineage as string
+    }, route.request().url())
+    expect(lineage).toBeDefined()
+    // Delayed recovery of the verified empty startup document is not a video import.
+    if (lineage === startupLineages.get(page)) {
+      if (route.request().method() === 'PUT') {
+        expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: true, digests: [] })
+      }
+      return route.fallback()
+    }
+    expect(lineage).toMatch(/^video-editor-test(?:-import-[0-9]+-[0-9]+)?$/)
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
     expect(route.request().method()).toBe('PUT')
     // VIDEO_EDIT and output-target values are opaque, not a certified empty asset set.
