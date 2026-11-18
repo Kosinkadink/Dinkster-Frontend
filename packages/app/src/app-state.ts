@@ -3635,7 +3635,6 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.resultHolderCensus.dispose()
     if (this.selectionScopesFrame !== undefined) cancelAnimationFrame(this.selectionScopesFrame)
     if (this.selectionScopesTimer !== undefined) clearTimeout(this.selectionScopesTimer)
     this.pendingSelectionScopes.clear()
@@ -3675,6 +3674,16 @@ export class AppState {
         this.log('warn', 'Storage', `Client disconnect unconfirmed: ${error instanceof Error ? error.message : String(error)}`)
       })
     }
+    this.finishResultHolderDisposal()
+  }
+
+  private finishResultHolderDisposal(): void {
+    // Closing refuses census replies until cancellation-ignoring bodies and
+    // delayed admissions finish; publication disposal alone is not departure.
+    if (this.disposed && this.valueAssetReaders.size === 0 && this.pendingResultRestorations === 0 &&
+      this.pendingValueAdmissions === 0 && this.pendingExecutionHydrations === 0 &&
+      this.pendingAssetRetirements === 0 && this.pendingAssetPreviews === 0 &&
+      this.pendingResultReads.size === 0) this.resultHolderCensus.dispose()
   }
 
   /** Confirm restored local ownership before sharing the local inventory. */
@@ -5220,7 +5229,7 @@ export class AppState {
           if (reusable === undefined && admission?.storage !== storage) {
             this.pendingValueAdmissions += 1
             admission = { storage, promise: retainExecutionAssets(connection, ref, roots)
-              .finally(() => { this.pendingValueAdmissions -= 1 }) }
+              .finally(() => { this.pendingValueAdmissions -= 1; this.finishResultHolderDisposal() }) }
             valueAdmissions.set(admissionKey, admission)
           }
           let retained: RetainedAssets
@@ -5273,6 +5282,7 @@ export class AppState {
               const remaining = this.valueAssetReaders.get(reader)! - 1
               if (remaining === 0) this.valueAssetReaders.delete(reader)
               else this.valueAssetReaders.set(reader, remaining)
+              this.finishResultHolderDisposal()
             }
           } }
         },
@@ -5827,6 +5837,7 @@ export class AppState {
           const remaining = this.valueAssetReaders.get(owned)! - 1
           if (remaining === 0) this.valueAssetReaders.delete(owned)
           else this.valueAssetReaders.set(owned, remaining)
+          this.finishResultHolderDisposal()
         }
       },
     }
@@ -5876,6 +5887,7 @@ export class AppState {
           const remaining = this.valueAssetReaders.get(owned)! - 1
           if (remaining === 0) this.valueAssetReaders.delete(owned)
           else this.valueAssetReaders.set(owned, remaining)
+          this.finishResultHolderDisposal()
         }
       },
     }
@@ -5920,6 +5932,7 @@ export class AppState {
           const remaining = this.valueAssetReaders.get(owned)! - 1
           if (remaining === 0) this.valueAssetReaders.delete(owned)
           else this.valueAssetReaders.set(owned, remaining)
+          this.finishResultHolderDisposal()
         }
       },
     }
@@ -6454,11 +6467,12 @@ export class AppState {
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
         try {
-          return await owned.read(() => readAssetPreview(backend.connection, roots, consume, current))
+          return await owned.read(() => this.readAssetPreview(backend.connection, roots, consume, current))
         } finally {
           const remaining = this.valueAssetReaders.get(owned)! - 1
           if (remaining === 0) this.valueAssetReaders.delete(owned)
           else this.valueAssetReaders.set(owned, remaining)
+          this.finishResultHolderDisposal()
         }
       },
     }
@@ -8524,6 +8538,15 @@ export class AppState {
   >()
   private pendingAssetRetirements = 0
   private pendingValueAdmissions = 0
+  private pendingAssetPreviews = 0
+
+  private async readAssetPreview<T>(...args: Parameters<typeof readAssetPreview<T>>): Promise<T> {
+    this.pendingAssetPreviews += 1
+    try { return await readAssetPreview(...args) } finally {
+      this.pendingAssetPreviews -= 1
+      this.finishResultHolderDisposal()
+    }
+  }
 
   /** Pending ownership work, including work not covered by a persistence flush. */
   retentionActivity() {
@@ -8534,6 +8557,7 @@ export class AppState {
       retirements: this.pendingAssetRetirements,
       drainingReaders: [...this.resultAssetOwners.values()].filter((owner) => owner.drained === false).length,
       valueReads: [...this.valueAssetReaders.values()].reduce((sum, count) => sum + count, 0),
+      previewReads: this.pendingAssetPreviews,
       resultReads: this.pendingResultReads.size,
       recoveries: this.pendingRetentionRecoveries,
       hydrations: this.pendingExecutionHydrations,
@@ -8549,7 +8573,10 @@ export class AppState {
 
   private async retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
     this.pendingAssetRetirements += 1
-    try { await retireAssetOwner(connection, retained) } finally { this.pendingAssetRetirements -= 1 }
+    try { await retireAssetOwner(connection, retained) } finally {
+      this.pendingAssetRetirements -= 1
+      this.finishResultHolderDisposal()
+    }
   }
 
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
@@ -8999,7 +9026,7 @@ export class AppState {
       if (!this.ownerStillLive(backend)) return false
       if (!record) return false
       let tab: Tab | undefined
-      await readAssetPreview(backend.connection, record.digest, async () => {
+      await this.readAssetPreview(backend.connection, record.digest, async () => {
         const text = await backend.connection.fetchAssetText(record.digest)
         return text === undefined ? undefined : JSON.parse(text) as unknown
       }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
@@ -9106,7 +9133,7 @@ export class AppState {
         return false
       }
       let tab: Tab | undefined
-      await readAssetPreview(backend.connection, run.sourceDocument, async () => {
+      await this.readAssetPreview(backend.connection, run.sourceDocument, async () => {
         const text = await backend.connection.fetchAssetText(run.sourceDocument!)
         return text === undefined ? undefined : JSON.parse(text) as unknown
       }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
@@ -9480,6 +9507,7 @@ export class AppState {
           if (this.pendingResultReads.get(key) !== pending || !pending.current()) return null
         } finally {
           if (this.pendingResultReads.get(key) === pending) this.pendingResultReads.delete(key)
+          this.finishResultHolderDisposal()
         }
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
@@ -9680,7 +9708,7 @@ export class AppState {
         let readers = sources.get(sourceKey)
         if (readers === undefined) sources.set(sourceKey, (readers = new Set()))
         try {
-          const restored = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
+          const restored = await this.readAssetPreview(backend.connection, result.sourceDocument, async () => {
             const source = await backend.connection.fetchAssetText(result.sourceDocument)
             if (!current()) return null
             if (source === undefined) return undefined
@@ -9708,6 +9736,7 @@ export class AppState {
     } finally {
       this.pendingResultRestorations -= 1
       unsubscribe()
+      this.finishResultHolderDisposal()
     }
   }
 
@@ -11343,7 +11372,7 @@ export class AppState {
           if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
         .catch(() => this.hydrated.delete(state.key))
-        .finally(() => { this.pendingExecutionHydrations -= 1 })
+        .finally(() => { this.pendingExecutionHydrations -= 1; this.finishResultHolderDisposal() })
     }
   }
 

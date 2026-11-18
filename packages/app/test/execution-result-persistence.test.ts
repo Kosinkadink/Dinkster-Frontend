@@ -159,7 +159,7 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
-  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()
     if (mode === 'census-timeout') locks.set('dinkster-result-holders:unresponsive', { name: 'dinkster-result-holders:unresponsive', mode: 'exclusive' })
@@ -208,10 +208,23 @@ describe('startup result source admission', () => {
     let firstReleaseStarted: (() => void) | undefined
     const firstRelease = new Promise<void>((resolve) => { firstReleaseStarted = resolve })
     const releaseResponse = new Promise<void>((resolve) => { releaseFirst = resolve })
-    if (mode === 'independent-unreferenced' || mode === 'peer-held') {
+    let finishBody: (() => void) | undefined
+    let stoppedRead: Promise<void> | undefined
+    if (mode === 'independent-unreferenced' || mode === 'peer-held' || mode === 'closing-reader') {
       holder = new AppState()
       holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
-        assetRetentions: [mode === 'peer-held' ? stale[0]! : protectedOwner] })
+        assetRetentions: [mode === 'independent-unreferenced' ? protectedOwner : stale[0]!] })
+      if (mode === 'closing-reader') {
+        vi.spyOn(holder.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+        const reader = holder.executionAssetReader(holder.store.get(test.ref)!, [])
+        expect(reader).toBeDefined()
+        const reading = reader!.read(() => new Promise<number>((resolve) => { finishBody = () => resolve(7) }))
+        stoppedRead = expect(reading).rejects.toThrow().then(() => undefined)
+        await vi.waitFor(() => expect(finishBody).toBeDefined())
+        holder.dispose()
+        expect(holder.retentionActivity()).toMatchObject({ valueReads: 1 })
+      }
     }
     let pinned: ReturnType<typeof test.app.activeTab>
     if (mode === 'live-pin') {
@@ -315,8 +328,19 @@ describe('startup result source admission', () => {
         expect(owners.get(protectedOwner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
         expect(localStorage.getItem(keyFor(protectedOwner))).toBeNull()
       }
+      if (mode === 'closing-reader') {
+        expect([...locks.keys()].filter((name) => name.startsWith('dinkster-result-holders:'))).toHaveLength(2)
+        finishBody!()
+        await stoppedRead
+        await vi.waitFor(() => expect([...locks.keys()].filter((name) => name.startsWith('dinkster-result-holders:'))).toHaveLength(1))
+        await test.app.refreshBackendSchemas(test.backend)
+        for (const owner of stale) {
+          expect(owners.get(owner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+          expect(localStorage.getItem(keyFor(owner))).toBeNull()
+        }
+      }
       expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0 })
-    } finally { releaseFirst?.(); holder?.dispose(); test.app.dispose() }
+    } finally { releaseFirst?.(); finishBody?.(); await stoppedRead; holder?.dispose(); test.app.dispose() }
   })
 
   it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {

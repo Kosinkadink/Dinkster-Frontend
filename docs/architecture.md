@@ -206,6 +206,11 @@ again. This does not identify a server restart before an observed transition or
 settle independent native-media and viewer consumers.
 Application disposal closes admission for active value readers; their pending
 bodies remain tracked until settlement, and late publication is refused.
+The closing app remains a live ownership-census participant until admitted
+reads, source previews, restorations, hydrations and retirements settle. It
+refuses census replies while closing, so a cancellation-ignoring body prevents
+historical reclamation rather than appearing to have departed. Membership ends
+after the tracked work drains; disposal does not wait synchronously.
 This boundary does not settle model viewers, shared poster queues or durable
 recovery references, and does not release any retained owner. Standalone values
 clients without an admission policy keep their transport behavior and bounded
