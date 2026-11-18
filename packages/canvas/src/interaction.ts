@@ -61,6 +61,7 @@ import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './b
 import { controllerChipContains, WIDGET_EDGE_CONTROL_WIDTH } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { canvasPaintTokens } from './tokens.js'
 import { BOUNDARY_ADD_SLOT, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
@@ -109,7 +110,7 @@ const DRAG_THRESHOLD = 4
 const POINTER_COORDINATE_TOLERANCE_PX = 2 / 65_536
 
 /** Smallest width/height a group can be resized to (world units). */
-const GROUP_MIN_SIZE = 60
+const GROUP_MIN_SIZE = canvasPaintTokens.group.minSize
 
 /** The `MouseEvent.buttons` bit for a `MouseEvent.button` value. */
 const buttonsBit = (button: number): number =>

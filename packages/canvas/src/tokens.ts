@@ -9,6 +9,17 @@ import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, parseA
 export const canvasPaintTokens = {
   detailMinScale: 0.5,
   grid: { spacing: 32, minScreenSpacing: 12, dotRadius: 1.5 },
+  hit: {
+    pinRadius: 9,
+    resizeSize: 10,
+    linkRadius: 6,
+    linkMidpointRadius: 12,
+    reroutePadding: 4,
+    rerouteSocketPadding: 5,
+    overviewPinRadius: 5,
+    overviewLinkRadius: 4,
+    overviewRerouteRadius: 5,
+  },
   scene: {
     nodeFallbackX: 40,
     nodeFallbackStepY: 120,
@@ -262,6 +273,7 @@ export const canvasPaintTokens = {
     placementOpacity: 0.6,
   },
   group: {
+    minSize: 60,
     headerHeight: 26,
     fillOpacity: 0.14,
     headerOpacity: 0.45,
@@ -348,6 +360,8 @@ export const canvasPaintTokens = {
     scopeDim: 0.72,
   },
   link: {
+    minControlOffset: 40,
+    controlOffsetRatio: 0.5,
     paintPadding: canvasSemanticTokens.space[4],
     stroke: 2.5,
     minScreenStroke: 1,
