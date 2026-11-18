@@ -1,7 +1,7 @@
 /** Origin-wide locks enumerate live members; channel silence never means no holder. */
 export class ResultOwnerCensus {
   private readonly id = crypto.randomUUID()
-  private readonly prefix = 'dinkster-result-holders:'
+  private readonly prefix = 'dinkster-result-holders:v2:'
   private readonly gate = 'dinkster-result-reclamation'
   private readonly locks = globalThis.navigator?.locks
   private readonly channel: BroadcastChannel | undefined
@@ -60,6 +60,9 @@ export class ResultOwnerCensus {
 
   private async members(): Promise<Set<string> | undefined> {
     const snapshot = await this.locks!.query()
+    // Earlier members do not fence adoption, even if they answer a query.
+    if ([...(snapshot.held ?? []), ...(snapshot.pending ?? [])].some((lock) =>
+      lock.name?.startsWith('dinkster-result-holders') && !lock.name.startsWith(this.prefix))) return undefined
     if (snapshot.pending?.some((lock) => lock.name?.startsWith(this.prefix))) return undefined
     return new Set((snapshot.held ?? []).flatMap((lock) =>
       lock.name?.startsWith(this.prefix) ? [lock.name.slice(this.prefix.length)] : []))

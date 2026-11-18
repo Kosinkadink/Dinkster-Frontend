@@ -159,10 +159,18 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
-  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()
-    if (mode === 'census-timeout') locks.set('dinkster-result-holders:unresponsive', { name: 'dinkster-result-holders:unresponsive', mode: 'exclusive' })
+    if (mode === 'census-timeout') locks.set('dinkster-result-holders:v2:unresponsive', { name: 'dinkster-result-holders:v2:unresponsive', mode: 'exclusive' })
+    if (mode === 'legacy-project-holder') locks.set('dinkster-result-holders--p-other:legacy', { name: 'dinkster-result-holders--p-other:legacy', mode: 'exclusive' })
+    const legacyChannel = mode === 'legacy-default-holder' ? new BroadcastChannel('dinkster-result-holders:') : undefined
+    if (legacyChannel !== undefined) {
+      locks.set('dinkster-result-holders:legacy', { name: 'dinkster-result-holders:legacy', mode: 'exclusive' })
+      legacyChannel.addEventListener('message', (event) => {
+        if (event.data.kind === 'query') legacyChannel.postMessage({ kind: 'holders', nonce: event.data.nonce, member: 'legacy', owners: [] })
+      })
+    }
     vi.stubGlobal('navigator', { locks: mode === 'census-unsupported' ? undefined : {
       request: async (name: string, options: LockOptions | ((lock: Lock) => unknown), callback?: (lock: Lock) => unknown) => {
         const consume = typeof options === 'function' ? options : callback!
@@ -212,6 +220,16 @@ describe('startup result source admission', () => {
     }))
     saveExecutionResult({ ...test.saved, assetRetentions: mode === 'independent-unreferenced' ? controls.slice(1) : controls }, test.backendIdentity)
     let holder: AppState | undefined
+    if (mode === 'unregistered-holder') {
+      const navigator = globalThis.navigator
+      vi.stubGlobal('navigator', {})
+      try {
+        holder = new AppState()
+        holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+          assetRetentions: [stale[0]!] })
+        expect(holder.store.get(test.ref)?.assetRetentions).toEqual([stale[0]!])
+      } finally { vi.stubGlobal('navigator', navigator) }
+    }
     if (mode === 'holder-adopts-during-release' || mode === 'late-publication') holder = new AppState()
     const concurrentHolder = mode === 'holder-starts-during-release' || mode === 'holder-adopts-during-release'
     let releaseFirst: (() => void) | undefined
@@ -364,7 +382,7 @@ describe('startup result source admission', () => {
         }
       }
       expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0 })
-    } finally { releaseFirst?.(); finishBody?.(); await stoppedRead; holder?.dispose(); test.app.dispose() }
+    } finally { releaseFirst?.(); finishBody?.(); await stoppedRead; holder?.dispose(); test.app.dispose(); legacyChannel?.close() }
   })
 
   it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {

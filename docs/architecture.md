@@ -133,6 +133,9 @@ a freshly verified complete persisted receipt for the same execution covering
 all old roots. Persisted or live receipt IDs, locally admitted readers, document
 owners and other clients remain protected; matching digests alone do not confer
 release authority. Unknown or refused observations leave protection intact.
+Participating windows fence publication through each candidate's acknowledged
+release. A detected older, unfenced census member blocks the reclamation pass,
+including members using a different project's rendezvous name.
 
 Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
