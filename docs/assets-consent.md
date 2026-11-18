@@ -37,9 +37,12 @@ Ambiguous lowering, including unresolved random selectors, falls back to
 instance selection. Older saved observations without scope are definition-local.
 Missing unrelated execution inputs do not prevent inspection. The host observes
 the resolved literals using current project grants; the frontend maps those
-observations back to saved occurrences. Admission records the final reachable
-execution inputs separately. Neither observation waits for hashes, starts
-downloads nor runs a graph. Library save still requires confirmed workflow
+observations back to saved occurrences. Dynamic inputs retain stable member
+paths, active choices and output membership in the inspection graph. Other
+dynamic input keys carry null placeholders to preserve interface shape without
+forwarding their values. Invalid interfaces are omitted, not guessed.
+Admission records the final reachable execution inputs separately. Neither
+observation waits for hashes, starts downloads nor runs a graph. Library save still requires confirmed workflow
 asset ownership; observations do not make unresolved filename selections
 eligible for publication. Local download retains its existing repairable-workflow
 behavior.

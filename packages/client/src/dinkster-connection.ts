@@ -3403,18 +3403,16 @@ export class DinksterConnection {
 
   /** Observe saved model selections without hashing, downloading or running a graph. */
   async inspectWorkflowModels(document: WorkflowDocument, occurrences?: readonly ModelInputOccurrence[]): Promise<JsonObject | undefined> {
-    const root = document.graphs[document.root]
-    const observedDocument = occurrences === undefined || root === undefined ? document : {
-      ...document,
-      graphs: { [document.root]: { ...root, links: {}, nets: {}, nodes: Object.fromEntries(
-        occurrences.map((row, index) => [String(index), {
-          id: asNodeId(String(index)), type: row.type, values: row.values,
-        }]),
-      ) } },
-    }
+    const observed = occurrences === undefined ? { document } : { graph: { nodes: Object.fromEntries(
+      occurrences.map((row, index) => [String(index), {
+        nodeType: row.type, inputs: row.values,
+        ...(row.outputMembers === undefined ? {} : { outputMembers: row.outputMembers }),
+        ...(row.slotVariants === undefined ? {} : { slotVariants: row.slotVariants }),
+      }]),
+    ) } }
     const res = await this.fetchFn(`${this.baseUrl}/api/workflows/model-provenance`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ document: observedDocument, project: this.project ?? 'default' }),
+      body: JSON.stringify({ ...observed, project: this.project ?? 'default' }),
       signal: AbortSignal.timeout(3000),
     })
     if (!res.ok) return undefined
@@ -3433,9 +3431,9 @@ export class DinksterConnection {
         (row['digest'] !== undefined && (typeof row['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(row['digest'])))) return undefined
       let nodePath = row['nodePath'] as string[]
       if (occurrences !== undefined) {
-        const index = Number(nodePath[1])
+        const index = Number(nodePath[0])
         const occurrence = occurrences[index]?.occurrence
-        if (nodePath.length !== 2 || nodePath[0] !== document.root || String(index) !== nodePath[1] || occurrence === undefined) return undefined
+        if (nodePath.length !== 1 || String(index) !== nodePath[0] || occurrence === undefined) return undefined
         nodePath = [document.root, ...occurrence.instancePath, occurrence.node]
       }
       const model: Record<string, Json> = { nodePath, input: row['input'],

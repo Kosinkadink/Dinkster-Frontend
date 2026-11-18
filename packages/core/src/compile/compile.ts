@@ -410,6 +410,8 @@ export interface ModelInputOccurrence {
   readonly occurrence: Occurrence
   readonly type: string
   readonly values: Readonly<Record<string, Json>>
+  readonly outputMembers?: Readonly<Record<string, readonly string[]>>
+  readonly slotVariants?: Readonly<Record<string, string>>
 }
 
 /** Saved instance literals, resolved without queue-time choices or execution validation. */
@@ -419,6 +421,24 @@ export function modelInputOccurrences(input: Omit<CompileInput, 'pickCandidate' 
     revision: input.revision, scope: input.scope, connection: input.connection, schemaHash: input.schemaHash,
     ...(input.graphFeatures === undefined ? {} : { graphFeatures: input.graphFeatures }),
   }, false).models
+}
+
+function slotVariantsOf(fn: FlatNode, successful?: ReadonlySet<string>): Record<string, string> {
+  const variants: Record<string, string> = {}
+  for (const input of fn.elab.inputs) {
+    if (input.apiName === undefined) continue
+    const name = input.wire15Materialization ? input.address.port : input.apiName
+    if (successful !== undefined && fn.inputs[input.spec.id] !== undefined && input.wire15Materialization &&
+        fn.linkedInputs.has(input.spec.id) && !successful.has(portAddressKey(input.address.port, input.address.members))) continue
+    if (input.origin.kind === 'selector' && input.wire15Materialization && input.origin.selected !== undefined) {
+      variants[name] = input.origin.selected
+    }
+    if (fn.inputs[input.spec.id] !== undefined && input.origin.kind === 'slot') {
+      const selected = input.origin.selected
+      if (selected !== undefined && input.origin.variants?.some((variant) => variant.key === selected)) variants[name] = selected
+    }
+  }
+  return variants
 }
 
 interface ValueSourceConsumer {
@@ -2508,21 +2528,35 @@ function compileImpl(
     }
     return { models: [...flat.values()].flatMap((fn) => {
       const values: Record<string, Json> = {}
+      const slotVariants = slotVariantsOf(fn)
+      let hasModels = false
       for (const input of fn.elab.inputs) {
         const widget = input.spec.widget
-        if (input.apiName === undefined || input.spec.hidden === true ||
-            (input.origin.kind === 'member' && input.origin.ghost === true) ||
-            widget?.widgetType !== 'ASSET' || !widget.kind?.startsWith('model/') ||
-            fn.linkedInputs.has(input.spec.id)) continue
+        const name = input.wire15Materialization ? input.address.port : input.apiName
+        if (input.apiName === undefined || name === undefined) continue
+        if (input.wire15Materialization) values[name] = null
+        if (input.origin.kind === 'selector' && input.origin.selected !== undefined) values[name] = input.origin.selected
+        if (fn.elab.outputCountInputs.has(input.address.port) && !fn.linkedInputs.has(input.spec.id)) {
+          const count = fn.inputs[input.spec.id] ?? (widget === undefined ? undefined : effectiveWidgetDefault(widget))
+          if (typeof count === 'number') values[name] = count
+        }
+        if (input.spec.hidden === true || widget?.widgetType !== 'ASSET' || !widget.kind?.startsWith('model/')) continue
+        if (fn.linkedInputs.has(input.spec.id)) continue
         const staged = fn.inputs[input.spec.id]
         const value = staged === undefined ? effectiveWidgetDefault(widget) : staged
         if (value === undefined) continue
         const literal = parseTypedLiteralWire(value)?.value ?? value
         if (typeof literal === 'string' || (typeof literal === 'object' && literal !== null && !Array.isArray(literal))) {
-          values[input.apiName] = structuredClone(literal) as Json
+          values[name] = structuredClone(literal) as Json
+          hasModels = true
         }
       }
-      return Object.keys(values).length === 0 ? [] : [{ occurrence: fn.occ, type: fn.node.type, values }]
+      if (!hasModels) return []
+      for (const { path, value } of fn.elab.submissionValues) values[path] = structuredClone(value)
+      return [{ occurrence: fn.occ, type: fn.node.type, values,
+        ...(fn.elab.outputMembers === undefined ? {} : { outputMembers: fn.elab.outputMembers }),
+        ...(Object.keys(slotVariants).length === 0 ? {} : { slotVariants }),
+      }]
     }) }
   }
 
@@ -2889,11 +2923,11 @@ function compileImpl(
     // Per-node stored dynamic choices (graph wire 'slotVariants'). DynamicCombo
     // selectors remain flat inputs in the compatibility prompt; DynamicSlot
     // choices travel only while their slot participates in the prompt.
-    const slotVariants: Record<string, string> = {}
     const successful = new Set(
       (successfulDestinations.get(fn.runtimeId) ?? [])
         .map((address) => portAddressKey(address.port, address.members)),
     )
+    const slotVariants = slotVariantsOf(fn, successful)
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue
       const literal = literalControllers.get(fn.runtimeId)?.get(input.spec.id)
@@ -2943,16 +2977,9 @@ function compileImpl(
         }
       }
       if (input.origin.kind === 'selector' && input.wire15Materialization && input.origin.selected !== undefined) {
-        slotVariants[submissionName] = input.origin.selected
         let selectors = dynamicComboInputs.get(fn.runtimeId)
         if (!selectors) dynamicComboInputs.set(fn.runtimeId, (selectors = new Set()))
         selectors.add(submissionName)
-      }
-      if (v !== undefined && input.origin.kind === 'slot') {
-        const selected = input.origin.selected
-        if (selected !== undefined && input.origin.variants?.some((c) => c.key === selected)) {
-          slotVariants[submissionName] = selected
-        }
       }
     }
     for (const { path, value } of fn.elab.submissionValues) {

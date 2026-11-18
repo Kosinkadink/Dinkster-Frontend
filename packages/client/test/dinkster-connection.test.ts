@@ -3890,20 +3890,19 @@ it('maps host observations to repeated saved occurrences and refuses unknown ret
     occurrence: { instancePath: [asNodeId(id), asNodeId('nested')], node: asNodeId('loader') },
     type: 'Loader', values: { model: index === 0 ? 'one.bin' : 'two.bin' },
   }))
-  let nodePath = [workflow.root, '1']
+  let nodePath = ['1']
   const { conn, requests } = submitHarness(() => jsonResponse(200, { version: 1, models: [
     { nodePath, input: 'model', kind: 'model/lora', name: 'two.bin', size: 7 },
   ] }))
   await expect(conn.inspectWorkflowModels(workflow, occurrences)).resolves.toEqual({ version: 1, scope: 'instances', models: [
     { nodePath: [workflow.root, 'second', 'nested', 'loader'], input: 'model', kind: 'model/lora', name: 'two.bin', size: 7 },
   ] })
-  const projected = JSON.parse(String(requests[0]?.init?.body)).document
-  expect(Object.keys(projected.graphs)).toEqual([workflow.root])
-  expect(projected.graphs[workflow.root].nodes).toEqual({
-    '0': { id: '0', type: 'Loader', values: { model: 'one.bin' } },
-    '1': { id: '1', type: 'Loader', values: { model: 'two.bin' } },
+  const projected = JSON.parse(String(requests[0]?.init?.body)).graph
+  expect(projected.nodes).toEqual({
+    '0': { nodeType: 'Loader', inputs: { model: 'one.bin' } },
+    '1': { nodeType: 'Loader', inputs: { model: 'two.bin' } },
   })
-  nodePath = [workflow.root, '2']
+  nodePath = ['2']
   await expect(conn.inspectWorkflowModels(workflow, occurrences)).resolves.toBeUndefined()
 })
 

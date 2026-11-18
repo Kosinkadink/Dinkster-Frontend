@@ -971,6 +971,25 @@ const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
 describe('dynamic interfaces', () => {
+  it('observes stable model family paths and recursive choices rather than positional aliases', () => {
+    const model = wire15SchemaOf('Models', [{
+      role: 'inputFamily', id: 'loras', memberPrefix: 'lora', minMembers: 0, maxMembers: 4,
+      template: [{ role: 'dynamicCombo', id: 'choice', options: [
+        { key: 'model', inputs: [{ role: 'input', id: 'file', type: { kind: 'concrete', types: ['dinkster.asset'] }, required: true,
+          widget: { type: 'ASSET', kind: 'model/lora', accept: [] } }] },
+        { key: 'none', inputs: [] },
+      ] }],
+    }])
+    const document = dynDoc({ nodes: { loader: { type: 'Models',
+      dynamic: { loras: { members: ['z', 'a'] }, 'loras.z.choice': { selected: 'model' }, 'loras.a.choice': { selected: 'none' } },
+      values: { 'loras.z.choice.file': 'active.bin', 'loras.a.choice.file': 'inactive.bin' },
+    } } })
+    const observed = modelInputOccurrences({ ...compileInput(document), resolve: () => model })
+    expect(observed).toEqual([{ occurrence: { instancePath: [], node: 'loader' }, type: 'Models',
+      values: { 'loras.z.choice.file': 'active.bin', 'loras.z.choice': 'model', 'loras.a.choice': 'none' },
+      slotVariants: { 'loras.z.choice': 'model', 'loras.a.choice': 'none' },
+    }])
+  })
   it('keeps input-family labels out of execution while submitting the stable member id', () => {
     const document = dynDoc({ nodes: { route: {
       type: 'NamedRoute',
