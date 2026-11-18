@@ -104,7 +104,7 @@ import {
   type BoundaryCrossing,
 } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, isAssetWidgetInput, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -2547,7 +2547,7 @@ function compileImpl(
           const count = fn.inputs[input.spec.id] ?? (widget === undefined ? undefined : effectiveWidgetDefault(widget))
           if (typeof count === 'number') values[name] = count
         }
-        if (input.spec.hidden === true || widget?.widgetType !== 'ASSET' || !widget.kind?.startsWith('model/')) continue
+        if (input.spec.hidden === true || !isAssetWidgetInput(input.spec) || !widget?.kind?.startsWith('model/')) continue
         if (fn.linkedInputs.has(input.spec.id)) continue
         const staged = fn.inputs[input.spec.id]
         const value = staged === undefined ? effectiveWidgetDefault(widget) : staged
