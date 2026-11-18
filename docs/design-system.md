@@ -671,6 +671,8 @@ compare this current look with Previous squeezing in both themes, using fitting,
 long, renamed and minimized titles in the same production layout. Only those
 gallery pages can select the previous look; it cannot change other pages or the
 app. Title placement, available width and overview title painting are unchanged.
+The canvas gallery loads its regular, semibold and italic faces before measuring
+or painting, so a cold page and a return from a comparison use the same glyphs.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.

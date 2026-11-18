@@ -52,15 +52,17 @@ export function CanvasGallery() {
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
-    void (currentPage === 'titles' || currentPage === 'titles-content'
-      ? Promise.all([
-          document.fonts.ready,
-          document.fonts.load(
-            `italic ${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
-          ),
-        ])
-      : document.fonts.ready
-    ).then(() => {
+    void Promise.all([
+      document.fonts.load(
+        `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`,
+      ),
+      document.fonts.load(
+        `${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
+      ),
+      document.fonts.load(
+        `italic ${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
+      ),
+    ]).then(() => {
       if (disposed) return
       const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
@@ -280,7 +282,9 @@ export function CanvasGallery() {
               {...attributes}
               value={titleLook()}
               onChange={(event) =>
-                setTitleLook(event.currentTarget.value as 'squeeze' | 'ellipsis')
+                setTitleLook(
+                  event.currentTarget.value as 'squeeze' | 'ellipsis',
+                )
               }
             >
               <option value="ellipsis">Ellipsis (current)</option>
