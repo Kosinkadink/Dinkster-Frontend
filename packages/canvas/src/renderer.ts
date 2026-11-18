@@ -2556,11 +2556,12 @@ export class CanvasRenderer {
     const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, 2)
 
     if (this.overlay.bodyDropNode === node.id) {
+      const paint = canvasPaintTokens.node.drop
       ctx.beginPath()
-      ctx.roundRect(node.x - 2, node.y - 2, l.width + 4, l.height + 4, t.cornerRadius + 2)
+      ctx.roundRect(node.x - paint.outset, node.y - paint.outset, l.width + paint.outset * 2, l.height + paint.outset * 2, t.cornerRadius + paint.outset)
       ctx.strokeStyle = t.colors.dropTarget
-      ctx.globalAlpha = 0.65
-      ctx.lineWidth = screenAwareStroke(1.5, scale, 1.5)
+      ctx.globalAlpha = paint.opacity
+      ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.stroke)
       ctx.stroke()
       ctx.globalAlpha = 1
     }
@@ -2568,10 +2569,11 @@ export class CanvasRenderer {
     // Partial-queue preview uses the live-affordance accent, deliberately
     // distinct from both the white selection halo and muted-node dimming.
     if (this.scopeHighlight?.nodes.has(node.id)) {
+      const paint = canvasPaintTokens.node.scope
       ctx.beginPath()
-      ctx.roundRect(node.x - 5, node.y - 5, l.width + 10, l.height + 10, t.cornerRadius + 5)
+      ctx.roundRect(node.x - paint.outset, node.y - paint.outset, l.width + paint.outset * 2, l.height + paint.outset * 2, t.cornerRadius + paint.outset)
       ctx.strokeStyle = t.colors.selection
-      ctx.lineWidth = screenAwareStroke(2.5, scale, 2)
+      ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.minScreenStroke)
       ctx.stroke()
     }
 
@@ -2716,7 +2718,7 @@ export class CanvasRenderer {
         titleX += 16 + ctx.measureText(node.regionKind).width + 8
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
-      ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - 4))
+      ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
 
       // Node badges; each placement lane lays out index 0 rightmost.
       // Positions come from badgeRect so hit-testing and drawing agree.
@@ -2734,13 +2736,14 @@ export class CanvasRenderer {
               ? t.colors.bypassedBadge
               : badge.color
         ctx.beginPath()
-        ctx.roundRect(r.x, r.y, r.width, r.height, badge.placement === 'above' ? [3, 3, 0, 0] : badge.placement === 'below' ? [0, 0, 3, 3] : 3)
+        const paint = canvasPaintTokens.badge
+        ctx.roundRect(r.x, r.y, r.width, r.height, badge.placement === 'above' ? [paint.radius, paint.radius, 0, 0] : badge.placement === 'below' ? [0, 0, paint.radius, paint.radius] : paint.radius)
         ctx.fill()
         let badgeIconPainted = false
         if (badge.icon !== undefined) {
           const iconSize = Math.min(BADGE_SIZE, r.height)
           try {
-            paintToolboxIcon(ctx, badge.icon, r.x + 1, r.y, iconSize, t.colors.title)
+            paintToolboxIcon(ctx, badge.icon, r.x + paint.iconInset, r.y, iconSize, t.colors.title)
             badgeIconPainted = true
             if (badge.variant !== 'label') {
               ctx.globalAlpha = nodeAlpha
@@ -2751,10 +2754,10 @@ export class CanvasRenderer {
           }
         }
         ctx.fillStyle = t.colors.title
-        ctx.font = `${canvasPaintTokens.type.semiboldWeight} 9px ${t.fontFamily}`
+        ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${t.fontFamily}`
         ctx.textAlign = 'center'
-        const textCenter = r.x + r.width / 2 + (badgeIconPainted ? 5 : 0)
-        ctx.fillText(badgeIconPainted ? badge.glyph : (badge.fallbackGlyph ?? badge.glyph), textCenter, r.y + r.height / 2 + 0.5)
+        const textCenter = r.x + r.width / 2 + (badgeIconPainted ? paint.textIconOffset : 0)
+        ctx.fillText(badgeIconPainted ? badge.glyph : (badge.fallbackGlyph ?? badge.glyph), textCenter, r.y + r.height / 2 + paint.baselineOffset)
         ctx.textAlign = 'left'
         ctx.globalAlpha = nodeAlpha
       }
@@ -2764,9 +2767,10 @@ export class CanvasRenderer {
     // external data: a non-finite or negative value must not mint a NaN or
     // reverse-width fill.
     if (progress?.state === 'running' && progress.value !== undefined && Number.isFinite(progress.value)) {
+      const paint = canvasPaintTokens.node.progress
       const progressHeight = detailLevel === 'overview'
-        ? Math.min(l.headerHeight, screenAwareStroke(3, scale, 1.5))
-        : 3
+        ? Math.min(l.headerHeight, screenAwareStroke(paint.height, scale, paint.minScreenHeight))
+        : paint.height
       ctx.fillStyle = t.progressBar
       ctx.fillRect(
         node.x,
@@ -2780,42 +2784,44 @@ export class CanvasRenderer {
     if (contentDetail) {
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
       if (l.advancedGroup !== undefined) {
+        const paint = canvasPaintTokens.node.advancedGroup
         const group = l.advancedGroup
         const groupY = node.y + group.y
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.035)'
+        ctx.fillStyle = paint.fill
         ctx.fillRect(node.x, groupY, l.width, group.height)
         ctx.strokeStyle = t.colors.nodeOutline
-        ctx.lineWidth = 1
-        ctx.strokeRect(node.x + 0.5, groupY + 0.5, l.width - 1, group.height - 1)
+        ctx.lineWidth = paint.stroke
+        ctx.strokeRect(node.x + paint.inset, groupY + paint.inset, l.width - paint.inset * 2, group.height - paint.inset * 2)
       }
       for (const row of l.rows) {
         const rowY = node.y + row.y
         if (row.kind === 'section') {
           // Header strip + disclosure triangle; click toggles collapse.
+          const paint = canvasPaintTokens.node.section
           ctx.fillStyle = t.colors.widgetBackground
-          ctx.fillRect(node.x + 1, rowY + 2, l.width - 2, row.height - 4)
-          const cx = node.x + t.padX + 4
+          ctx.fillRect(node.x + paint.horizontalInset, rowY + paint.verticalInset, l.width - paint.horizontalInset * 2, row.height - paint.verticalInset * 2)
+          const cx = node.x + t.padX + paint.glyphInset
           const cy = rowY + row.height / 2
           ctx.fillStyle = t.colors.label
           ctx.beginPath()
           if (row.collapsed) {
-            ctx.moveTo(cx - 2.5, cy - 4)
-            ctx.lineTo(cx + 3.5, cy)
-            ctx.lineTo(cx - 2.5, cy + 4)
+            ctx.moveTo(cx - paint.arrowBack, cy - paint.arrowHalfWidth)
+            ctx.lineTo(cx + paint.arrowTip, cy)
+            ctx.lineTo(cx - paint.arrowBack, cy + paint.arrowHalfWidth)
           } else {
-            ctx.moveTo(cx - 4, cy - 2.5)
-            ctx.lineTo(cx + 4, cy - 2.5)
-            ctx.lineTo(cx, cy + 3.5)
+            ctx.moveTo(cx - paint.arrowHalfWidth, cy - paint.arrowBack)
+            ctx.lineTo(cx + paint.arrowHalfWidth, cy - paint.arrowBack)
+            ctx.lineTo(cx, cy + paint.arrowTip)
           }
           ctx.closePath()
           ctx.fill()
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, cx + 9, cy, l.width - t.padX * 2 - 13)
+          ctx.fillText(row.label, cx + paint.labelOffset, cy, l.width - t.padX * 2 - paint.labelReserve)
           // Subtle dot: this collapsed section hides non-default values.
           if (row.collapsed && row.hiddenModified !== undefined) {
             ctx.fillStyle = t.colors.modifiedIndicator
             ctx.beginPath()
-            ctx.arc(node.x + l.width - t.padX - 3, cy, 2.5, 0, Math.PI * 2)
+            ctx.arc(node.x + l.width - t.padX - paint.modifiedInset, cy, paint.modifiedRadius, 0, Math.PI * 2)
             ctx.fill()
           }
         } else if (row.kind === 'growth') {
