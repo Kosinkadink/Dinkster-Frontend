@@ -1579,8 +1579,7 @@ export class CanvasRenderer {
     densityX: number,
     densityY: number,
   ): void {
-    const size = 512
-    const bleed = 2
+    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
     const { x, y, scale } = this.viewport
     const pixelX = x * densityX
     const pixelY = y * densityY

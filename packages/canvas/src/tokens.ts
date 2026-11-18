@@ -47,6 +47,7 @@ export const canvasPaintTokens = {
     fallbackValueMaxCharacters: 42,
   },
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
+  graphCache: { tilePixels: 512, bleedPixels: 2 },
   badge: {
     size: 14,
     stride: 18,
