@@ -209,7 +209,7 @@ import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, resultReceiptCurrent, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -2535,7 +2535,7 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
 export class AppState {
   /** Default backend's connection (single-backend code path; always exists). */
   readonly connection: Backend['connection']
-  readonly store = new ExecutionStore()
+  readonly store = new ExecutionStore((receipts) => receipts.every((receipt) => this.mayAdoptResult(receipt)))
   /** Default backend's scoped client. */
   readonly scopedClient: RefreshableScopedClient
   /** UI-neutral live prompt inventory captured from the active tab's backend. */
@@ -5236,7 +5236,7 @@ export class AppState {
           try { retained = reusable?.retained ?? await admission!.promise } finally {
             if (valueAdmissions.get(admissionKey) === admission) valueAdmissions.delete(admissionKey)
           }
-          if (!current()) throw new Error('Value owner changed during asset admission')
+          if (!current() || !this.mayAdoptResult(retained)) throw new Error('Value owner changed during asset admission')
           const owner = this.resultAssetOwners.get(retained.ownerId)
           const valueSlot = canonicalJson({ execution: key, nodeId: query.nodeId, outputId: query.outputId })
           const references = () => {
@@ -5268,14 +5268,14 @@ export class AppState {
             })
           }
           this.retireUnusedResultOwners()
-          if (!current()) throw new Error('Value owner changed during asset admission')
+          if (!current() || !this.mayAdoptResult(retained)) throw new Error('Value owner changed during asset admission')
           return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
             this.valueAssetReaders.set(reader, (this.valueAssetReaders.get(reader) ?? 0) + 1)
             try {
               return await reader.read(async () => {
-                if (!current()) throw new Error('Value owner is no longer available')
+                if (!current() || !this.mayAdoptResult(reader.retained)) throw new Error('Value owner is no longer available')
                 const value = await consume()
-                if (!current()) throw new Error('Value owner changed during read')
+                if (!current() || !this.mayAdoptResult(reader.retained)) throw new Error('Value owner changed during read')
                 return value
               })
             } finally {
@@ -8743,7 +8743,12 @@ export class AppState {
     drained?: boolean
   }>()
 
+  private mayAdoptResult(retained: RetainedAssets): boolean {
+    return this.resultHolderCensus.mayAdopt(retained.ownerId) && resultReceiptCurrent(retained)
+  }
+
   private trackResultOwner(backend: Backend, retained: RetainedAssets, ref?: ExecutionRef): void {
+    if (!this.mayAdoptResult(retained)) throw new Error('Result ownership changed before publication')
     this.resultAssetOwners.set(retained.ownerId, { backend, retained, project: activeProjectId(),
       generation: this.assetConnectionGenerations.get(backend.connection),
       ...(ref === undefined ? {} : { execution: executionKey(ref), interim: true, observed: true }) })
@@ -9635,11 +9640,6 @@ export class AppState {
         }
         replacements.set(executionKey(result.ref), receipts)
       }
-      const live = await this.resultHolderCensus.collect()
-      if (live === undefined) {
-        this.log('warn', 'Ownership', 'Result ownership census unavailable; historical receipts were kept.')
-        return
-      }
       const persistedClass = new Set((previous.holders['6'] ?? []).map((owner) => canonicalJson(owner)))
       const otherClasses = new Set(Object.entries(previous.holders).flatMap(([key, owners]) =>
         key === '5' || key === '6' ? [] : owners.map((owner) =>
@@ -9658,13 +9658,19 @@ export class AppState {
           const replacement = replacements.get(intent.executionKey)
           if (replacement === undefined || replacement.length === 0 ||
             !retained.digests.every((digest) => replacement.some((owner) => owner.digests.includes(digest)))) continue
-          const persisted = persistedResultReferences()
-          if (persisted === undefined || persisted.ownerIds.has(retained.ownerId) || live.has(retained.ownerId) ||
-            !replacement.every((owner) => persisted.ownerIds.has(owner.ownerId)) ||
-            [...this.store.executions.get().values()].some((state) =>
-              state.assetRetentions?.some((owner) => owner.ownerId === retained.ownerId)) ||
-            this.resultAssetOwners.has(retained.ownerId)) continue
-          await this.retireAssetOwner(backend.connection, retained)
+          const available = await this.resultHolderCensus.reclaim(retained.ownerId, async () => {
+            const persisted = persistedResultReferences()
+            if (!current() || persisted === undefined || persisted.ownerIds.has(retained.ownerId) ||
+              !replacement.every((owner) => persisted.ownerIds.has(owner.ownerId)) ||
+              [...this.store.executions.get().values()].some((state) =>
+                state.assetRetentions?.some((owner) => owner.ownerId === retained.ownerId)) ||
+              this.resultAssetOwners.has(retained.ownerId)) return
+            await this.retireAssetOwner(backend.connection, retained)
+          })
+          if (!available) {
+            this.log('warn', 'Ownership', 'Result ownership census unavailable; historical receipts were kept.')
+            return
+          }
         } catch {
           // A malformed or changed owner never authorizes releasing its protection.
         }

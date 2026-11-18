@@ -211,6 +211,11 @@ reads, source previews, restorations, hydrations and retirements settle. It
 refuses census replies while closing, so a cancellation-ignoring body prevents
 historical reclamation rather than appearing to have departed. Membership ends
 after the tracked work drains; disposal does not wait synchronously.
+Participating apps use origin-wide membership. Historical release queries one
+candidate at a time and excludes that receipt's adoption in each answering app
+until its release journal settles. A browser lock excludes new registrations
+through the release. Result publication validates the durable acknowledgment and
+refuses a releasing or removed receipt, including delayed value publication.
 This boundary does not settle model viewers, shared poster queues or durable
 recovery references, and does not release any retained owner. Standalone values
 clients without an admission policy keep their transport behavior and bounded

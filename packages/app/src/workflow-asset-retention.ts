@@ -756,6 +756,18 @@ export async function readAssetPreview<T>(
   }
 }
 
+/** A durable release fence also refuses late publication after its journal is removed. */
+export function resultReceiptCurrent(retained: RetainedAssets): boolean {
+  if (retained.ownerKind !== 'shown-result' || retained.scope !== 'local') return true
+  try {
+    const intent = JSON.parse(globalThis.localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) ?? 'null')
+    return intent?.acknowledgedRevision === retained.revision && intent.releaseRevision === undefined &&
+      intent.owner?.ownerId === retained.ownerId && intent.owner?.ownerKind === retained.ownerKind &&
+      intent.owner?.scope === retained.scope && intent.complete === retained.complete &&
+      intent.sourceToken === retained.sourceToken && canonicalJson(intent.digests) === canonicalJson(retained.digests)
+  } catch { return false }
+}
+
 /** Only the lifetime that admitted an owner may retire its captured revision. */
 export async function retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
   const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
