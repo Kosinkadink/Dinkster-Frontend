@@ -520,6 +520,38 @@ test('a refused save and an open dialog have no accessibility violations', async
   await expectNoAxeViolations(page)
 })
 
+test('mobile keyboard navigation moves focus into the page while desktop navigation keeps its link focused', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.goto('/#controls')
+  await page.getByRole('button', { name: 'Toggle navigation' }).click()
+  const forms = page.getByRole('link', { name: 'Forms', exact: true })
+  await forms.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('navigation')).toBeHidden()
+  await expect(page.getByRole('main')).toBeFocused()
+  await expect(
+    page.getByRole('heading', { name: 'Forms', exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText('Loading selected page', { exact: true }),
+  ).toBeHidden()
+  await expect(page.getByRole('main')).toBeFocused()
+  await page.screenshot({
+    path: 'test-results/captures/mobile-navigation-page-focus.png',
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const controls = page.getByRole('link', {
+    name: 'Buttons and fields',
+    exact: true,
+  })
+  await controls.focus()
+  await page.keyboard.press('Enter')
+  await expect(controls).toBeFocused()
+})
+
 test('mobile navigation selects immediately and closes; desktop selection does not change label weight', async ({
   page,
 }) => {
