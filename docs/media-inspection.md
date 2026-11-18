@@ -30,7 +30,9 @@ preserves mounted inspector disclosures and their open state.
 
 Image output thumbnails, the output viewer, canvas previews and App View use a
 checkerboard behind transparent pixels. The background is presentation-only and
-does not bake into the image or affect downstream mirror inputs.
+does not bake into the image or affect downstream mirror inputs. Canvas preview
+checker colors follow the current theme, including when it changes while a
+preview remains mounted.
 The Outputs image grid includes native IMAGE batches as well as saved image
 assets. It mounts at most four tiles per page; page controls retain the global
 output order and opening a tile selects that image in the full viewer.
