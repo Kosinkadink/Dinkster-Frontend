@@ -1,4 +1,5 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, onMount, Show } from 'solid-js'
+import { canvasPaintTokens } from '@dinkster/canvas'
 import { formatDate } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryGovernorDevice, MemoryStatus } from '@dinkster/client'
 import { ProductButton } from './ProductControls.js'
@@ -189,8 +190,8 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
     if (canvas === undefined || host === undefined) return
     const context = canvas.getContext('2d')
     if (context === null) return
-    const width = Math.max(240, host.clientWidth || canvas.clientWidth || 600)
-    const height = 96
+    const width = Math.max(canvasPaintTokens.memory.graphMinWidth, host.clientWidth || canvas.clientWidth || canvasPaintTokens.memory.graphFallbackWidth)
+    const height = canvasPaintTokens.memory.graphHeight
     const ratio = window.devicePixelRatio || 1
     canvas.width = width * ratio; canvas.height = height * ratio
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
@@ -200,17 +201,17 @@ function MemoryGraph(props: { readonly samples: readonly MemorySample[] }) {
     if (samples.length === 0) return
     const capacity = Math.max(1, ...samples.map((sample) => sample.capacityBytes))
     const x = (index: number): number => samples.length === 1 ? width : index * width / (samples.length - 1)
-    const y = (bytes: number): number => height - Math.min(1, Math.max(0, bytes / capacity)) * (height - 8)
+    const y = (bytes: number): number => height - Math.min(1, Math.max(0, bytes / capacity)) * (height - canvasPaintTokens.memory.graphTopInset)
     const area = (value: (sample: MemorySample) => number, color: string, alpha: number): void => {
       context.beginPath(); context.moveTo(0, height)
       samples.forEach((sample, index) => context.lineTo(x(index), y(value(sample))))
       context.lineTo(width, height); context.closePath(); context.globalAlpha = alpha; context.fillStyle = color; context.fill(); context.globalAlpha = 1
     }
-    area((sample) => sample.footprintBytes + sample.reservedBytes, cssColor(host, '--dinkster-success-border'), .34)
-    area((sample) => sample.footprintBytes, cssColor(host, '--dinkster-warning-border'), .62)
+    area((sample) => sample.footprintBytes + sample.reservedBytes, cssColor(host, '--dinkster-success-border'), canvasPaintTokens.memory.reservedOpacity)
+    area((sample) => sample.footprintBytes, cssColor(host, '--dinkster-warning-border'), canvasPaintTokens.memory.footprintOpacity)
     context.beginPath(); samples.forEach((sample, index) => index === 0 ? context.moveTo(x(index), y(sample.footprintBytes + sample.reservedBytes)) : context.lineTo(x(index), y(sample.footprintBytes + sample.reservedBytes)))
-    context.strokeStyle = cssColor(host, '--dinkster-text-primary'); context.lineWidth = 1; context.stroke()
-    context.setLineDash([4, 3]); context.beginPath(); context.moveTo(0, y(samples.at(-1)!.capacityBytes)); context.lineTo(width, y(samples.at(-1)!.capacityBytes)); context.strokeStyle = cssColor(host, '--dinkster-text-muted'); context.stroke(); context.setLineDash([])
+    context.strokeStyle = cssColor(host, '--dinkster-text-primary'); context.lineWidth = canvasPaintTokens.memory.strokeWidth; context.stroke()
+    context.setLineDash([...canvasPaintTokens.memory.capacityDash]); context.beginPath(); context.moveTo(0, y(samples.at(-1)!.capacityBytes)); context.lineTo(width, y(samples.at(-1)!.capacityBytes)); context.strokeStyle = cssColor(host, '--dinkster-text-muted'); context.stroke(); context.setLineDash([])
     const selected = hover()
     if (selected !== undefined) {
       const index = samples.indexOf(selected); context.beginPath(); context.moveTo(x(index), 0); context.lineTo(x(index), height); context.strokeStyle = cssColor(host, '--dinkster-border-focus'); context.stroke()
@@ -254,14 +255,14 @@ function PageHeatmap(props: { readonly pageBytes: number; readonly pageCount: nu
     if (canvas === undefined || host === undefined) return
     const context = canvas.getContext('2d')
     if (context === null) return
-    const width = Math.max(120, host.clientWidth || canvas.clientWidth || 480)
-    const pitch = 7; const columns = Math.max(1, Math.floor((width + 1) / pitch)); const height = Math.ceil(props.cells.length / columns) * pitch
+    const width = Math.max(canvasPaintTokens.memory.heatmapMinWidth, host.clientWidth || canvas.clientWidth || canvasPaintTokens.memory.heatmapFallbackWidth)
+    const pitch = canvasPaintTokens.memory.cellPitch; const columns = Math.max(1, Math.floor((width + 1) / pitch)); const height = Math.ceil(props.cells.length / columns) * pitch
     const ratio = window.devicePixelRatio || 1
     canvas.width = width * ratio; canvas.height = height * ratio; canvas.style.height = `${height}px`
     context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height)
     props.cells.forEach((cell, index) => {
       context.fillStyle = pageCellColor(cell)
-      context.fillRect(index % columns * pitch, Math.floor(index / columns) * pitch, 6, 6)
+      context.fillRect(index % columns * pitch, Math.floor(index / columns) * pitch, canvasPaintTokens.memory.cellSize, canvasPaintTokens.memory.cellSize)
     })
   }
   createEffect(draw)
