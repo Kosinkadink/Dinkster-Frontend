@@ -18,7 +18,10 @@ export async function waitForProductFonts(page: Page): Promise<void> {
       )
     }
     for (const font of fonts) {
-      const faces = await document.fonts.load(font)
+      // Application startup may gate its own load() promise after the face loads.
+      // Capture readiness follows the browser's faces, not that application gate.
+      const prototype = Object.getPrototypeOf(document.fonts) as FontFaceSet
+      const faces = await prototype.load.call(document.fonts, font)
       if (
         faces.length === 0 ||
         faces.some((face) => face.status !== 'loaded') ||
