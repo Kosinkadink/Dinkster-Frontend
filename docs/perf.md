@@ -71,6 +71,57 @@ it does not establish that all remaining frame gaps are GC. One 216.1 ms
 gap ended 208.8 ms after edit dispatch, before the save timer, so it is not
 attributed to delayed saving.
 
+## Retained minimap and per-frame cleanup (2026-11-18)
+
+Camera movement retains the minimap graph bitmap and repaints its camera,
+bookmark and presence overlays. Scene, execution-state, size and explicit host
+refreshes invalidate the bitmap. The grid uses one world-anchored repeating
+tile fill; connectivity lookups rebuild on scene installation. Renderer and
+editor camera feedback remain immediate. App-state camera writes coalesce
+until 100 ms without another camera update, or flush before graph switching,
+host disposal and tab persistence (including page exit).
+
+Before is main `63583ad7`; after is the per-frame implementation in PR 517.
+The unchanged reporting harness used X570 GPU0 (RTX 4090), headless Chromium
+Vulkan, uncapped frames, a 2560x1440 viewport, 2500 ms inputs, three repetitions,
+and optimized test-mode builds exposing only the workload bridge. The ordinary
+production entry also builds and verifies without that bridge. The local CPU
+backend was `3bc0f22c`, not the hosted pin. These are median per-run p50/p95
+frame times, in milliseconds, not pooled percentiles or display refresh rates.
+Unit checks overlapped late baseline cells; possible CPU contention is disclosed.
+The after runs preceded a persistence-flush ordering fix; that fix changes
+teardown, not the timed active-camera path. Final browser checks cover it.
+
+| Nodes | Camera | Input | Before p50/p95 | After p50/p95 |
+| --- | --- | --- | --- | --- |
+| 66 | Read | Pan | 2.3/3.4 | 2.0/3.9 |
+| 66 | Read | Zoom | 3.1/6.1 | 3.3/7.7 |
+| 66 | Read | Drag | 2.1/3.0 | 2.0/6.2 |
+| 66 | Fit | Pan | 5.1/8.3 | 1.4/3.3 |
+| 66 | Fit | Zoom | 5.7/10.8 | 2.8/8.0 |
+| 66 | Fit | Drag | 5.0/7.2 | 1.4/5.0 |
+| 300 | Read | Pan | 3.3/5.5 | 1.9/2.9 |
+| 300 | Read | Zoom | 3.0/4.5 | 2.3/3.4 |
+| 300 | Read | Drag | 2.6/3.4 | 1.9/3.9 |
+| 300 | Fit | Pan | 5.7/13.4 | 3.4/12.3 |
+| 300 | Fit | Zoom | 5.4/11.1 | 3.7/8.3 |
+| 300 | Fit | Drag | 4.7/15.3 | 3.7/16.3 |
+| 1200 | Read | Pan | 9.7/20.4 | 2.1/3.6 |
+| 1200 | Read | Zoom | 7.7/16.9 | 2.4/3.9 |
+| 1200 | Read | Drag | 3.3/4.6 | 2.0/3.1 |
+| 1200 | Fit | Pan | 20.2/54.3 | 11.5/36.9 |
+| 1200 | Fit | Zoom | 16.2/34.3 | 6.9/20.0 |
+| 1200 | Fit | Drag | 21.4/56.5 | 14.2/37.6 |
+
+These numbers do not meet the whole-canvas targets at every zoom. The fitted
+1200-node graph still needs less graph painting, and tail latency remains.
+Wheel flooding queues input, so its subsequent drag/input latency is not an
+isolated click measurement. The timing script gates nothing. Counting checks
+cover fixed 66/300/1200-node drawing budgets, no camera-only minimap geometry
+paint or link-lookup rebuild, and one next-frame draw per drag pointer event.
+Camera persistence checks retain the zero workflow reserialization/checksum
+contract and cover pause coalescing, graph switching and page-exit restoration.
+
 ## Viewport (pan + zoom, 120 frames, read-only hot path)
 
 | Workload | Date | Commit | avg frame | p95 frame |
