@@ -5246,7 +5246,11 @@ export class AppState {
                 (state.assetRetentions ?? []).map((receipt) => receipt.ownerId))])
           }
           const held = references()
-          const previous = owner === undefined && retained.complete && held !== undefined ? localOwners().find((candidate) =>
+          // A fresh equal-inventory acknowledgment can replace a reader's
+          // protection even when the old journal no longer permits reuse.
+          const previous = owner === undefined && retained.complete && held !== undefined ? [...this.resultAssetOwners.values()].find((candidate) =>
+            candidate.backend === nativeBackend && candidate.project === project && candidate.generation === generation &&
+            candidate.storage === storage && candidate.drained === undefined &&
             candidate.retained.ownerId !== retained.ownerId && candidate.valueSlot === valueSlot &&
             !held.has(candidate.retained.ownerId) && candidate.reader?.retained === candidate.retained && candidate.retained.complete &&
             canonicalJson(candidate.retained.digests) === canonicalJson(retained.digests)) : undefined

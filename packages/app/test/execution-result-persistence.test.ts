@@ -159,7 +159,7 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
-  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()
     if (mode === 'census-timeout') locks.set('dinkster-result-holders:unresponsive', { name: 'dinkster-result-holders:unresponsive', mode: 'exclusive' })
@@ -192,6 +192,16 @@ describe('startup result source admission', () => {
     const frozen: RetainedAssets = { ...protectedOwner, ownerKind: 'document',
       ownerId: 'workflow-candidate:frozen', holderClasses: [1, 2, 3] }
     const owners = new Map([...controls, ...stale, peer, frozen].map((owner) => [owner.ownerId, owner]))
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const retained = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      owners.set(owner.ownerId, retained)
+      return retained
+    })
+    vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+      const retained = { ...owner, sourceToken, revision: 1, complete: true, digests: [] }
+      owners.set(owner.ownerId, retained)
+      return retained
+    })
     const keyFor = (owner: RetainedAssets) => scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
     for (const owner of owners.values()) localStorage.setItem(keyFor(owner), JSON.stringify({
       version: 3, connectionId: test.backend.id, assetBaseUrl: test.backend.connection.assetUrl(''), owner: {
@@ -202,7 +212,7 @@ describe('startup result source admission', () => {
     }))
     saveExecutionResult({ ...test.saved, assetRetentions: mode === 'independent-unreferenced' ? controls.slice(1) : controls }, test.backendIdentity)
     let holder: AppState | undefined
-    if (mode === 'holder-adopts-during-release') holder = new AppState()
+    if (mode === 'holder-adopts-during-release' || mode === 'late-publication') holder = new AppState()
     const concurrentHolder = mode === 'holder-starts-during-release' || mode === 'holder-adopts-during-release'
     let releaseFirst: (() => void) | undefined
     let firstReleaseStarted: (() => void) | undefined
@@ -270,7 +280,7 @@ describe('startup result source admission', () => {
       if (init?.method === 'DELETE' && url.pathname.includes('/retentions/shown-result/')) {
         expect(new Headers(init.headers).get('X-Dinkster-Retention-Generation')).toBe(rotated)
         const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
-        if (concurrentHolder && id === stale[0]!.ownerId) {
+        if ((concurrentHolder || mode === 'late-publication') && id === stale[0]!.ownerId) {
           firstReleaseStarted!()
           await releaseResponse
         }
@@ -285,6 +295,14 @@ describe('startup result source admission', () => {
     try {
       const pinnedExecution = pinned === undefined ? undefined : test.app.executionForTab(pinned)
       const starting = test.app.start()
+      const publishReleased = () => holder!.store.restoreCompleted({ ...test.saved,
+        artifact: test.saved.artifact!, endedAt: test.saved.endedAt!, assetRetentions: [stale[0]!] })
+      if (mode === 'late-publication') {
+        await firstRelease
+        expect(publishReleased).toThrow('Result ownership changed before publication')
+        expect(holder!.store.get(test.ref)).toBeUndefined()
+        releaseFirst!()
+      }
       if (concurrentHolder) {
         await firstRelease
         holder ??= new AppState()
@@ -294,6 +312,12 @@ describe('startup result source admission', () => {
         releaseFirst!()
       }
       await starting
+      if (mode === 'late-publication') {
+        expect(owners.get(stale[0]!.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+        expect(localStorage.getItem(keyFor(stale[0]!))).toBeNull()
+        expect(publishReleased).toThrow('Result ownership changed before publication')
+        expect(holder!.store.get(test.ref)).toBeUndefined()
+      }
       if (mode === 'replacement-retry') {
         expect(owners.get(stale[0]!.ownerId)).toEqual(stale[0])
         replacementRefused = false
@@ -304,7 +328,7 @@ describe('startup result source admission', () => {
         expect(JSON.parse(localStorage.getItem(keyFor(stale[1]!))!)).toMatchObject({ acknowledgedRevision: 1 })
         expect(holder!.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
       }
-      const reclaim = mode === 'reopened' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder
+      const reclaim = mode === 'reopened' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder || mode === 'late-publication'
       for (const owner of stale) {
         if (concurrentHolder && owner !== stale[0]) continue
         const released = reclaim && !((mode === 'live-pin' || mode === 'peer-held') && owner === stale[0])
