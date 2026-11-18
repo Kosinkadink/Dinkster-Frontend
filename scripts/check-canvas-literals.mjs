@@ -36,13 +36,6 @@ const callArguments = new Map([
   ['fillText', [1, 2, 3]],
   ['strokeText', [1, 2, 3]],
 ])
-const memberName = (node) =>
-  ts.isPropertyAccessExpression(node)
-    ? node.name.text
-    : ts.isElementAccessExpression(node) &&
-        ts.isStringLiteralLike(node.argumentExpression)
-      ? node.argumentExpression.text
-      : undefined
 
 export async function checkCanvasLiterals(args = []) {
   const roots = []
@@ -82,6 +75,89 @@ export async function checkCanvasLiterals(args = []) {
     allowJs: true,
   })
   const checker = program.getTypeChecker()
+  const declarationsOf = (node) => {
+    let symbol = checker.getSymbolAtLocation(
+      ts.isPropertyAccessExpression(node) ? node.name : node,
+    )
+    if (!symbol && ts.isElementAccessExpression(node)) {
+      const name = staticText(node.argumentExpression)
+      if (name !== undefined)
+        symbol = checker.getTypeAtLocation(node.expression).getProperty(name)
+    }
+    if (symbol?.flags & ts.SymbolFlags.Alias)
+      symbol = checker.getAliasedSymbol(symbol)
+    return symbol?.declarations ?? []
+  }
+  const returnExpressions = (node) => {
+    if (!node.body) return []
+    if (!ts.isBlock(node.body)) return [node.body]
+    const expressions = []
+    const visit = (child) => {
+      if (ts.isReturnStatement(child) && child.expression)
+        expressions.push(child.expression)
+      else if (!ts.isFunctionLike(child)) ts.forEachChild(child, visit)
+    }
+    visit(node.body)
+    return expressions
+  }
+  const staticText = (node, seen = new Set()) => {
+    if (!node || seen.has(node)) return undefined
+    seen.add(node)
+    if (ts.isStringLiteralLike(node)) return node.text
+    if (
+      ts.isParenthesizedExpression(node) ||
+      ts.isAsExpression(node) ||
+      ts.isNonNullExpression(node) ||
+      ts.isSatisfiesExpression(node)
+    )
+      return staticText(node.expression, seen)
+    if (ts.isTemplateExpression(node)) {
+      let text = node.head.text
+      for (const span of node.templateSpans) {
+        const value = staticText(span.expression, new Set(seen))
+        if (value === undefined) return undefined
+        text += value + span.literal.text
+      }
+      return text
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.PlusToken
+    ) {
+      const left = staticText(node.left, new Set(seen))
+      const right = staticText(node.right, new Set(seen))
+      return left !== undefined && right !== undefined
+        ? left + right
+        : undefined
+    }
+    if (ts.isIdentifier(node)) {
+      for (const declaration of declarationsOf(node)) {
+        if (declaration.initializer)
+          return staticText(declaration.initializer, seen)
+      }
+    }
+    if (ts.isCallExpression(node)) {
+      const values = declarationsOf(node.expression)
+        .flatMap((declaration) =>
+          returnExpressions(declaration.initializer ?? declaration),
+        )
+        .map((expression) => staticText(expression, new Set(seen)))
+      if (
+        values.length &&
+        values[0] !== undefined &&
+        values.every((value) => value === values[0])
+      )
+        return values[0]
+    }
+    const type = checker.getTypeAtLocation(node)
+    return type.isStringLiteral() ? type.value : undefined
+  }
+  const memberName = (node) =>
+    ts.isPropertyAccessExpression(node)
+      ? node.name.text
+      : ts.isElementAccessExpression(node)
+        ? staticText(node.argumentExpression)
+        : undefined
   const problems = new Set()
   const report = (node, kind) => {
     const source = node.getSourceFile()
@@ -97,6 +173,8 @@ export async function checkCanvasLiterals(args = []) {
       return
     seen.add(node)
     if (ts.isNumericLiteral(node)) {
+      // Color conversions use numeric indices and radices, not CSS colors.
+      if (kind === 'color') return
       // Zero is a coordinate origin/empty extent, not a designed dimension.
       if (kind !== 'size' || Number(node.text) !== 0) report(node, kind)
       return
@@ -162,20 +240,31 @@ export async function checkCanvasLiterals(args = []) {
       ts.isPropertyAccessExpression(node) ||
       ts.isElementAccessExpression(node)
     ) {
-      let symbol = checker.getSymbolAtLocation(
-        ts.isPropertyAccessExpression(node) ? node.name : node,
-      )
-      if (symbol?.flags & ts.SymbolFlags.Alias)
-        symbol = checker.getAliasedSymbol(symbol)
-      for (const declaration of symbol?.declarations ?? []) {
+      const declarations = declarationsOf(node)
+      for (const declaration of declarations) {
         if (declaration.initializer)
           inspect(declaration.initializer, kind, seen)
+        else if (ts.isFunctionLike(declaration))
+          inspect(declaration, kind, seen)
       }
+      if (!declarations.length && ts.isElementAccessExpression(node))
+        inspect(node.expression, kind, seen)
+      return
+    }
+    if (ts.isFunctionLike(node)) {
+      for (const expression of returnExpressions(node))
+        inspect(expression, kind, seen)
       return
     }
     if (ts.isCallExpression(node)) {
       const method = memberName(node.expression)
-      if (['at', 'slice', 'substring'].includes(method)) return
+      if (
+        ['at', 'slice', 'substring', 'toString', 'padStart'].includes(method)
+      ) {
+        inspect(node.expression.expression, kind, seen)
+        return
+      }
+      inspect(node.expression, kind, seen)
       for (const argument of node.arguments) {
         if (
           ['max', 'min'].includes(method) &&
@@ -188,6 +277,14 @@ export async function checkCanvasLiterals(args = []) {
       return
     }
     if (ts.isTemplateExpression(node)) {
+      if (
+        kind === 'color' &&
+        [
+          node.head.text,
+          ...node.templateSpans.map((span) => span.literal.text),
+        ].some((text) => colorLiteral.test(text))
+      )
+        report(node, kind)
       if (
         kind === 'font' &&
         [
@@ -238,7 +335,9 @@ export async function checkCanvasLiterals(args = []) {
             inspect(node.arguments[index], 'size')
       }
       if (ts.isPropertyAssignment(node)) {
-        const name = node.name.getText(source).replace(/^['"]|['"]$/gu, '')
+        const name = ts.isComputedPropertyName(node.name)
+          ? staticText(node.name.expression)
+          : node.name.getText(source).replace(/^['"]|['"]$/gu, '')
         const kind =
           paintProperties.get(name) ??
           (name === 'color' && geometrySource ? 'color' : undefined)
