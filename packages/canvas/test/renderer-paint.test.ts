@@ -469,13 +469,26 @@ describe('graph image reuse', () => {
     try {
       const base = fixtureScene('clean')
       const node = base.nodes[0]!
+      let offscreenLayoutReads = 0
       renderer.setScene({
         ...base,
-        nodes: Array.from({ length: count }, (_, i) => ({ ...node, id: `cached-${i}`, x: i % 20 * 320, y: Math.floor(i / 20) * 180 })),
+        nodes: Array.from({ length: count }, (_, i) => ({
+          ...node,
+          id: `cached-${i}`,
+          x: i % 20 * 320,
+          y: Math.floor(i / 20) * 180,
+          get layout() {
+            if (this.x > 4096) offscreenLayoutReads++
+            return node.layout
+          },
+        })),
         links: [],
       })
       renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      offscreenLayoutReads = 0
       renderer.renderNow()
+      // Nodes beyond the complete tile region are inspected once, not per tile.
+      expect(offscreenLayoutReads).toBeLessThanOrEqual(count)
       const initial = images.length
       expect(initial).toBeGreaterThan(0)
       expect(painted.calls.some((call) => call.method === 'fillText')).toBe(true)

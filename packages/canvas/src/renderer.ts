@@ -1593,12 +1593,42 @@ export class CanvasRenderer {
       this.graphTileTransform = transform
     }
     const used = new Set<string>()
+    let scene: Scene | undefined
     for (let row = Math.floor(-pixelY / size); row * size + pixelY < pixelHeight; row++) {
       for (let column = Math.floor(-pixelX / size); column * size + pixelX < pixelWidth; column++) {
         const key = `${column}/${row}`
         used.add(key)
         let tile = this.graphTiles.get(key)
         if (tile === undefined) {
+          if (scene === undefined) {
+            // Cull once to complete tile bounds, including offscreen bleed;
+            // each tile still applies its own exact painter and clipping.
+            const left = (Math.floor(-pixelX / size) * size - bleed) / (densityX * scale)
+            const top = (Math.floor(-pixelY / size) * size - bleed) / (densityY * scale)
+            const right = (Math.ceil((pixelWidth - pixelX) / size) * size + bleed) / (densityX * scale)
+            const bottom = (Math.ceil((pixelHeight - pixelY) / size) * size + bleed) / (densityY * scale)
+            const pad = structureCullPad(scale, this.tokens.pinRadius, this.getDetailLevel())
+            const paintPad = linkCullPad(scale)
+            const off = (id: string) => this.overlay.dragOffsets?.get(id) ?? ZERO_OFFSET
+            scene = {
+              ...this.scene,
+              nodes: this.scene.nodes.filter((entry) => {
+                const node = this.nodeForPaint(entry)
+                const offset = off(node.id)
+                return node.x + offset.dx + node.layout.width + pad >= left && node.x + offset.dx - pad <= right &&
+                  node.y + offset.dy + node.layout.height + pad >= top && node.y + offset.dy - pad <= bottom
+              }),
+              links: this.scene.links.filter((link) => {
+                const from = this.linkEndForPaint(link.from, 'out', link.x1, link.y1)
+                const to = this.linkEndForPaint(link.to, 'in', link.x2, link.y2)
+                const a = off(sceneEndId(link.from))
+                const b = off(sceneEndId(link.to))
+                const bounds = linkBounds(from.x + a.dx, from.y + a.dy, to.x + b.dx, to.y + b.dy)
+                return bounds.maxX + paintPad >= left && bounds.minX - paintPad <= right &&
+                  bounds.maxY + paintPad >= top && bounds.minY - paintPad <= bottom
+              }),
+            }
+          }
           const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
           // Reset paint state as well as pixels before rendering another tile.
           surface.width = surface.height = size + bleed * 2
@@ -1611,7 +1641,7 @@ export class CanvasRenderer {
             y: -originY / (densityY * scale),
             w: (size + bleed * 2) / (densityX * scale),
             h: (size + bleed * 2) / (densityY * scale),
-          }, scale)
+          }, scale, scene)
           tile = surface.transferToImageBitmap()
           this.graphTiles.set(key, tile)
         }
@@ -1630,6 +1660,7 @@ export class CanvasRenderer {
     ctx: CanvasRenderingContext2D,
     view: Readonly<{ x: number; y: number; w: number; h: number }>,
     scale: number,
+    scene: Scene = this.scene,
   ): void {
     const t = this.tokens
     const detailLevel = this.getDetailLevel()
@@ -1670,7 +1701,7 @@ export class CanvasRenderer {
     if (detailLevel === 'overview' && this.scene.links.length >= 256 && offsets === undefined &&
         this.overlay.resizePreview === undefined && this.scopeHighlight === undefined && this.inactiveNodes === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
-      for (const link of this.scene.links) {
+      for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
             this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
@@ -1692,7 +1723,7 @@ export class CanvasRenderer {
       }
     }
 
-    for (const link of this.scene.links) {
+    for (const link of scene.links) {
       if (batchedOverviewLinks.has(link.id)) continue
       // Collapsed-net noodles exist for connectivity only; endpoint tags
       // are their visual form.
@@ -2000,7 +2031,7 @@ export class CanvasRenderer {
       ctx.restore()
     }
 
-    for (const sceneNode of this.scene.nodes) {
+    for (const sceneNode of scene.nodes) {
       const node = this.nodeForPaint(sceneNode)
       const o = off(node.id)
       // Pad culling by the pin overhang plus target/warn halo rings: pins

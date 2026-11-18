@@ -82,6 +82,42 @@ established. Fitted pan cells follow wheel flooding and retain the preceding
 queue-contamination limitation. Zoom remains more expensive than direct
 painting. No frame, zoom, or whole-issue target is accepted from these runs.
 
+## Tile-region scene culling (2026-11-18)
+
+Before rebuilding missing graph tiles, nodes and links are culled once to
+complete tile bounds, including bleed. Each tile retains its own exact
+painter, clipping and raster origin. The overview batching threshold still
+uses the complete scene, not the reduced candidate list. Integer/fractional
+pan reuse and bitmap retirement behavior are unchanged.
+
+One candidate production-optimized test-mode run uses the same X570 RTX 4090,
+Chromium 149 Vulkan, uncapped 2560x1440 and 2500 ms audit inputs. Before values
+below are the preceding three-run aligned medians, not new paired runs; after
+values are one run. Shared-host CPU validation overlapped this run. These
+frame p50/p95 values are reporting evidence, not causal speedup or acceptance.
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag after |
+| --- | --- | --- | --- | --- | --- |
+| 300/read | 5.0/17.7 | 5.1/17.5 | 7.9/11.7 | 6.3/11.7 | 7.1/23.7 |
+| 300/fit | 6.4/23.3 | 2.0/17.5 | 8.6/24.6 | 9.0/28.7 | 12.4/37.6 |
+| 1200/read | 14.9/17.7 | 5.9/17.4 | 16.8/22.0 | 8.6/13.9 | 13.6/17.5 |
+| 1200/fit | 24.3/39.5 | 1.1/17.4 | 20.5/36.8 | 22.0/43.6 | 27.6/64.0 |
+
+Readable pan renderer p50/p95 is 0.1/0.3 ms at both sizes. Fitted zoom/drag
+remain expensive and wheel queues contaminate later cells; the seconds-long
+input delays are not isolated click measurements. No target is accepted.
+A separate instrumented zoom probe reduces readable endpoint projections
+from about 11970 to 2955 per 300-node frame and 36480 to 3665 at 1200 nodes.
+Its full-scene control retains the preliminary culling pass, so its render
+means are not an independent baseline. The fixed 66/300/1200 tests bound
+reads of offscreen geometry as well as image copies and fractional reuse;
+the prior painter fails all three geometry bounds. Raw GPU diagnostic
+readbacks also show an initial fitted-frame mismatch in an unchanged
+control; that diagnostic is not counted as strict equivalence acceptance.
+The separate 97-case fresh-renderer browser comparison and 90 unchanged
+gallery comparisons pass. Four fractional-DPR anatomy/overview captures in
+both themes are byte-identical to the prior renderer and were inspected.
+
 ## Canvas click and save reporting (2026-11-17)
 
 The reporting tools in `scripts/canvas-performance/` retain the input and
