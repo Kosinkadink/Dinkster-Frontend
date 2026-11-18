@@ -42,6 +42,8 @@ import { structuralGalleryScene } from './structure.js'
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
   ['idle-outline', 'Idle outline'],
+  ['titles', 'Node titles'],
+  ['titles-content', 'Node titles at content zoom'],
   ['states', 'Node states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
@@ -272,6 +274,9 @@ export function createCanvasGalleryFixture(
               type: id === 'Missing type' ? 'Uninstalled' : definition.type,
               values: { ...defaultValuesOf(definition), ...values },
               ...(id === 'Renamed' ? { title: 'Refine pass' } : {}),
+              ...(id === 'Long renamed'
+                ? { title: 'A deliberately long custom refinement pass title' }
+                : {}),
               ...(id === 'Muted'
                 ? { mode: 'muted' }
                 : id === 'Bypassed'
@@ -316,7 +321,9 @@ export function createCanvasGalleryFixture(
               [id]: {
                 position: { x, y },
                 size: { width: 280, height: 0 },
-                ...(id === 'Minimized' ? { collapsed: true } : {}),
+                ...(id === 'Minimized' || id === 'Long minimized'
+                  ? { collapsed: true }
+                  : {}),
               },
             },
           },
@@ -450,6 +457,32 @@ export function createCanvasGalleryFixture(
         }
       })
     }
+  } else if (page === 'titles' || page === 'titles-content') {
+    const long = {
+      ...sample,
+      displayName: 'A long node title that does not fit the title bar',
+    }
+    add('Fits', sample)
+    add('Long ordinary', long)
+    add('Renamed', sample)
+    add('Long renamed', sample)
+    add('Minimized', sample)
+    add('Long minimized', {
+      ...sample,
+      displayName:
+        'A long minimized node title that exceeds the maximum automatic node width and must end in an ellipsis',
+    })
+    fixture.width = Math.max(
+      fixture.width,
+      ...fixture.scene.nodes.map((node) => node.x + node.layout.width + 24),
+    )
+    fixture.badges = {
+      'Long ordinary': [SUBGRAPH_BADGE, DEPRECATED_BADGE],
+    }
+    fixture.height = 550
+    fixture.scale = page === 'titles-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.width *= fixture.scale
+    fixture.height *= fixture.scale
   } else if (page === 'idle-outline') {
     for (const id of ['Idle', 'Hovered', 'Selected']) add(id, sample)
     fixture.overlay = {

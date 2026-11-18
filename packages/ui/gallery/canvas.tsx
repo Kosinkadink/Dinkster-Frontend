@@ -37,6 +37,7 @@ export function CanvasGallery() {
   const [widgetId, setWidgetId] = createSignal('float')
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
+  const [titleLook, setTitleLook] = createSignal<'squeeze' | 'ellipsis'>('squeeze')
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -47,6 +48,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     const currentOutline = outline()
     const currentTypeLook = typeLook()
+    const currentTitleLook = titleLook()
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
@@ -55,6 +57,10 @@ export function CanvasGallery() {
       const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
         ...defaultTokens,
+        titleOverflow:
+          currentPage === 'titles' || currentPage === 'titles-content'
+            ? currentTitleLook
+            : defaultTokens.titleOverflow,
         ...(currentPage === 'types' && currentTypeLook === 'previous'
           ? previousCanvasTypePaint
           : canvasTypePaintForTheme(currentTheme)),
@@ -137,6 +143,8 @@ export function CanvasGallery() {
       labelContext.font = `${tokens.fontSize}px ${tokens.fontFamily}`
       labelContext.fillStyle = tokens.colors.label
       labelContext.textBaseline = 'middle'
+      if (currentPage === 'titles' || currentPage === 'titles-content')
+        labelContext.textAlign = 'left'
       for (const label of fixture.labels)
         labelContext.fillText(label.text, label.x, label.y)
       labelContext.restore()
@@ -180,6 +188,7 @@ export function CanvasGallery() {
       canvas.dataset.widget = currentWidget
       canvas.dataset.outline = currentOutline
       canvas.dataset.typeLook = currentTypeLook
+      canvas.dataset.titleLook = currentTitleLook
     })
     onCleanup(() => {
       disposed = true
@@ -254,6 +263,27 @@ export function CanvasGallery() {
           Current type colors keep each type's hue and reach at least 3:1 contrast
           against the node body. Previous colors overrides only this comparison;
           app colors and other gallery pages keep the current palette.
+        </p>
+      </Show>
+      <Show when={page() === 'titles' || page() === 'titles-content'}>
+        <ProductField label="Title fitting">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={titleLook()}
+              onChange={(event) =>
+                setTitleLook(event.currentTarget.value as 'squeeze' | 'ellipsis')
+              }
+            >
+              <option value="squeeze">Squeezed titles (current)</option>
+              <option value="ellipsis">Ellipsis preview</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Compare fitting, long, renamed and minimized titles, including header
+          marks. The ellipsis preview keeps letter widths and title bounds;
+          app defaults and other gallery pages stay unchanged.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>
