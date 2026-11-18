@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         'account-view': 'src/account.tsx',
         authorization: 'src/authorization.tsx',
+        about: 'src/about.tsx',
       },
       preserveEntrySignatures: 'strict',
       output: {

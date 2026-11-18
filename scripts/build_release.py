@@ -77,6 +77,8 @@ def build(
     for required in (
         "account.html",
         "authorization.html",
+        "about.html",
+        "about.js",
         "account-view.js",
         "authorization.js",
         "manifest.json",

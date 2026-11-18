@@ -20,6 +20,8 @@ import {
   User,
 } from 'lucide-solid'
 import {
+  ProductAbout,
+  ProductWindowChrome,
   ProductAccountMenu,
   ProductCodeBlock,
   ProductCopyValue,
@@ -67,6 +69,7 @@ const navigation = [
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
   { label: 'Canvas', href: '#canvas', icon: LayoutList },
+  { label: 'Desktop information', href: '#desktop-about', icon: User },
 ]
 
 function Section(props: {
@@ -146,6 +149,51 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#desktop-about'}>
+              <Section
+                title="Native window chrome"
+                components="ProductWindowChrome"
+              >
+                <For each={['win32', 'linux', 'darwin'] as const}>
+                  {(platform) => (
+                    <div class="dinkster-stack">
+                      <span class="dinkster-metadata">
+                        {platform === 'darwin'
+                          ? 'macOS'
+                          : platform === 'win32'
+                            ? 'Windows'
+                            : 'Linux'}
+                      </span>
+                      <ProductWindowChrome
+                        title="Dinkster Desktop [QA]"
+                        platform={platform}
+                      />
+                    </div>
+                  )}
+                </For>
+              </Section>
+              <Section title="Dark appearance" components="ProductAbout">
+                <div class="dinkster-about-preview" data-theme="dark">
+                  <ProductAbout
+                    title="Dinkster Desktop"
+                    version="0.2.8"
+                    theme="dark"
+                  />
+                </div>
+              </Section>
+              <Section
+                title="Light appearance and QA identity"
+                components="ProductAbout"
+              >
+                <div class="dinkster-about-preview" data-theme="light">
+                  <ProductAbout
+                    title="Dinkster Desktop [QA]"
+                    version="0.2.8"
+                    theme="light"
+                  />
+                </div>
+              </Section>
+            </Match>
             <Match when={route() === '#canvas'}>
               <CanvasGallery />
             </Match>

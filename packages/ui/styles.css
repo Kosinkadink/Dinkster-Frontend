@@ -97,6 +97,14 @@
 .dinkster-brand { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
 .dinkster-brand-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-brand-mark { width: var(--dinkster-space-24); height: var(--dinkster-space-24); flex: none; }
+.dinkster-about { display: grid; justify-items: center; align-content: center; gap: var(--dinkster-space-16); min-height: 100%; padding: var(--dinkster-space-32); text-align: center; }
+.dinkster-about > p { margin: 0; }
+.dinkster-about-window { display: grid; min-height: 100vh; }
+.dinkster-about-wordmark { display: block; width: 100%; max-width: var(--dinkster-about-wordmark-max-width); height: auto; }
+.dinkster-window-chrome { display: flex; align-items: center; gap: var(--dinkster-space-8); height: var(--dinkster-top-bar-height); padding-left: calc(env(titlebar-area-x, 0px) + var(--dinkster-space-12)); padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + var(--dinkster-space-12)); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); -webkit-app-region: drag; }
+.dinkster-window-chrome[data-platform='darwin'] { padding-left: calc(var(--dinkster-mac-window-controls-inset) + var(--dinkster-space-12)); }
+.dinkster-window-chrome > * { -webkit-app-region: no-drag; }
+.dinkster-about-preview { background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
 .dinkster-choice { display: flex; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-check { accent-color: var(--dinkster-accent-foreground); }
 .dinkster-textarea { resize: vertical; }
