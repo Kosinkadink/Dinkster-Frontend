@@ -435,8 +435,17 @@ export async function checkCanvasLiterals(args = []) {
         inspect(node.expression.expression, kind, seen)
         return
       }
+      const signature = checker.getResolvedSignature(node)
+      const callable = signature?.declaration
+      // Native pattern arguments describe the image and repetition, not a color.
+      if (
+        kind === 'color' &&
+        callable?.getSourceFile().isDeclarationFile &&
+        checker.getNonNullableType(checker.getReturnTypeOfSignature(signature))
+          .symbol?.name === 'CanvasPattern'
+      )
+        return
       inspect(node.expression, kind, seen)
-      const callable = checker.getResolvedSignature(node)?.declaration
       if (callable?.body && files.includes(callable.getSourceFile().fileName))
         return
       for (const argument of node.arguments) {
