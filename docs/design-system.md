@@ -747,6 +747,46 @@ The specialized asset editor shell is parked in
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.
 
+## Font loading and captures
+
+Bundled Noto faces use `font-display: swap` so site text does not wait for a
+cold font transfer. Canvas startup still loads its measurement faces before
+rendering. The shared browser capture fixture in `packages/e2e/visual.ts` waits
+for `document.fonts.ready` and verifies the visible product font faces before
+page, locator or golden-image captures. Failed font loads reject the capture;
+screenshot baselines do not use fallback text.
+
+## Account site assets
+
+`packages/site` builds the SolidJS account and authorization views on
+`@dinkster/ui`, with no site-owned stylesheet or controls. The account service
+owns API calls, navigation state and show-once secret lifetime; the view accepts
+its bound screen model and exposes fields through `data-account-field`. Field
+IDs and labels remain owned by `ProductField`. The service supplies the person's
+name and email to the account menu. The renderer owns changed-field disabling;
+controller callbacks update service state without rewriting button attributes.
+Rejected changes remain retryable, and only a successful save advances the saved
+baseline. Same-screen responses reconcile the existing controls, so a focused
+Save remains focused through refusal or success. After success it is announced
+as unavailable until focus leaves, then becomes natively disabled. Conditional
+fields and token-history membership update with the service model.
+Dismissing a toast or error updates the service-owned message state.
+The service calls the view's `clear()` on pagehide alongside clearing its secret
+variables; this removes secret DOM before a restored page is rendered.
+Authorization retains a native POST form
+with the signed consent token and explicit approve/deny submitter values.
+
+`pnpm --filter @dinkster/site build` creates the two HTML templates, renderer
+modules, one shared stylesheet, bundled fonts and a SHA-256 file manifest.
+Each template preloads its renderer and transitive static imports from Vite's
+build manifest so controller imports do not add serial discovery round trips.
+The build manifest itself is not distributed.
+`scripts/build_release.py` includes these under `static/site/` in the existing
+frontend wheel, covered by its version and wheel hash. Template configuration
+placeholders must be HTML-attribute escaped by the service. No Node tooling is
+required by the Python consumer. The renderer reports only fixed route/timing
+events through the shared no-send reporting function.
+
 ## Replacement rule
 
 Dinkster is unreleased. A redesigned surface deletes the superseded UI, styles,

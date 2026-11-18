@@ -6,7 +6,7 @@ import {
   type Locator,
   type Page,
   type TestInfo,
-} from '@playwright/test'
+} from '../visual.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with { type: 'json' }
 
@@ -163,4 +163,4 @@ export const test = nativeTest.extend({
 export const appViewTest = test.extend({ appView: true })
 export const nativeAppViewTest = nativeTest.extend({ appView: true })
 export { expect }
-export type { Page, Locator, Route, Request, WebSocketRoute } from '@playwright/test'
+export type { Page, Locator, Route, Request, WebSocketRoute } from '../visual.js'
