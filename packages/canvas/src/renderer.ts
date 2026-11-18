@@ -707,7 +707,7 @@ const structureCullPad = (scale: number, pinRadius: number, detailLevel: CanvasD
   return Math.max(
     PIN_OVERHANG,
     hoveredRingPad,
-    3 + screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, 2) / 2 + 1 / finiteScale(scale),
+    canvasPaintTokens.toolbox.nodeSelectionOutset + screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, canvasPaintTokens.toolbox.selectionMinScreenStroke) / 2 + canvasPaintTokens.toolbox.cullScreenPadding / finiteScale(scale),
   )
 }
 
@@ -770,8 +770,9 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
     position: 'background',
     order: -1000,
     draw: ({ context, viewport }) => {
-      let spacing = 32
-      while (spacing * viewport.scale < 12) spacing *= 2
+      const paint = canvasPaintTokens.grid
+      let spacing: number = paint.spacing
+      while (spacing * viewport.scale < paint.minScreenSpacing) spacing *= 2
       const minX = Math.floor(viewport.x / spacing) * spacing
       const minY = Math.floor(viewport.y / spacing) * spacing
       const maxX = viewport.x + viewport.width
@@ -779,8 +780,8 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
       context.beginPath()
       for (let y = minY; y <= maxY; y += spacing) {
         for (let x = minX; x <= maxX; x += spacing) {
-          context.moveTo(x + 1.5, y)
-          context.arc(x, y, 1.5, 0, Math.PI * 2)
+          context.moveTo(x + paint.dotRadius, y)
+          context.arc(x, y, paint.dotRadius, 0, Math.PI * 2)
         }
       }
       context.fillStyle = tokens.colors.gridDot
@@ -798,7 +799,7 @@ export class CanvasRenderer {
   /** Like connectedInputPins but excluding boundary bindings (row inertness). */
   private valueDrivenInputPins: ReadonlySet<string> = new Set()
   private nodeStates: Readonly<Record<string, NodeProgress>> = {}
-  private viewport: Viewport = { x: 40, y: 40, scale: 1 }
+  private viewport: Viewport = { x: canvasPaintTokens.viewport.initialOffset, y: canvasPaintTokens.viewport.initialOffset, scale: 1 }
   private dirty = true
   private rafId: number | undefined
   private disposed = false
@@ -1127,15 +1128,15 @@ export class CanvasRenderer {
   private outputTexts: OutputTextMap = {}
 
   private outputTextLineCount(layout: NodeLayout, text: string): number {
-    const maxWidth = Math.max(0, layout.width - this.tokens.padX * 2 - 8)
+    const maxWidth = Math.max(0, layout.width - this.tokens.padX * 2 - canvasPaintTokens.preview.outputPadding * 2)
     const canonical = text.replace(/\r\n?/g, '\n').split('\n')
     const ctx = this.canvas.getContext('2d')
-    if (ctx === null) return Math.max(1, Math.min(6, canonical.length))
+    if (ctx === null) return Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, canonical.length))
     ctx.save()
     ctx.font = `italic ${this.tokens.fontSize}px ${this.tokens.fontFamily}`
     const count = canonical.reduce((total, line) => total + wrapText(ctx, line, maxWidth).length, 0)
     ctx.restore()
-    return Math.max(1, Math.min(6, count))
+    return Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, count))
   }
 
   private sceneWithBodyRegions(scene: Scene): Scene {
@@ -1382,7 +1383,7 @@ export class CanvasRenderer {
   }
 
   /** Fit everything the scene paints into the canvas (used on load). */
-  fitToScene(margin = 60): void {
+  fitToScene(margin: number = canvasPaintTokens.viewport.fitMargin): void {
     const bounds = sceneVisualBounds(this.scene, this.previews, this.badges)
     if (!bounds) return
     const w = this.canvas.clientWidth
@@ -1394,7 +1395,7 @@ export class CanvasRenderer {
     const detailFits =
       (spanX + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= w &&
       (spanY + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= h
-    const scale = Math.min(2, Math.max(0.1, detailFits ? Math.max(CANVAS_DETAIL_MIN_SCALE, fitScale) : fitScale))
+    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(CANVAS_DETAIL_MIN_SCALE, fitScale) : fitScale))
     this.setViewport({
       x: (w - spanX * scale) / 2 - bounds.minX * scale,
       y: (h - spanY * scale) / 2 - bounds.minY * scale,
@@ -1533,8 +1534,10 @@ export class CanvasRenderer {
       const gx = group.x + selectedOff.dx + (gOff?.groupId === group.id ? gOff.dx : 0)
       const gy = group.y + selectedOff.dy + (gOff?.groupId === group.id ? gOff.dy : 0)
       const selected = this.overlay.groupSelection?.has(group.id) === true
-      const groupStroke = screenAwareStroke(selected ? 2 : 1, scale, selected ? 2 : 1)
-      const groupPad = (selected ? 2 : 0) + groupStroke / 2 + 1 / finiteScale(scale)
+      const paint = canvasPaintTokens.group
+      const stroke = selected ? paint.selectedStroke : paint.stroke
+      const groupStroke = screenAwareStroke(stroke, scale, stroke)
+      const groupPad = (selected ? paint.selectionOutset : 0) + groupStroke / 2 + paint.cullScreenPadding / finiteScale(scale)
       if (gx + group.width + groupPad < view.x || gx - groupPad > view.x + view.w ||
         gy + group.height + groupPad < view.y || gy - groupPad > view.y + view.h) {
         continue
@@ -1545,7 +1548,7 @@ export class CanvasRenderer {
         ctx.strokeStyle = this.tokens.colors.nodeSelectedBorder
         ctx.lineWidth = groupStroke
         ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.groupSelection.world, canvasPaintTokens.dash.groupSelection.screen, scale))
-        ctx.strokeRect(gx - 2, gy - 2, group.width + 4, group.height + 4)
+        ctx.strokeRect(gx - paint.selectionOutset, gy - paint.selectionOutset, group.width + paint.selectionOutset * 2, group.height + paint.selectionOutset * 2)
         ctx.restore()
       }
     }
@@ -2556,7 +2559,7 @@ export class CanvasRenderer {
     const scale = this.viewport.scale
     const contentDetail = detailLevel !== 'overview'
     const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
-    const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, 2)
+    const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, canvasPaintTokens.toolbox.selectionMinScreenStroke)
 
     if (this.overlay.bodyDropNode === node.id) {
       const paint = canvasPaintTokens.node.drop
@@ -3640,7 +3643,7 @@ export class CanvasRenderer {
     const scale = this.viewport.scale
     const contentDetail = detailLevel !== 'overview'
     const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
-    const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, 2)
+    const selectionStrokeWidth = screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, scale, canvasPaintTokens.toolbox.selectionMinScreenStroke)
 
     // Body.
     ctx.beginPath()

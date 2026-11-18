@@ -8,6 +8,18 @@ import { canvasSemanticTokens, semanticTokensForTheme, canonicalTypeIdOf, parseA
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
   detailMinScale: 0.5,
+  grid: { spacing: 32, minScreenSpacing: 12, dotRadius: 1.5 },
+  scene: {
+    nodeFallbackX: 40,
+    nodeFallbackStepY: 120,
+    valueSourceFallbackStepY: 60,
+    rerouteFallbackStepY: 60,
+    selectorFallbackStepY: 100,
+    emptyGraphWidth: 320,
+    boundaryGap: 120,
+    fallbackValueMaxCharacters: 42,
+  },
+  viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   badge: {
     size: 14,
     stride: 18,
@@ -70,6 +82,7 @@ export const canvasPaintTokens = {
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
     textOutputMaxRows: 6,
+    missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
@@ -149,6 +162,8 @@ export const canvasPaintTokens = {
     separatorHeightRatio: 0.6,
     nodeSelectionOutset: 3,
     selectionStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    selectionMinScreenStroke: 2,
+    cullScreenPadding: 1,
     boundarySelectionOutset: 2,
     multiSelectionPadding: canvasSemanticTokens.space[8],
     multiSelectionStroke: 1,
@@ -191,6 +206,7 @@ export const canvasPaintTokens = {
     badgeStroke: 1.5,
   },
   selector: {
+    widthPadding: canvasSemanticTokens.space[8],
     minWidth: 110,
     badgeSize: 14,
     badgeInset: 6,
@@ -250,6 +266,9 @@ export const canvasPaintTokens = {
     headerOpacity: 0.45,
     borderOpacity: 0.8,
     stroke: 1,
+    selectedStroke: 2,
+    selectionOutset: 2,
+    cullScreenPadding: 1,
   },
   type: {
     semiboldWeight: 600,

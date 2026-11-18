@@ -158,7 +158,7 @@ const repositionScene = (
 ): Scene => {
   let fallbackY = 0
   const positions = new Map<string, { readonly x: number; readonly y: number }>(Object.values(graph.nodes).map((node) => {
-    const position = view.nodes[node.id]?.position ?? { x: 40, y: (fallbackY += 120) }
+    const position = view.nodes[node.id]?.position ?? { x: canvasPaintTokens.scene.nodeFallbackX, y: (fallbackY += canvasPaintTokens.scene.nodeFallbackStepY) }
     return [node.id, position] as const
   }))
   const deltas = new Map<string, { x: number; y: number }>()
@@ -953,7 +953,7 @@ export function updateSceneNodePositions(
   const nodes = Object.values(def.nodes).map((node) => {
     const existing = previousNodes.get(node.id)
     if (existing === undefined) return undefined
-    const position = graphView.nodes[node.id]?.position ?? { x: 40, y: (fallbackY += 120) }
+    const position = graphView.nodes[node.id]?.position ?? { x: canvasPaintTokens.scene.nodeFallbackX, y: (fallbackY += canvasPaintTokens.scene.nodeFallbackStepY) }
     const delta = { x: position.x - existing.x, y: position.y - existing.y }
     if (delta.x === 0 && delta.y === 0) return existing
     deltas.set(node.id, delta)
@@ -1215,7 +1215,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
-    const pos = view?.position ?? { x: 40, y: (fallbackY += 120) }
+    const pos = view?.position ?? { x: canvasPaintTokens.scene.nodeFallbackX, y: (fallbackY += canvasPaintTokens.scene.nodeFallbackStepY) }
     const sectionOverrides = view?.sections
       ? Object.fromEntries(Object.entries(view.sections).map(([id, s]) => [id, s.collapsed]))
       : undefined
@@ -1539,7 +1539,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   const valueSourceById = new Map<string, SceneValueSource>()
   let vsFallbackY = 0
   for (const vs of Object.values(def.valueSources ?? {})) {
-    const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += 60) }
+    const pos = viewValueSources[vs.id]?.position ?? { x: 0, y: (vsFallbackY += canvasPaintTokens.scene.valueSourceFallbackStepY) }
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
@@ -1550,9 +1550,9 @@ export function buildScene(input: BuildSceneInput): Scene {
         VS_MIN_WIDTH,
         input.tokens.padX +
           measure(title, 'label') +
-          8 +
+          canvasPaintTokens.valueSource.valueGap +
           measure(valueText, 'value') +
-          8 +
+          canvasPaintTokens.valueSource.valueGap +
           VS_BADGE_SIZE +
           VS_BADGE_INSET,
       ),
@@ -1644,7 +1644,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     return false
   }
   for (const reroute of Object.values(def.reroutes)) {
-    const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += 60) }
+    const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
     const typeName = tracedTypeName({ reroute: reroute.id })
     const sceneReroute: SceneReroute = {
       id: reroute.id,
@@ -1664,7 +1664,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   const selectorById = new Map<string, SceneSelector>()
   let selectorFallbackY = 0
   for (const sel of Object.values(def.selectors ?? {})) {
-    const pos = viewSelectors[sel.id]?.position ?? { x: 0, y: (selectorFallbackY += 100) }
+    const pos = viewSelectors[sel.id]?.position ?? { x: 0, y: (selectorFallbackY += canvasPaintTokens.scene.selectorFallbackStepY) }
     const title = sel.title ?? 'Select'
     const headerHeight = input.tokens.headerHeight
     const rowHeight = input.tokens.rowHeight
@@ -1681,8 +1681,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       input.tokens.nodeMaxAutoWidth,
       Math.max(
         SELECTOR_MIN_WIDTH,
-        input.tokens.padX * 2 + measure(title, 'title') + 8 + SELECTOR_BADGE_SIZE + SELECTOR_BADGE_INSET,
-        ...candidates.map((c) => input.tokens.padX * 2 + measure(c.label, 'label') + 8),
+        input.tokens.padX * 2 + measure(title, 'title') + canvasPaintTokens.selector.widthPadding + SELECTOR_BADGE_SIZE + SELECTOR_BADGE_INSET,
+        ...candidates.map((c) => input.tokens.padX * 2 + measure(c.label, 'label') + canvasPaintTokens.selector.widthPadding),
       ),
     )
     const typeName = tracedTypeName({ selector: sel.id })
@@ -2006,10 +2006,10 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     if (!Number.isFinite(minX)) {
       minX = 0
-      maxX = 320
+      maxX = canvasPaintTokens.scene.emptyGraphWidth
       minY = 0
     }
-    const BOUNDARY_GAP = 120
+    const BOUNDARY_GAP = canvasPaintTokens.scene.boundaryGap
     const viewBoundary = graphView?.boundary
     const inputsPos = viewBoundary?.inputs?.position ?? { x: minX - BOUNDARY_GAP - inputsLayout.width, y: minY }
     const outputsPos = viewBoundary?.outputs?.position ?? { x: maxX + BOUNDARY_GAP, y: minY }
@@ -2274,7 +2274,8 @@ function missingConnections(
 /** Safe single-line preview of a stored JSON value for fallback rows. */
 function fallbackValueText(value: Json | undefined): string {
   const s = typeof value === 'string' ? value : JSON.stringify(value) ?? ''
-  return s.length > 42 ? `${s.slice(0, 41)}...` : s
+  const limit = canvasPaintTokens.scene.fallbackValueMaxCharacters
+  return s.length > limit ? `${s.slice(0, limit - 1)}...` : s
 }
 
 /**
@@ -2300,7 +2301,7 @@ function missingLayout(
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
-  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + 8
+  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {
@@ -2326,9 +2327,9 @@ function missingLayout(
     contentWidth = Math.max(
       contentWidth,
       tokens.padX * 2 +
-        (input !== undefined ? measure(input.label, 'label') + tokens.pinRadius + 4 : 0) +
-        (output !== undefined ? measure(output.label, 'label') + tokens.pinRadius + 4 : 0) +
-        16,
+        (input !== undefined ? measure(input.label, 'label') + tokens.pinRadius + canvasPaintTokens.node.missing.portLabelPadding : 0) +
+        (output !== undefined ? measure(output.label, 'label') + tokens.pinRadius + canvasPaintTokens.node.missing.portLabelPadding : 0) +
+        canvasPaintTokens.node.missing.pairedPortGap,
     )
     y += height
   }
@@ -2342,7 +2343,7 @@ function missingLayout(
       output: { portId: tap, label: tap, type: unknownType, address, index: pairs + rows.length },
     })
     pins.push({ portId: tap, label: tap, direction: 'out', y: y + height / 2, type: unknownType, address, widgetTap: true })
-    contentWidth = Math.max(contentWidth, tokens.padX * 2 + measure(tap, 'label') + tokens.pinRadius + 20)
+    contentWidth = Math.max(contentWidth, tokens.padX * 2 + measure(tap, 'label') + tokens.pinRadius + canvasPaintTokens.node.missing.tapLabelPadding)
     y += height
   }
   for (const [key, value] of Object.entries(node.values ?? {})) {
@@ -2350,7 +2351,7 @@ function missingLayout(
     rows.push({ kind: 'fallback', y, height: tokens.rowHeight, label: key, text })
     contentWidth = Math.max(
       contentWidth,
-      tokens.padX * 2 + measure(key, 'label') + 12 + measure(text, 'value'),
+      tokens.padX * 2 + measure(key, 'label') + canvasPaintTokens.node.widgetLabelPadding + measure(text, 'value'),
     )
     y += tokens.rowHeight
   }
@@ -2364,7 +2365,7 @@ function missingLayout(
       tokens.nodeMaxAutoWidth,
       Math.max(
         MINIMIZED_NODE_MIN_WIDTH,
-        measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + 8,
+        measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding,
       ),
     )
     return {
