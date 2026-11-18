@@ -958,7 +958,7 @@ test('numeric compact stepping stays primary while the optional popover supports
   await expect(page.getByTestId('widget-editor-step-controls')).toHaveCount(0)
   await expect(page.getByTestId('widget-editor-label')).toHaveText('count')
   await expect(page.getByTestId('widget-editor-type')).toHaveText('INT')
-  await expect(page.getByTestId('widget-editor-type')).toHaveCSS('background-color', 'rgb(123, 31, 162)')
+  await expect(page.getByTestId('widget-editor-type')).toHaveCSS('background-color', 'rgb(157, 89, 186)')
   await expect(page.getByTestId('widget-editor-type')).toHaveCSS('color', 'rgb(255, 255, 255)')
   await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Minimum0')
   await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Maximum100')
