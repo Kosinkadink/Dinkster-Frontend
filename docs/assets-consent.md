@@ -32,6 +32,16 @@ Fetchable rows start selected. `Acquire selected and retry` resubmits the exact 
 
 An unavailable model source name stays a name/kind requirement, not a fabricated asset digest. Its diagnostic retains the original node/input location. In the same owned dialog, `Review source` discovers an existing job for the captured project or requests a metadata-only plan. Review shows provider, project, source, repository/model ID, fixed revision/version, file, expected SHA-256, size, reported license and full destination before `Download`. A source can be a Hugging Face resolve URL or a Civitai model/download URL without tokens. Civitai model URLs may include `modelVersionId`; if several versions contain the needed filename, choose one of the returned file sources and review again. Civitai refusals explain that Hugging Face sign-in does not grant Civitai access. A local plan needs no transfer; disabled folders, missing destinations and ambiguous sources explain the required settings or file-selection action.
 
+Civitai review also shows the version-specific page and provider-reported
+credit, derivative, different-license and commercial-use terms. Boolean false
+is distinct from missing/unknown. Commercial strings and lists remain raw
+reported values, not an inferred license or policy decision. An empty license
+or missing term says `Not reported`; it never means permission. The optional
+terms payload is decoded on plans and jobs, rejecting malformed field types
+and ignoring unrelated metadata. `Download` acknowledges review of the shown
+source and terms and starts only that opaque plan; it does not grant usage
+rights. No extra sign-in, terms or status read can consent to a transfer.
+
 Credential and access refusals offer the connection panel for the required provider,
 including Civitai. Several requirements for the same provider share one panel.
 Connecting or forgetting a provider invalidates that provider's pending plans;

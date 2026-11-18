@@ -5,6 +5,14 @@ export interface ModelRequirement {
   readonly kind: string
 }
 
+export interface ModelDownloadTerms {
+  readonly source: string
+  readonly allowNoCredit?: boolean
+  readonly allowDerivatives?: boolean
+  readonly allowDifferentLicense?: boolean
+  readonly allowCommercialUse?: string | readonly string[]
+}
+
 export interface ModelDownloadSelection extends ModelRequirement {
   readonly project: string
   readonly provider: 'huggingface' | 'civitai'
@@ -15,6 +23,7 @@ export interface ModelDownloadSelection extends ModelRequirement {
   readonly sha256: string
   readonly size: number
   readonly license: string
+  readonly terms?: ModelDownloadTerms
   readonly destination: string
   readonly mount: string
 }
@@ -65,6 +74,23 @@ function strings(row: Record<string, unknown>, key: string): readonly string[] {
   return value as string[]
 }
 
+function terms(raw: unknown): ModelDownloadTerms {
+  const row = record(raw)
+  for (const key of ['allowNoCredit', 'allowDerivatives', 'allowDifferentLicense'] as const) {
+    if (row[key] !== undefined && typeof row[key] !== 'boolean') throw new Error(`Malformed model download ${key}`)
+  }
+  const commercial = row['allowCommercialUse']
+  if (commercial !== undefined && typeof commercial !== 'string' &&
+    (!Array.isArray(commercial) || !commercial.every((value: unknown) => typeof value === 'string'))) throw new Error('Malformed model download allowCommercialUse')
+  return {
+    source: text(row, 'source'),
+    ...(typeof row['allowNoCredit'] === 'boolean' ? { allowNoCredit: row['allowNoCredit'] } : {}),
+    ...(typeof row['allowDerivatives'] === 'boolean' ? { allowDerivatives: row['allowDerivatives'] } : {}),
+    ...(typeof row['allowDifferentLicense'] === 'boolean' ? { allowDifferentLicense: row['allowDifferentLicense'] } : {}),
+    ...(commercial === undefined ? {} : { allowCommercialUse: commercial as string | string[] }),
+  }
+}
+
 function selection(row: Record<string, unknown>): ModelDownloadSelection {
   const provider = row['provider']
   if ((provider !== 'huggingface' && provider !== 'civitai') || !/^[a-f0-9]{64}$/.test(text(row, 'sha256')) ||
@@ -74,6 +100,7 @@ function selection(row: Record<string, unknown>): ModelDownloadSelection {
     provider, source: text(row, 'source'), repo: text(row, 'repo'),
     revision: text(row, 'revision'), file: text(row, 'file'), sha256: text(row, 'sha256'),
     size: count(row, 'size'), license: text(row, 'license'),
+    ...(row['terms'] === undefined ? {} : { terms: terms(row['terms']) }),
     destination: text(row, 'destination'), mount: text(row, 'mount'),
   }
 }

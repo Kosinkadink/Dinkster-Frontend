@@ -189,10 +189,22 @@ export function AssetConsentDialog(props: { app: AppState }) {
                     ['modelConsent.provider', selection().provider], ['modelConsent.project', selection().project],
                     ['assetConsent.fact.source', selection().source], ['modelConsent.repository', selection().repo],
                     ['modelConsent.revision', selection().revision], ['modelConsent.file', selection().file],
-                    ['modelConsent.sha256', selection().sha256], ['modelConsent.license', selection().license],
+                    ['modelConsent.sha256', selection().sha256], ['modelConsent.license', selection().license || message('modelConsent.notReported')],
                     ['assetConsent.fact.destination', selection().destination],
                   ] as const}>{([label, value]) => <span class="asset-decision-fact"><span>{message(label)}</span><code>{value}</code></span>}</For>
                   <span class="asset-decision-source">{formatByteSize(selection().size)}</span>
+                  <Show when={selection().provider === 'civitai'}>
+                    <strong>{message('modelConsent.terms')}</strong>
+                    <span class="asset-decision-fact"><span>{message('modelConsent.termsSource')}</span><code>{selection().terms?.source || message('modelConsent.notReported')}</code></span>
+                    <For each={['allowNoCredit', 'allowDerivatives', 'allowDifferentLicense'] as const}>{(key) =>
+                      <span class="asset-decision-fact"><span>{message(`modelConsent.${key}`)}</span><code>{selection().terms?.[key] === undefined ? message('modelConsent.notReported') : message(selection().terms?.[key] ? 'modelConsent.reportedTrue' : 'modelConsent.reportedFalse')}</code></span>
+                    }</For>
+                    <span class="asset-decision-fact"><span>{message('modelConsent.allowCommercialUse')}</span><code>{(() => {
+                      const value = selection().terms?.allowCommercialUse
+                      return value === undefined ? message('modelConsent.notReported') : JSON.stringify(value)
+                    })()}</code></span>
+                    <ProductNotice tone="info">{message('modelConsent.termsNotice')}</ProductNotice>
+                  </Show>
                 </>}</Show>
                 <Show when={state().job}>{(job) => <>
                   <span role="status" data-testid="model-consent-bytes">{message('modelConsent.bytes', { received: job().received, total: job().size })}</span>

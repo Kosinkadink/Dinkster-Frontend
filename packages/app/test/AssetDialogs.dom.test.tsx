@@ -211,6 +211,50 @@ describe('asset modal surfaces', () => {
     mounted.dispose()
   })
 
+  it('shows reported Civitai terms without granting unknown permissions or starting a transfer', () => {
+    const downloadModel = vi.fn()
+    const retry = vi.fn()
+    const plan = { name: 'model.safetensors', kind: 'model/checkpoint', project: 'project', provider: 'civitai' as const,
+      source: 'https://civitai.com/api/download/models/72?fileId=84', repo: '19', revision: '72', file: 'model.safetensors',
+      sha256: 'b'.repeat(64), size: 1031, license: '', destination: '/models/model.safetensors', mount: 'models',
+      status: 'consent-required' as const, planId: 'reviewed-plan',
+      terms: { source: 'https://civitai.com/models/19?modelVersionId=72', allowNoCredit: false, allowDerivatives: true,
+        allowCommercialUse: ['Image', 'Sell'] } }
+    const mounted = mountConsent({ assets: [], busy: false, retry, downloadModel,
+      models: [{ requirement: plan, pending: false, plan }] })
+    const facts = () => [...mounted.root.querySelectorAll('.asset-decision-fact')].map((fact) =>
+      [fact.querySelector('span')?.textContent, fact.querySelector('code')?.textContent])
+    try {
+      expect(facts()).toEqual(expect.arrayContaining([
+        ['License', 'Not reported'], ['Version page', plan.terms.source], ['Allows use without credit', 'No (reported)'],
+        ['Allows derivatives', 'Yes (reported)'], ['Allows a different license', 'Not reported'],
+        ['Commercial use (reported value)', '["Image","Sell"]'],
+      ]))
+      expect(mounted.root.textContent).toContain('Missing values are unknown, not permission.')
+      expect(mounted.root.textContent).toContain('Download acknowledges this review')
+      expect(downloadModel).not.toHaveBeenCalled()
+      expect(retry).not.toHaveBeenCalled()
+      mounted.root.querySelector<HTMLButtonElement>('[data-testid="model-consent-download"]')!.click()
+      expect(downloadModel).toHaveBeenCalledExactlyOnceWith(0)
+      expect(retry).not.toHaveBeenCalled()
+      for (const commercial of ['', [], 'Rent']) {
+        mounted.app.assetConsent.set({ ...mounted.app.assetConsent.get()!,
+          models: [{ requirement: plan, pending: false, plan: { ...plan, terms: { source: plan.terms.source, allowCommercialUse: commercial } } }] })
+        expect(facts()).toContainEqual(['Commercial use (reported value)', JSON.stringify(commercial)])
+      }
+      const { terms: _terms, ...withoutTerms } = plan
+      mounted.app.assetConsent.set({ ...mounted.app.assetConsent.get()!, models: [{ requirement: plan, pending: false, plan: withoutTerms }] })
+      expect(facts()).toEqual(expect.arrayContaining([
+        ['Version page', 'Not reported'], ['Allows use without credit', 'Not reported'],
+        ['Allows derivatives', 'Not reported'], ['Commercial use (reported value)', 'Not reported'],
+      ]))
+      mounted.app.assetConsent.set({ ...mounted.app.assetConsent.get()!,
+        models: [{ requirement: plan, pending: false, plan: { ...withoutTerms, provider: 'huggingface', license: 'apache-2.0', revision: 'a'.repeat(40) } }] })
+      expect(mounted.root.textContent).not.toContain('Provider-reported usage terms')
+      expect(facts()).toContainEqual(['License', 'apache-2.0'])
+    } finally { mounted.dispose() }
+  })
+
   it('explains a transfer-time provider grant refusal and offers sign-in without running', async () => {
     const retry = vi.fn()
     const selection = { name: 'gated.safetensors', kind: 'model/checkpoint', project: 'commercial', provider: 'huggingface' as const,

@@ -436,10 +436,26 @@ describe('model download planning and owned jobs', () => {
       project: selected.project, scope: 'local', source: selected.source })
     const civitai = { ...selected, provider: 'civitai', repo: '19', revision: '72',
       source: 'https://civitai.com/api/download/models/72?fileId=84', status: 'consent-required', planId: 'civitai-plan' }
+    const terms = { source: 'https://civitai.com/models/19?modelVersionId=72', allowNoCredit: false,
+      allowDerivatives: true, allowCommercialUse: ['Image', 'Sell'] }
+    payload = { ...civitai, terms: { ...terms, unrelated: 'discard' } }
+    expect(await connection.planModelDownload(selected, undefined, civitai.source)).toEqual({ ...civitai, terms })
+    for (const commercial of ['', [], 'Rent']) {
+      payload = { ...civitai, terms: { source: terms.source, allowCommercialUse: commercial } }
+      expect(await connection.planModelDownload(selected)).toMatchObject({ terms: { source: terms.source, allowCommercialUse: commercial } })
+    }
+    for (const malformed of [null, {}, { source: 42 }, { source: terms.source, allowNoCredit: 'false' },
+      { source: terms.source, allowDerivatives: null }, { source: terms.source, allowDifferentLicense: 0 },
+      { source: terms.source, allowCommercialUse: ['Image', 3] }]) {
+      payload = { ...civitai, terms: malformed }
+      await expect(connection.planModelDownload(selected)).rejects.toThrow('Malformed model download')
+    }
     payload = civitai
     expect(await connection.planModelDownload(selected, undefined, civitai.source)).toEqual(civitai)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: civitai.source })
+    payload = { ...civitai, terms, jobId: 'civitai-owned', status: 'downloading', received: 19 }
+    expect(await connection.fetchModelDownload('civitai-owned')).toMatchObject({ terms })
     payload = active
     const started = await connection.startModelDownload('opaque-plan')
     expect(started).toEqual(active)
