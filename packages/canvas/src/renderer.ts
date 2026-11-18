@@ -401,9 +401,10 @@ const conservativeTextBounds = (
   y: number,
   align: 'center-bottom' | 'right-middle',
 ): AdornmentBounds => {
-  const antialiasPad = 2
-  const width = Math.max(fontSize, text.length * fontSize * 2)
-  const height = fontSize * 2
+  const paint = canvasPaintTokens.adornment
+  const antialiasPad = paint.antialiasPadding
+  const width = Math.max(fontSize, text.length * fontSize * paint.boundsFontFactor)
+  const height = fontSize * paint.boundsFontFactor
   return align === 'center-bottom'
     ? {
         x: x - width / 2 - antialiasPad,
@@ -426,7 +427,7 @@ const typeAdornmentsOf = (scene: Scene, tokens: DesignTokens): readonly TypeAdor
     if (!link.typeName) continue
     const text = boundedAdornmentText(presentedType(tokens, { kind: 'concrete', name: link.typeName }).label)
     const x = 0
-    const y = -7
+    const y = canvasPaintTokens.adornment.linkOffsetY
     descriptors.push({
       id: `core.types:link:${link.id}`,
       phase: 'over-scene',
@@ -447,8 +448,8 @@ const typeAdornmentsOf = (scene: Scene, tokens: DesignTokens): readonly TypeAdor
         pin.direction === 'out' && pin.widgetTap !== true && pin.portId === row.output!.portId)
       const text = boundedAdornmentText(presentedType(tokens, solvedPin?.type ?? row.output.type).label)
       const fontSize = Math.max(canvasPaintTokens.type.adornmentMinSize, tokens.fontSize - canvasPaintTokens.type.adornmentReduction)
-      const x = node.layout.width - tokens.padX - tokens.pinRadius - 4
-      const y = row.y + row.height / 2 + 10
+      const x = node.layout.width - tokens.padX - tokens.pinRadius - canvasPaintTokens.adornment.outputPinGap
+      const y = row.y + row.height / 2 + canvasPaintTokens.adornment.outputOffsetY
       descriptors.push({
         id: `core.types:node-output:${node.id}:${row.output.portId}`,
         phase: 'over-scene',
@@ -3432,7 +3433,7 @@ export class CanvasRenderer {
         const pinAlpha = ctx.globalAlpha
         ctx.globalAlpha = pinAlpha * GHOST_ALPHA
         ctx.strokeStyle = pinColor
-        ctx.lineWidth = screenAwareStroke(1.5, scale, 1)
+        ctx.lineWidth = screenAwareStroke(canvasPaintTokens.pin.ghostStroke, scale, canvasPaintTokens.pin.ghostMinScreenStroke)
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
@@ -3728,7 +3729,7 @@ export class CanvasRenderer {
         pinOutlinePath(ctx, shape, px, py, pinShapeRadius(shape, pinRadius))
         ctx.globalAlpha = GHOST_ALPHA
         ctx.strokeStyle = pinColor
-        ctx.lineWidth = screenAwareStroke(1.5, scale, 1)
+        ctx.lineWidth = screenAwareStroke(canvasPaintTokens.pin.ghostStroke, scale, canvasPaintTokens.pin.ghostMinScreenStroke)
         ctx.stroke()
         ctx.globalAlpha = 1
       } else {

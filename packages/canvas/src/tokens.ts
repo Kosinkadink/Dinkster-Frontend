@@ -99,6 +99,8 @@ export const canvasPaintTokens = {
     optionalMinRadius: 1.5,
     optionalRadiusRatio: 0.32,
     overviewMinRadius: 2,
+    ghostStroke: 1.5,
+    ghostMinScreenStroke: 1,
   },
   running: {
     pulsePeriodMs: 1400,
@@ -217,6 +219,14 @@ export const canvasPaintTokens = {
     adornmentMinSize: 8,
     adornmentReduction: 2,
   },
+  adornment: {
+    antialiasPadding: 2,
+    boundsFontFactor: 2,
+    linkOffsetY: -7,
+    outputPinGap: canvasSemanticTokens.space[4],
+    outputOffsetY: 10,
+  },
+  icon: { circleRadiusRatio: 0.22, paddingRatio: 0.2, viewBoxSize: 24, stroke: 2 },
   virtualNote: {
     verticalPadding: canvasSemanticTokens.space[8],
     bodyTint: 0.28,

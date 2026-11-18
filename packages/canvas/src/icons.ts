@@ -34,6 +34,7 @@ import PanelTopClose from 'lucide/dist/esm/icons/panel-top-close.mjs'
 import PanelTopOpen from 'lucide/dist/esm/icons/panel-top-open.mjs'
 
 import type { ToolboxButton } from './toolbox.js'
+import { canvasPaintTokens } from './tokens.js'
 
 type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
 
@@ -85,7 +86,7 @@ export function paintToolboxIcon(
   color: string,
 ): void {
   if (icon === 'circle') {
-    const radius = size * 0.22
+    const radius = size * canvasPaintTokens.icon.circleRadiusRatio
     ctx.save()
     ctx.beginPath()
     ctx.arc(x + size / 2, y + size / 2, radius, 0, Math.PI * 2)
@@ -110,13 +111,13 @@ export function paintSeedControllerIcon(
 }
 
 function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
-  const pad = size * 0.2
-  const scale = (size - pad * 2) / 24
+  const pad = size * canvasPaintTokens.icon.paddingRatio
+  const scale = (size - pad * 2) / canvasPaintTokens.icon.viewBoxSize
   ctx.save()
   ctx.translate(x + pad, y + pad)
   ctx.scale(scale, scale)
   ctx.strokeStyle = color
-  ctx.lineWidth = 2
+  ctx.lineWidth = canvasPaintTokens.icon.stroke
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
   for (const [tag, attrs] of nodes) {
