@@ -1,3 +1,4 @@
+import { canvasPaintTokens } from '@dinkster/canvas'
 import type { PreviewData } from '@dinkster/client'
 import { occurrencesForView } from '@dinkster/core'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Component } from 'solid-js'
@@ -22,7 +23,7 @@ const ImageCompareImplementation: Component<WidgetEditorImplementationProps> = (
   const document = useSignal(ed.tab.store.document)
   const path = useSignal(ed.tab.instancePath)
   const stack = useSignal(ed.tab.graphStack)
-  const [split, setSplit] = createSignal(50)
+  const [split, setSplit] = createSignal<number>(canvasPaintTokens.editor.imageCompare.initialSplit)
   const [selected, setSelected] = createSignal({ image_a: 0, image_b: 0 })
   const [images, setImages] = createSignal<Partial<Record<typeof sides[number], ImageBitmap>>>({})
   let canvas!: HTMLCanvasElement
@@ -84,13 +85,13 @@ const ImageCompareImplementation: Component<WidgetEditorImplementationProps> = (
     if (loaded.image_b) draw(loaded.image_b)
     if (loaded.image_a) {
       context.save()
-      if (loaded.image_b) { context.beginPath(); context.rect(0, 0, canvas.width * divider / 100, canvas.height); context.clip() }
+      if (loaded.image_b) { context.beginPath(); context.rect(0, 0, canvas.width * divider / canvasPaintTokens.editor.imageCompare.percentScale, canvas.height); context.clip() }
       draw(loaded.image_a)
       context.restore()
     }
     if (loaded.image_a && loaded.image_b) {
-      context.fillStyle = '#ffffff'
-      context.fillRect(canvas.width * divider / 100, 0, 2, canvas.height)
+      context.fillStyle = canvasPaintTokens.editor.imageCompare.dividerColor
+      context.fillRect(canvas.width * divider / canvasPaintTokens.editor.imageCompare.percentScale, 0, canvasPaintTokens.editor.imageCompare.dividerWidth, canvas.height)
     }
   })
   props.editor.bindClickAway?.(props.close)
