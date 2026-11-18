@@ -935,6 +935,7 @@ async function retainAssetRoots(
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
+    ...(ownerKind === 'shown-result' ? { resultCensus: 2 } : {}),
     ...(sourceToken === undefined ? {} : { sourceToken }),
     ...('incompleteDiagnostics' in roots && roots.incompleteDiagnostics !== undefined ? { incompleteDiagnostics: roots.incompleteDiagnostics } : {}),
     ...context,

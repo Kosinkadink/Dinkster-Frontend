@@ -576,6 +576,10 @@ describe('retained app dispatch', () => {
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
         expect(receipts.every((receipt) => receipt.complete)).toBe(true)
+        for (const receipt of receipts) {
+          const journal = localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${receipt.ownerId}`))
+          expect(JSON.parse(journal!)).toMatchObject({ resultCensus: 2, acknowledgedRevision: receipt.revision })
+        }
         expect(receipts.find((receipt) => receipt.sourceToken === undefined)?.digests).toEqual([asset('a').digest])
         for (const receipt of saved.values()) expect(receipts).toContainEqual(receipt)
         expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set(sources.map((source) => source.token)))

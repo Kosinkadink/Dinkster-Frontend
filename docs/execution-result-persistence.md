@@ -38,6 +38,18 @@ original source token. Missing owners, newer owner revisions, incomplete receipt
 uncovered roots and refused source claims remain unavailable without deleting the
 saved retry record. Restoration never overwrites or reuses the released owner.
 
+Superseded historical ownership journals can be removed without a browser census:
+release records an empty owner tombstone, not deletion of result data. Exact
+sealed sources can be re-admitted until the engine's normal cleanup removes the
+required data. New result journals record census participation and still require
+both no persisted reference and a synchronized live-holder census before release.
+An unavailable census leaves those journals protected.
+
+A tab running pre-update code may reject a released receipt once after returning
+from the browser's back/forward cache. The error does not delete its saved result
+or data. Reloading the tab loads current code and restores the same result while
+its data remains available. There is no forced reload or update prompt.
+
 If a refresh interrupts terminal output admission, source claims already
 acknowledged by this client remain tracked by ordinary result lifetime checks.
 They are not published as current output, and retire only when no current

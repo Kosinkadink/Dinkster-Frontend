@@ -9679,11 +9679,12 @@ export class AppState {
             ownerId: raw['ownerId'], holderClasses: [5, 6] })
           if (retained.revision !== 1) continue
           const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) ?? 'null')
-          if (intent?.version !== 3 || typeof intent.executionKey !== 'string') continue
+          if (intent?.version !== 3 || typeof intent.executionKey !== 'string' ||
+            (intent.resultCensus !== undefined && intent.resultCensus !== 2)) continue
           const replacement = replacements.get(intent.executionKey)
           if (replacement === undefined || replacement.length === 0 ||
             !retained.digests.every((digest) => replacement.some((owner) => owner.digests.includes(digest)))) continue
-          const available = await this.resultHolderCensus.reclaim(retained.ownerId, async () => {
+          const release = async (): Promise<void> => {
             const persisted = persistedResultReferences()
             if (!current() || persisted === undefined || persisted.ownerIds.has(retained.ownerId) ||
               !replacement.every((owner) => persisted.ownerIds.has(owner.ownerId)) ||
@@ -9691,9 +9692,15 @@ export class AppState {
                 state.assetRetentions?.some((owner) => owner.ownerId === retained.ownerId)) ||
               this.resultAssetOwners.has(retained.ownerId)) return
             await this.retireAssetOwner(backend.connection, retained)
-          })
-          if (!available) {
-            this.log('warn', 'Ownership', 'Result ownership census unavailable; historical receipts were kept.')
+          }
+          // Historical documents never joined the census. Engine release keeps
+          // their bytes available for exact-source re-admission until collection.
+          if (intent.resultCensus === undefined) {
+            await release()
+            continue
+          }
+          if (!await this.resultHolderCensus.reclaim(retained.ownerId, release)) {
+            this.log('warn', 'Ownership', 'Result ownership census unavailable; participating receipts were kept.')
             return
           }
         } catch {

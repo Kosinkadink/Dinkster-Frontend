@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asNodeId, asPromptId, compile, executionKey, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
-import { buildDinksterRegistry, type ExecutionState, type RetainedAssets } from '@dinkster/client'
+import { buildDinksterRegistry, retainedAssetAcknowledgment, type ExecutionState, type RetainedAssets } from '@dinkster/client'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { scopedStorageKey } from '../src/projects.js'
 import { AppState } from '../src/app-state.js'
@@ -108,10 +108,10 @@ afterEach(() => {
 })
 
 describe('startup result source admission', () => {
-  function setup() {
+  function setup(existing?: AppState) {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
-    const app = createWorkflowApp(null)
+    const app = existing ?? createWorkflowApp(null)
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('Expected native backend')
     const payload = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8')) as DinksterNodesPayload
@@ -195,7 +195,7 @@ describe('startup result source admission', () => {
     } finally { test.app.dispose() }
   })
 
-  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+  it.each(['reopened', 'historical', 'unknown-census', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()
     if (mode === 'census-timeout') locks.set('dinkster-result-holders:v2:unresponsive', { name: 'dinkster-result-holders:v2:unresponsive', mode: 'exclusive' })
@@ -207,7 +207,7 @@ describe('startup result source admission', () => {
         if (event.data.kind === 'query') legacyChannel.postMessage({ kind: 'holders', nonce: event.data.nonce, member: 'legacy', owners: [] })
       })
     }
-    vi.stubGlobal('navigator', { locks: mode === 'census-unsupported' ? undefined : {
+    vi.stubGlobal('navigator', { locks: mode === 'census-unsupported' || mode === 'historical' ? undefined : {
       request: async (name: string, options: LockOptions | ((lock: Lock) => unknown), callback?: (lock: Lock) => unknown) => {
         const consume = typeof options === 'function' ? options : callback!
         locks.set(name, { name, mode: 'exclusive' })
@@ -248,7 +248,8 @@ describe('startup result source admission', () => {
     })
     const keyFor = (owner: RetainedAssets) => scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
     for (const owner of owners.values()) localStorage.setItem(keyFor(owner), JSON.stringify({
-      version: 3, connectionId: test.backend.id, assetBaseUrl: test.backend.connection.assetUrl(''), owner: {
+      version: 3, ...(mode === 'historical' || mode === 'unregistered-holder' ? {} : { resultCensus: mode === 'unknown-census' ? 3 : 2 }),
+      connectionId: test.backend.id, assetBaseUrl: test.backend.connection.assetUrl(''), owner: {
         scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId, holderClasses: owner.holderClasses,
       }, complete: owner.complete, digests: owner.digests, acknowledgedRevision: 1,
       ...(owner.sourceToken === undefined ? {} : { sourceToken: owner.sourceToken }),
@@ -382,7 +383,7 @@ describe('startup result source admission', () => {
         expect(JSON.parse(localStorage.getItem(keyFor(stale[1]!))!)).toMatchObject({ acknowledgedRevision: 1 })
         expect(holder!.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
       }
-      const reclaim = mode === 'reopened' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder || mode === 'late-publication'
+      const reclaim = mode === 'reopened' || mode === 'historical' || mode === 'unregistered-holder' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder || mode === 'late-publication'
       for (const owner of stale) {
         if (concurrentHolder && owner !== stale[0]) continue
         const released = reclaim && !((mode === 'live-pin' || mode === 'peer-held') && owner === stale[0])
@@ -395,6 +396,33 @@ describe('startup result source admission', () => {
         expect(localStorage.getItem(keyFor(owner))).toBe(heldBytes[index])
       }
       if (reclaim) expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      if (mode === 'unregistered-holder') {
+        expect(holder!.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        const receipt = holder!.store.get(test.ref)!.assetRetentions![0]!
+        holder!.dispose()
+        const resumed = setup(new AppState())
+        holder = resumed.app
+        vi.spyOn(resumed.backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+        saveExecutionResult({ ...resumed.saved, assetRetentions: [receipt] }, resumed.backendIdentity)
+        vi.spyOn(resumed.backend.connection, 'fetchRetainedAssets').mockImplementation(async owner => {
+          const observed = owners.get(owner.ownerId)
+          return observed === undefined ? undefined : retainedAssetAcknowledgment(observed, owner)
+        })
+        vi.mocked(resumed.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) =>
+          ({ ...owner, sourceToken, revision: 1, complete: true, digests: [test.saved.sourceDocument!] }))
+        vi.mocked(resumed.backend.connection.fetchTerminalResultAssets).mockImplementation(async jobRef => ({
+          scope: 'local', jobRef, attemptId: 1, state: 'completed', complete: true,
+          offers: [{ token: 'a'.repeat(32), scope: 'local', jobRef, attemptId: 1,
+            nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests: [test.saved.sourceDocument!] }],
+        }))
+        await holder.start()
+        expect(holder.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        const admitted = holder.store.get(test.ref)?.assetRetentions
+        expect(admitted?.some(owner => owner.complete && owner.digests.includes(receipt.digests[0]!))).toBe(true)
+        expect(admitted?.every(owner => owner.ownerId !== receipt.ownerId)).toBe(true)
+        expect(owners.get(receipt.ownerId)).toEqual({ ...receipt, sourceToken: undefined, revision: 2, complete: true, digests: [] })
+      }
       if (pinned !== undefined) {
         expect(test.app.tabs.get()).toContain(pinned)
         expect(test.app.executionForTab(pinned)).toBe(pinnedExecution)
