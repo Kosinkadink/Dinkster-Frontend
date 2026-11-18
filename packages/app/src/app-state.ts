@@ -4110,8 +4110,17 @@ export class AppState {
         if (storage.getItem(key) !== pending) {
           // A peer's storage write supersedes publication, not our admitted owners.
           const slot = this.persistedWorkflowSlots.get(key)
-          this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
-            owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]),
+          // Only acknowledged slot cleanup removes this local inventory. Late
+          // admissions retire with it instead of resurrecting a pending slot.
+          if (slot === undefined) {
+            const canonical = this.persistedWorkflowSlots.get(tabsKey())
+            this.retirePersistedWorkflowOwners([...previousOwners,
+              ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))],
+            canonical?.complete && storage.getItem(tabsKey()) === canonical.raw ? canonical.owners : [])
+            return undefined
+          }
+          this.persistedWorkflowSlots.set(key, { raw: slot.raw, complete: false,
+            owners: [...new Set([...slot.owners, ...previousOwners]),
               ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
             ],
           })
@@ -4154,8 +4163,14 @@ export class AppState {
             this.assetConnectionGenerations.get(backend.connection) !== generation ||
             (tab !== undefined && this.backendForTab(tab) !== backend))) {
           const slot = this.persistedWorkflowSlots.get(key)
-          this.persistedWorkflowSlots.set(key, { raw: slot?.raw ?? pending, complete: false,
-            owners: [...new Set([...(slot?.owners ?? []), ...previousOwners]), ...replacements] })
+          if (slot === undefined) {
+            const canonical = this.persistedWorkflowSlots.get(tabsKey())
+            this.retirePersistedWorkflowOwners([...previousOwners, ...replacements],
+              canonical?.complete && storage.getItem(tabsKey()) === canonical.raw ? canonical.owners : [])
+            return undefined
+          }
+          this.persistedWorkflowSlots.set(key, { raw: slot.raw, complete: false,
+            owners: [...new Set([...slot.owners, ...previousOwners]), ...replacements] })
           return undefined
         }
         // Superseded admissions can settle after this stage captured its predecessors.

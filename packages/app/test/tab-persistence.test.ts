@@ -106,6 +106,50 @@ describe('open-tab persistence', () => {
     expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
   })
 
+  it('settles a workspace candidate when an older admission completes after cleanup', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    let acknowledge: (() => void) | undefined
+    let delayed: RetainedAssets | undefined
+    let hold = false
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      if (hold && acknowledge === undefined) {
+        delayed = receipt
+        await new Promise<void>((resolve) => { acknowledge = resolve })
+      }
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, digests: [], complete: true }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    await app.openDocument({ ...document, lineage: 'late-workspace-admission' }, 'New workflow')
+    hold = true
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(acknowledge).toBeDefined()
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(5000)
+    acknowledge!()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(app.retentionActivity().incompleteSlots).toEqual([])
+    expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    expect(receipts.get(delayed!.ownerId)?.revision).toBe(delayed!.revision + 1)
+    const saved = JSON.parse(localStorage.getItem(TABS_KEY)!)
+    for (const { retained } of saved.assetRetention.owners) expect(receipts.get(retained.ownerId)).toEqual(retained)
+    expect(saved.tabs.map((tab: { doc: { lineage: string } }) => tab.doc.lineage))
+      .toContain('late-workspace-admission')
+  })
+
   it('persists camera and scroll changes without validating, serializing or checksumming workflows', async () => {
     const first = createEditableApp()
     await vi.advanceTimersByTimeAsync(1000)
