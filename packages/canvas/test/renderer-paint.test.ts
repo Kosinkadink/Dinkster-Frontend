@@ -486,6 +486,7 @@ describe('graph image reuse', () => {
       expect(images).toHaveLength(initial)
       expect(painted.calls).toHaveLength(0)
       expect(output.calls.filter((call) => call.method === 'drawImage')).toHaveLength(initial)
+      expect(initial).toBeLessThanOrEqual(12)
 
       renderer.setViewport({ x: -513, y: -1, scale: 1 })
       renderer.renderNow()
