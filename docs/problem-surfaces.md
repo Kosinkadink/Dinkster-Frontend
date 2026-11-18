@@ -104,6 +104,18 @@ closes the dialog and continues submission. Failed acquisition returns its
 updated plan or reports the refusal in Problems. Older backends and packaged
 assets without a destination keep their existing presentation.
 
+For a filename-based model with no single known source, Review source opens
+source selection in the same dialog. Choose a suggested source or enter a
+Hugging Face HTTPS resolve URL or Civitai model/download URL for the required
+filename, then review again. Civitai model URLs can specify modelVersionId;
+ambiguous versions return individual file choices that require another review.
+Review resolves the immutable revision, hash, exact size and destination without
+downloading. Editing the source clears the previous reviewed consent; Download
+requires a fresh review. Credential changes also clear reviewed consent while
+preserving the entered source. Source editing is disabled during review and
+active transfers. Download never runs the graph; Run once retries only the
+captured submission after its models are verified.
+
 The displayed folder belongs to the serving backend, which can be another
 machine. It is not a browser download directory and is not saved into the
 workflow.

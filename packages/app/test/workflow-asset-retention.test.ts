@@ -8,7 +8,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainWorkflowAssets, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { imageDocumentDigest } from '../src/image-document-local.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -44,6 +44,54 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it('reports failed terminal cleanup and preserves the journal and independent holder', async () => {
+    const f = recoveryFixture()
+    vi.stubGlobal('localStorage', f.storage)
+    const initial = JSON.stringify({ ...f.intent, acknowledgedRevision: f.acknowledgment.revision })
+    f.entries.set(f.key, initial)
+    const independentKey = `${f.key}-independent`
+    f.entries.set(independentKey, initial)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failure = new DOMException('Storage access refused', 'SecurityError')
+    vi.spyOn(f.storage, 'removeItem').mockImplementation(() => { throw failure })
+    const connection = { ...f.connection, releaseRetainedAssets: async () =>
+      ({ ...f.acknowledgment, revision: 2, complete: true, digests: [] }),
+    } as unknown as DinksterConnection
+    await retireAssetOwner(connection, f.acknowledgment)
+    expect(JSON.parse(f.storage.getItem(f.key)!)).toEqual({ ...JSON.parse(initial), releaseRevision: 1 })
+    expect(f.storage.getItem(independentKey)).toBe(initial)
+    expect(warning).toHaveBeenCalledWith('Confirmed workflow retention journal could not be removed', failure)
+  })
+
+  it.each(['acknowledged', 'lost', 'refused', 'changed-owner', 'changed-intent'] as const)(
+    'removes only the exact confirmed terminal release journal: %s', async (scenario) => {
+      const f = recoveryFixture()
+      vi.stubGlobal('localStorage', f.storage)
+      const initial = JSON.stringify({ ...f.intent, acknowledgedRevision: f.acknowledgment.revision })
+      f.entries.set(f.key, initial)
+      const independentKey = `${f.key}-independent`
+      f.entries.set(independentKey, initial)
+      const empty = { ...f.acknowledgment, revision: 2, complete: true, digests: [] }
+      const changed = JSON.stringify({ ...f.intent, acknowledgedRevision: 3 })
+      const release = deferred<void>()
+      const connection = { ...f.connection, releaseRetainedAssets: async () => {
+        await release.promise
+        if (scenario === 'refused' || scenario === 'lost') throw new Error('Release response lost')
+        return scenario === 'changed-owner' ? { ...empty, revision: 4 } : empty
+      }, fetchRetainedAssets: async () => scenario === 'lost' ? empty : f.acknowledgment,
+      } as unknown as DinksterConnection
+      const retirement = retireAssetOwner(connection, f.acknowledgment)
+      const pending = f.storage.getItem(f.key)!
+      expect(JSON.parse(pending).releaseRevision).toBe(1)
+      if (scenario === 'changed-intent') f.entries.set(f.key, changed)
+      release.resolve()
+      await retirement
+      expect(f.storage.getItem(f.key)).toBe(scenario === 'acknowledged' || scenario === 'lost'
+        ? null : scenario === 'changed-intent' ? changed : pending)
+      expect(f.storage.getItem(independentKey)).toBe(initial)
+    },
+  )
+
   it.each(['resolved', 'dormant', 'dormant-missing', 'missing-resource', 'wrong-resource', 'wrong-size', 'missing-document', 'wrong-document', 'noncanonical-document', 'invalid-command', 'invalid-known-command', 'opaque-extension', 'comfy-inputs', 'comfy-empty', 'comfy-output-policy', 'comfy-short', 'comfy-long', 'comfy-uppercase', 'comfy-newline', 'comfy-nonstring', 'comfy-missing', 'comfy-null', 'comfy-array', 'comfy-extra', 'comfy-unknown', 'disconnected'] as const)(
     'resolves configured compositor inventory under independent ownership: %s', async (scenario) => {
       const f = recoveryFixture()
@@ -1745,6 +1793,34 @@ describe('retained workflow opens', () => {
       revision: 0, complete: false, digests: [asset('a').digest],
     })
   })
+
+  it.each(['accepted', 'edited', 'canceled'] as const)(
+    'waits for the initial catalog before opening a workflow: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema], session().doc)
+      const previous = app.activeTab()!
+      const transport = vi.spyOn(app.connection.status, 'get').mockReturnValue('connecting')
+      const retain = vi.mocked(app.connection.retainAssets)
+      retain.mockClear()
+      const incoming = { ...session([asset('c')]).doc, lineage: asLineageId('incoming') }
+      const operation = app.openDocument(incoming, 'Incoming')
+      await Promise.resolve()
+      expect(retain).not.toHaveBeenCalled()
+      expect(app.activeTab()).toBe(previous)
+      if (scenario === 'edited') expect((await app.dispatchTo(previous, replace('b'))).ok).toBe(true)
+      if (scenario === 'canceled') app.createWorkflow()
+      transport.mockReturnValue('connected')
+      app.registry.set({ ...app.registry.get()! })
+      const diagnostics = await operation
+      expect(diagnostics.length === 0).toBe(scenario === 'accepted')
+      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted')
+      if (scenario === 'accepted') {
+        expect(retain).toHaveBeenCalledWith(expect.anything(), {
+          revision: 0, complete: true, digests: [asset('c').digest],
+        })
+      }
+    },
+  )
 
   it.each((['file', 'direct'] as const).flatMap((kind) =>
     (['accepted', 'view', 'lost', 'refreshed-registry', 'changed-schema', 'changed-capabilities', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)

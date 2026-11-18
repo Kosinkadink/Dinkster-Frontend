@@ -57,6 +57,7 @@ import {
   type ProductRole,
 } from '../src/index.js'
 import '../dist/dinkster.css'
+import { CanvasGallery } from './canvas.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -65,6 +66,7 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
+  { label: 'Canvas', href: '#canvas', icon: LayoutList },
 ]
 
 function Section(props: {
@@ -135,7 +137,7 @@ function Gallery() {
               'Buttons and fields')
         }
         description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
-        table={route() === '#lists'}
+        table={route() === '#lists' || route() === '#canvas'}
       >
         <Show
           when={!loading()}
@@ -144,6 +146,9 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#canvas'}>
+              <CanvasGallery />
+            </Match>
             <Match when={route() === '#controls'}>
               <Section
                 title="Button roles and fills"

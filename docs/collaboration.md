@@ -91,6 +91,15 @@ current. Other renderers still admit their own roots before cleanup; a changed
 snapshot starts a separate generation. If an incomplete renderer publishes first, a
 complete renderer retries the identical snapshot through admission rather than
 publishing against stale bytes.
+Recovery and canonical workspace slots reuse this renderer's complete receipt
+for an identical document in the same project, storage, backend, schema and
+connection lifetime. Workspace title or persisted revision changes alone do
+not change that snapshot's asset census or require new document-owner writes.
+Document candidates retain their own
+admission barrier. A reused receipt stays protected until its last local slot
+and in-flight admission end; overlapping publication cannot release it early.
+Publication rechecks that reused ownership has not begun retirement. Peer
+receipts remain observation-only.
 Overlapping persistence admissions keep late receipts through the same complete
 replacement gate rather than dropping them when another stage publishes.
 An acknowledged empty workspace also retires its locally admitted predecessor
@@ -99,7 +108,13 @@ original project, connection generation and exact durable receipt. A complete
 local snapshot can retire after its slot ends even if the catalog refreshed;
 an incomplete snapshot still requires a complete acknowledgment for the exact
 same document under the current schema. Independent readers and recovery
-sources keep their own protection. Close also waits for pending workspace
+sources keep their own protection. A release journal is removed only after the
+exact captured owner is confirmed empty and complete at its next revision and
+the journal bytes are unchanged. If storage refuses that removal, a console
+warning reports the failure and the journal remains. An unconfirmed or
+superseded release remains journaled; recovery observes it without replaying
+DELETE.
+Close also waits for pending workspace
 promotion acknowledgments, then retires their complete local receipts through
 the same captured document lifetime and canonical close checks. When promotion
 or joining replaces a local session with a different document snapshot, its
@@ -114,6 +129,15 @@ recovery candidate separately from the canonical stage: a peer may have
 superseded it with the same document. The local receipt retires only after
 synchronized canonical Close, matching captured stages and document digest,
 and removal of the physical recovery candidate.
+When browser recovery writes exceed quota or storage access is refused, the
+current workflow remains editable in memory and previously stored recovery is
+not discarded to make space. A dismissible error banner above the workspace
+and the Problems log ask the user to keep the window open, export the workflow,
+and free browser storage. Dismissing the banner does not discard the edit;
+a later failed attempt shows it again. A later persistence attempt retries
+normally; successful acknowledged canonical cleanup covering all current open
+workflow documents clears the diagnostic.
+
 Repeated peer notifications reuse this app's complete canonical workspace
 receipt only while the stored snapshot and its project, storage, backend,
 schema and connection generation are unchanged. A changed destination or

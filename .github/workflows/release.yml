@@ -9,6 +9,7 @@ on:
       - .github/workflows/release.yml
       - scripts/build_release.py
       - scripts/test_build_release.py
+      - scripts/test-release-provenance.mjs
       - frontend-release.json
       - packages/site/**
       - packages/ui/**
@@ -38,6 +39,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: node --test scripts/test-release-provenance.mjs
       - run: python -m unittest scripts/test_build_release.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @dinkster/app build
@@ -113,8 +115,17 @@ jobs:
                 await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha: annotation.data.sha });
               } catch (error) {
                 if (error.status !== 422) throw error;
+                core.warning(`createRef returned 422: ${JSON.stringify(error.response?.data)}`);
               }
-              object = (await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` })).data.object;
+              for (let attempt = 0; attempt < 4; attempt++) {
+                try {
+                  object = (await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` })).data.object;
+                  break;
+                } catch (error) {
+                  if (error.status !== 404 || attempt === 3) throw error;
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+              }
             }
             if (object.type !== 'tag') throw new Error('Release tag must be annotated');
             const annotation = (await github.rest.git.getTag({ ...context.repo, tag_sha: object.sha })).data;
