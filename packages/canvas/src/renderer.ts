@@ -928,8 +928,8 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
-  setColors(colors: DesignTokens['colors']): void {
-    this.tokens = { ...this.tokens, colors }
+  setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
+    this.tokens = { ...this.tokens, ...typePaint, colors }
     this.previewChecker = undefined
     this.invalidate()
   }
@@ -2862,7 +2862,7 @@ export class CanvasRenderer {
     // Detailed text and chips are omitted in the overview tier; structural
     // state, fitting titles, and typed connectivity remain visible.
     if (contentDetail) {
-      // Title (truncated only for badges that occupy the header lane).
+      // Title fitting respects the space left by header marks.
       ctx.fillStyle = t.colors.title
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
@@ -2894,7 +2894,11 @@ export class CanvasRenderer {
         titleX += paint.labelInset + ctx.measureText(node.regionKind).width + paint.titleGap
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
-      ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
+      if (t.titleOverflow === 'ellipsis') {
+        ctx.fillText(fitText(ctx, title, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)), titleX, node.y + l.headerHeight / 2)
+      } else {
+        ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
+      }
 
       // Node badges; each placement lane lays out index 0 rightmost.
       // Positions come from badgeRect so hit-testing and drawing agree.

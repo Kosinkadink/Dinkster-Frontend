@@ -4,9 +4,11 @@ import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
+  previousCanvasTypePaint,
   drawMinimap,
   type TextMeasurer,
   type WidgetMeasure,
@@ -34,6 +36,8 @@ export function CanvasGallery() {
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
   const [outline, setOutline] = createSignal('quieter')
+  const [typeLook, setTypeLook] = createSignal('current')
+  const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -43,14 +47,33 @@ export function CanvasGallery() {
     const currentPage = page()
     const currentWidget = widgetId()
     const currentOutline = outline()
+    const currentTypeLook = typeLook()
+    const currentTitleLook = titleLook()
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
-    void document.fonts.ready.then(() => {
+    void Promise.all([
+      document.fonts.load(
+        `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`,
+      ),
+      document.fonts.load(
+        `${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
+      ),
+      document.fonts.load(
+        `italic ${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
+      ),
+    ]).then(() => {
       if (disposed) return
       const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
         ...defaultTokens,
+        titleOverflow:
+          currentPage === 'titles' || currentPage === 'titles-content'
+            ? currentTitleLook
+            : defaultTokens.titleOverflow,
+        ...(currentPage === 'types' && currentTypeLook === 'previous'
+          ? previousCanvasTypePaint
+          : canvasTypePaintForTheme(currentTheme)),
         colors: {
           ...colors,
           ...(currentPage === 'idle-outline' && currentOutline === 'previous'
@@ -130,6 +153,8 @@ export function CanvasGallery() {
       labelContext.font = `${tokens.fontSize}px ${tokens.fontFamily}`
       labelContext.fillStyle = tokens.colors.label
       labelContext.textBaseline = 'middle'
+      if (currentPage === 'titles' || currentPage === 'titles-content')
+        labelContext.textAlign = 'left'
       for (const label of fixture.labels)
         labelContext.fillText(label.text, label.x, label.y)
       labelContext.restore()
@@ -172,6 +197,8 @@ export function CanvasGallery() {
       canvas.dataset.ready = `${currentPage}-${currentTheme}`
       canvas.dataset.widget = currentWidget
       canvas.dataset.outline = currentOutline
+      canvas.dataset.typeLook = currentTypeLook
+      canvas.dataset.titleLook = currentTitleLook
     })
     onCleanup(() => {
       disposed = true
@@ -227,6 +254,49 @@ export function CanvasGallery() {
           The app uses the quieter idle outline from the shared subtle border.
           Compare it with the previous outline. Hover and selection paint stay
           unchanged.
+        </p>
+      </Show>
+      <Show when={page() === 'types'}>
+        <ProductField label="Type colors">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={typeLook()}
+              onChange={(event) => setTypeLook(event.currentTarget.value)}
+            >
+              <option value="current">Contrast-adjusted colors (current)</option>
+              <option value="previous">Previous colors</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Current type colors keep each type's hue and reach at least 3:1 contrast
+          against the node body. Previous colors overrides only this comparison;
+          app colors and other gallery pages keep the current palette.
+        </p>
+      </Show>
+      <Show when={page() === 'titles' || page() === 'titles-content'}>
+        <ProductField label="Title fitting">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={titleLook()}
+              onChange={(event) =>
+                setTitleLook(
+                  event.currentTarget.value as 'squeeze' | 'ellipsis',
+                )
+              }
+            >
+              <option value="ellipsis">Ellipsis (current)</option>
+              <option value="squeeze">Squeezed titles (previous)</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Compare fitting, long, renamed and minimized titles, including header
+          marks. Current titles keep letter widths and end in an ellipsis when
+          crowded. Previous squeezing overrides only this comparison; app titles
+          and other gallery pages keep ellipsis.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>

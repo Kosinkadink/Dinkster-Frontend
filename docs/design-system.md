@@ -657,6 +657,23 @@ on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's
 `nodeIdleOutline` role to retain the former strong-border comparison.
 
+The app canvas and gallery use contrast-adjusted type colors in both themes.
+The named palette keeps each hue and meets 3:1 against that theme's node body;
+colors already meeting the threshold remain unchanged. Unknown types keep their
+stable hashed hue with theme-specific lightness. Live app theme changes update
+chrome and type paint together. The Pins and links page retains Previous colors
+as a page-only comparison; it cannot change app defaults or other gallery pages.
+
+Node titles retain normal letter widths and end in an ellipsis when they do not
+fit the space left by header marks. The typed `titleOverflow` default applies to
+app canvases and node previews. Node titles and Node titles at content zoom
+compare this current look with Previous squeezing in both themes, using fitting,
+long, renamed and minimized titles in the same production layout. Only those
+gallery pages can select the previous look; it cannot change other pages or the
+app. Title placement, available width and overview title painting are unchanged.
+The canvas gallery loads its regular, semibold and italic faces before measuring
+or painting, so a cold page and a return from a comparison use the same glyphs.
+
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
 Intentional paint changes include reviewed picture differences; token-only

@@ -494,6 +494,7 @@ export interface DesignTokens {
   readonly fontFamily: string
   readonly fontSize: number
   readonly titleFontSize: number
+  readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
   readonly multilineText: {
     readonly fontSize: number
@@ -577,40 +578,12 @@ export interface DesignTokens {
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
+  readonly typeFallbackLightness: number
   readonly stateColors: Readonly<Record<NodeRunState, string>>
   readonly progressBar: string
 }
 
-export const defaultTokens: DesignTokens = {
-  rowHeight: 24,
-  headerHeight: 28,
-  padX: 10,
-  padBottom: 8,
-  previewDefaultHeight: 180,
-  previewMinHeight: 40,
-  previewCaptionHeight: 22,
-  previewGap: 6,
-  mediaTransportHeight: 64,
-  mediaControlMinScale: 0.75,
-  nodeMinWidth: 140,
-  nodeMaxAutoWidth: 420,
-  pinRadius: 5.5,
-  cornerRadius: 6,
-  fontFamily: canvasSemanticTokens.type.fontFamily,
-  fontSize: 12,
-  titleFontSize: 13,
-  // Comfy-style prompt fields use 14px type with readable 20px leading and
-  // 6px inset. Their 18px label band reduces dead space without changing
-  // the independent 12px/24px compact-row rhythm.
-  multilineText: {
-    fontSize: 14,
-    lineHeight: 20,
-    padding: 6,
-    labelHeight: 18,
-    scrollbarWidth: 6,
-    scrollbarInset: 2,
-  },
-  colors: canvasColorsForTheme('dark'),
+export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'> = {
   typeColors: {
     CLIP: '#FFD500',
     CLIP_VISION: '#A8DADC',
@@ -632,9 +605,44 @@ export const defaultTokens: DesignTokens = {
     INT: '#7B1FA2',
     FLOAT: '#00838F',
     BOOLEAN: '#C2185B',
-    'COMBO': '#5D4037',
+    COMBO: '#5D4037',
     AUDIO: '#1565C0',
   },
+  typeFallbackLightness: 62,
+}
+
+export const defaultTokens: DesignTokens = {
+  rowHeight: 24,
+  headerHeight: 28,
+  padX: 10,
+  padBottom: 8,
+  previewDefaultHeight: 180,
+  previewMinHeight: 40,
+  previewCaptionHeight: 22,
+  previewGap: 6,
+  mediaTransportHeight: 64,
+  mediaControlMinScale: 0.75,
+  nodeMinWidth: 140,
+  nodeMaxAutoWidth: 420,
+  pinRadius: 5.5,
+  cornerRadius: 6,
+  fontFamily: canvasSemanticTokens.type.fontFamily,
+  fontSize: 12,
+  titleFontSize: 13,
+  titleOverflow: 'ellipsis',
+  // Comfy-style prompt fields use 14px type with readable 20px leading and
+  // 6px inset. Their 18px label band reduces dead space without changing
+  // the independent 12px/24px compact-row rhythm.
+  multilineText: {
+    fontSize: 14,
+    lineHeight: 20,
+    padding: 6,
+    labelHeight: 18,
+    scrollbarWidth: 6,
+    scrollbarInset: 2,
+  },
+  colors: canvasColorsForTheme('dark'),
+  ...canvasTypePaintForTheme('dark'),
   stateColors: {
     pending: '#5c5c5c',
     running: canvasSemanticTokens.meaning.info.border,
@@ -645,6 +653,24 @@ export const defaultTokens: DesignTokens = {
     skipped: canvasSemanticTokens.text.muted,
   },
   progressBar: canvasSemanticTokens.meaning.info.border,
+}
+
+/** Named colors keep their hue while meeting contrast against each theme's node body. */
+export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'> {
+  return {
+    typeColors: {
+      ...previousCanvasTypePaint.typeColors,
+      ...(theme === 'dark' ? {
+        STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+      } : {
+        CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
+        IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
+        STYLE_MODEL: '#6F9264', VAE: '#DE6060', NOISE: '#888888', GUIDER: '#3C9595',
+        SAMPLER: '#A67F7F', SIGMAS: '#739073', TAESD: '#9A8751',
+      }),
+    },
+    typeFallbackLightness: theme === 'dark' ? 62 : 36,
+  }
 }
 
 export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
@@ -734,7 +760,7 @@ export function typeColor(tokens: DesignTokens, typeName: string): string {
   let h = 0
   for (let i = 0; i < base.length; i++) h = (h * 31 + base.charCodeAt(i)) >>> 0
   // The hsl() form cannot exactly collide with any hex table entry.
-  return `hsl(${h % 360} 45% 62%)`
+  return `hsl(${h % 360} 45% ${tokens.typeFallbackLightness}%)`
 }
 
 export interface PresentedType {

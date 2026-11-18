@@ -17,6 +17,7 @@ import {
   CANVAS_DETAIL_MIN_SCALE,
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
@@ -2614,9 +2615,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       (args) => widgetPainter()(args),
     )
     const updateTheme = () => {
-      renderer.setColors(canvasColorsForTheme(
-        document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark',
-      ))
+      const theme = document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark'
+      renderer.setColors(canvasColorsForTheme(theme), canvasTypePaintForTheme(theme))
       repaintMinimap?.()
     }
     updateTheme()

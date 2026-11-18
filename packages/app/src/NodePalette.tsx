@@ -609,6 +609,14 @@ export function NodePalette(props: {
     const entry = paletteHighlighted()
     if (entry?.schema !== undefined && palettePreviewCanvas !== undefined) paintPaletteNodePreview(entry)
   })
+  onMount(() => {
+    const observer = new MutationObserver(() => {
+      const entry = paletteHighlighted()
+      if (entry?.schema !== undefined) paintPaletteNodePreview(entry)
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    onCleanup(() => observer.disconnect())
+  })
 
   /**
    * Interface preview for the highlighted entry: real schema ports when a

@@ -11,7 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 // The renderer's rAF loop is irrelevant here: renderNow() paints
@@ -1258,6 +1258,29 @@ describe('node chrome paint on the live renderer', () => {
     renderer.dispose()
   })
 
+  it('repaints mounted type pins and links in both theme directions while color-only updates preserve their palette', () => {
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setScene(fixtureScene('clean'))
+    for (const [theme, imageColor, latentColor] of [
+      ['light', '#4F8EC1', '#B770B2'],
+      ['dark', '#64B5F6', '#FF9CF9'],
+      ['light', '#4F8EC1', '#B770B2'],
+    ] as const) {
+      renderer.setColors(canvasColorsForTheme(theme), canvasTypePaintForTheme(theme))
+      calls.length = 0
+      renderer.renderNow()
+      expect(calls.some((call) => call.method === 'fill' && call.fillStyle === imageColor)).toBe(true)
+      expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === latentColor)).toBe(true)
+      renderer.setColors(canvasColorsForTheme(theme === 'light' ? 'dark' : 'light'))
+      calls.length = 0
+      renderer.renderNow()
+      expect(calls.some((call) => call.method === 'fill' && call.fillStyle === imageColor)).toBe(true)
+      expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === latentColor)).toBe(true)
+    }
+    renderer.dispose()
+  })
+
   it.each(['dark', 'light'] as const)('keeps minimized previews compact and repaints checker colors from %s theme', (theme) => {
     const base = fixtureScene('clean')
     const source = nodeOf(base, 'img')
@@ -2167,7 +2190,19 @@ describe('badge and toolbox paint on the live renderer', () => {
     }))
 
     expect(decorated.some((call) =>
-      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)`,
+      call.method === 'fillText' && call.args[0] === 'Sink decorated (...' && call.args.length === 3,
+    )).toBe(true)
+    const spacious = {
+      ...scene,
+      nodes: scene.nodes.map((node) => node.id === target.id
+        ? { ...node, layout: { ...node.layout, width: 280 } }
+        : node),
+    }
+    const fitting = paintWith(spacious, (renderer) => renderer.setNodeDecorations({
+      [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
+    }))
+    expect(fitting.some((call) =>
+      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)` && call.args.length === 3,
     )).toBe(true)
     expect(decorated.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
       .not.toEqual(baseline.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
@@ -2256,13 +2291,16 @@ describe('badge and toolbox paint on the live renderer', () => {
     }
 
     const leftmost = badgeRect(n, badges.length - 1, badges)
-    const title = calls.find((call) => call.method === 'fillText' && call.args[0] === n.layout.title)
-    expect(title?.args[3]).toBe(Math.max(0, leftmost.x - n.x - defaultTokens.padX - 4))
+    expect(leftmost.x).toBeLessThan(n.x + defaultTokens.padX)
+    const title = calls.find((call) => call.method === 'fillText' &&
+      call.args[1] === n.x + defaultTokens.padX && call.args[2] === n.y + n.layout.headerHeight / 2)
+    expect(title?.args).toEqual(['', n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
 
     const singleCalls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE] }))
     const singleRect = badgeRect(n, 0, [MUTED_BADGE])
     const singleTitle = singleCalls.find((call) => call.method === 'fillText' && call.args[0] === n.layout.title)
-    expect(singleTitle?.args[3]).toBe(singleRect.x - n.x - defaultTokens.padX - 4)
+    expect(singleTitle?.args).toEqual([n.layout.title, n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
+    expect(n.layout.title.length * 6).toBeLessThan(singleRect.x - n.x - defaultTokens.padX - 4)
   })
 
   it('paints mode badges with the active theme tokens', () => {
