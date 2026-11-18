@@ -8,6 +8,18 @@ export function ProductBrandMark() {
   return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />
 }
 
+export function ProductWindowChrome(props: {
+  title: string
+  platform: 'darwin' | 'win32' | 'linux'
+}) {
+  return (
+    <header class="dinkster-window-chrome" data-platform={props.platform}>
+      <ProductBrandMark />
+      <span class="dinkster-brand-title">{props.title}</span>
+    </header>
+  )
+}
+
 export interface ProductNavigationItem {
   label: string
   href: string

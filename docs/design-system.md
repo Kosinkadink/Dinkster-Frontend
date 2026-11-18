@@ -762,6 +762,22 @@ for `document.fonts.ready` and verifies the visible product font faces before
 page, locator or golden-image captures. Failed font loads reject the capture;
 screenshot baselines do not use fallback text.
 
+## Desktop information
+
+`ProductWindowChrome` reserves the native title-bar overlay area and the
+macOS traffic-light inset, uses the shared 56px bar and palette, and marks
+its empty background draggable while its contents remain non-draggable.
+The host supplies the exact title and platform. The gallery shows Windows,
+Linux and macOS geometry; native Electron control behavior is checked by
+the adopting Desktop application, not the browser gallery.
+
+`ProductAbout` renders the bundled theme-specific wordmark, product title and
+version with shared typography and spacing. Its `theme` follows the host
+window's theme; `title` carries the host's identity, including QA markings.
+`ProductStringsProvider` can replace the Version label. The component adds no
+controls, navigation or network activity. The gallery's Desktop information
+page shows dark and light appearances and the QA title at narrow widths.
+
 ## Account site assets
 
 `packages/site` builds the SolidJS account and authorization views on
@@ -782,8 +798,15 @@ variables; this removes secret DOM before a restored page is rendered.
 Authorization retains a native POST form
 with the signed consent token and explicit approve/deny submitter values.
 
-`pnpm --filter @dinkster/site build` creates the two HTML templates, renderer
-modules, one shared stylesheet, bundled fonts and a SHA-256 file manifest.
+`pnpm --filter @dinkster/site build` creates the account, authorization and
+portable Desktop About templates, renderer modules, one shared stylesheet,
+bundled fonts and a SHA-256 file manifest. `about.html` uses relative local
+assets and a self-only CSP with no network connection permission or inline
+styles/scripts. Desktop supplies `title` and `version` as URL query parameters;
+they render as text through `ProductAbout`. The view follows the OS color
+scheme, including changes while open, and reports only the no-send
+`desktop-about` route event. The existing wheel carries these files under
+`static/site/`; consumers retain that directory structure.
 Each template preloads its renderer and transitive static imports from Vite's
 build manifest so controller imports do not add serial discovery round trips.
 The build manifest itself is not distributed.
