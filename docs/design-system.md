@@ -778,7 +778,9 @@ The gallery, account and authorization views use this same shell.
 `@dinkster/ui`, with no site-owned stylesheet or controls. The account service
 owns API calls, navigation state and show-once secret lifetime; the view accepts
 its bound screen model and exposes fields through `data-account-field`. Field
-IDs and labels remain owned by `ProductField`. The service supplies the person's
+IDs and labels remain owned by `ProductField`. Editable fields and selects use
+its panel presentation; facts and action lists use shared bordered rows. Page
+headings and helper text stay outside their panels. The service supplies the person's
 name and email to the account menu. The renderer owns changed-field disabling;
 controller callbacks update service state without rewriting button attributes.
 Rejected changes remain retryable, and only a successful save advances the saved

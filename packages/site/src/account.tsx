@@ -310,6 +310,7 @@ export function accountView(options: AccountViewOptions) {
         return (
           <div class="dinkster-stack">
             <ProductField
+              panel
               label={label()}
               description={item.hint ?? ''}
               error={item.error ?? ''}
@@ -335,7 +336,7 @@ export function accountView(options: AccountViewOptions) {
         )
       case 'select':
         return (
-          <ProductField label={label()}>
+          <ProductField panel label={label()}>
             {(attributes) => (
               <ProductSelect
                 {...attributes}
