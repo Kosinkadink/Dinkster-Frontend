@@ -1534,16 +1534,31 @@ export class CanvasRenderer {
     const { x: vx, y: vy, scale } = this.viewport
     ctx.translate(vx, vy)
     ctx.scale(scale, scale)
+
+    // Visible world rect for culling.
+    const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
+    this.drawCanvasLayers('background', ctx, view, scale)
+    this.drawGraph(ctx, view, scale)
+
+    const tl = this.getToolboxLayout()
+    if (tl) this.drawToolbox(ctx, tl)
+    this.drawTypeAdornments(ctx, view)
+    this.drawPresence(ctx, scale)
+    this.drawCanvasLayers('foreground', ctx, view, scale)
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+  }
+
+  private drawGraph(
+    ctx: CanvasRenderingContext2D,
+    view: Readonly<{ x: number; y: number; w: number; h: number }>,
+    scale: number,
+  ): void {
+    const t = this.tokens
     const detailLevel = this.getDetailLevel()
     const contentDetail = detailLevel !== 'overview'
     const paintPad = linkCullPad(scale)
     const rerouteRadius = detailRadius(REROUTE_RADIUS, scale, detailLevel)
     const structurePad = structureCullPad(scale, t.pinRadius, detailLevel)
-
-    // Visible world rect for culling.
-    const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
-    this.drawCanvasLayers('background', ctx, view, scale)
-
     const offsets = this.overlay.dragOffsets
     const off = (nodeId: string) => offsets?.get(nodeId) ?? ZERO_OFFSET
 
@@ -2062,16 +2077,6 @@ export class CanvasRenderer {
       ctx.restore()
       ctx.restore()
     }
-    const tl = this.getToolboxLayout()
-    if (tl) this.drawToolbox(ctx, tl)
-
-    this.drawTypeAdornments(ctx, view)
-
-    this.drawPresence(ctx, scale)
-
-    this.drawCanvasLayers('foreground', ctx, view, scale)
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
   }
 
   private drawCanvasLayers(
