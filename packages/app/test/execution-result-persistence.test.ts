@@ -159,6 +159,42 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
+  it.each(['held', 'released', 'source-bound', 'uncovered', 'newer-owner', 'missing-owner', 'incomplete', 'different-source', 'refused-source'] as const)(
+    're-admits a legacy receipt only through complete original-source replacements: %s', async (mode) => {
+    const test = setup()
+    const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
+      ownerId: 'execution-result:released-legacy', revision: 1,
+      complete: mode !== 'incomplete', digests: [mode === 'uncovered' ? `blake3:${'c'.repeat(64)}` : test.saved.sourceDocument!],
+      ...(mode === 'source-bound' || mode === 'different-source'
+        ? { sourceToken: (mode === 'different-source' ? 'b' : 'a').repeat(32) } : {}) }
+    const released: RetainedAssets = { scope: receipt.scope, ownerKind: receipt.ownerKind, ownerId: receipt.ownerId,
+      revision: mode === 'newer-owner' ? 4 : 2, complete: true, digests: [] }
+    vi.mocked(test.backend.connection.fetchTerminalResultAssets).mockImplementation(async (jobRef) => ({
+      scope: 'local', jobRef, attemptId: 1, state: 'completed', complete: true,
+      offers: [{ token: 'a'.repeat(32), scope: 'local', jobRef, attemptId: 1,
+        nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests: [test.saved.sourceDocument!] }],
+    }))
+    vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+      if (mode === 'refused-source') throw new Error('Source data is unavailable')
+      return { ...owner, sourceToken, revision: 1, complete: true, digests: [test.saved.sourceDocument!] }
+    })
+    saveExecutionResult({ ...test.saved, assetRetentions: [receipt] }, test.backendIdentity)
+    vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockResolvedValue(
+      mode === 'held' ? receipt : mode === 'missing-owner' ? undefined : released)
+    try {
+      await test.app.start()
+      if (mode === 'held' || mode === 'released' || mode === 'source-bound') {
+        expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        const replacements = test.app.store.get(test.ref)?.assetRetentions
+        expect(replacements?.some((owner) => owner.complete && owner.digests.includes(test.saved.sourceDocument!))).toBe(true)
+        expect(replacements?.some((owner) => owner.ownerId === receipt.ownerId)).toBe(false)
+      } else {
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+        expect(loadExecutionResults(test.backendIdentity)[0]?.assetRetentions).toEqual([receipt])
+      }
+    } finally { test.app.dispose() }
+  })
+
   it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()

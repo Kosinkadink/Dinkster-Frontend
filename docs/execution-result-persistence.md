@@ -30,6 +30,14 @@ that supersedes startup. A superseded request, disconnected backend or changed
 project cannot publish restored results. Locale-only labels do not invalidate
 schema authority or interrupt restoration.
 
+A complete historical receipt can be replaced after its exact next-revision
+release tombstone is confirmed. Restoration still requires fresh acknowledgments
+for the original sealed result and its verified producing document. Those complete
+inventories must cover every old root; a source-bound receipt also requires its
+original source token. Missing owners, newer owner revisions, incomplete receipts,
+uncovered roots and refused source claims remain unavailable without deleting the
+saved retry record. Restoration never overwrites or reuses the released owner.
+
 If a refresh interrupts terminal output admission, source claims already
 acknowledged by this client remain tracked by ordinary result lifetime checks.
 They are not published as current output, and retire only when no current

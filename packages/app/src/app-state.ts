@@ -9558,14 +9558,20 @@ export class AppState {
       }
     }
     if (Object.keys(nodes).length === 0) return undefined
+    const releasedReceipts: RetainedAssets[] = []
     for (const receipt of result.assetRetentions ?? []) {
       const observed = await backend.connection.fetchRetainedAssets(receipt)
       if (!stillCurrent()) return null
-      if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
+      if (canonicalJson(observed) === canonicalJson(receipt)) continue
+      const released = { ...receipt, revision: receipt.revision + 1, complete: true, digests: [], sourceToken: undefined }
+      if (!receipt.complete || canonicalJson(observed) !== canonicalJson(released)) {
+        throw new Error('Persisted result retention differs')
+      }
+      releasedReceipts.push(receipt)
     }
     const admitted = await this.retainTerminalExecutionAssets(backend,
       { ref: result.ref, artifact: compiled.artifact, jobRef: result.jobRef, sourceDocument: result.sourceDocument },
-      job, this.resolverWithVirtualNodes(registry.resolve), stillCurrent)
+      job, this.resolverWithVirtualNodes(registry.resolve), stillCurrent, releasedReceipts)
     if (admitted === undefined) return null
     const assetRetentions = [...admitted]
     const covered = new Set(admitted.flatMap((receipt) => receipt.digests))
@@ -11281,6 +11287,7 @@ export class AppState {
     job: DinksterJobRecord,
     resolve: SchemaResolver,
     current: () => boolean,
+    replacing: readonly RetainedAssets[] = [],
   ): Promise<readonly RetainedAssets[] | undefined> {
     if (state.jobRef === undefined || job.jobRef !== state.jobRef || job.sourceDocument !== state.sourceDocument) return undefined
     const connection = backend.connection
@@ -11304,6 +11311,19 @@ export class AppState {
         if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return undefined
       }
     }
+    // Runtime source claims certify the outputs, not the producing document.
+    const roots = state.artifact === undefined
+      ? executionAssetRoots({ ...state, outputs: outputs as ExecutionState['outputs'], artifacts: job.artifacts ?? [] }, resolve)
+      : workflowAssetRoots(state.artifact.snapshot, { revision: state.artifact.revision, undo: [], redo: [] },
+        resolve, [], 'publication', state.sourceDocument)
+    // Reject unsupported replacements before admitting new owners on each retry.
+    // The release tombstone itself never supplies source authority.
+    if (replacing.some((receipt) => receipt.sourceToken === undefined
+      ? !receipt.digests.every((digest) => [...terminal.offers, roots].some((owner) => owner.complete && owner.digests.includes(digest)))
+      : !terminal.offers.some((offer) => offer.complete && offer.token === receipt.sourceToken &&
+        receipt.digests.every((digest) => offer.digests.includes(digest))))) {
+      throw new Error('Persisted result replacement is incomplete')
+    }
     const retained: RetainedAssets[] = []
     let complete = false
     try {
@@ -11311,11 +11331,6 @@ export class AppState {
         retained.push(await retainExecutionAssets(connection, state.ref, offer))
         if (!current()) return undefined
       }
-      // Runtime source claims certify the outputs, not the producing document.
-      const roots = state.artifact === undefined
-        ? executionAssetRoots({ ...state, outputs: outputs as ExecutionState['outputs'], artifacts: job.artifacts ?? [] }, resolve)
-        : workflowAssetRoots(state.artifact.snapshot, { revision: state.artifact.revision, undo: [], redo: [] },
-          resolve, [], 'publication', state.sourceDocument)
       retained.push(await retainExecutionAssets(connection, state.ref, roots))
       if (!current()) return undefined
       complete = true
