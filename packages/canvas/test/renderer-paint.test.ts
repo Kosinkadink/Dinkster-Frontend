@@ -22,11 +22,7 @@ beforeAll(() => {
   vi.stubGlobal('Path2D', class Path2D {
     constructor(readonly d: string) {}
   })
-  vi.stubGlobal('OffscreenCanvas', class OffscreenCanvas {
-    readonly recording = recordingCtx()
-    constructor(readonly width: number, readonly height: number) {}
-    getContext() { return this.recording.ctx }
-  })
+  vi.stubGlobal('OffscreenCanvas', undefined)
 })
 afterAll(() => {
   vi.unstubAllGlobals()
@@ -118,7 +114,12 @@ function fakeCanvas(ctx: CanvasRenderingContext2D): HTMLCanvasElement {
     clientHeight: 1200,
     width: 0,
     height: 0,
+    ownerDocument: { createElement: () => {
+      const recording = recordingCtx()
+      return { width: 0, height: 0, recording, getContext: () => recording.ctx }
+    } },
   }
+  Object.assign(ctx, { canvas })
   return canvas as unknown as HTMLCanvasElement
 }
 
@@ -132,7 +133,7 @@ function mutableCanvas(ctx: CanvasRenderingContext2D, clientWidth: number, clien
   let width = 0
   let height = 0
   const canvas = {
-    getContext: () => ctx,
+    ...fakeCanvas(ctx),
     get clientWidth() { return size.clientWidth },
     get clientHeight() { return size.clientHeight },
     get width() { return width },

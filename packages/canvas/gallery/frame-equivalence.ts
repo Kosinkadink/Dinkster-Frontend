@@ -163,7 +163,7 @@ export async function compareCanvasFrames(
       const candidateTiles = tilePaints - before
       full.renderer.renderNow()
       const referenceTiles = tilePaints - before - candidateTiles
-      // Exercise the production direct-paint fallback as an independent oracle.
+      // Repaint the complete scene without retained images or candidate bins.
       const bitmapTransfer = Object.getOwnPropertyDescriptor(
         OffscreenCanvas.prototype,
         'transferToImageBitmap',

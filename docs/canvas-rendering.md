@@ -15,7 +15,10 @@ Tiles are copied at their original pixel size, never stretched. Zoom changes
 repaint at the new scale, preserving sharp text and geometry. Scene, overlay, preview, execution-state, theme and style
 updates invalidate retained graph images. Disposing the renderer closes its
 remaining images. Running-node animation and browsers without transferable
-offscreen bitmaps use direct graph painting.
+offscreen bitmaps repaint the complete scene on fresh canonical offscreen
+surfaces, without retained images or candidate bins. The shared raster origins
+and transparent composition prevent antialiasing changes when image reuse
+starts or stops. Browsers without OffscreenCanvas retain direct graph painting.
 
 Background and foreground pack contributions, the grid, toolbox and remote
 presence remain viewport layers outside the retained graph images. Widgets
@@ -23,9 +26,9 @@ still use their registered compact painters; the active editor remains a DOM
 overlay rather than part of the graph bitmap.
 
 The browser frame-equivalence check compares a retained-history renderer with
-a fresh renderer at each identical state, plus an independent renderer using
-the direct-paint fallback. It compares complete raw RGBA frames without a
-tolerance, including fractional-DPR pans, exposed edges,
+a fresh renderer at each identical state, plus an independent uncached renderer
+that repaints the complete scene without retained images or candidate bins.
+It compares complete raw RGBA frames without a tolerance, including fractional-DPR pans, exposed edges,
 zoom detail changes, selection, drag, edit, theme, style and resize. Separate
 counting checks require camera-only reuse and bounded image copies for the
 fixed 66-, 300- and 1200-node fixtures. Comparison canvases explicitly disable

@@ -1564,6 +1564,11 @@ export class CanvasRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphTiles(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
       ctx.restore()
+    } else if (typeof OffscreenCanvas !== 'undefined') {
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      this.drawGraphUncached(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
+      ctx.restore()
     } else {
       this.drawGraph(ctx, view, scale)
     }
@@ -1574,6 +1579,37 @@ export class CanvasRenderer {
     this.drawPresence(ctx, scale)
     this.drawCanvasLayers('foreground', ctx, view, scale)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
+  }
+
+  /** Full-scene repaints share the retained images' raster origins and alpha composition, not their candidate bins or pixels. */
+  private drawGraphUncached(
+    ctx: CanvasRenderingContext2D,
+    pixelWidth: number,
+    pixelHeight: number,
+    densityX: number,
+    densityY: number,
+  ): void {
+    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    const { x, y, scale } = this.viewport
+    const pixelX = Math.round(x * densityX)
+    const pixelY = Math.round(y * densityY)
+    const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
+    for (let row = Math.floor(-pixelY / size); row < Math.ceil((pixelHeight - pixelY) / size); row++) {
+      for (let column = Math.floor(-pixelX / size); column < Math.ceil((pixelWidth - pixelX) / size); column++) {
+        surface.width = surface.height = size + bleed * 2
+        const target = surface.getContext('2d')! as unknown as CanvasRenderingContext2D
+        const originX = -column * size + bleed
+        const originY = -row * size + bleed
+        target.setTransform(densityX * scale, 0, 0, densityY * scale, originX, originY)
+        this.drawGraph(target, {
+          x: -originX / (densityX * scale),
+          y: -originY / (densityY * scale),
+          w: (size + bleed * 2) / (densityX * scale),
+          h: (size + bleed * 2) / (densityY * scale),
+        }, scale)
+        ctx.drawImage(surface, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
+      }
+    }
   }
 
   private drawGraphTiles(
