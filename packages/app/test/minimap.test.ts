@@ -38,6 +38,7 @@ interface Harness {
 
 function harness(opts?: {
   hasCapture?: boolean
+  offscreen?: boolean
   dpr?: number
   width?: number
   height?: number
@@ -48,12 +49,13 @@ function harness(opts?: {
 }): Harness {
   const listeners = new Map<string, (event: unknown) => void>()
   const context = new Proxy({}, { get: () => vi.fn() })
-  vi.stubGlobal('OffscreenCanvas', class {
+  vi.stubGlobal('OffscreenCanvas', opts?.offscreen === false ? undefined : class {
     width = 1
     height = 1
     getContext() { return context }
   })
   const canvas = {
+    ownerDocument: { createElement: () => ({ width: 1, height: 1, getContext: () => context }) },
     width: 0,
     height: 0,
     clientWidth: opts?.width ?? 250,
@@ -128,7 +130,7 @@ describe('minimap pointer gestures', () => {
     h.handle.dispose()
   })
 
-  it.each([66, 300, 1200])('retains %i graph boxes through camera frames and refreshes changed content', (count) => {
+  it.each([66, 300, 1200].flatMap((count) => [true, false].map((offscreen) => ({ count, offscreen }))))('retains $count graph boxes through camera frames with OffscreenCanvas $offscreen', ({ count, offscreen }) => {
     const scene = {
       nodes: Array.from({ length: count }, (_, i) => ({
         id: `n${i}`, x: i * 110, y: i % 3 * 80,
@@ -138,7 +140,7 @@ describe('minimap pointer gestures', () => {
       links: Array.from({ length: count - 1 }, (_, i) => ({ x1: i * 110, y1: 10, x2: (i + 1) * 110, y2: 30 })),
       reroutes: [],
     } as unknown as ReturnType<CanvasRenderer['getScene']>
-    const h = harness({ scene, settings: { 'canvas.minimap.noodles': true } })
+    const h = harness({ scene, offscreen, settings: { 'canvas.minimap.noodles': true } })
     expect(drawInputs).toHaveLength(1)
     expect(drawInputs[0]!.nodes).toHaveLength(count)
     expect(drawInputs[0]!.links).toHaveLength(count - 1)

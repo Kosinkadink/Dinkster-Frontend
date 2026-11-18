@@ -76,7 +76,8 @@ attributed to delayed saving.
 Camera movement retains the minimap graph bitmap and repaints its camera,
 bookmark and presence overlays. Scene, execution-state, size and explicit host
 refreshes invalidate the bitmap. The grid uses one world-anchored repeating
-tile fill; connectivity lookups rebuild on scene installation. Renderer and
+tile fill; both scratch surfaces use detached HTML canvases when OffscreenCanvas
+is unavailable. Connectivity lookups rebuild on scene installation. Renderer and
 editor camera feedback remain immediate. App-state camera writes coalesce
 until 100 ms without another camera update, or flush before graph switching,
 host disposal and tab persistence (including page exit).
