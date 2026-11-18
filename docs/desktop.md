@@ -128,7 +128,7 @@ Availability is checked again immediately before spawning the supervisor.
 Each launch also requires its random instance
 identifier in supervisor status responses, so a foreign process cannot satisfy
 readiness after the availability check. Supervisor health requests have bounded
-deadlines and are cancellation-aware, so shutdown and environment rollback do
+deadlines and are cancellation-aware, so shutdown and environment restore do
 not wait on a stalled response.
 
 The folder grant form defaults to read-only access and current-project membership.
