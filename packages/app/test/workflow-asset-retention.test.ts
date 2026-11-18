@@ -1794,6 +1794,34 @@ describe('retained workflow opens', () => {
     })
   })
 
+  it.each(['accepted', 'edited', 'canceled'] as const)(
+    'waits for the initial catalog before opening a workflow: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema], session().doc)
+      const previous = app.activeTab()!
+      const transport = vi.spyOn(app.connection.status, 'get').mockReturnValue('connecting')
+      const retain = vi.mocked(app.connection.retainAssets)
+      retain.mockClear()
+      const incoming = { ...session([asset('c')]).doc, lineage: asLineageId('incoming') }
+      const operation = app.openDocument(incoming, 'Incoming')
+      await Promise.resolve()
+      expect(retain).not.toHaveBeenCalled()
+      expect(app.activeTab()).toBe(previous)
+      if (scenario === 'edited') expect((await app.dispatchTo(previous, replace('b'))).ok).toBe(true)
+      if (scenario === 'canceled') app.createWorkflow()
+      transport.mockReturnValue('connected')
+      app.registry.set({ ...app.registry.get()! })
+      const diagnostics = await operation
+      expect(diagnostics.length === 0).toBe(scenario === 'accepted')
+      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted')
+      if (scenario === 'accepted') {
+        expect(retain).toHaveBeenCalledWith(expect.anything(), {
+          revision: 0, complete: true, digests: [asset('c').digest],
+        })
+      }
+    },
+  )
+
   it.each((['file', 'direct'] as const).flatMap((kind) =>
     (['accepted', 'view', 'lost', 'refreshed-registry', 'changed-schema', 'changed-capabilities', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
       .map((scenario) => [kind, scenario] as const)))(

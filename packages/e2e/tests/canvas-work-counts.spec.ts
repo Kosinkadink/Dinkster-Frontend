@@ -33,6 +33,8 @@ test('select, context menu and drag release do not compile availability before t
     app.selectionExecutionScopes = (...args) => { counts.calls += 1; return original(...args) }
     for (const type of ['pointerdown', 'pointerup']) window.addEventListener(type, () => {
       if (counts.armed !== type) return
+      // Start at event dispatch, not the earlier Playwright arming command.
+      counts.calls = 0
       counts.armed = undefined
       requestAnimationFrame(() => { counts.nextFrame = counts.calls })
     }, { capture: true })
@@ -45,7 +47,7 @@ test('select, context menu and drag release do not compile availability before t
   })
   const arm = (event: string) => page.evaluate((event) => {
     const c = window.canvasWorkCounts
-    c.calls = 0; c.nextFrame = undefined; c.armed = event
+    c.nextFrame = undefined; c.armed = event
   }, event)
   const check = async () => {
     await expect.poll(() => page.evaluate(() => window.canvasWorkCounts.nextFrame)).toBe(0)

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { waitForStartupOwnership } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'

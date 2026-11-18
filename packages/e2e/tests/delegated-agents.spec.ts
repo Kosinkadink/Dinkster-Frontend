@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 
 test('auth-off principals retain permission toggles through the production decoder', async ({ page, request }, testInfo) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'fixture', schemaWire: 1 }, nodes: {} } }))

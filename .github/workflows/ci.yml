@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 3bc0f22c64f9abde9c5d8d424d86e32b99e86184
+  DINKSTER_REF: 09a19d695b2634e684d48d425de4663db1113904
 
 jobs:
   fast:
@@ -162,7 +162,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: visual-failure
-          path: packages/e2e/test-results/
+          path: |
+            packages/e2e/test-results/
+            packages/ui/test-results/
+            packages/site/test-results/
           retention-days: 7
           if-no-files-found: ignore
 

@@ -82,6 +82,44 @@ describe('installAssetConsent ownership', () => {
   })
 
 
+  it('requires fresh consent after a source edit and ignores obsolete source and download callbacks', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const { result, retries } = rejection([])
+    const requirement = { name: 'custom.safetensors', kind: 'model/vae' }
+    const source = 'https://huggingface.co/studio/custom/resolve/main/custom.safetensors'
+    const replacement = 'https://huggingface.co/studio/replacement/resolve/main/custom.safetensors'
+    const selected = { ...requirement, project: 'work', provider: 'huggingface' as const,
+      source, repo: 'studio/custom', revision: 'a'.repeat(40), file: requirement.name,
+      sha256: 'b'.repeat(64), size: 137, license: 'test', destination: '/models/vae/custom.safetensors',
+      mount: 'models', status: 'consent-required' as const, planId: 'reviewed-source' }
+    const reviewedSources: (string | undefined)[] = []
+    const connection = { planModelDownload: async (_requirement: unknown, _signal?: AbortSignal, chosen?: string) => {
+      reviewedSources.push(chosen)
+      return chosen ? selected : { status: 'picker-required' as const, sources: [source] }
+    }, startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'engine', jobs: [] }),
+    fetchModelDownload: vi.fn(), cancelModelDownload: vi.fn() }
+    installAssetConsent({ result: { ...result, assetsMissing: { ...result.assetsMissing, models: [requirement] } }, slot,
+      modelDownloads: { connection, project: 'work' }, ...consentCallbacks() })
+    await slot.value!.reviewModel!(0)
+    const picker = slot.value!
+    picker.selectModelSource!(0, source)
+    expect(slot.value!.models![0]!.source).toBe(source)
+    await slot.value!.reviewModel!(0)
+    const reviewed = slot.value!
+    expect(reviewed.models![0]!.plan).toEqual(selected)
+    reviewed.selectModelSource!(0, replacement)
+    expect(slot.value!.models![0]!.plan).toBeUndefined()
+    picker.selectModelSource!(0, source)
+    expect(slot.value!.models![0]!.source).toBe(replacement)
+    await reviewed.downloadModel!(0)
+    await slot.value!.downloadModel!(0)
+    await slot.value!.retry([])
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    expect(retries).toHaveLength(0)
+    expect(reviewedSources).toEqual([undefined, source])
+    slot.set(undefined)
+  })
+
   it('requires reviewed model consent, stops on dismissal, and retries only after verified completion', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const { result, retries } = rejection([])

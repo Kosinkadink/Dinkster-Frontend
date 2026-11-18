@@ -3674,12 +3674,11 @@ export class AppState {
     }
   }
 
-  /** Confirm restored local ownership before sharing the local inventory. */
-  async confirmStartupOwnership(): Promise<void> {
+  private async waitForOwnershipCatalogs(backends: readonly Backend[]): Promise<void> {
     // Initial socket opening replaces the catalog and connection lifetime.
     // Capture ownership only after that publication, without retrying admission.
     await new Promise<void>((resolve) => {
-      const ready = (): boolean => this.disposed || !this.backends.get().some((backend) => {
+      const ready = (): boolean => this.disposed || !backends.some((backend) => {
         if (backend.protocol !== 'dinkster') return false
         const status = backend.connection.status.get()
         return status === 'connecting' || status === 'reconnecting' ||
@@ -3693,6 +3692,11 @@ export class AppState {
         })
       })
     })
+  }
+
+  /** Confirm restored local ownership before sharing the local inventory. */
+  async confirmStartupOwnership(): Promise<void> {
+    await this.waitForOwnershipCatalogs(this.backends.get())
     const tabs = this.tabs.get()
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const currentLocalDocuments = new Set(tabs.filter((tab) => this.backendForTab(tab) === local)
@@ -3942,8 +3946,7 @@ export class AppState {
         replacement.generation === owner.generation && replacement.project === owner.project &&
         replacement.storage === owner.storage && replacement.retained.complete &&
         JSON.stringify(replacement.document) === JSON.stringify(owner.document))) continue
-      void retireAssetOwner(owner.backend.connection, owner.retained).finally(() =>
-        this.workflowRetentionRefreshes.get(owner.backend.connection)?.())
+      this.retireWorkflowAssetOwner(owner.backend.connection, owner.retained)
     }
   }
 
@@ -4718,6 +4721,18 @@ export class AppState {
   private readonly workflowRetentionRefreshes = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
+  private retireWorkflowAssetOwner(connection: DinksterConnection, retained: RetainedAssets): void {
+    void retireAssetOwner(connection, retained).then(() => {
+      // A confirmed release removes its journal. Only uncertain ownership or
+      // an observation already in flight needs another backend census.
+      if (globalThis.localStorage?.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) !== null ||
+        this.workflowRetentionRecoveries.has(connection) ||
+        this.problems.get().some((problem) => problem.code === 'workflow.retention.unresolved')) {
+        this.workflowRetentionRefreshes.get(connection)?.()
+      }
+    }).catch(() => this.workflowRetentionRefreshes.get(connection)?.())
+  }
+
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
     const backend = this.backendForTab(tab)
@@ -5409,6 +5424,8 @@ export class AppState {
               'warning', 'validation', 'workflow.retention.unresolved',
               `[${label}] Workflow ownership unconfirmed.`,
             )])
+          }).finally(() => {
+            if (this.workflowRetentionRecoveries.get(connection) === controller) this.workflowRetentionRecoveries.delete(connection)
           })
       }
       this.workflowRetentionRefreshes.set(connection, () => {
@@ -8018,9 +8035,10 @@ export class AppState {
     prepared: Extract<ReturnType<AppState['prepareDocumentOpen']>, { readonly ok: true }>,
     backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true,
   ): Promise<Tab | undefined> {
+    const destination = target ?? this.backends.get()[0]!
+    await this.waitForOwnershipCatalogs([backend, destination])
     if (this.disposed || !stillWanted()) return undefined
     const registry = backend.registry.get()
-    const destination = target ?? this.backends.get()[0]!
     const destinationRegistry = destination.registry.get()
     const registryUnchanged = (before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean => {
       before = before && (this.packLocaleSources.get(before) ?? before)
@@ -8579,8 +8597,7 @@ export class AppState {
       // A complete replacement protects live consumers; durable sources must
       // independently stop naming every root that replacement no longer holds.
       this.supersededWorkflowOwners.delete(retained)
-      void retireAssetOwner(backend.connection, retained).finally(() =>
-        this.workflowRetentionRefreshes.get(backend.connection)?.())
+      this.retireWorkflowAssetOwner(backend.connection, retained)
     }
   }
 

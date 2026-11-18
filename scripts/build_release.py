@@ -40,6 +40,7 @@ def build(
     output: Path,
     tag: str | None = None,
     dev: bool = False,
+    site: Path | None = None,
 ) -> Path:
     version = release_version(root, tag, dev)
     api = json.loads((root / "frontend-release.json").read_text(encoding="utf-8"))[
@@ -72,7 +73,17 @@ def build(
             json.dumps(manifest, indent=2) + "\n"
         ).encode(),
     }
-    sources = [(dist, "")]
+    site = site if site is not None else root / "packages" / "site" / "dist"
+    for required in (
+        "account.html",
+        "authorization.html",
+        "account-view.js",
+        "authorization.js",
+        "manifest.json",
+    ):
+        if not (site / required).is_file():
+            raise ValueError(f"site distribution must contain {required}")
+    sources = [(dist, ""), (site, "site/")]
     sources.extend(
         (root / "branding" / directory, f"branding/{directory}/")
         for directory in (
@@ -146,6 +157,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=Path("packages/app/dist"))
     parser.add_argument("--output", type=Path, default=Path("dist"))
+    parser.add_argument("--site-dist", type=Path, default=Path("packages/site/dist"))
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--tag")
     mode.add_argument("--dev", action="store_true")
@@ -157,5 +169,6 @@ if __name__ == "__main__":
             args.output,
             args.tag,
             args.dev,
+            args.site_dist,
         )
     )
