@@ -1,3 +1,4 @@
+export * from './about.js'
 export * from './account.js'
 export * from './controls.js'
 export * from './form.js'

@@ -756,6 +756,22 @@ for `document.fonts.ready` and verifies the visible product font faces before
 page, locator or golden-image captures. Failed font loads reject the capture;
 screenshot baselines do not use fallback text.
 
+## Desktop information
+
+`ProductWindowChrome` reserves the native title-bar overlay area and the
+macOS traffic-light inset, uses the shared 56px bar and palette, and marks
+its empty background draggable while its contents remain non-draggable.
+The host supplies the exact title and platform. The gallery shows Windows,
+Linux and macOS geometry; native Electron control behavior is checked by
+the adopting Desktop application, not the browser gallery.
+
+`ProductAbout` renders the bundled theme-specific wordmark, product title and
+version with shared typography and spacing. Its `theme` follows the host
+window's theme; `title` carries the host's identity, including QA markings.
+`ProductStringsProvider` can replace the Version label. The component adds no
+controls, navigation or network activity. The gallery's Desktop information
+page shows dark and light appearances and the QA title at narrow widths.
+
 ## Account site assets
 
 `packages/site` builds the SolidJS account and authorization views on
