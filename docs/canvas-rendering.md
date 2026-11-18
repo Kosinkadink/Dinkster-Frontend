@@ -23,8 +23,9 @@ still use their registered compact painters; the active editor remains a DOM
 overlay rather than part of the graph bitmap.
 
 The browser frame-equivalence check compares a retained-history renderer with
-a fresh renderer at each identical state. It compares complete raw RGBA
-frames without a tolerance, including fractional-DPR pans, exposed edges,
+a fresh renderer at each identical state, plus an independent renderer using
+the direct-paint fallback. It compares complete raw RGBA frames without a
+tolerance, including fractional-DPR pans, exposed edges,
 zoom detail changes, selection, drag, edit, theme, style and resize. Separate
 counting checks require camera-only reuse and bounded image copies for the
 fixed 66-, 300- and 1200-node fixtures. Comparison canvases explicitly disable

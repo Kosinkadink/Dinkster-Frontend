@@ -117,6 +117,13 @@ for (const dpr of [1, 1.25, 2]) {
             )!
             expect(pan.candidateTiles).toBeLessThan(pan.referenceTiles)
           }
+          expect(
+            result.frames.map(({ state, directDifferences }) => ({
+              state,
+              differences: directDifferences,
+            })),
+            'Cached frames must also match independent direct painting',
+          ).toEqual(frameStates.map((state) => ({ state, differences: 0 })))
           expect(errors).toEqual([])
         })
       }
@@ -144,6 +151,10 @@ test('every registered gallery widget survives selection, drag, edit and theme i
     )
     expect(
       result.frames.map(({ differences }) => differences),
+      input.id,
+    ).toEqual(frameStates.map(() => 0))
+    expect(
+      result.frames.map(({ directDifferences }) => directDifferences),
       input.id,
     ).toEqual(frameStates.map(() => 0))
     expect(result.corruptionDifferences, input.id).toBe(1)

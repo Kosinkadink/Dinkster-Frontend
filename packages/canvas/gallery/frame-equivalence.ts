@@ -3,6 +3,7 @@ import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
@@ -51,11 +52,15 @@ export async function compareCanvasFrames(
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))
-  const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme) }
+  const tokens = {
+    ...defaultTokens,
+    ...canvasTypePaintForTheme(theme),
+    colors: canvasColorsForTheme(theme),
+  }
   const measurement = document.createElement('canvas').getContext('2d')!
   const measure: TextMeasurer = (text, role) => {
     const title = role === 'title' || role === 'renamedTitle'
-    measurement.font = `${title ? `${canvasPaintTokens.type.semiboldWeight} ` : ''}${title ? tokens.titleFontSize : tokens.fontSize}px ${tokens.fontFamily}`
+    measurement.font = `${role === 'renamedTitle' ? 'italic ' : ''}${title ? `${canvasPaintTokens.type.semiboldWeight} ` : ''}${title ? tokens.titleFontSize : tokens.fontSize}px ${tokens.fontFamily}`
     return measurement.measureText(text).width
   }
   const widgetMeasure: WidgetMeasure = (spec) => {
@@ -93,6 +98,7 @@ export async function compareCanvasFrames(
   let scene = fixture.scene
   let overlay: OverlayState = fixture.overlay
   let colors = tokens.colors
+  let typePaint = canvasTypePaintForTheme(theme)
   let viewport = { x: 0, y: 0, scale: fixture.scale }
   let width = fixture.width
   let height = fixture.height
@@ -110,7 +116,7 @@ export async function compareCanvasFrames(
     host.append(canvas)
     const renderer = new CanvasRenderer(
       canvas,
-      { ...tokens, colors },
+      { ...tokens, ...typePaint, colors },
       createRegistryPainter(registry),
     )
     renderer.setReducedMotion(true)
@@ -139,6 +145,7 @@ export async function compareCanvasFrames(
   const frames: {
     state: string
     differences: number
+    directDifferences: number
     pixels: number
     candidateTiles: number
     referenceTiles: number
@@ -149,17 +156,37 @@ export async function compareCanvasFrames(
   const compare = (state: string) => {
     // A new reference renderer cannot reuse pixels or state from a prior frame.
     const full = createRenderer()
+    const direct = createRenderer()
     try {
       const before = tilePaints
       candidate.renderer.renderNow()
       const candidateTiles = tilePaints - before
       full.renderer.renderNow()
       const referenceTiles = tilePaints - before - candidateTiles
+      // Exercise the production direct-paint fallback as an independent oracle.
+      const bitmapTransfer = Object.getOwnPropertyDescriptor(
+        OffscreenCanvas.prototype,
+        'transferToImageBitmap',
+      )!
+      Object.defineProperty(OffscreenCanvas.prototype, 'transferToImageBitmap', {
+        ...bitmapTransfer,
+        value: undefined,
+      })
+      try {
+        direct.renderer.renderNow()
+      } finally {
+        Object.defineProperty(
+          OffscreenCanvas.prototype,
+          'transferToImageBitmap',
+          bitmapTransfer,
+        )
+      }
       const actual = pixels(candidate.canvas)
       const expected = pixels(full.canvas)
       frames.push({
         state,
         differences: differingPixels(actual, expected),
+        directDifferences: differingPixels(actual, pixels(direct.canvas)),
         pixels: expected.length / 4,
         candidateTiles,
         referenceTiles,
@@ -173,6 +200,8 @@ export async function compareCanvasFrames(
     } finally {
       full.renderer.dispose()
       full.canvas.remove()
+      direct.renderer.dispose()
+      direct.canvas.remove()
     }
   }
   const move = (
@@ -223,8 +252,10 @@ export async function compareCanvasFrames(
     }
     candidate.renderer.setScene(scene)
     compare('edit and release')
-    colors = canvasColorsForTheme(theme === 'dark' ? 'light' : 'dark')
-    candidate.renderer.setColors(colors)
+    const nextTheme = theme === 'dark' ? 'light' : 'dark'
+    colors = canvasColorsForTheme(nextTheme)
+    typePaint = canvasTypePaintForTheme(nextTheme)
+    candidate.renderer.setColors(colors, typePaint)
     compare('theme')
     scene = {
       ...scene,

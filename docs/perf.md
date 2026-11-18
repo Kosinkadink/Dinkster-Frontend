@@ -188,6 +188,41 @@ across cells, with seconds-long input delays that are not isolated clicks;
 the preceding queue and shared-host limitations still apply. No target,
 slow-spell cause, display refresh rate or whole-issue acceptance is claimed.
 
+## Graph images with adopted title and palette paint (2026-11-18)
+
+The cache candidate includes the normal-width title ellipsis and per-theme
+type colors adopted in main `07018799`. One candidate run uses the unchanged audit
+harness, X570 RTX 4090, Chromium 149 Vulkan, uncapped 2560x1440 and 2500 ms
+inputs. Before is the preceding single tile-binning run, not a replay.
+These are unpaired reports, not causal speedup or target acceptance. CPU
+browser validation and capture work overlapped part of the candidate run.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 1.8/17.6 | 15.5/17.7 | 8.5/13.7 | 7.9/13.3 | 5.6/16.8 | 5.1/15.4 |
+| 66/fit | 16.8/17.5 | 2.0/17.6 | 5.6/17.6 | 5.3/16.0 | 3.0/24.7 | 2.9/22.3 |
+| 300/read | 3.7/17.5 | 6.2/17.7 | 5.4/13.9 | 5.0/12.7 | 8.1/24.9 | 7.9/23.8 |
+| 300/fit | 2.0/17.5 | 1.8/17.5 | 9.5/32.7 | 10.0/35.7 | 9.7/30.9 | 9.6/30.6 |
+| 1200/read | 1.3/17.5 | 3.1/17.6 | 7.1/12.2 | 6.0/15.8 | 7.7/16.7 | 6.4/19.2 |
+| 1200/fit | 3.6/17.5 | 1.3/17.6 | 22.5/48.1 | 19.2/43.0 | 25.0/64.8 | 24.7/51.8 |
+
+Readable-pan renderer p50/p95 remains 0.1/0.2-0.3 ms, but frame p95 remains
+17.5-17.7 ms. Wheel flooding still queues events: the final fitted drag has
+input-to-render-end p50/p95 18523.8/25119.8 ms despite renderer p50/p95
+24.3/47.3 ms. This is contaminated queued-input reporting, not isolated
+click latency or an explanation of the original intermittent slow spells.
+
+The integrated retained-history/fresh-tile comparisons pass, but an
+additional main-direct versus tiled control at physically aligned DPR1.25
+finds 785/697 different RGBA channels in dark/light anatomy and 1872/892
+in overview. Fractional-paint alignment also intentionally differs from
+main's former fractional raster origin. The aligned control still requires
+source discrimination; it is not explained away by that tradeoff. No pixel
+tolerance or assertion was relaxed, and direct painting is now checked as
+an additional independent oracle. This candidate is not ready for adoption.
+
 ## Canvas click and save reporting (2026-11-17)
 
 The reporting tools in `scripts/canvas-performance/` retain the input and
