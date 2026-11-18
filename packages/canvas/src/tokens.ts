@@ -509,8 +509,9 @@ export interface DesignTokens {
     readonly gridDot: string
     readonly nodeBody: string
     readonly nodeHeader: string
-    /** Structural node/pseudo-node outline, stronger than inset chrome. */
+    /** Structural and pseudo-node outline, stronger than inset chrome. */
     readonly nodeOutline: string
+    readonly nodeIdleOutline: string
     readonly nodeBorder: string
     readonly nodeSelectedBorder: string
     /** Neutral group tint and border when the document supplies no color. */
@@ -653,6 +654,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     nodeBody: tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
     nodeOutline: tokens.border.strong,
+    nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
     nodeSelectedBorder: tokens.border.selected,
     groupDefault: tokens.border.strong,
