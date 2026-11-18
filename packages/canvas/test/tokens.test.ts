@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, presentedType, typeColor, typeDisplayAliases, typeExprCanonicalLabel } from '../src/tokens.js'
+import { canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, previousCanvasTypePaint, presentedType, typeColor, typeDisplayAliases, typeExprCanonicalLabel } from '../src/tokens.js'
 
 const channels = (color: string): number[] => {
   if (color.startsWith('#')) return color.slice(1).match(/../g)!.map((value) => parseInt(value, 16) / 255)
@@ -27,11 +27,13 @@ const hue = (color: string): number => {
 }
 
 describe('defaultTokens', () => {
-  it('keeps named and unknown type hues while meeting theme contrast in the gallery palette', () => {
+  it('keeps named and unknown type hues while meeting contrast in production theme palettes', () => {
+    const previousTokens = { ...defaultTokens, ...previousCanvasTypePaint }
+    expect(defaultTokens.typeColors).toEqual(canvasTypePaintForTheme('dark').typeColors)
     for (const theme of ['dark', 'light'] as const) {
       const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme) }
       for (const name of Object.keys(defaultTokens.typeColors)) {
-        const previous = typeColor(defaultTokens, name)
+        const previous = typeColor(previousTokens, name)
         const color = typeColor(tokens, name)
         expect(contrast(color, tokens.colors.nodeBody), `${theme} ${name}`).toBeGreaterThanOrEqual(3)
         const difference = Math.abs(hue(color) - hue(previous))
@@ -42,7 +44,7 @@ describe('defaultTokens', () => {
       const hues = new Set<number>()
       for (let index = 0; hues.size < 360 && index < 100000; index++) {
         const name = `gallery.unknown_${index}`
-        const previous = typeColor(defaultTokens, name)
+        const previous = typeColor(previousTokens, name)
         const color = typeColor(tokens, name)
         hues.add(hue(color))
         expect(hue(color)).toBeCloseTo(hue(previous))
