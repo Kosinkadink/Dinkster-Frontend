@@ -1653,7 +1653,7 @@
   "storageSettings.unknown": "Unknown",
   "storageSettings.bytes": "{count} bytes",
   "storageSettings.temporaryBytes": "Temporary storage",
-  "storageSettings.vaultBytes": "Vault blobs",
+  "storageSettings.vaultBytes": "Stored assets",
   "storageSettings.adoptedBytes": "Verified produced assets",
   "storageSettings.reclaimableBytes": "Eligible for cleanup",
   "storageSettings.unlimited": "Unlimited produced asset storage",

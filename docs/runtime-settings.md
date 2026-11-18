@@ -19,9 +19,11 @@ progress values remain server or runtime facts and are displayed verbatim.
 
 Open **Settings -> Storage** for accounting and the persisted produced-asset
 size policy of the active tab's backend. This policy is global to that server,
-not a project-local setting. Temporary storage, canonical vault blobs,
-verified produced assets and eligible bytes are separate observations. An
-unavailable measurement displays **Unknown**, not zero. Unavailable policy is
+not a project-local setting. Temporary storage, stored assets,
+verified produced assets and eligible bytes are separate observations. Internal
+storage layout and paths are not part of this view; model folders remain in
+Model management. An unavailable measurement displays **Unknown**, not zero.
+Unavailable policy is
 not interpreted as unlimited and disables editing. Operator authorization is
 enforced by the backend; permission failures remain visible.
 

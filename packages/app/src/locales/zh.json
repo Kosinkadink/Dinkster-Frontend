@@ -1653,7 +1653,7 @@
   "storageSettings.unknown": "未知",
   "storageSettings.bytes": "{count} 字节",
   "storageSettings.temporaryBytes": "临时存储",
-  "storageSettings.vaultBytes": "资产库数据",
+  "storageSettings.vaultBytes": "已存储资产",
   "storageSettings.adoptedBytes": "已验证的生成资产",
   "storageSettings.reclaimableBytes": "可清理空间",
   "storageSettings.unlimited": "生成资产存储无上限",

@@ -97,6 +97,8 @@ describe('SettingsDialog search', () => {
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
     await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('0 bytes'))
     expect(root.querySelector('#library-storage-reclaimableBytes')?.textContent).toBe('Unknown')
+    expect(root.textContent).toContain('Stored assets')
+    expect(root.textContent?.toLowerCase()).not.toContain('vault')
     const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
     expect(clear.disabled).toBe(true)
     root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!.click()
