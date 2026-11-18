@@ -33,7 +33,7 @@ export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
-  const [outline, setOutline] = createSignal('current')
+  const [outline, setOutline] = createSignal('quieter')
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -53,8 +53,8 @@ export function CanvasGallery() {
         ...defaultTokens,
         colors: {
           ...colors,
-          ...(currentPage === 'idle-outline' && currentOutline === 'quieter'
-            ? { nodeOutline: colors.nodeBorder }
+          ...(currentPage === 'idle-outline' && currentOutline === 'previous'
+            ? { nodeIdleOutline: colors.nodeOutline }
             : {}),
         },
       }
@@ -218,15 +218,15 @@ export function CanvasGallery() {
               value={outline()}
               onChange={(event) => setOutline(event.currentTarget.value)}
             >
-              <option value="current">Current outline</option>
-              <option value="quieter">Quieter outline</option>
+              <option value="previous">Previous outline</option>
+              <option value="quieter">Quieter outline (current)</option>
             </ProductSelect>
           )}
         </ProductField>
         <p class="dinkster-description">
-          Compare the current idle outline with the shared subtle border. Hover
-          and selection paint stay unchanged. This preview does not change the
-          app canvas.
+          The app uses the quieter idle outline from the shared subtle border.
+          Compare it with the previous outline. Hover and selection paint stay
+          unchanged.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>

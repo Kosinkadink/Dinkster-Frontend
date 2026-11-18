@@ -11,7 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 // The renderer's rAF loop is irrelevant here: renderNow() paints
@@ -1542,12 +1542,15 @@ describe('node chrome paint on the live renderer', () => {
     })
   })
 
-  it('a recognized node paints no unrecognized error color', () => {
+  it.each([
+    ['dark', '#3B4148'],
+    ['light', '#D3D9DE'],
+  ] as const)('a recognized idle node uses the quiet %s outline without error paint', (theme, outline) => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const calls = paint(scene)
+    const calls = paintWithTokens(scene, { ...defaultTokens, colors: canvasColorsForTheme(theme) })
     expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#533a3c' || call.fillStyle === '#6b3d3b'))).toBe(false)
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.nodeOutline)
+    expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
   it('a document-error badge wins over running with an emphasized red node outline', () => {

@@ -40,8 +40,13 @@ for (const theme of ['dark', 'light'] as const) {
               element.parentElement!.clientWidth >= element.clientWidth,
           ),
         ).toBe(true)
+        if (id === 'idle-outline') {
+          await expect(
+            page.getByRole('combobox', { name: 'Outline look' }),
+          ).toHaveValue('quieter')
+        }
         for (const outline of id === 'idle-outline'
-          ? ['current', 'quieter']
+          ? ['previous', 'quieter']
           : [undefined]) {
           if (outline) {
             await page
@@ -54,6 +59,10 @@ for (const theme of ['dark', 'light'] as const) {
           )
         }
         if (id === 'idle-outline') {
+          await page
+            .getByRole('combobox', { name: 'Outline look' })
+            .selectOption('previous')
+          await expect(canvas).toHaveAttribute('data-outline', 'previous')
           await page
             .getByRole('button', { name: 'Node anatomy', exact: true })
             .click()
