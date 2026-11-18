@@ -43,7 +43,9 @@ release records an empty owner tombstone, not deletion of result data. Exact
 sealed sources can be re-admitted until the engine's normal cleanup removes the
 required data. New result journals record census participation and still require
 both no persisted reference and a synchronized live-holder census before release.
-An unavailable census leaves those journals protected.
+An unavailable census leaves those journals protected. Complete replacement-root
+coverage may come from another client's persisted receipt, but only after an exact
+engine acknowledgment; this does not authorize releasing that client's owners.
 
 A tab running pre-update code may reject a released receipt once after returning
 from the browser's back/forward cache. The error does not delete its saved result

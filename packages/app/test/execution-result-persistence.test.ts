@@ -195,7 +195,7 @@ describe('startup result source admission', () => {
     } finally { test.app.dispose() }
   })
 
-  it.each(['reopened', 'historical', 'unknown-census', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+  it.each(['reopened', 'historical', 'peer-replacement', 'unknown-census', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
     'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
     const locks = new Map<string, LockInfo>()
     if (mode === 'census-timeout') locks.set('dinkster-result-holders:v2:unresponsive', { name: 'dinkster-result-holders:v2:unresponsive', mode: 'exclusive' })
@@ -313,7 +313,7 @@ describe('startup result source admission', () => {
       }
       storage.setItem(key, value)
     } })
-    const own = [...controls, ...stale, frozen]
+    const own = mode === 'peer-replacement' ? [...stale, frozen] : [...controls, ...stale, frozen]
     const holders = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [String(index + 1),
       own.filter((owner) => owner.holderClasses?.some((holder) => holder === index + 1))]))
     let replacementRefused = mode === 'replacement-refused' || mode === 'replacement-retry'
@@ -383,7 +383,7 @@ describe('startup result source admission', () => {
         expect(JSON.parse(localStorage.getItem(keyFor(stale[1]!))!)).toMatchObject({ acknowledgedRevision: 1 })
         expect(holder!.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
       }
-      const reclaim = mode === 'reopened' || mode === 'historical' || mode === 'unregistered-holder' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder || mode === 'late-publication'
+      const reclaim = mode === 'reopened' || mode === 'peer-replacement' || mode === 'historical' || mode === 'unregistered-holder' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder || mode === 'late-publication'
       for (const owner of stale) {
         if (concurrentHolder && owner !== stale[0]) continue
         const released = reclaim && !((mode === 'live-pin' || mode === 'peer-held') && owner === stale[0])

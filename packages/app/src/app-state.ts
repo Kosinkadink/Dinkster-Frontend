@@ -9647,18 +9647,15 @@ export class AppState {
     pending = (async () => {
       const previous = await this.retentionClientFor(backend.baseUrl).reopenedHolders()
       if (previous === undefined || !current()) return
-      const ownResults = new Map((previous.holders['5'] ?? []).map((owner) => [owner['ownerId'], owner]))
       const results = loadExecutionResults(identity)
       const replacements = new Map<string, RetainedAssets[]>()
       for (const result of results) {
         const receipts: RetainedAssets[] = []
         for (const retained of result.assetRetentions ?? []) {
           if (!current()) return
-          const local = this.resultAssetOwners.get(retained.ownerId)
-          const admittedHere = local?.backend === backend && local.project === project &&
-            local.generation === this.assetConnectionGenerations.get(backend.connection) &&
-            canonicalJson({ ...local.retained, holderClasses: retained.holderClasses }) === canonicalJson(retained)
-          if (retained.complete && (ownResults.has(retained.ownerId) || admittedHere) &&
+          // A peer's acknowledged persisted receipt can cover replacement roots;
+          // only this client's recovered holders are eligible for release below.
+          if (retained.complete &&
             canonicalJson(await backend.connection.fetchRetainedAssets(retained)) === canonicalJson(retained)) {
             receipts.push(retained)
           }
