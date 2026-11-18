@@ -13,8 +13,10 @@ import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, 
 import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
+import { canvasPaintTokens } from './tokens.js'
 
-const TEXT_PAD = 2
+const paint = canvasPaintTokens.widget
+const TEXT_PAD = paint.textPadding
 
 function compactAssetValue(value: Json, valid: boolean): string {
   if (!valid || value === null) return 'no asset'
@@ -60,8 +62,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const formatted = formatWidgetValue(args.companion.value, row.spec)
       const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined)
-      const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + 12, measureWidth(ctx, formatted) + 12)
-      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - 8)), x + field.left + 6, y + rowHeight / 2)
+      const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
+      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + paint.labelInset, y + rowHeight / 2)
       paintCompanionValue(args)
       return
     }
@@ -79,7 +81,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const combo = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO'
     const rightControl = numeric || combo ? WIDGET_EDGE_CONTROL_WIDTH : 0
     const usableWidth = Math.max(0, width - leftControl - rightControl)
-    const naturalLabelWidth = measureWidth(ctx, row.label) + 12
+    const naturalLabelWidth = measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
     // the label takes exactly its natural width; when they do not, each side
     // shrinks in proportion to its natural width with the label biased to
@@ -95,12 +97,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ? undefined
         : formatWidgetValue(resolved, row.spec)
     const naturalValueWidth = row.viewId === 'core.integerColor'
-      ? measureWidth(ctx, '#ffffff') + 32
+      ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
-        ? usableWidth * 0.55
-        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + 16
-        + (row.viewId === 'core.color' ? 16 : 0)
-        + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? 12 : 0)
+        ? usableWidth * paint.structuredValueRatio
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
+        + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
+        + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined
       ? controllerChipRect(width, rowHeight)
       : undefined
@@ -116,8 +118,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
       ctx.fillText(
-        ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - 8)),
-        x + (multiline ? 0 : leftControl) + 6,
+        ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - paint.labelClipPadding)),
+        x + (multiline ? 0 : leftControl) + paint.labelInset,
         multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
       )
     }
@@ -157,17 +159,23 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           if (style['role'] === 'toggleAffordance') {
             const checked = style['checked'] === true
-            const trackX = contentStart + contentWidth - 22
-            const trackY = y + rowHeight / 2 - 5
+            const trackX = contentStart + contentWidth - paint.toggle.trailingInset
+            const trackY = y + rowHeight / 2 - paint.toggle.halfHeight
             ctx.fillStyle = checked
               ? tokens.colors.widgetAffordanceActive
               : tokens.colors.widgetAffordance
             ctx.beginPath()
-            ctx.roundRect(trackX, trackY, 20, 10, 5)
+            ctx.roundRect(trackX, trackY, paint.toggle.width, paint.toggle.height, paint.toggle.radius)
             ctx.fill()
             ctx.fillStyle = tokens.colors.value
             ctx.beginPath()
-            ctx.roundRect(trackX + (checked ? 11 : 1), trackY + 1, 8, 8, 4)
+            ctx.roundRect(
+              trackX + (checked ? paint.toggle.checkedOffset : paint.toggle.thumbInset),
+              trackY + paint.toggle.thumbInset,
+              paint.toggle.thumbSize,
+              paint.toggle.thumbSize,
+              paint.toggle.thumbRadius,
+            )
             ctx.fill()
             return
           }
@@ -176,11 +184,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const middle = y + rowHeight / 2
             ctx.save()
             ctx.strokeStyle = tokens.colors.widgetAffordance
-            ctx.lineWidth = 1.5
+            ctx.lineWidth = paint.chevron.stroke
             ctx.beginPath()
-            ctx.moveTo(center - EDGE_ACTION_GLYPH_HALF, middle - 2)
-            ctx.lineTo(center, middle + 1)
-            ctx.lineTo(center + EDGE_ACTION_GLYPH_HALF, middle - 2)
+            ctx.moveTo(center - EDGE_ACTION_GLYPH_HALF, middle + paint.chevron.topOffset)
+            ctx.lineTo(center, middle + paint.chevron.bottomOffset)
+            ctx.lineTo(center + EDGE_ACTION_GLYPH_HALF, middle + paint.chevron.topOffset)
             ctx.stroke()
             ctx.restore()
             return
@@ -191,15 +199,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const unitHeight = multiline ? multilineHeight : rowHeight
           const rectTop = multiline
             ? multilineTop + multilinePadding + ry * unitHeight
-            : y + ry * unitHeight + 2
-          const rectBottom = rectTop + rh * unitHeight - (multiline ? 0 : 4)
+            : y + ry * unitHeight + paint.verticalInset
+          const rectBottom = rectTop + rh * unitHeight - (multiline ? 0 : paint.verticalInset * 2)
           const clipTop = Math.max(multiline ? multilineTop : y, rectTop)
           const clipBottom = Math.min(multiline ? multilineBottom - multilinePadding : y + row.height, rectBottom)
           if (clipBottom <= clipTop) return
           if (style['role'] !== 'curveSample') {
             ctx.fillStyle = String(style['fill'] ?? tokens.colors.widgetBackground)
           }
-          const rectHeight = rh * unitHeight - (multiline ? 0 : 4)
+          const rectHeight = rh * unitHeight - (multiline ? 0 : paint.verticalInset * 2)
           const rectWidth = style['fixedAspect'] === 'square' ? rectHeight : rw * contentWidth
           ctx.save()
           ctx.beginPath()
@@ -221,8 +229,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
             const text = ellipsize(ctx, run.split('\n')[0] ?? '', availableWidth)
-            const lineTop = y + ty * rowHeight + 2
-            const lineBottom = y + (ty + 1) * rowHeight - 2
+            const lineTop = y + ty * rowHeight + paint.verticalInset
+            const lineBottom = y + (ty + 1) * rowHeight - paint.verticalInset
             const clipTop = Math.max(y, lineTop)
             const clipBottom = Math.min(y + row.height, lineBottom)
             if (clipBottom > clipTop) {
@@ -297,7 +305,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const trackHeight = Math.max(0, multilineBottom - multilineTop)
       const thumbHeight = Math.min(
         trackHeight,
-        Math.max(scrollbarWidth * 2, trackHeight * visibleHeight / contentHeight),
+        Math.max(scrollbarWidth * paint.scrollbarMinThumbRatio, trackHeight * visibleHeight / contentHeight),
       )
       const scrollbarX = x + width - tokens.multilineText.scrollbarInset - scrollbarWidth
       ctx.fillStyle = tokens.colors.canvasBackground

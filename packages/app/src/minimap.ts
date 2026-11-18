@@ -15,6 +15,7 @@
  */
 
 import {
+  canvasPaintTokens,
   drawMinimap,
   minimapToWorld,
   minimapWheelViewport,
@@ -24,8 +25,8 @@ import {
 import type { NodeProgress } from '@dinkster/core'
 import type { SettingsRegistry } from './settings.js'
 
-const MINIMAP_W = 250
-const MINIMAP_H = 200
+const MINIMAP_W = canvasPaintTokens.minimap.fallbackWidth
+const MINIMAP_H = canvasPaintTokens.minimap.fallbackHeight
 
 /** Where the minimap settings popover opens relative to the corner cluster. */
 export interface MinimapMenuPlacement {

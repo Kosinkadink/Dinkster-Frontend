@@ -1,5 +1,5 @@
 import { Show, createEffect, onCleanup, onMount } from 'solid-js'
-import { createRegistryPainter, defaultTokens, multilineWidgetHeight, type LayoutRow } from '@dinkster/canvas'
+import { canvasPaintTokens, createRegistryPainter, defaultTokens, multilineWidgetHeight, type LayoutRow } from '@dinkster/canvas'
 import type { WidgetRegistry } from '@dinkster/core'
 import { appViewWidgetPresentation, type ParamRow } from './app-view-rows.js'
 
@@ -21,7 +21,7 @@ export function AppWidgetPreview(props: {
     const resolved = presentation()
     const spec = props.row.spec
     if (element === undefined || resolved === undefined || spec === undefined) return
-    const width = Math.max(1, element.clientWidth || element.parentElement?.clientWidth || 320)
+    const width = Math.max(1, element.clientWidth || element.parentElement?.clientWidth || canvasPaintTokens.preview.appWidgetFallbackWidth)
     const height = resolved.view.id === 'core.text'
       ? multilineWidgetHeight(resolved.rows, defaultTokens)
       : resolved.rows * defaultTokens.rowHeight

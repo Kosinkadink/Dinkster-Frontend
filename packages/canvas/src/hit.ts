@@ -6,7 +6,7 @@
 
 import type { TypeExpr } from '@dinkster/core'
 import type { LayoutRow, PinLayout } from './layout.js'
-import type { CanvasDetailLevel } from './tokens.js'
+import { canvasPaintTokens, type CanvasDetailLevel } from './tokens.js'
 import {
   GROUP_HEADER_HEIGHT,
   REROUTE_RADIUS,
@@ -29,27 +29,27 @@ import {
 } from './scene.js'
 
 /** World-space pin grab radius (generous: pins are small targets). */
-export const PIN_HIT_RADIUS = 9
+export const PIN_HIT_RADIUS: number = canvasPaintTokens.hit.pinRadius
 
 /** Screen-space extent of each corner resize target. */
-export const RESIZE_HIT_SIZE = 10
+export const RESIZE_HIT_SIZE = canvasPaintTokens.hit.resizeSize
 
 export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw'
 
 /** World-space distance from a link's curve that still counts as a hit. */
-export const LINK_HIT_RADIUS = 6
+export const LINK_HIT_RADIUS: number = canvasPaintTokens.hit.linkRadius
 
 /**
  * Generous grab radius around a link's rendered midpoint dot: the dot is the
  * advertised click/split handle, so it forgives more than the thin curve.
  */
-export const LINK_MIDPOINT_HIT_RADIUS = 12
+export const LINK_MIDPOINT_HIT_RADIUS = canvasPaintTokens.hit.linkMidpointRadius
 
 /** World-space grab radius around a reroute dot (generous, like pins). */
-export const REROUTE_HIT_RADIUS = REROUTE_RADIUS + 4
+export const REROUTE_HIT_RADIUS = REROUTE_RADIUS + canvasPaintTokens.hit.reroutePadding
 
 /** World-space grab radius around a revealed reroute ghost socket. */
-export const REROUTE_SOCKET_HIT_RADIUS = REROUTE_SOCKET_RADIUS + 5
+export const REROUTE_SOCKET_HIT_RADIUS = REROUTE_SOCKET_RADIUS + canvasPaintTokens.hit.rerouteSocketPadding
 
 export type Hit =
   | {
@@ -246,9 +246,9 @@ export function nodeResizeHandle(
  */
 export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions): Hit {
   const contentDetail = opts?.detailLevel !== 'overview'
-  const pinHitRadius = overviewHitRadius(PIN_HIT_RADIUS, 5, opts)
-  const linkHitRadius = overviewHitRadius(LINK_HIT_RADIUS, 4, opts)
-  const rerouteHitRadius = overviewHitRadius(REROUTE_HIT_RADIUS, 5, opts)
+  const pinHitRadius = overviewHitRadius(PIN_HIT_RADIUS, canvasPaintTokens.hit.overviewPinRadius, opts)
+  const linkHitRadius = overviewHitRadius(LINK_HIT_RADIUS, canvasPaintTokens.hit.overviewLinkRadius, opts)
+  const rerouteHitRadius = overviewHitRadius(REROUTE_HIT_RADIUS, canvasPaintTokens.hit.overviewRerouteRadius, opts)
   // Pin passes run in reverse paint order (selectors paint above value
   // sources, which paint above boundary nodes, which paint above nodes), so
   // where pins overlap across layers the topmost painted pin wins.
@@ -555,7 +555,7 @@ export function hitTestNetStub(scene: Scene, wx: number, wy: number): SceneNetSt
  * error; see distanceToLinkSquared.)
  */
 export function linkControlOffset(x1: number, x2: number): number {
-  return Math.max(40, Math.abs(x2 - x1) * 0.5)
+  return Math.max(canvasPaintTokens.link.minControlOffset, Math.abs(x2 - x1) * canvasPaintTokens.link.controlOffsetRatio)
 }
 
 /**
