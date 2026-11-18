@@ -188,6 +188,34 @@ across cells, with seconds-long input delays that are not isolated clicks;
 the preceding queue and shared-host limitations still apply. No target,
 slow-spell cause, display refresh rate or whole-issue acceptance is claimed.
 
+## Canonical uncached repaint and badge extent integration (2026-11-18)
+
+One candidate run uses the unchanged production-optimized audit harness on
+X570 RTX 4090, Chromium 149 Vulkan, uncapped 2560x1440, with 2500 ms inputs.
+The candidate includes the canonical uncached full-scene raster path and
+landed badge extent API; production badge layout remains chips. Before is
+the preceding title/palette candidate run, not a replay. These unpaired,
+shared-host observations overlap browser checks and builds; they do not
+establish a causal speedup or satisfy a performance gate.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 15.5/17.7 | 1.3/17.6 | 7.9/13.3 | 8.7/14.3 | 5.1/15.4 | 5.8/14.0 |
+| 66/fit | 2.0/17.6 | 1.4/17.5 | 5.3/16.0 | 6.3/16.5 | 2.9/22.3 | 4.1/22.8 |
+| 300/read | 6.2/17.7 | 1.1/17.5 | 5.0/12.7 | 6.6/12.9 | 7.9/23.8 | 10.4/18.7 |
+| 300/fit | 1.8/17.5 | 1.1/17.5 | 10.0/35.7 | 10.1/30.0 | 9.6/30.6 | 6.6/23.0 |
+| 1200/read | 3.1/17.6 | 1.5/17.5 | 6.0/15.8 | 7.9/12.6 | 6.4/19.2 | 7.7/15.0 |
+| 1200/fit | 1.3/17.6 | 4.0/17.6 | 19.2/43.0 | 17.2/44.3 | 24.7/51.8 | 26.0/47.4 |
+
+Readable pan renderer p50/p95 is 0.1-0.2/0.2-0.3 ms, while frame p95 remains
+17.5-17.6 ms. Fitted 1200 drag input-to-render-end p50/p95 is
+18582.5/25380.6 ms with renderer p50/p95 25.1/46.4 ms. Wheel-queued input
+contaminates that value; it is not isolated click latency or an explanation
+of the intermittent slow spells. The measured frame targets remain unmet.
+The unchanged sealed native generation verifies 42185 files with no errors.
+
 ## Graph images with adopted title and palette paint (2026-11-18)
 
 The cache candidate includes the normal-width title ellipsis and per-theme

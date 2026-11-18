@@ -27,6 +27,10 @@ const frameStates = [
   'settled zoom',
   'selection',
   'drag',
+  'execution settled',
+  'badge hover',
+  'live resize at tile edge',
+  'live resize at lower tile edge',
   'edit and release',
   'theme',
   'node style',
@@ -90,6 +94,10 @@ for (const dpr of [1, 1.25, 2]) {
             })),
             fixture,
           ).toEqual(frameStates.map((state) => ({ state, differences: 0 })))
+          expect(
+            result.frames.find((frame) => frame.state === 'execution settled')!.candidateTiles,
+            'Settled execution must exercise retained graph images',
+          ).toBeGreaterThan(0)
           expect(
             result.frames.every((frame) => frame.pixels > 0),
             fixture,

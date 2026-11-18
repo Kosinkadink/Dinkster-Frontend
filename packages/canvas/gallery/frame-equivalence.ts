@@ -56,6 +56,10 @@ export async function compareCanvasFrames(
     ...defaultTokens,
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
+    badgeLayout:
+      page === 'tabs' || page === 'tabs-content'
+        ? ('tabs' as const)
+        : defaultTokens.badgeLayout,
   }
   const measurement = document.createElement('canvas').getContext('2d')!
   const measure: TextMeasurer = (text, role) => {
@@ -96,6 +100,7 @@ export async function compareCanvasFrames(
   const node = fixture.scene.nodes[0]
   if (!node) throw new Error('Frame comparison requires a node fixture')
   let scene = fixture.scene
+  let states = fixture.states
   let overlay: OverlayState = fixture.overlay
   let colors = tokens.colors
   let typePaint = canvasTypePaintForTheme(theme)
@@ -122,7 +127,7 @@ export async function compareCanvasFrames(
     renderer.setReducedMotion(true)
     renderer.setGridVisible(false)
     renderer.setScene(scene)
-    renderer.setNodeStates(fixture.states)
+    renderer.setNodeStates(states)
     renderer.setBadges(fixture.badges)
     renderer.setOverlay(overlay)
     renderer.setRowMarks(fixture.rowMarks)
@@ -168,10 +173,14 @@ export async function compareCanvasFrames(
         OffscreenCanvas.prototype,
         'transferToImageBitmap',
       )!
-      Object.defineProperty(OffscreenCanvas.prototype, 'transferToImageBitmap', {
-        ...bitmapTransfer,
-        value: undefined,
-      })
+      Object.defineProperty(
+        OffscreenCanvas.prototype,
+        'transferToImageBitmap',
+        {
+          ...bitmapTransfer,
+          value: undefined,
+        },
+      )
       try {
         direct.renderer.renderNow()
       } finally {
@@ -234,6 +243,71 @@ export async function compareCanvasFrames(
     }
     candidate.renderer.setOverlay(overlay)
     compare('drag')
+    states = Object.fromEntries(
+      Object.entries(states).map(([id, progress]) => [
+        id,
+        progress.state === 'running'
+          ? { ...progress, state: 'done' as const }
+          : progress,
+      ]),
+    )
+    candidate.renderer.setNodeStates(states)
+    compare('execution settled')
+    overlay = {
+      ...fixture.overlay,
+      hoveredBadge: {
+        nodeId: node.id,
+        badgeId:
+          fixture.badges[node.id]?.find((badge) => badge.placement === 'above')
+            ?.id ?? '',
+      },
+    }
+    candidate.renderer.setOverlay(overlay)
+    compare('badge hover')
+    overlay = {
+      ...overlay,
+      selection: new Set([node.id]),
+      dragOffsets: new Map([[node.id, { dx: 5, dy: 80 }]]),
+      resizePreview: {
+        nodeId: node.id,
+        x: node.x + 17,
+        y:
+          (canvasPaintTokens.graphCache.tilePixels +
+            canvasPaintTokens.graphCache.bleedPixels) /
+            devicePixelRatio +
+          14 -
+          80,
+        width: node.layout.width + 37,
+        height: node.layout.height + 29,
+      },
+    }
+    candidate.renderer.setOverlay(overlay)
+    compare('live resize at tile edge')
+    const bottomNode =
+      scene.nodes.find((item) =>
+        fixture.badges[item.id]?.some((badge) => badge.placement === 'below'),
+      ) ?? node
+    const resizedHeight = bottomNode.layout.height + 29
+    overlay = {
+      ...fixture.overlay,
+      selection: new Set([bottomNode.id]),
+      dragOffsets: new Map([[bottomNode.id, { dx: -7, dy: 80 }]]),
+      resizePreview: {
+        nodeId: bottomNode.id,
+        x: bottomNode.x + 17,
+        y:
+          (canvasPaintTokens.graphCache.tilePixels -
+            canvasPaintTokens.graphCache.bleedPixels) /
+            devicePixelRatio -
+          14 -
+          resizedHeight -
+          80,
+        width: bottomNode.layout.width - 19,
+        height: resizedHeight,
+      },
+    }
+    candidate.renderer.setOverlay(overlay)
+    compare('live resize at lower tile edge')
     overlay = { ...fixture.overlay, selection: new Set([node.id]) }
     candidate.renderer.setOverlay(overlay)
     scene = {

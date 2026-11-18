@@ -14,11 +14,16 @@ working set are closed rather than retained indefinitely.
 Tiles are copied at their original pixel size, never stretched. Zoom changes
 repaint at the new scale, preserving sharp text and geometry. Scene, overlay, preview, execution-state, theme and style
 updates invalidate retained graph images. Disposing the renderer closes its
-remaining images. Running-node animation and browsers without transferable
-offscreen bitmaps repaint the complete scene on fresh canonical offscreen
-surfaces, without retained images or candidate bins. The shared raster origins
-and transparent composition prevent antialiasing changes when image reuse
-starts or stops. Browsers without OffscreenCanvas retain direct graph painting.
+remaining images. Running-node frames retain direct graph painting and never
+reuse graph images. Without transferable offscreen bitmaps, settled scenes
+repaint the complete scene on fresh canonical offscreen surfaces, without
+retained images or candidate bins. Shared raster origins and transparent
+composition keep those settled redraws equivalent to retained imagery.
+Browsers without OffscreenCanvas also retain direct graph painting.
+
+Tile assignment unions live node-body and pin padding with external badge
+extents, including hover expansion and resize projection, before applying
+drag offsets once.
 
 Background and foreground pack contributions, the grid, toolbox and remote
 presence remain viewport layers outside the retained graph images. Widgets

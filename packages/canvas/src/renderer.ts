@@ -1620,7 +1620,7 @@ export class CanvasRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphTiles(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
       ctx.restore()
-    } else if (typeof OffscreenCanvas !== 'undefined') {
+    } else if (typeof OffscreenCanvas !== 'undefined' && !this.hasRunningNodes) {
       ctx.save()
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphUncached(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
@@ -1727,18 +1727,21 @@ export class CanvasRenderer {
                 }
               }
             }
-            const pad = structureCullPad(scale, this.tokens.pinRadius, this.getDetailLevel())
+            const detailLevel = this.getDetailLevel()
+            const pad = structureCullPad(scale, this.tokens.pinRadius, detailLevel)
             const paintPad = linkCullPad(scale)
             const off = (id: string) => this.overlay.dragOffsets?.get(id) ?? ZERO_OFFSET
             for (const entry of this.scene.nodes) {
               const node = this.nodeForPaint(entry)
               const offset = off(node.id)
               const layout = node.layout
+              const badges = detailLevel !== 'overview' && this.tokens.badgeLayout === 'tabs'
+                ? this.getNodeBadgeBounds(node) : undefined
               assign({
-                minX: node.x + offset.dx - pad,
-                maxX: node.x + offset.dx + layout.width + pad,
-                minY: node.y + offset.dy - pad,
-                maxY: node.y + offset.dy + layout.height + pad,
+                minX: Math.min(node.x - pad, badges?.x ?? node.x) + offset.dx,
+                maxX: Math.max(node.x + layout.width + pad, badges ? badges.x + badges.width : node.x + layout.width) + offset.dx,
+                minY: Math.min(node.y - pad, badges?.y ?? node.y) + offset.dy,
+                maxY: Math.max(node.y + layout.height + pad, badges ? badges.y + badges.height : node.y + layout.height) + offset.dy,
               }, (scene) => scene.nodes.push(entry))
             }
             for (const link of this.scene.links) {
