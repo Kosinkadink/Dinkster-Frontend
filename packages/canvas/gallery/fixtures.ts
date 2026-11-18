@@ -44,6 +44,8 @@ export const canvasGalleryPages = [
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
+  ['tabs', 'Attached tabs proposal'],
+  ['tabs-content', 'Attached tabs at content zoom'],
   ['states', 'Node states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
@@ -320,7 +322,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: 280, height: 0 },
+                size: { width: id === 'Narrow' ? 112 : 280, height: 0 },
                 ...(id === 'Minimized' || id === 'Long minimized'
                   ? { collapsed: true }
                   : {}),
@@ -480,7 +482,101 @@ export function createCanvasGalleryFixture(
       'Long ordinary': [SUBGRAPH_BADGE, DEPRECATED_BADGE],
     }
     fixture.height = 550
-    fixture.scale = page === 'titles-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.scale =
+      page === 'titles-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.width *= fixture.scale
+    fixture.height *= fixture.scale
+  } else if (page === 'tabs' || page === 'tabs-content') {
+    const ids = [
+      'Idle',
+      'Selected',
+      'Running',
+      'Finished',
+      'Queued',
+      'Cached',
+      'Skipped',
+      'Failed',
+      'Document error',
+      'Blocking warning',
+      'Missing type',
+      'Muted',
+      'Bypassed',
+      'Minimized',
+      'Crowded',
+      'Narrow',
+      'Empty',
+      'Long words',
+    ]
+    ids.forEach((id) => add(id, sample))
+    const states = {
+      Running: 'running',
+      Finished: 'done',
+      Queued: 'pending',
+      Cached: 'cached',
+      Skipped: 'skipped',
+      Failed: 'error',
+    } as const
+    const map: Record<string, NodeBadge[]> = {}
+    for (const id of ids) {
+      if (id === 'Empty') continue
+      map[id] = [
+        SUBGRAPH_BADGE,
+        {
+          ...DEPRECATED_BADGE,
+          glyph: 'Deprecated',
+          placement: 'above',
+          icon: 'clock',
+          variant: 'label',
+        },
+      ]
+      const state = states[id as keyof typeof states]
+      if (state) {
+        fixture.states[id] = { state }
+        map[id]!.push({
+          id: `gallery.run.${state}`,
+          glyph: id,
+          variant: 'label',
+          placement: 'below',
+          icon:
+            state === 'running'
+              ? 'play'
+              : state === 'done'
+                ? 'check'
+                : state === 'error'
+                  ? 'triangle-alert'
+                  : state === 'cached'
+                    ? 'database'
+                    : 'clock',
+          color: tokens.stateColors[state],
+        })
+      }
+    }
+    map['Document error']!.push(PROBLEM_ERROR_BADGE)
+    map['Blocking warning']!.push(PROBLEM_BLOCKING_WARNING_BADGE)
+    map.Muted!.push({ ...MUTED_BADGE, placement: 'above', icon: 'volume-x' })
+    map.Bypassed!.push({ ...BYPASSED_BADGE, placement: 'above', icon: 'ban' })
+    const crowded = Array.from(
+      { length: 9 },
+      (_, index): NodeBadge => ({
+        id: `gallery.detail.${index}`,
+        glyph: `Detail ${index + 1}`,
+        variant: 'label',
+        placement: 'below',
+        icon: 'info',
+        color: tokens.colors.nodeHeader,
+      }),
+    )
+    map.Crowded!.push(...crowded)
+    map.Narrow!.push(...crowded)
+    map.Minimized!.push(...crowded)
+    map['Long words']!.push({
+      ...executionErrorBadge(3),
+      glyph: 'A deliberately long diagnostic message that must stay bounded',
+    })
+    fixture.badges = map
+    fixture.overlay = { selection: new Set(['Selected']) }
+    fixture.height = 1540
+    fixture.scale = page === 'tabs-content' ? 0.5 : tokens.mediaControlMinScale
     fixture.width *= fixture.scale
     fixture.height *= fixture.scale
   } else if (page === 'idle-outline') {

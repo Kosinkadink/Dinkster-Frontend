@@ -14,6 +14,7 @@ export type CanvasIconName =
   | 'volume-x' | 'ban' | 'play' | 'play-to' | 'play-from' | 'play-between'
   | 'trash-2' | 'circle' | 'ellipsis-vertical' | 'folder-open' | 'group' | 'ungroup' | 'boxes'
   | 'sliders-horizontal' | 'panel-top-close' | 'panel-top-open'
+  | 'check' | 'clock' | 'database' | 'triangle-alert' | 'info'
 
 export interface ToolboxButton {
   /** Stable namespaced id ('core.mode.muted', 'core.delete'). */
