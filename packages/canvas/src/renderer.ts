@@ -323,7 +323,8 @@ export function widgetRowAffordanceRect(
   rowHeight: number,
   row: Extract<LayoutRow, { kind: 'widget' }>,
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
-  const size = Math.max(10, Math.min(14, rowHeight - 8))
+  const paint = canvasPaintTokens.lensAffordance
+  const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const trailingEdge = row.controllerMode !== undefined
     ? controllerChipRect(rowWidth, rowHeight).x - CONTROLLER_CHIP_TEXT_GAP
@@ -345,10 +346,11 @@ export function previewSurfaceAffordanceRect(
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } | undefined {
   const region = node.layout.preview ?? node.layout.textOutput
   if (region === undefined) return undefined
-  const size = 16
+  const paint = canvasPaintTokens.lensAffordance
+  const size = paint.previewSize
   return {
-    x: region.x + region.width - size - 8,
-    y: region.y + 8,
+    x: region.x + region.width - size - paint.previewInset,
+    y: region.y + paint.previewInset,
     width: size,
     height: size,
   }
@@ -2982,26 +2984,27 @@ export class CanvasRenderer {
             const x = node.x + row.inset + rect.x
             const y = rowY + rect.y
             const affordanceAlpha = ctx.globalAlpha
-            if (lensAffordance.disabled === true) ctx.globalAlpha *= 0.45
+            const paint = canvasPaintTokens.lensAffordance
+            if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
             ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
             ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-            ctx.lineWidth = 1.5
+            ctx.lineWidth = paint.stroke
             ctx.beginPath()
-            ctx.roundRect(x, y, rect.width, rect.height, 3)
+            ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
             ctx.fill()
             ctx.stroke()
             ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
             ctx.lineCap = 'round'
             ctx.beginPath()
             if (lensAffordance.active) {
-              ctx.moveTo(x + rect.width * 0.25, y + rect.height * 0.52)
-              ctx.lineTo(x + rect.width * 0.43, y + rect.height * 0.7)
-              ctx.lineTo(x + rect.width * 0.76, y + rect.height * 0.32)
+              ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
+              ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
+              ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
             } else {
-              ctx.moveTo(x + rect.width * 0.3, y + rect.height / 2)
-              ctx.lineTo(x + rect.width * 0.7, y + rect.height / 2)
-              ctx.moveTo(x + rect.width / 2, y + rect.height * 0.3)
-              ctx.lineTo(x + rect.width / 2, y + rect.height * 0.7)
+              ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
+              ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
+              ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
+              ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
             }
             ctx.stroke()
             ctx.globalAlpha = affordanceAlpha
@@ -3264,26 +3267,27 @@ export class CanvasRenderer {
         y: node.y + previewAffordanceRect.y,
       }
       const alpha = ctx.globalAlpha
-      if (previewAffordance.disabled === true) ctx.globalAlpha *= 0.45
+      const paint = canvasPaintTokens.lensAffordance
+      if (previewAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
       ctx.fillStyle = previewAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
       ctx.strokeStyle = previewAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = paint.stroke
       ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, 3)
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.radius)
       ctx.fill()
       ctx.stroke()
       ctx.strokeStyle = previewAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
       ctx.lineCap = 'round'
       ctx.beginPath()
       if (previewAffordance.active) {
-        ctx.moveTo(rect.x + rect.width * 0.25, rect.y + rect.height * 0.52)
-        ctx.lineTo(rect.x + rect.width * 0.43, rect.y + rect.height * 0.7)
-        ctx.lineTo(rect.x + rect.width * 0.76, rect.y + rect.height * 0.32)
+        ctx.moveTo(rect.x + rect.width * paint.check.startX, rect.y + rect.height * paint.check.startY)
+        ctx.lineTo(rect.x + rect.width * paint.check.middleX, rect.y + rect.height * paint.check.middleY)
+        ctx.lineTo(rect.x + rect.width * paint.check.endX, rect.y + rect.height * paint.check.endY)
       } else {
-        ctx.moveTo(rect.x + rect.width * 0.3, rect.y + rect.height / 2)
-        ctx.lineTo(rect.x + rect.width * 0.7, rect.y + rect.height / 2)
-        ctx.moveTo(rect.x + rect.width / 2, rect.y + rect.height * 0.3)
-        ctx.lineTo(rect.x + rect.width / 2, rect.y + rect.height * 0.7)
+        ctx.moveTo(rect.x + rect.width * paint.plus.start, rect.y + rect.height / 2)
+        ctx.lineTo(rect.x + rect.width * paint.plus.end, rect.y + rect.height / 2)
+        ctx.moveTo(rect.x + rect.width / 2, rect.y + rect.height * paint.plus.start)
+        ctx.lineTo(rect.x + rect.width / 2, rect.y + rect.height * paint.plus.end)
       }
       ctx.stroke()
       ctx.globalAlpha = alpha

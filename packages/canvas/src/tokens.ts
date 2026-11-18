@@ -178,6 +178,18 @@ export const canvasPaintTokens = {
     staleStroke: 1,
     staleUnderlineOffset: 1,
   },
+  lensAffordance: {
+    rowMinSize: 10,
+    rowMaxSize: 14,
+    rowPadding: canvasSemanticTokens.space[8],
+    previewSize: canvasSemanticTokens.space[16],
+    previewInset: canvasSemanticTokens.space[8],
+    disabledOpacity: 0.45,
+    stroke: 1.5,
+    radius: 3,
+    check: { startX: 0.25, startY: 0.52, middleX: 0.43, middleY: 0.7, endX: 0.76, endY: 0.32 },
+    plus: { start: 0.3, end: 0.7 },
+  },
   dataPanel: {
     borderInset: 1,
     minHeight: 10,
