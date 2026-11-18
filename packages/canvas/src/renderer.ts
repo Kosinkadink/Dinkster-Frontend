@@ -9,8 +9,13 @@
 import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BADGE_SIZE,
+  MUTED_BADGE,
+  BYPASSED_BADGE,
   badgeRect,
+  layoutNodeBadges,
+  nodeBadgeBounds,
   headerBadgeLaneWidth,
+  type BadgePlacement,
   PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
@@ -561,6 +566,7 @@ export interface OverlayState {
   }
   /** One widget row under the idle pointer. */
   readonly hoveredWidget?: { readonly nodeId: string; readonly valueKey: string }
+  readonly hoveredBadge?: { readonly nodeId: string; readonly badgeId: string }
   /** Live rubber-band selection rectangle (world coords, normalized). */
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
   /** Live node geometry used only for paint; committed as view.setNodeSize on release. */
@@ -722,6 +728,7 @@ export function sceneVisualBounds(
   scene: Scene,
   previews: PreviewMap = {},
   badges: BadgeMap = {},
+  badgeBounds?: (node: SceneNode) => { x: number; y: number; width: number; height: number },
 ): { minX: number; minY: number; maxX: number; maxY: number } | undefined {
   let minX = Infinity
   let minY = Infinity
@@ -735,6 +742,11 @@ export function sceneVisualBounds(
   }
   for (const n of scene.nodes) {
     include(n.x, n.y, n.layout.width, n.layout.height)
+    if (badgeBounds) {
+      const bounds = badgeBounds(n)
+      include(bounds.x, bounds.y, bounds.width, bounds.height)
+      continue
+    }
     const nodeBadges = badges[n.id] ?? []
     for (const [index, badge] of nodeBadges.entries()) {
       // Header badges sit inside node bounds; only the external lanes
@@ -1018,7 +1030,7 @@ export class CanvasRenderer {
   setBadges(badges: BadgeMap): void {
     const laneSignature = (badgeMap: BadgeMap): string => this.baseScene.nodes
       .filter((node) => node.layout.minimized)
-      .map((node) => `${node.id}\u0000${headerBadgeLaneWidth(badgeMap[node.id] ?? [])}`)
+      .map((node) => `${node.id}\u0000${headerBadgeLaneWidth(badgeMap[node.id] ?? [], this.tokens)}`)
       .join('\u0000')
     const before = laneSignature(this.badges)
     const after = laneSignature(badges)
@@ -1033,6 +1045,44 @@ export class CanvasRenderer {
 
   getBadges(): BadgeMap {
     return this.badges
+  }
+
+  private badgeLayoutOptions(node: SceneNode) {
+    const tokens = this.tokens
+    const badges = this.badges[node.id] ?? []
+    const state = this.nodeStates[node.id]?.state
+    const missing = node.unrecognized === true || node.missingSchema === true
+    const strong = missing || state === 'running' || state === 'done' || state === 'error' ||
+      badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id || badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id)
+    const paint = canvasPaintTokens.node.outline
+    const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
+      this.viewport.scale, strong ? paint.strongScreen : paint.screen)
+    const selected = this.overlay.selection?.has(node.id) === true
+    const hovered = this.overlay.hoveredBadge
+    let outset = stroke / 2
+    if (selected) outset = Math.max(outset, NODE_SELECTION_OUTLINE_OUTSET +
+      screenAwareStroke(SELECTION_OUTLINE_STROKE_WIDTH, this.viewport.scale, canvasPaintTokens.toolbox.selectionMinScreenStroke) / 2)
+    if (this.overlay.bodyDropNode === node.id) {
+      const drop = canvasPaintTokens.node.drop
+      outset = Math.max(outset, drop.outset + screenAwareStroke(drop.stroke, this.viewport.scale, drop.stroke) / 2)
+    }
+    if (this.scopeHighlight?.nodes.has(node.id)) {
+      const scope = canvasPaintTokens.node.scope
+      outset = Math.max(outset, scope.outset + screenAwareStroke(scope.stroke, this.viewport.scale, scope.minScreenStroke) / 2)
+    }
+    return {
+      tokens, outset,
+      ...(hovered?.nodeId === node.id ? { hoveredId: hovered.badgeId } : {}),
+    }
+  }
+
+  /** Supply live resize/drag node geometry when computing camera/tile extents. */
+  getNodeBadgeBounds(node: SceneNode) {
+    return nodeBadgeBounds(node, this.badges[node.id] ?? [], this.badgeLayoutOptions(node))
+  }
+
+  getNodeBadgeLayout(node: SceneNode): readonly BadgePlacement[] {
+    return layoutNodeBadges(node, this.badges[node.id] ?? [], this.badgeLayoutOptions(node))
   }
 
   private nodeDecorations: Readonly<Record<string, NodeDecoration>> = {}
@@ -1074,7 +1124,12 @@ export class CanvasRenderer {
     for (const node of this.scene.nodes) {
       if (!o.selection.has(node.id)) continue
       const badges = this.badges[node.id] ?? []
-      for (const [index, badge] of badges.entries()) {
+      if (this.tokens.badgeLayout === 'tabs') {
+        for (const entry of this.getNodeBadgeLayout(node)) {
+          if (entry.badge.placement !== 'above') continue
+          attachedBadgeTop = attachedBadgeTop === undefined ? entry.y : Math.min(attachedBadgeTop, entry.y)
+        }
+      } else for (const [index, badge] of badges.entries()) {
         if (badge.placement !== 'above') continue
         const badgeTop = badgeRect(node, index, badges).y
         attachedBadgeTop = attachedBadgeTop === undefined ? badgeTop : Math.min(attachedBadgeTop, badgeTop)
@@ -1164,7 +1219,7 @@ export class CanvasRenderer {
         !scene.nodes.some((node) => node.previewCapable === true || node.layout.minimized === true)) return scene
     const nodes = scene.nodes.map((node) => {
       const badgeWidth = node.layout.minimized
-        ? headerBadgeLaneWidth(this.badges[node.id] ?? [])
+        ? headerBadgeLaneWidth(this.badges[node.id] ?? [], this.tokens)
         : 0
       const badgeAwareLayout = badgeWidth === 0
         ? node.layout
@@ -1412,7 +1467,8 @@ export class CanvasRenderer {
 
   /** Fit everything the scene paints into the canvas (used on load). */
   fitToScene(margin: number = canvasPaintTokens.viewport.fitMargin): void {
-    const bounds = sceneVisualBounds(this.scene, this.previews, this.badges)
+    const bounds = sceneVisualBounds(this.scene, this.previews, this.badges,
+      this.tokens.badgeLayout === 'tabs' ? (node) => this.getNodeBadgeBounds(node) : undefined)
     if (!bounds) return
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
@@ -2104,14 +2160,13 @@ export class CanvasRenderer {
     for (const sceneNode of scene.nodes) {
       const node = this.nodeForPaint(sceneNode)
       const o = off(node.id)
-      // Pad culling by the pin overhang plus target/warn halo rings: pins
-      // protrude past the body rect, and clipping them at the view edge
-      // makes connections silently vanish while their node is half-visible.
+      const badges = contentDetail && t.badgeLayout === 'tabs' ? this.getNodeBadgeBounds(node) : undefined
+      // External tabs can remain visible after the body leaves the viewport.
       if (
-        node.x + o.dx + node.layout.width + structurePad < view.x ||
-        node.x + o.dx - structurePad > view.x + view.w ||
-        node.y + o.dy + node.layout.height + structurePad < view.y ||
-        node.y + o.dy - structurePad > view.y + view.h
+        (badges ? Math.max(node.x + node.layout.width + structurePad, badges.x + badges.width) : node.x + node.layout.width + structurePad) + o.dx < view.x ||
+        (badges ? Math.min(node.x - structurePad, badges.x) : node.x - structurePad) + o.dx > view.x + view.w ||
+        (badges ? Math.max(node.y + node.layout.height + structurePad, badges.y + badges.height) : node.y + node.layout.height + structurePad) + o.dy < view.y ||
+        (badges ? Math.min(node.y - structurePad, badges.y) : node.y - structurePad) + o.dy > view.y + view.h
       ) {
         continue
       }
@@ -2741,6 +2796,58 @@ export class CanvasRenderer {
     ctx.restore()
   }
 
+  private drawBadgeTabs(ctx: CanvasRenderingContext2D, node: SceneNode, entries: readonly BadgePlacement[]): void {
+    const t = this.tokens
+    const paint = { ...canvasPaintTokens.badge.tab, ...t.badgeTab }
+    const hovered = this.overlay.hoveredBadge
+    for (const entry of entries) {
+      const { badge, x, y, width, height } = entry
+      const hover = hovered?.nodeId === node.id && hovered.badgeId === badge.id
+      const external = badge.placement !== undefined
+      const fill = badge.id === 'core.mode.muted' ? t.colors.mutedBadge
+        : badge.id === 'core.mode.bypassed' ? t.colors.bypassedBadge
+          : badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id ? t.colors.blockingWarning : badge.color
+      ctx.save()
+      ctx.globalAlpha = 1
+      ctx.beginPath()
+      ctx.roundRect(x, y, width, height, external
+        ? badge.placement === 'above' ? [canvasPaintTokens.badge.radius, canvasPaintTokens.badge.radius, 0, 0]
+          : [0, 0, canvasPaintTokens.badge.radius, canvasPaintTokens.badge.radius]
+        : canvasPaintTokens.badge.radius)
+      const background = hover ? tintHex(fill, t.colors.title, paint.hoverTint) : fill
+      const foreground = paint.foreground(background)
+      ctx.fillStyle = background
+      ctx.fill()
+      if (hover) {
+        ctx.lineWidth = paint.hoverStroke
+        ctx.strokeStyle = t.colors.title
+        ctx.stroke()
+      }
+      ctx.clip()
+      ctx.fillStyle = foreground
+      ctx.textBaseline = 'middle'
+      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${t.fontFamily}`
+      if (entry.overflow) {
+        ctx.textAlign = 'center'
+        ctx.fillText(fitText(ctx, badge.glyph, width), x + width / 2, y + height / 2 + canvasPaintTokens.badge.baselineOffset)
+      } else {
+        const icon = external ? paint.iconSize : Math.min(BADGE_SIZE, height)
+        const iconX = external ? x + paint.padding : x
+        const name = badge.icon ?? (badge.id.includes('error') || badge.id.includes('warning') ? 'triangle-alert'
+          : badge.id.includes('info') ? 'info' : badge.id === MUTED_BADGE.id ? 'volume-x'
+            : badge.id === BYPASSED_BADGE.id ? 'ban' : 'boxes')
+        paintToolboxIcon(ctx, name, iconX, y + (height - icon) / 2, icon, foreground)
+        if (external && !entry.compact) {
+          const textX = iconX + icon + paint.iconGap
+          ctx.textAlign = 'left'
+          ctx.fillText(fitText(ctx, badge.glyph, Math.max(0, x + width - paint.padding - textX)), textX,
+            y + height / 2 + canvasPaintTokens.badge.baselineOffset)
+        }
+      }
+      ctx.restore()
+    }
+  }
+
   private drawNode(
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
@@ -2903,8 +3010,10 @@ export class CanvasRenderer {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      const headerBadgeLefts = badges
-        .map((badge, index) => badge.placement !== undefined ? undefined : badgeRect(node, index, badges).x)
+      const badgeLayout = t.badgeLayout === 'tabs' ? this.getNodeBadgeLayout(node) : undefined
+      const headerBadgeLefts = (badgeLayout
+        ? badgeLayout.map((entry) => entry.badge.placement !== undefined ? undefined : entry.x)
+        : badges.map((badge, index) => badge.placement !== undefined ? undefined : badgeRect(node, index, badges).x))
         .filter((x): x is number => x !== undefined)
       const badgeLeft = headerBadgeLefts.length > 0
         ? Math.min(...headerBadgeLefts)
@@ -2936,9 +3045,10 @@ export class CanvasRenderer {
         ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
       }
 
+      if (badgeLayout) this.drawBadgeTabs(ctx, node, badgeLayout)
       // Node badges; each placement lane lays out index 0 rightmost.
       // Positions come from badgeRect so hit-testing and drawing agree.
-      for (const [index, badge] of badges.entries()) {
+      for (const [index, badge] of (badgeLayout ? [] : badges).entries()) {
         const r = badgeRect(node, index, badges)
         const nodeAlpha = ctx.globalAlpha
         if (badge.placement !== undefined) ctx.globalAlpha = 1

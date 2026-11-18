@@ -10,6 +10,9 @@ import {
   defaultTokens,
   previousCanvasTypePaint,
   drawMinimap,
+  hitTestBadge,
+  type BadgeHit,
+  type DesignTokens,
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
@@ -26,6 +29,7 @@ import {
 } from '../../canvas/gallery/fixtures.js'
 import {
   ProductButton,
+  ProductDialog,
   ProductField,
   ProductSelect,
   ProductSection,
@@ -38,6 +42,9 @@ export function CanvasGallery() {
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
+  const [tabLook, setTabLook] = createSignal<'tabs' | 'chips'>('tabs')
+  const [tabSize, setTabSize] = createSignal(defaultTokens.badgeTab)
+  const [badgeDetails, setBadgeDetails] = createSignal<BadgeHit>()
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -49,9 +56,13 @@ export function CanvasGallery() {
     const currentOutline = outline()
     const currentTypeLook = typeLook()
     const currentTitleLook = titleLook()
+    const currentTabLook = tabLook()
+    const currentTabSize = tabSize()
+    const tabsPage = currentPage === 'tabs' || currentPage === 'tabs-content'
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
+    let removeBadgeListeners: (() => void) | undefined
     void Promise.all([
       document.fonts.load(
         `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`,
@@ -65,8 +76,10 @@ export function CanvasGallery() {
     ]).then(() => {
       if (disposed) return
       const colors = canvasColorsForTheme(currentTheme)
-      const tokens = {
+      const tokens: DesignTokens = {
         ...defaultTokens,
+        badgeLayout: tabsPage ? currentTabLook : defaultTokens.badgeLayout,
+        badgeTab: tabsPage ? currentTabSize : defaultTokens.badgeTab,
         titleOverflow:
           currentPage === 'titles' || currentPage === 'titles-content'
             ? currentTitleLook
@@ -140,24 +153,70 @@ export function CanvasGallery() {
       )
       renderer.setViewport({ x: 0, y: 0, scale: fixture.scale })
       renderer.renderNow()
-      const labelContext = canvas.getContext('2d')!
-      labelContext.save()
-      labelContext.setTransform(
-        window.devicePixelRatio * fixture.scale,
-        0,
-        0,
-        window.devicePixelRatio * fixture.scale,
-        0,
-        0,
-      )
-      labelContext.font = `${tokens.fontSize}px ${tokens.fontFamily}`
-      labelContext.fillStyle = tokens.colors.label
-      labelContext.textBaseline = 'middle'
-      if (currentPage === 'titles' || currentPage === 'titles-content')
-        labelContext.textAlign = 'left'
-      for (const label of fixture.labels)
-        labelContext.fillText(label.text, label.x, label.y)
-      labelContext.restore()
+      const paintLabels = () => {
+        const labelContext = canvas.getContext('2d')!
+        labelContext.save()
+        labelContext.setTransform(
+          window.devicePixelRatio * fixture.scale,
+          0,
+          0,
+          window.devicePixelRatio * fixture.scale,
+          0,
+          0,
+        )
+        labelContext.font = `${tokens.fontSize}px ${tokens.fontFamily}`
+        labelContext.fillStyle = tokens.colors.label
+        labelContext.textBaseline = 'middle'
+        if (currentPage === 'titles' || currentPage === 'titles-content')
+          labelContext.textAlign = 'left'
+        for (const label of fixture.labels)
+          labelContext.fillText(label.text, label.x, label.y)
+        labelContext.restore()
+      }
+      paintLabels()
+      if (tabsPage) {
+        const live = renderer
+        const hit = (event: PointerEvent | MouseEvent) => {
+          const rect = canvas.getBoundingClientRect()
+          return hitTestBadge(
+            live.getScene(),
+            fixture.badges,
+            (event.clientX - rect.left) / fixture.scale,
+            (event.clientY - rect.top) / fixture.scale,
+            (node) => live.getNodeBadgeLayout(node),
+          )
+        }
+        const hover = (event: PointerEvent) => {
+          const target = event.type === 'pointerleave' ? undefined : hit(event)
+          canvas.title = target
+            ? (target.overflow ?? [target.badge])
+                .map((badge) => badge.glyph)
+                .join(', ')
+            : ''
+          live.setOverlay({
+            ...fixture.overlay,
+            ...(target
+              ? {
+                  hoveredBadge: {
+                    nodeId: target.node.id,
+                    badgeId: target.badge.id,
+                  },
+                }
+              : {}),
+          })
+          live.renderNow()
+          paintLabels()
+        }
+        const activate = (event: MouseEvent) => setBadgeDetails(hit(event))
+        canvas.addEventListener('pointermove', hover)
+        canvas.addEventListener('pointerleave', hover)
+        canvas.addEventListener('click', activate)
+        removeBadgeListeners = () => {
+          canvas.removeEventListener('pointermove', hover)
+          canvas.removeEventListener('pointerleave', hover)
+          canvas.removeEventListener('click', activate)
+        }
+      }
       if (currentPage === 'minimap') {
         renderer.dispose()
         renderer = undefined
@@ -199,9 +258,13 @@ export function CanvasGallery() {
       canvas.dataset.outline = currentOutline
       canvas.dataset.typeLook = currentTypeLook
       canvas.dataset.titleLook = currentTitleLook
+      canvas.dataset.tabLook = currentTabLook
+      canvas.dataset.tabSize = `${currentTabSize.height}-${currentTabSize.fontSize}-${currentTabSize.inset}`
     })
     onCleanup(() => {
       disposed = true
+      removeBadgeListeners?.()
+      canvas.removeAttribute('title')
       renderer?.dispose()
       delete canvas.dataset.ready
     })
@@ -264,15 +327,18 @@ export function CanvasGallery() {
               value={typeLook()}
               onChange={(event) => setTypeLook(event.currentTarget.value)}
             >
-              <option value="current">Contrast-adjusted colors (current)</option>
+              <option value="current">
+                Contrast-adjusted colors (current)
+              </option>
               <option value="previous">Previous colors</option>
             </ProductSelect>
           )}
         </ProductField>
         <p class="dinkster-description">
-          Current type colors keep each type's hue and reach at least 3:1 contrast
-          against the node body. Previous colors overrides only this comparison;
-          app colors and other gallery pages keep the current palette.
+          Current type colors keep each type's hue and reach at least 3:1
+          contrast against the node body. Previous colors overrides only this
+          comparison; app colors and other gallery pages keep the current
+          palette.
         </p>
       </Show>
       <Show when={page() === 'titles' || page() === 'titles-content'}>
@@ -297,6 +363,65 @@ export function CanvasGallery() {
           marks. Current titles keep letter widths and end in an ellipsis when
           crowded. Previous squeezing overrides only this comparison; app titles
           and other gallery pages keep ellipsis.
+        </p>
+      </Show>
+      <Show when={page() === 'tabs' || page() === 'tabs-content'}>
+        <ProductField label="Badge layout">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={tabLook()}
+              onChange={(event) =>
+                setTabLook(event.currentTarget.value as 'tabs' | 'chips')
+              }
+            >
+              <option value="tabs">Attached tabs (proposal)</option>
+              <option value="chips">Current chips</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <div class="dinkster-actions">
+          <For
+            each={
+              [
+                ['height', 'Tab height'],
+                ['fontSize', 'Tab text size'],
+                ['inset', 'Tab side inset'],
+              ] as const
+            }
+          >
+            {([key, label]) => (
+              <ProductField label={label}>
+                {(attributes) => (
+                  <ProductSelect
+                    {...attributes}
+                    value={tabSize()[key]}
+                    onChange={(event) =>
+                      setTabSize((size) => ({
+                        ...size,
+                        [key]: Number(event.currentTarget.value),
+                      }))
+                    }
+                  >
+                    <For
+                      each={[
+                        defaultTokens.badgeTab[key],
+                        canvasPaintTokens.badge.roomierTab[key],
+                      ]}
+                    >
+                      {(value) => <option value={value}>{value}px</option>}
+                    </For>
+                  </ProductSelect>
+                )}
+              </ProductField>
+            )}
+          </For>
+        </div>
+        <p class="dinkster-description">
+          Gallery-only proposal. Adjust height, text size and side inset
+          independently; none of these dimensions is approved. Hover a crowded
+          strip to read it; click +N to read the folded details. Production
+          keeps current chips.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>
@@ -329,6 +454,21 @@ export function CanvasGallery() {
           />
         </div>
       </ProductSection>
+      <Show when={badgeDetails()}>
+        {(details) => (
+          <ProductDialog
+            title="Node details"
+            onDismiss={() => setBadgeDetails(undefined)}
+          >
+            <For each={details().overflow ?? [details().badge]}>
+              {(badge) => <p class="dinkster-description">{badge.glyph}</p>}
+            </For>
+            <ProductButton onClick={() => setBadgeDetails(undefined)}>
+              Close
+            </ProductButton>
+          </ProductDialog>
+        )}
+      </Show>
     </>
   )
 }
