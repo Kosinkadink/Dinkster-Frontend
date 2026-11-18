@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asNodeId, asPromptId, compile, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
+import { asConnectionId, asNodeId, asPromptId, compile, executionKey, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry, type ExecutionState, type RetainedAssets } from '@dinkster/client'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { scopedStorageKey } from '../src/projects.js'
+import { AppState } from '../src/app-state.js'
 import {
   EXECUTION_RESULTS_STORAGE_KEY,
   MAX_PERSISTED_EXECUTION_BYTES,
@@ -157,6 +158,141 @@ describe('startup result source admission', () => {
       descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 } })
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
+
+  it.each(['reopened', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'census-failed', 'census-timeout', 'census-unsupported', 'uncovered', 'live-pin'] as const)(
+    'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
+    const locks = new Map<string, LockInfo>()
+    if (mode === 'census-timeout') locks.set('dinkster-result-holders:unresponsive', { name: 'dinkster-result-holders:unresponsive', mode: 'exclusive' })
+    vi.stubGlobal('navigator', { locks: mode === 'census-unsupported' ? undefined : {
+      request: async (name: string, options: LockOptions | ((lock: Lock) => unknown), callback?: (lock: Lock) => unknown) => {
+        const consume = typeof options === 'function' ? options : callback!
+        locks.set(name, { name, mode: 'exclusive' })
+        try { return await consume({ name, mode: 'exclusive' }) } finally { locks.delete(name) }
+      },
+      query: async () => {
+        if (mode === 'census-failed') throw new Error('Census unavailable')
+        return { held: [...locks.values()], pending: [] }
+      },
+    } })
+    const generation = '1'.repeat(32)
+    const rotated = '2'.repeat(32)
+    const session = makeStorage()
+    if (mode !== 'new-client') session.setItem('dinkster.retention-generation.', generation)
+    vi.stubGlobal('sessionStorage', session)
+    const test = setup()
+    const protectedOwner: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
+      ownerId: 'execution-result:protected', holderClasses: [5, 6], revision: 1,
+      complete: true, digests: [test.saved.sourceDocument!] }
+    const controls = [protectedOwner, { ...protectedOwner, ownerId: 'execution-result:protected-source' },
+      { ...protectedOwner, ownerId: 'execution-result:protected-token-a', sourceToken: 'a'.repeat(32) },
+      { ...protectedOwner, ownerId: 'execution-result:protected-token-b', sourceToken: 'a'.repeat(32) }]
+    const stale = Array.from({ length: 24 }, (_, index) => ({ ...controls[index % controls.length]!, ownerId: `execution-result:excess-${index}`,
+      digests: mode === 'uncovered' ? [`blake3:${'c'.repeat(64)}`] : protectedOwner.digests }))
+    const peer = { ...protectedOwner, ownerId: 'execution-result:peer' }
+    const frozen: RetainedAssets = { ...protectedOwner, ownerKind: 'document',
+      ownerId: 'workflow-candidate:frozen', holderClasses: [1, 2, 3] }
+    const owners = new Map([...controls, ...stale, peer, frozen].map((owner) => [owner.ownerId, owner]))
+    const keyFor = (owner: RetainedAssets) => scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
+    for (const owner of owners.values()) localStorage.setItem(keyFor(owner), JSON.stringify({
+      version: 3, connectionId: test.backend.id, assetBaseUrl: test.backend.connection.assetUrl(''), owner: {
+        scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId, holderClasses: owner.holderClasses,
+      }, complete: owner.complete, digests: owner.digests, acknowledgedRevision: 1,
+      ...(owner.sourceToken === undefined ? {} : { sourceToken: owner.sourceToken }),
+      ...(owner.ownerKind === 'document' ? { documentLineage: 'frozen-control', documentRevision: 0 } : { executionKey: executionKey(test.saved.ref) }),
+    }))
+    saveExecutionResult({ ...test.saved, assetRetentions: mode === 'independent-unreferenced' ? controls.slice(1) : controls }, test.backendIdentity)
+    let holder: AppState | undefined
+    if (mode === 'independent-unreferenced' || mode === 'peer-held') {
+      holder = new AppState()
+      holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+        assetRetentions: [mode === 'peer-held' ? stale[0]! : protectedOwner] })
+    }
+    let pinned: ReturnType<typeof test.app.activeTab>
+    if (mode === 'live-pin') {
+      test.backend.registry.set(test.registry)
+      test.app.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+        assetRetentions: [...controls, stale[0]!] })
+      expect(await test.app.openExecutionView(test.ref)).toBe(true)
+      pinned = test.app.activeTab()
+    }
+    const heldBytes = [...controls, peer, frozen].map((owner) => localStorage.getItem(keyFor(owner)))
+    const storage = localStorage
+    const units = () => Array.from({ length: storage.length }, (_, index) => {
+      const key = storage.key(index)!
+      return key.length + storage.getItem(key)!.length
+    }).reduce((sum, size) => sum + size, 0)
+    const capacity = units()
+    vi.stubGlobal('localStorage', { ...storage, get length() { return storage.length }, setItem: (key: string, value: string) => {
+      const previous = storage.getItem(key)
+      if (units() - (previous === null ? 0 : key.length + previous.length) + key.length + value.length > capacity) {
+        throw new DOMException('Browser storage quota exceeded', 'QuotaExceededError')
+      }
+      storage.setItem(key, value)
+    } })
+    const own = [...controls, ...stale, frozen]
+    const holders = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [String(index + 1),
+      own.filter((owner) => owner.holderClasses?.some((holder) => holder === index + 1))]))
+    let replacementRefused = mode === 'replacement-refused' || mode === 'replacement-retry'
+    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://test')
+      if (url.pathname === '/api/library/retention-clients') {
+        if (mode === 'reopen-refused' && init?.method === 'POST') return new Response('', { status: 409 })
+        return Response.json({
+          clientId: '3'.repeat(32), generation: init?.method === 'POST' ? rotated : generation,
+          revision: init?.method === 'POST' && mode !== 'new-client' ? 2 : 1, connected: true, pendingRequests: 0,
+          activeStreams: 0, complete: false, holders,
+        })
+      }
+      if (init?.method === 'GET' && url.pathname.includes('/retentions/shown-result/')) {
+        const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        if (replacementRefused && controls.some((owner) => owner.ownerId === id)) return new Response('', { status: 503 })
+        return Response.json(owners.get(id))
+      }
+      if (init?.method === 'DELETE' && url.pathname.includes('/retentions/shown-result/')) {
+        expect(new Headers(init.headers).get('X-Dinkster-Retention-Generation')).toBe(rotated)
+        const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        const old = owners.get(id)!
+        const released = { ...old, revision: 2, complete: true, digests: [] }
+        delete released.sourceToken
+        owners.set(id, released)
+        return Response.json(released)
+      }
+      return new Response('', { status: 404 })
+    })
+    try {
+      const pinnedExecution = pinned === undefined ? undefined : test.app.executionForTab(pinned)
+      await test.app.start()
+      if (mode === 'replacement-retry') {
+        expect(owners.get(stale[0]!.ownerId)).toEqual(stale[0])
+        replacementRefused = false
+        await test.app.refreshBackendSchemas(test.backend)
+      }
+      const reclaim = mode === 'reopened' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held'
+      for (const owner of stale) {
+        const released = reclaim && !((mode === 'live-pin' || mode === 'peer-held') && owner === stale[0])
+        expect(owners.get(owner.ownerId)).toEqual(released ? { ...owner, sourceToken: undefined, revision: 2, complete: true, digests: [] } : owner)
+        if (released) expect(localStorage.getItem(keyFor(owner))).toBeNull()
+        else expect(JSON.parse(localStorage.getItem(keyFor(owner))!)).toMatchObject({ acknowledgedRevision: 1 })
+      }
+      for (const [index, owner] of [...controls, peer, frozen].entries()) {
+        expect(owners.get(owner.ownerId)).toEqual(owner)
+        expect(localStorage.getItem(keyFor(owner))).toBe(heldBytes[index])
+      }
+      if (reclaim) expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      if (pinned !== undefined) {
+        expect(test.app.tabs.get()).toContain(pinned)
+        expect(test.app.executionForTab(pinned)).toBe(pinnedExecution)
+      }
+      if (mode === 'independent-unreferenced') {
+        holder!.dispose()
+        await vi.waitFor(() => expect([...locks.keys()].filter((name) => name.startsWith('dinkster-result-holders:'))).toHaveLength(1))
+        await test.app.refreshBackendSchemas(test.backend)
+        expect(owners.get(protectedOwner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+        expect(localStorage.getItem(keyFor(protectedOwner))).toBeNull()
+      }
+      expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0 })
+    } finally { holder?.dispose(); test.app.dispose() }
+  })
 
   it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {
     const test = setup()
@@ -365,6 +501,11 @@ describe('startup result source admission', () => {
     const owners = new Map<string, RetainedAssets>()
     let token = 'a'.repeat(32)
     const digests = [`blake3:${'c'.repeat(64)}`]
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      if (owner.ownerKind === 'shown-result') owners.set(owner.ownerId, receipt)
+      return receipt
+    })
     vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
       const receipt = { ...owner, sourceToken, revision: 1, complete: true, digests }
       owners.set(owner.ownerId, receipt)
@@ -376,8 +517,21 @@ describe('startup result source admission', () => {
         outputId: 'sum', publication: 1, complete: true, digests }],
     }))
     vi.mocked(test.backend.connection.values().peek).mockRestore()
-    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
-      if (new URL(input, 'http://test').pathname !== '/api/values') return new Response('', { status: 404 })
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://test')
+      if (url.pathname.includes('/retentions/shown-result/')) {
+        const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        const owner = owners.get(id)
+        if (owner === undefined) return new Response('', { status: 404 })
+        if (init?.method === 'DELETE') {
+          const released = { ...owner, revision: owner.revision + 1, complete: true, digests: [] }
+          delete released.sourceToken
+          owners.set(id, released)
+          return Response.json(released)
+        }
+        return Response.json(owner)
+      }
+      if (url.pathname !== '/api/values') return new Response('', { status: 404 })
       return Response.json({ available: true, descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 },
         renditions: [], resultOffer: { token, scope: 'local', jobRef: test.saved.jobRef,
           attemptId: 1, nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests } })
@@ -406,6 +560,43 @@ describe('startup result source admission', () => {
       expect([...owners.values()].filter((receipt) => receipt.sourceToken === token)).toEqual([
         expect.objectContaining({ complete: true, digests, sourceToken: token }),
       ])
+      const independent = test.app.store.get(test.ref)!.assetRetentions!
+      const independentBytes = independent.map((owner) => localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)))
+      for (let index = 1; index <= 12; index++) {
+        const old = [...owners.values()].find((owner) => owner.sourceToken === token &&
+          !independent.some((receipt) => receipt.ownerId === owner.ownerId))!
+        let finishRead!: (value: number) => void
+        let pendingRead: Promise<number> | undefined
+        if (index === 1) {
+          const original = changed[0]!
+          if (!original.available) throw new Error('Expected original admitted descriptor')
+          pendingRead = test.backend.connection.values().read(query, original.descriptor, () =>
+            new Promise<number>((resolve) => { finishRead = resolve }))
+          await vi.waitFor(() => expect(finishRead).toBeDefined())
+        }
+        token = index.toString(16).padStart(32, '0')
+        const next = await test.backend.connection.values().peek(query)
+        expect(next).toMatchObject({ available: true })
+        if (pendingRead !== undefined) {
+          expect(test.app.retentionActivity()).toMatchObject({ valueReads: 1, drainingReaders: 1 })
+          expect(owners.get(old.ownerId)).toEqual(old)
+          expect(JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${old.ownerId}`))!))
+            .toMatchObject({ acknowledgedRevision: 1 })
+          finishRead(7)
+          expect(await pendingRead).toBe(7)
+        }
+        await vi.waitFor(() => expect(test.app.retentionActivity()).toMatchObject({ drainingReaders: 0, retirements: 0 }))
+        expect([...owners.values()].filter((owner) => owner.ownerKind === 'shown-result' && owner.revision === 1 &&
+          !independent.some((receipt) => receipt.ownerId === owner.ownerId))).toHaveLength(1)
+        for (const admitted of changed) {
+          if (!admitted.available) throw new Error('Expected original admitted descriptor')
+          expect(await test.backend.connection.values().read(query, admitted.descriptor, async () => 7)).toBe(7)
+        }
+        for (const [offset, owner] of independent.entries()) {
+          expect(owners.get(owner.ownerId)).toEqual(owner)
+          expect(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`))).toBe(independentBytes[offset])
+        }
+      }
       const replacementJournals = journals()
       expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
       expect(journals()).toEqual(replacementJournals)
@@ -413,7 +604,7 @@ describe('startup result source admission', () => {
       const replacementKey = scopedStorageKey(`dinkster.workflow-retentions.${replacement.ownerId}`)
       localStorage.setItem(replacementKey, JSON.stringify({ ...JSON.parse(localStorage.getItem(replacementKey)!), releaseRevision: 1 }))
       expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
-      expect(owners.size).toBe(settledOwners.length + 2)
+      expect(owners.size).toBe(settledOwners.length + 14)
       let finish!: (value: number) => void
       const body = new Promise<number>((resolve) => { finish = resolve })
       let entered = 0

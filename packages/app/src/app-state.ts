@@ -128,12 +128,14 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
+import { ResultOwnerCensus } from './result-owner-census.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
   EngineNotReadyError,
   ExecutionStore,
   RetentionClient,
+  retainedAssetAcknowledgment,
   createScopedClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
@@ -3633,6 +3635,7 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.resultHolderCensus.dispose()
     if (this.selectionScopesFrame !== undefined) cancelAnimationFrame(this.selectionScopesFrame)
     if (this.selectionScopesTimer !== undefined) clearTimeout(this.selectionScopesTimer)
     this.pendingSelectionScopes.clear()
@@ -5200,9 +5203,9 @@ export class AppState {
           if (!current()) throw new Error('Value owner is no longer available')
           const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
           const valueKey = canonicalJson({ execution: key, roots })
-          const reusable = [...this.resultAssetOwners.values()].find((owner) => {
+          const localOwners = () => [...this.resultAssetOwners.values()].filter((owner) => {
             if (owner.backend !== nativeBackend || owner.project !== project || owner.generation !== generation ||
-              owner.valueKey !== valueKey || owner.storage !== storage || owner.drained !== undefined) return false
+              owner.valueKey === undefined || owner.storage !== storage || owner.drained !== undefined) return false
             const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
             return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined &&
               intent.connectionId === id && intent.assetBaseUrl === connection.assetUrl('') &&
@@ -5211,6 +5214,7 @@ export class AppState {
               intent.sourceToken === owner.retained.sourceToken && canonicalJson(intent.digests) === canonicalJson(owner.retained.digests) &&
               canonicalJson(intent.owner?.holderClasses) === canonicalJson(owner.retained.holderClasses)
           })
+          const reusable = localOwners().find((owner) => owner.valueKey === valueKey)
           const admissionKey = canonicalJson({ project, generation, valueKey })
           let admission = valueAdmissions.get(admissionKey)
           if (reusable === undefined && admission?.storage !== storage) {
@@ -5223,13 +5227,37 @@ export class AppState {
           try { retained = reusable?.retained ?? await admission!.promise } finally {
             if (valueAdmissions.get(admissionKey) === admission) valueAdmissions.delete(admissionKey)
           }
+          if (!current()) throw new Error('Value owner changed during asset admission')
           const owner = this.resultAssetOwners.get(retained.ownerId)
-          const reader = owner?.reader ?? new RetainedAssetReader(connection, retained, () =>
+          const valueSlot = canonicalJson({ execution: key, nodeId: query.nodeId, outputId: query.outputId })
+          const references = () => {
+            const persisted = persistedResultReferences()
+            return persisted === undefined ? undefined : new Set([...persisted.ownerIds,
+              ...[...this.store.executions.get().values()].flatMap((state) =>
+                (state.assetRetentions ?? []).map((receipt) => receipt.ownerId))])
+          }
+          const held = references()
+          const previous = owner === undefined && retained.complete && held !== undefined ? localOwners().find((candidate) =>
+            candidate.retained.ownerId !== retained.ownerId && candidate.valueSlot === valueSlot &&
+            !held.has(candidate.retained.ownerId) && candidate.reader?.retained === candidate.retained && candidate.retained.complete &&
+            canonicalJson(candidate.retained.digests) === canonicalJson(retained.digests)) : undefined
+          const reader = owner?.reader ?? previous?.reader ?? new RetainedAssetReader(connection, retained, () =>
             !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
             generation === this.assetConnectionGenerations.get(connection))
           this.resultAssetOwners.set(retained.ownerId, { backend: nativeBackend, retained, project, generation,
-            execution: key, reader, observed: owner?.observed === true || observed, valueKey, storage })
+            execution: key, reader, observed: owner?.observed === true || observed, valueKey, valueSlot, storage })
+          if (previous !== undefined) {
+            previous.drained = false
+            void reader.replaceProtection(retained).then(async (replaced) => {
+              previous.drained = true
+              const held = references()
+              if (!replaced || !current() || held === undefined || held.has(previous.retained.ownerId) ||
+                this.resultAssetOwners.get(previous.retained.ownerId) !== previous) return
+              this.resultAssetOwners.delete(previous.retained.ownerId)
+              await this.retireAssetOwner(connection, previous.retained)
+            })
+          }
           this.retireUnusedResultOwners()
           if (!current()) throw new Error('Value owner changed during asset admission')
           return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
@@ -8682,6 +8710,7 @@ export class AppState {
     readonly interim?: true
     readonly reader?: RetainedAssetReader
     readonly valueKey?: string
+    readonly valueSlot?: string
     readonly storage?: Storage
     observed?: boolean
     drained?: boolean
@@ -9533,6 +9562,92 @@ export class AppState {
     }
   }
 
+  private readonly resultHolderCensus = new ResultOwnerCensus(() => {
+    if (this.disposed) return undefined
+    const holders = new Set(this.resultAssetOwners.keys())
+    for (const reader of this.valueAssetReaders.keys()) holders.add(reader.retained.ownerId)
+    for (const state of this.store.executions.get().values()) {
+      for (const receipt of state.assetRetentions ?? []) holders.add(receipt.ownerId)
+    }
+    for (const tab of this.tabs.get()) {
+      const frozen = this.frozenAssetOwners.get(tab)
+      if (frozen !== undefined) holders.add(frozen.retained.ownerId)
+      const state = this.executionForTab(tab)
+      for (const receipt of state?.assetRetentions ?? []) holders.add(receipt.ownerId)
+    }
+    return holders
+  })
+  private readonly resultOwnerRecoveries = new WeakMap<Backend, Promise<void>>()
+
+  private reclaimReopenedResultOwners(backend: Backend, identity: ExecutionResultBackendIdentity): Promise<void> {
+    let pending = this.resultOwnerRecoveries.get(backend)
+    if (pending !== undefined) return pending
+    const project = activeProjectId()
+    const storage = globalThis.localStorage
+    const current = () => !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
+      this.backends.get().includes(backend)
+    pending = (async () => {
+      const previous = await this.retentionClientFor(backend.baseUrl).reopenedHolders()
+      if (previous === undefined || !current()) return
+      const ownResults = new Map((previous.holders['5'] ?? []).map((owner) => [owner['ownerId'], owner]))
+      const results = loadExecutionResults(identity)
+      const replacements = new Map<string, RetainedAssets[]>()
+      for (const result of results) {
+        const receipts: RetainedAssets[] = []
+        for (const retained of result.assetRetentions ?? []) {
+          if (!current()) return
+          const local = this.resultAssetOwners.get(retained.ownerId)
+          const admittedHere = local?.backend === backend && local.project === project &&
+            local.generation === this.assetConnectionGenerations.get(backend.connection) &&
+            canonicalJson({ ...local.retained, holderClasses: retained.holderClasses }) === canonicalJson(retained)
+          if (retained.complete && (ownResults.has(retained.ownerId) || admittedHere) &&
+            canonicalJson(await backend.connection.fetchRetainedAssets(retained)) === canonicalJson(retained)) {
+            receipts.push(retained)
+          }
+        }
+        replacements.set(executionKey(result.ref), receipts)
+      }
+      const live = await this.resultHolderCensus.collect()
+      if (live === undefined) {
+        this.log('warn', 'Ownership', 'Result ownership census unavailable; historical receipts were kept.')
+        return
+      }
+      const persistedClass = new Set((previous.holders['6'] ?? []).map((owner) => canonicalJson(owner)))
+      const otherClasses = new Set(Object.entries(previous.holders).flatMap(([key, owners]) =>
+        key === '5' || key === '6' ? [] : owners.map((owner) =>
+          JSON.stringify([owner['scope'], owner['ownerKind'], owner['ownerId']]))))
+      for (const raw of previous.holders['5'] ?? []) {
+        if (!current()) return
+        try {
+          if (raw['scope'] !== 'local' || raw['ownerKind'] !== 'shown-result' || typeof raw['ownerId'] !== 'string' ||
+            !/^execution-result:[a-zA-Z0-9-]+$/.test(raw['ownerId']) || !persistedClass.has(canonicalJson(raw)) ||
+            otherClasses.has(JSON.stringify([raw['scope'], raw['ownerKind'], raw['ownerId']]))) continue
+          const retained = retainedAssetAcknowledgment(raw, { scope: 'local', ownerKind: 'shown-result',
+            ownerId: raw['ownerId'], holderClasses: [5, 6] })
+          if (retained.revision !== 1) continue
+          const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) ?? 'null')
+          if (intent?.version !== 3 || typeof intent.executionKey !== 'string') continue
+          const replacement = replacements.get(intent.executionKey)
+          if (replacement === undefined || replacement.length === 0 ||
+            !retained.digests.every((digest) => replacement.some((owner) => owner.digests.includes(digest)))) continue
+          const persisted = persistedResultReferences()
+          if (persisted === undefined || persisted.ownerIds.has(retained.ownerId) || live.has(retained.ownerId) ||
+            !replacement.every((owner) => persisted.ownerIds.has(owner.ownerId)) ||
+            [...this.store.executions.get().values()].some((state) =>
+              state.assetRetentions?.some((owner) => owner.ownerId === retained.ownerId)) ||
+            this.resultAssetOwners.has(retained.ownerId)) continue
+          await this.retireAssetOwner(backend.connection, retained)
+        } catch {
+          // A malformed or changed owner never authorizes releasing its protection.
+        }
+      }
+    })().catch(() => { /* Failed enrollment or observation leaves historical owners protected. */ }).finally(() => {
+      if (this.resultOwnerRecoveries.get(backend) === pending) this.resultOwnerRecoveries.delete(backend)
+    })
+    this.resultOwnerRecoveries.set(backend, pending)
+    return pending
+  }
+
   private async restoreExecutionResults(
     backend: Backend & { readonly protocol: 'dinkster' },
     registry: SchemaRegistry,
@@ -9551,6 +9666,8 @@ export class AppState {
     }
     this.pendingResultRestorations += 1
     try {
+      await this.reclaimReopenedResultOwners(backend, identity)
+      if (!current()) return
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         if (!this.store.canRestoreCompleted(result.ref)) continue

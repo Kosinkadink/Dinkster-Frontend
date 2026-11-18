@@ -631,7 +631,7 @@ export async function reconcileWorkflowRetentions(
         if ((sourceToken !== undefined && (owner?.ownerKind !== 'shown-result' ||
             typeof sourceToken !== 'string' || !/^[0-9a-f]{32}$/.test(sourceToken))) ||
           (intent.releaseRevision !== undefined && !releasing) ||
-          (releasing && intent.acknowledgedRevision !== 1 && intent.acknowledgedRevision !== 2) ||
+          (releasing && intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1 && intent.acknowledgedRevision !== 2) ||
           intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1 &&
             !(releasing && intent.acknowledgedRevision === 2)) ||
           intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
@@ -770,8 +770,14 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
       canonicalJson(intent.digests) !== canonicalJson(retained.digests) || intent.complete !== retained.complete ||
       intent.sourceToken !== retained.sourceToken || intent.releaseRevision !== undefined) return
     const releasing = { ...intent, releaseRevision: retained.revision }
-    const pending = JSON.stringify(releasing)
-    storage.setItem(key, pending)
+    let pending = JSON.stringify(releasing)
+    try { storage.setItem(key, pending) } catch (error) {
+      if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error
+      // The release revision replaces the acknowledgment when storage cannot
+      // grow. Persist the same exact revision without deleting any protection.
+      pending = JSON.stringify({ ...releasing, acknowledgedRevision: undefined })
+      storage.setItem(key, pending)
+    }
     let released: RetainedAssets | undefined
     try {
       released = await connection.releaseRetainedAssets(retained, retained.revision)
@@ -799,9 +805,22 @@ export class RetainedAssetReader {
 
   constructor(
     readonly connection: DinksterConnection,
-    readonly retained: RetainedAssets,
+    private protection: RetainedAssets,
     private readonly isCurrent: () => boolean,
   ) {}
+
+  get retained(): RetainedAssets { return this.protection }
+
+  /** An acknowledged complete replacement keeps old descriptors usable while bodies drain. */
+  async replaceProtection(retained: RetainedAssets): Promise<boolean> {
+    if (this.closed || !this.isCurrent() || !retained.complete || !this.protection.complete ||
+      retained.scope !== this.protection.scope || retained.ownerKind !== this.protection.ownerKind ||
+      retained.digests.length !== this.protection.digests.length ||
+      !retained.digests.every((digest, index) => digest === this.protection.digests[index])) return false
+    this.protection = retained
+    await Promise.allSettled([...this.pending])
+    return !this.closed && this.isCurrent()
+  }
 
   async read<T>(consume: () => Promise<T>): Promise<T> {
     if (this.closed || !this.isCurrent()) throw new Error('Retained asset reader is closed')

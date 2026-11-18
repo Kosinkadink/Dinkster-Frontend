@@ -123,6 +123,16 @@ the source owner. Release intent and acknowledgment remain journaled; lost
 responses reconcile the exact empty complete tombstone at the next revision,
 without repeating DELETE or adopting another generation's revision. A failed
 retirement does not roll back a workflow with independent acknowledged roots.
+At full browser storage, the release revision can replace the redundant
+acknowledgment field in the same journal without growing it. The exact durable
+release intent still precedes DELETE; storage refusal preserves protection.
+
+After a successful saved-client reopen, startup can reclaim that client's
+superseded shown-result journals before restoring results. Each release needs
+a freshly verified complete persisted receipt for the same execution covering
+all old roots. Persisted or live receipt IDs, locally admitted readers, document
+owners and other clients remain protected; matching digests alone do not confer
+release authority. Unknown or refused observations leave protection intact.
 
 Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
@@ -174,6 +184,12 @@ within its backend, connection generation, project and storage lifetime. Concurr
 admissions share one request; changed offers, releasing or modified journals and
 stale lifetimes require new admission. Reused readers drain all overlapping bodies
 before retirement, while each descriptor keeps its own publication-validity check.
+A changed offer for the same output still needs a fresh acknowledgment. When its
+complete inventory equals the prior complete inventory, locally admitted readers
+can share the replacement protection. Older admitted descriptors remain usable;
+release waits for their pending bodies and rechecks live and persisted references.
+Independent result receipts and mismatched or incomplete inventories are not
+superseded by this reader handoff.
 Peer receipts never enter this reuse inventory. `AppState.retentionActivity()`
 reports in-flight restoration, hydration, value admission and reads, reader drain,
 owner retirement, delayed recovery scans and persistence work; a persistence flush

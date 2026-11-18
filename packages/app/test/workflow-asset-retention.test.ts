@@ -44,6 +44,48 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it.each(['acknowledged', 'lost', 'refused', 'cleanup-refused'] as const)(
+    'retires an admitted owner at full storage without removing another holder: %s', async (scenario) => {
+      const f = recoveryFixture()
+      vi.stubGlobal('localStorage', f.storage)
+      const initial = JSON.stringify({ ...f.intent, acknowledgedRevision: f.acknowledgment.revision })
+      const independentKey = `${f.key}-independent`
+      f.entries.set(f.key, initial)
+      f.entries.set(independentKey, initial)
+      const capacity = [...f.entries.values()].reduce((sum, value) => sum + value.length, 0)
+      vi.spyOn(f.storage, 'setItem').mockImplementation((key, value) => {
+        const size = [...f.entries].reduce((sum, [storedKey, storedValue]) =>
+          sum + (storedKey === key ? 0 : storedValue.length), value.length)
+        if (size > capacity) throw new DOMException('Browser storage quota exceeded', 'QuotaExceededError')
+        f.entries.set(key, value)
+      })
+      if (scenario === 'cleanup-refused') {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        vi.spyOn(f.storage, 'removeItem').mockImplementation(() => { throw new DOMException('Storage access refused', 'SecurityError') })
+      }
+      let retained = f.acknowledgment
+      const connection = { ...f.connection,
+        releaseRetainedAssets: async () => {
+          if (scenario === 'refused') throw new Error('Release refused')
+          retained = { ...retained, revision: 2, complete: true, digests: [] }
+          if (scenario === 'lost') throw new Error('Release response lost')
+          return retained
+        },
+        fetchRetainedAssets: async () => retained,
+      } as unknown as DinksterConnection
+      await retireAssetOwner(connection, f.acknowledgment)
+      expect(await connection.fetchRetainedAssets(f.acknowledgment)).toEqual(scenario === 'refused'
+        ? f.acknowledgment : { ...f.acknowledgment, revision: 2, complete: true, digests: [] })
+      expect(f.storage.getItem(independentKey)).toBe(initial)
+      if (scenario === 'refused' || scenario === 'cleanup-refused') {
+        expect(JSON.parse(f.storage.getItem(f.key)!)).toMatchObject({ releaseRevision: 1 })
+        const pendingStorage = { length: 1, key: () => f.key, getItem: f.storage.getItem }
+        expect(await reconcileWorkflowRetentions(connection, new AbortController().signal, pendingStorage))
+          .toBe(scenario === 'cleanup-refused')
+      } else expect(f.storage.getItem(f.key)).toBeNull()
+    },
+  )
+
   it('reports failed terminal cleanup and preserves the journal and independent holder', async () => {
     const f = recoveryFixture()
     vi.stubGlobal('localStorage', f.storage)
