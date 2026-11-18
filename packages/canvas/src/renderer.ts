@@ -1544,7 +1544,11 @@ export class CanvasRenderer {
     ctx.fillStyle = t.colors.canvasBackground
     ctx.fillRect(0, 0, w, h)
 
-    const { x: vx, y: vy, scale } = this.viewport
+    const { scale } = this.viewport
+    // Align paint, not the logical camera, to physical pixels so camera-only
+    // translation preserves sharp retained imagery without bitmap resampling.
+    const vx = Math.round(this.viewport.x * pixelWidth / w) / (pixelWidth / w)
+    const vy = Math.round(this.viewport.y * pixelHeight / h) / (pixelHeight / h)
     ctx.translate(vx, vy)
     ctx.scale(scale, scale)
 
@@ -1581,20 +1585,16 @@ export class CanvasRenderer {
   ): void {
     const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
     const { x, y, scale } = this.viewport
-    const pixelX = x * densityX
-    const pixelY = y * densityY
-    const integerX = Math.floor(pixelX)
-    const integerY = Math.floor(pixelY)
-    const phaseX = pixelX - integerX
-    const phaseY = pixelY - integerY
-    const transform = `${scale}/${densityX}/${densityY}/${phaseX}/${phaseY}`
+    const pixelX = Math.round(x * densityX)
+    const pixelY = Math.round(y * densityY)
+    const transform = `${scale}/${densityX}/${densityY}`
     if (transform !== this.graphTileTransform) {
       this.clearGraphTiles()
       this.graphTileTransform = transform
     }
     const used = new Set<string>()
-    for (let row = Math.floor(-integerY / size); row * size + integerY < pixelHeight; row++) {
-      for (let column = Math.floor(-integerX / size); column * size + integerX < pixelWidth; column++) {
+    for (let row = Math.floor(-pixelY / size); row * size + pixelY < pixelHeight; row++) {
+      for (let column = Math.floor(-pixelX / size); column * size + pixelX < pixelWidth; column++) {
         const key = `${column}/${row}`
         used.add(key)
         let tile = this.graphTiles.get(key)
@@ -1603,8 +1603,8 @@ export class CanvasRenderer {
           // Reset paint state as well as pixels before rendering another tile.
           surface.width = surface.height = size + bleed * 2
           const target = surface.getContext('2d')! as unknown as CanvasRenderingContext2D
-          const originX = phaseX - column * size + bleed
-          const originY = phaseY - row * size + bleed
+          const originX = -column * size + bleed
+          const originY = -row * size + bleed
           target.setTransform(densityX * scale, 0, 0, densityY * scale, originX, originY)
           this.drawGraph(target, {
             x: -originX / (densityX * scale),
@@ -1615,7 +1615,7 @@ export class CanvasRenderer {
           tile = surface.transferToImageBitmap()
           this.graphTiles.set(key, tile)
         }
-        ctx.drawImage(tile, bleed, bleed, size, size, column * size + integerX, row * size + integerY, size, size)
+        ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
       }
     }
     // Retain only the visible working set, independent of total graph size or pan distance.

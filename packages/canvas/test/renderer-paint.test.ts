@@ -499,14 +499,21 @@ describe('graph image reuse', () => {
       expect(images.length).toBeGreaterThan(beforeTheme)
 
       const beforePhase = images.length
-      renderer.setViewport({ x: -513.25, y: -1, scale: 1 })
-      renderer.renderNow()
-      expect(images.length).toBeGreaterThan(beforePhase)
-      expect(images.slice(0, beforePhase).every((image) => image.close.mock.calls.length === 1)).toBe(true)
+      painted.calls.length = 0
+      for (const [x, y] of [[-513.25, -1.25], [-513.75, -1.75], [-514.125, -2.125]] as const) {
+        output.calls.length = 0
+        renderer.setViewport({ x, y, scale: 1 })
+        renderer.renderNow()
+        expect(renderer.getViewport()).toEqual({ x, y, scale: 1 })
+        expect(images).toHaveLength(beforePhase)
+        expect(painted.calls).toHaveLength(0)
+        expect(output.calls.filter((call) => call.method === 'drawImage').length).toBeLessThanOrEqual(12)
+      }
       const beforeZoom = images.length
       renderer.setViewport({ x: -513.25, y: -1, scale: 1.1 })
       renderer.renderNow()
       expect(images.length).toBeGreaterThan(beforeZoom)
+      expect(images.slice(0, beforeZoom).every((image) => image.close.mock.calls.length === 1)).toBe(true)
     } finally {
       renderer.dispose()
       vi.stubGlobal('OffscreenCanvas', fallback)

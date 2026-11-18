@@ -108,6 +108,10 @@ for (const dpr of [1, 1.25, 2]) {
             )!
             expect(repeated.referenceTiles).toBeGreaterThan(0)
             expect(repeated.candidateTiles).toBe(0)
+            const fractional = result.frames.find(
+              (frame) => frame.state === 'fractional pan',
+            )!
+            expect(fractional.candidateTiles).toBe(0)
             const pan = result.frames.find(
               (frame) => frame.state === 'same-phase pan',
             )!

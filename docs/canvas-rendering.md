@@ -2,13 +2,15 @@
 
 The canvas keeps the graph scene separate from the camera. On browsers with
 transferable offscreen bitmaps, graph paint is retained in device-pixel tiles.
-A camera-only move reuses visible tiles when the scale, backing density and
-subpixel phase match. Newly exposed tiles are painted from the scene. Tiles
-outside the visible working set are closed rather than retained indefinitely.
+A camera-only move reuses visible tiles when the scale and backing density
+match. The logical camera retains fractional movement, while painting rounds
+translation to physical pixels. This keeps retained text sharp without
+resampling and limits visual translation steps to one physical pixel. Newly
+exposed tiles are painted from the scene. Tiles outside the visible working
+set are closed rather than retained indefinitely.
 
-Tiles are copied at their original pixel size, never stretched. Zoom and
-subpixel-phase changes repaint at the new transform, preserving sharp text
-and geometry. Scene, overlay, preview, execution-state, theme and style
+Tiles are copied at their original pixel size, never stretched. Zoom changes
+repaint at the new scale, preserving sharp text and geometry. Scene, overlay, preview, execution-state, theme and style
 updates invalidate retained graph images. Disposing the renderer closes its
 remaining images. Running-node animation and browsers without transferable
 offscreen bitmaps use direct graph painting.

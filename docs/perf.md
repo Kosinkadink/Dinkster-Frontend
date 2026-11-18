@@ -49,6 +49,39 @@ proof of a specific tab-save/GC cause. The separate drag runs retain their
 existing settle and valid-movement checks. Raw cells are retained rather than
 rerun to replace unfavorable measurements.
 
+## Pixel-aligned pan reuse (2026-11-18)
+
+Aligning paint translation to physical pixels keeps the logical camera's
+fractional coordinates and avoids resampling retained images. Three new
+candidate-only repetitions use the same production build mode, hardware and
+unchanged pan/zoom harness as the preceding comparison; the earlier baseline
+cells are retained, not rerun. Zoom still rerasterizes at each new scale.
+The source remains a development candidate, not an accepted improvement.
+
+Median per-run p50/p95 times in milliseconds:
+
+| Fixture/camera | Pan frame | Pan renderer | Zoom frame | Zoom renderer |
+| --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 0.1/0.2 | 8.6/13.2 | 7.5/12.0 |
+| 66/fit | 16.0/17.6 | 0.1/0.2 | 5.0/15.0 | 4.4/13.7 |
+| 300/read | 5.0/17.7 | 0.1/0.2 | 7.9/11.7 | 7.1/10.7 |
+| 300/fit | 6.4/23.3 | 5.4/20.5 | 8.6/24.6 | 7.8/24.1 |
+| 1200/read | 14.9/17.7 | 0.1/0.2 | 16.8/22.0 | 16.2/21.0 |
+| 1200/fit | 24.3/39.5 | 19.0/33.4 | 20.5/36.8 | 20.1/36.3 |
+
+A separate controlled 300-node pointer-pan probe reduces graph-painter calls
+from 470 to 10 at readable zoom (only newly exposed tiles), and from 492 to
+zero at fit, across 24 samples per camera. Fractional camera coordinates are
+unchanged. The 66/300/1200 counting cases now require reuse on fractional pans
+as well as integer pans, and retain bitmap lifetime checks on zoom/theme/
+departure/disposal. The prior implementation fails all three new controls.
+
+Lower renderer CPU cost is not display-frame acceptance: the uncapped frame
+probe still reports gaps around 17 ms, whose initiating cause is not yet
+established. Fitted pan cells follow wheel flooding and retain the preceding
+queue-contamination limitation. Zoom remains more expensive than direct
+painting. No frame, zoom, or whole-issue target is accepted from these runs.
+
 ## Canvas click and save reporting (2026-11-17)
 
 The reporting tools in `scripts/canvas-performance/` retain the input and
