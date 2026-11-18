@@ -34,8 +34,10 @@ An unavailable model source name stays a name/kind requirement, not a fabricated
 
 Credential and access refusals offer the connection panel for the required provider,
 including Civitai. Several requirements for the same provider share one panel.
-Connecting or forgetting a provider invalidates pending plans; review again before
-consenting to a download. A provider connection never grants download or run consent.
+Connecting or forgetting a provider invalidates that provider's pending plans;
+review again before consenting to a download. Other providers' reviewed state and
+pending sign-ins stay available. A provider connection never grants download or
+run consent.
 
 Model plans and job operations use the local scope and the captured project. `Download` starts only the reviewed opaque plan. The dialog reports phase and received/total bytes; it never queues a graph when a transfer finishes. `Cancel transfer` explicitly cancels a cancellable job. `Dismiss` stops observation without cancelling the transfer; queue again and review to reconnect to the owned job. Transport errors require explicit reconnect. A job lost across restart is marked interrupted; reviewing again discovers any surviving job or offers a fresh plan and requires fresh Download consent. No read or retry restarts a transfer automatically.
 

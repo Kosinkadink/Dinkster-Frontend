@@ -26,6 +26,7 @@ import type {
   ModelRequirement,
   ModelDownloadPlan,
   ModelDownloadJob,
+  ModelProviderName,
 } from '@dinkster/client'
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
 import type { ModelProviderConnection } from './ModelProvider.js'
@@ -46,9 +47,19 @@ export interface ModelConsentState {
   readonly error?: string
 }
 
+export function modelConsentProvider(entry: ModelConsentState): ModelProviderName | undefined {
+  const plan = entry.plan
+  const provider = entry.job?.provider ?? (plan && 'provider' in plan ? plan.provider : undefined)
+  if (provider) return provider
+  const status = entry.job?.error ?? plan?.status
+  if (status === 'civitai-access-required') return 'civitai'
+  if (status === 'credential-required' || status === 'provider-grant-required') return 'huggingface'
+  return undefined
+}
+
 export interface AssetConsentRequest {
   readonly providerConnection?: ModelProviderConnection
-  readonly providerChanged?: () => void
+  readonly providerChanged?: (provider: ModelProviderName) => void
   readonly providerBackendUrl?: string
   readonly models?: readonly ModelConsentState[]
   readonly selectModelSource?: (index: number, source: string) => void
@@ -177,7 +188,7 @@ export function installAssetConsent(p: {
         reviewModel: (i) => modelAction(i, 'review', next),
         downloadModel: (i) => modelAction(i, 'download', next),
         cancelModel: (i) => modelAction(i, 'cancel', next),
-        ...(p.modelDownloads?.providerConnection ? { providerChanged: () => providerChanged(next) } : {}),
+        ...(p.modelDownloads?.providerConnection ? { providerChanged: (provider) => providerChanged(provider, next) } : {}),
       }
       owner = next
       chain = next
@@ -192,13 +203,15 @@ export function installAssetConsent(p: {
         ...(state.plan?.status === 'picker-required' ? { plan: state.plan } : {}),
       })
     }
-    const providerChanged = (expected: AssetConsentRequest): void => {
+    const providerChanged = (provider: ModelProviderName, expected: AssetConsentRequest): void => {
       if (!owned() || settled || owner.busy || owner !== expected) return
       if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
-      for (const [index, entry] of (owner.models ?? []).entries())
+      for (const [index, entry] of (owner.models ?? []).entries()) {
+        if (modelConsentProvider(entry) !== provider) continue
         update(index, { requirement: entry.requirement, pending: false,
           ...(entry.source === undefined ? {} : { source: entry.source }),
         })
+      }
     }
     const modelAction = async (index: number, action: 'review' | 'download' | 'cancel', expected = owner): Promise<void> => {
       const scope = p.modelDownloads
@@ -314,7 +327,7 @@ export function installAssetConsent(p: {
       ...(p.modelDownloads?.providerConnection ? {
         providerConnection: p.modelDownloads.providerConnection,
         ...(p.modelDownloads.backendUrl === undefined ? {} : { providerBackendUrl: p.modelDownloads.backendUrl }),
-        providerChanged: () => providerChanged(request),
+        providerChanged: (provider) => providerChanged(provider, request),
       } : {}),
       ...(result.assetsMissing.models?.length ? {
         models: result.assetsMissing.models.map((requirement) => ({ requirement, pending: false })),

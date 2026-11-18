@@ -72,7 +72,7 @@ describe('installAssetConsent ownership', () => {
     await slot.value!.reviewModel!(0)
     const reviewed = slot.value!
     expect(reviewed.models![0]!.plan).toEqual(selected)
-    reviewed.providerChanged!()
+    reviewed.providerChanged!('huggingface')
     expect(slot.value!.models![0]!.plan).toBeUndefined()
     await reviewed.downloadModel!(0)
     await slot.value!.retry([])
@@ -81,6 +81,38 @@ describe('installAssetConsent ownership', () => {
     slot.set(undefined)
   })
 
+
+  it.each(['huggingface', 'civitai'] as const)('preserves unrelated provider consent when %s credentials change', async (changed) => {
+    const slot = slotOf<AssetConsentRequest>()
+    const { result, retries } = rejection([])
+    const requirements = [{ name: 'hf.safetensors', kind: 'model/vae' }, { name: 'civitai.safetensors', kind: 'model/checkpoint' }]
+    const plans = [
+      { status: 'provider-grant-required' as const, provider: 'huggingface' as const },
+      { status: 'civitai-access-required' as const },
+    ]
+    const connection = { planModelDownload: async (requirement: { name: string }) => plans[requirement.name === 'hf.safetensors' ? 0 : 1]!,
+      startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'engine', jobs: [] }),
+      fetchModelDownload: vi.fn(), cancelModelDownload: vi.fn() }
+    const provider = { fetchModelProvider: vi.fn(), saveModelProviderToken: vi.fn(), forgetModelProvider: vi.fn(),
+      startModelProviderSignIn: vi.fn(), pollModelProviderSignIn: vi.fn(), cancelModelProviderSignIn: vi.fn() }
+    installAssetConsent({ result: { ...result, assetsMissing: { ...result.assetsMissing, models: requirements } }, slot,
+      modelDownloads: { connection, providerConnection: provider, project: 'work' }, ...consentCallbacks() })
+    await slot.value!.reviewModel!(0)
+    await slot.value!.reviewModel!(1)
+    const changedIndex = changed === 'huggingface' ? 0 : 1
+    const otherIndex = 1 - changedIndex
+    const unrelated = slot.value!.models![otherIndex]
+    const obsolete = slot.value!.providerChanged!
+    slot.value!.providerChanged!(changed)
+    expect(slot.value!.models![changedIndex]!.plan).toBeUndefined()
+    expect(slot.value!.models![otherIndex]).toEqual(unrelated)
+    obsolete(changed === 'huggingface' ? 'civitai' : 'huggingface')
+    expect(slot.value!.models![otherIndex]).toEqual(unrelated)
+    await slot.value!.retry([])
+    expect(retries).toHaveLength(0)
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+    slot.set(undefined)
+  })
 
   it('requires fresh consent after a source edit and ignores obsolete source and download callbacks', async () => {
     const slot = slotOf<AssetConsentRequest>()
