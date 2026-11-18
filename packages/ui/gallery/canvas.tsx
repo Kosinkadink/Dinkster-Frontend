@@ -4,6 +4,7 @@ import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
+  canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
   drawMinimap,
@@ -51,7 +52,7 @@ export function CanvasGallery() {
       }
       const measureContext = document.createElement('canvas').getContext('2d')!
       const measure: TextMeasurer = (text, role) => {
-        measureContext.font = `${role === 'title' || role === 'renamedTitle' ? '600 ' : ''}${role === 'title' || role === 'renamedTitle' ? tokens.titleFontSize : tokens.fontSize}px ${tokens.fontFamily}`
+        measureContext.font = `${role === 'title' || role === 'renamedTitle' ? `${canvasPaintTokens.type.semiboldWeight} ` : ''}${role === 'title' || role === 'renamedTitle' ? tokens.titleFontSize : tokens.fontSize}px ${tokens.fontFamily}`
         return measureContext.measureText(text).width
       }
       const widgetMeasure: WidgetMeasure = (spec) => {

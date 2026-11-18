@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 import { waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_NODE_HELP_PROOF_DIR']

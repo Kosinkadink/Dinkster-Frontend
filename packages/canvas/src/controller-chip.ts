@@ -1,16 +1,18 @@
 /** Geometry shared by widget painting and interaction for after-generate chips. */
 
-/** Numeric steppers retain this zone at the right edge of a widget row. */
-export const WIDGET_EDGE_CONTROL_WIDTH = 12
+import { canvasPaintTokens } from './tokens.js'
 
-/** Half-extent shared by the 6px numeric and combo edge glyphs. */
-export const EDGE_ACTION_GLYPH_HALF = 3
+/** Numeric steppers retain this zone at the right edge of a widget row. */
+export const WIDGET_EDGE_CONTROL_WIDTH = canvasPaintTokens.controller.edgeWidth
+
+/** Half-extent shared by the numeric and combo edge glyphs. */
+export const EDGE_ACTION_GLYPH_HALF = canvasPaintTokens.controller.glyphHalf
 
 /** Chip chrome is inset equally from the top and bottom of a widget row. */
-export const CONTROLLER_CHIP_VERTICAL_INSET = 4
+export const CONTROLLER_CHIP_VERTICAL_INSET = canvasPaintTokens.controller.verticalInset
 
 /** Gap between right-aligned widget value text and controller chip chrome. */
-export const CONTROLLER_CHIP_TEXT_GAP = 6
+export const CONTROLLER_CHIP_TEXT_GAP = canvasPaintTokens.controller.textGap
 
 /** Clearance between trailing controls; intentionally matches the text gap. */
 export const TRAILING_ACTION_GAP = CONTROLLER_CHIP_TEXT_GAP
@@ -47,10 +49,10 @@ export function widgetFieldBounds(
   controller: boolean,
 ): { left: number; right: number } {
   return {
-    left: numeric ? WIDGET_EDGE_CONTROL_WIDTH : 6,
+    left: numeric ? WIDGET_EDGE_CONTROL_WIDTH : canvasPaintTokens.controller.fieldInset,
     right: controller
       ? controllerChipTextRight(rowWidth, rowHeight)
-      : numeric ? rowWidth - WIDGET_EDGE_CONTROL_WIDTH : rowWidth - 6,
+      : numeric ? rowWidth - WIDGET_EDGE_CONTROL_WIDTH : rowWidth - canvasPaintTokens.controller.fieldInset,
   }
 }
 

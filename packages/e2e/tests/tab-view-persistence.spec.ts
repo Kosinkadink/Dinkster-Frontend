@@ -1,4 +1,4 @@
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const selectTab = (page: Page, title: string) =>
   page.getByTestId('tab-bar').locator('.tab-select', { hasText: title })
@@ -42,7 +42,7 @@ test('refresh restores each graph tab viewport and the active tab', async ({ pag
 
 test('refresh restores App View scroll position', async ({ page }) => {
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     const items = Array.from({ length: 32 }, (_, index) => ({
       id: `text-${index}`,

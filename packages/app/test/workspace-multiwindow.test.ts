@@ -1032,18 +1032,21 @@ describe('AppState multi-window workspace', () => {
     const events = new EventTarget()
     vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
     vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
-    let commits = Promise.resolve<unknown>(undefined)
+    const commits = new Map<string, Promise<unknown>>()
     const pending: LockInfo[] = []
-    vi.stubGlobal('navigator', { locks: { query: async () => ({ pending: [...pending], held: [] }), request: (
-      name: string, _options: LockOptions, callback: () => unknown,
+    const held: LockInfo[] = []
+    vi.stubGlobal('navigator', { locks: { query: async () => ({ pending: [...pending], held: [...held] }), request: (
+      name: string, options: LockOptions | (() => unknown), callback?: () => unknown,
     ) => {
-      const lock: LockInfo = { name, mode: 'exclusive', clientId: 'test-renderer' }
+      const consume = typeof options === 'function' ? options : callback!
+      const lock: LockInfo = { name, mode: typeof options === 'function' ? 'exclusive' : options.mode ?? 'exclusive', clientId: 'test-renderer' }
       pending.push(lock)
-      const next = commits.then(() => {
+      const next = (commits.get(name) ?? Promise.resolve()).then(async () => {
         pending.splice(pending.indexOf(lock), 1)
-        return callback()
+        held.push(lock)
+        try { return await consume() } finally { held.splice(held.indexOf(lock), 1) }
       })
-      commits = next.catch(() => undefined)
+      commits.set(name, next.catch(() => undefined))
       return next
     } } })
     const app = createEditableApp()

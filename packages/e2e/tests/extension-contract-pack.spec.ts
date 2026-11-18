@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 
 const proofDirectory = process.env['DINKSTER_EXTENSION_CONTRACT_PROOF_DIR']
 

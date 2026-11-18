@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 
 const PROOF = '/tmp/audit-assets-m1-proof'
 const digest = (character: string): string => `blake3:${character.repeat(64)}`

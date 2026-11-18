@@ -50,7 +50,7 @@ import {
   type TypeExpr,
   type WidgetSpec,
 } from '@dinkster/core'
-import { type DesignTokens } from './tokens.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
@@ -323,13 +323,14 @@ export function widgetChromeRect(x: number, rowY: number, width: number, rowHeig
   readonly height: number
   readonly radius: number
 } {
-  return { x, y: rowY + 2, width, height: rowHeight - 4, radius: 4 }
+  const paint = canvasPaintTokens.widget
+  return { x, y: rowY + paint.verticalInset, width, height: rowHeight - paint.verticalInset * 2, radius: paint.radius }
 }
 
 /** Floating label band plus padded multiline content rows. */
 export function multilineWidgetHeight(rows: number, tokens: DesignTokens): number {
-  // The content budget lives inside widgetChromeRect's 2px top/bottom inset.
-  return 4 + tokens.multilineText.labelHeight +
+  // The content budget lives inside widgetChromeRect's top/bottom inset.
+  return canvasPaintTokens.widget.verticalInset * 2 + tokens.multilineText.labelHeight +
     rows * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
 }
 
@@ -537,7 +538,7 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
  * Activate the capped Standard-view string result region. Image previews use
  * their separate region and take precedence before this helper is called.
  */
-export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, lineCount = 6): NodeLayout {
+export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, lineCount: number = canvasPaintTokens.node.textOutputMaxRows): NodeLayout {
   if (layout.textOutput !== undefined) return layout
   if (layout.minimized) {
     const compact = withCompactPreviewRegion(layout, tokens)
@@ -552,7 +553,7 @@ export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, l
       },
     }
   }
-  const regionHeight = tokens.rowHeight * Math.max(1, Math.min(6, Math.trunc(lineCount)))
+  const regionHeight = tokens.rowHeight * Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, Math.trunc(lineCount)))
   if (layout.preview?.compact === true) {
     const expansion = regionHeight - tokens.rowHeight
     const { preview: compactPreview, ...base } = layout
@@ -1193,23 +1194,23 @@ export function layoutNode(
   const titleRenamed = node.title !== undefined && node.title !== schema.displayName
   const title = node.title ?? schema.displayName
   const titleWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title')
-  let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + 8)
+  let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
     let content = 0
     if (row.kind === 'ports') {
-      const inW = row.input ? measure(row.input.label, 'label') + tokens.pinRadius * 2 + 6 : 0
-      const outW = row.output ? measure(row.output.label, 'label') + tokens.pinRadius * 2 + 6 : 0
-      content = inW + outW + (row.input && row.output ? 24 : 0)
+      const inW = row.input ? measure(row.input.label, 'label') + tokens.pinRadius * 2 + canvasPaintTokens.node.portLabelPadding : 0
+      const outW = row.output ? measure(row.output.label, 'label') + tokens.pinRadius * 2 + canvasPaintTokens.node.portLabelPadding : 0
+      content = inW + outW + (row.input && row.output ? canvasPaintTokens.node.pairedPortGap : 0)
     } else if (row.kind === 'section') {
       // Label + the disclosure triangle.
-      content = measure(row.label, 'label') + 18
+      content = measure(row.label, 'label') + canvasPaintTokens.node.sectionWidthPadding
     } else if (row.kind === 'growth') {
       // '+ label' text plus capsule padding.
-      content = measure(`+ ${row.label}`, 'label') + 18
+      content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding
     } else {
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
-      content = measure(row.label, 'label') + 12 + 90
+      content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth
     }
     width = Math.max(width, content + tokens.padX * 2)
   }
@@ -1218,11 +1219,11 @@ export function layoutNode(
   // Manual override: width may shrink to the global floor (content
   // truncates), height may only grow (rows never compress).
   const columns = Math.max(1, ...[...lines.values()].map((line) => line.length))
-  const cellGap = 20
+  const cellGap = canvasPaintTokens.node.widgetColumnGap
   const minWidth = columns * tokens.nodeMinWidth + (columns - 1) * cellGap
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
-    width = Math.max(width, line.reduce((sum, row) => sum + measure(row.widget!.label, 'label') + 102 + tokens.padX * 2, 0) + (line.length - 1) * cellGap)
+    width = Math.max(width, line.reduce((sum, row) => sum + measure(row.widget!.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2, 0) + (line.length - 1) * cellGap)
   }
   width = Math.max(minWidth, width)
   const minHeight = naturalHeight
@@ -1256,7 +1257,7 @@ export function layoutNode(
     const minimizedHeight = tokens.headerHeight + tokens.padBottom
     const minimizedWidth = Math.min(
       tokens.nodeMaxAutoWidth,
-      Math.max(MINIMIZED_NODE_MIN_WIDTH, titleWidth + tokens.padX * 2 + 8),
+      Math.max(MINIMIZED_NODE_MIN_WIDTH, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding),
     )
     return {
       width: minimizedWidth,
@@ -1293,10 +1294,10 @@ export function layoutNode(
 }
 
 /** Minimized nodes may be narrower than ordinary editable node bodies. */
-export const MINIMIZED_NODE_MIN_WIDTH = 80
+export const MINIMIZED_NODE_MIN_WIDTH = canvasPaintTokens.node.minimizedMinWidth
 
 /** Visual gap between a pin circle and widget chrome. */
-export const WIDGET_PIN_GAP = 4
+export const WIDGET_PIN_GAP = canvasPaintTokens.node.widgetPinGap
 
 /** One boundary item rendered as a pseudo-node row (scene supplies these). */
 export interface BoundarySlotInfo {
@@ -1385,12 +1386,12 @@ export function layoutBoundaryNode(
     y += height
   }
 
-  let width = Math.max(tokens.nodeMinWidth, measure(title, 'title') + tokens.padX * 2 + 8)
+  let width = Math.max(tokens.nodeMinWidth, measure(title, 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
     if (row.kind !== 'ports') continue
     const slot = row.input ?? row.output
     if (!slot) continue
-    width = Math.max(width, measure(slot.label, 'label') + tokens.pinRadius * 2 + 6 + tokens.padX * 2)
+    width = Math.max(width, measure(slot.label, 'label') + tokens.pinRadius * 2 + canvasPaintTokens.node.portLabelPadding + tokens.padX * 2)
   }
   width = Math.min(width, tokens.nodeMaxAutoWidth)
 

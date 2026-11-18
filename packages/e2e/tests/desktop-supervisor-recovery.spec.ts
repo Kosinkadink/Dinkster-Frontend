@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../visual.js'
 import { evidencePath } from './evidence-output.js'
 
 test('a post-ready engine death surfaces restart and returns to ready', async ({ page }) => {

@@ -52,6 +52,7 @@ export async function checkDesignSystem(args = []) {
     sources.push(
       resolve(repository, 'packages/ui/src'),
       resolve(repository, 'packages/ui/gallery'),
+      resolve(repository, 'packages/site/src'),
     )
 
   const problems = []

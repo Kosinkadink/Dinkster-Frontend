@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '../visual.js'
 
 const proofDir = process.env['DINKSTER_LOOP_UI_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
