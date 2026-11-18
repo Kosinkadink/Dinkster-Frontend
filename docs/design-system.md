@@ -62,6 +62,14 @@ component gallery on loopback port 5276 after `pnpm build:ui`; production galler
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
+The Canvas pages include an Attached tabs proposal at controls and content
+zoom in both themes. Its Badge layout selector compares production chips with
+the opt-in renderer layout: small header marks, bounded identity tabs above,
+run details below, crowded icon strips and an overflow count. Hover reveals
+a strip label; clicking a tab or overflow opens its full details. The proposed
+16px height, 11px text and 12px side inset live in the typed canvas tokens;
+these dimensions are not approved and production continues to use chips.
+
 - `ProductShell` owns the full-width frame and responsive navigation. The top
   bar and sidebar stay in place while the page scrolls; below the breakpoint
   the top bar stays and the opened navigation scrolls with the page. Its caller

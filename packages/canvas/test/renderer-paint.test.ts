@@ -565,6 +565,52 @@ describe('scene visual bounds and fitting', () => {
     expect(sceneVisualBounds(emptyScene({ nodes: [node] }), {}, { [node.id]: [badge] })!.minY).toBe(rect.y)
   })
 
+  it('attaches tab lanes outside state and selection outlines and includes them in camera bounds', () => {
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, badgeLayout: 'tabs' })
+    const list = [{ ...ERROR_BADGE, placement: 'above' as const }, { ...ERROR_BADGE, id: 'below', placement: 'below' as const }]
+    renderer.setScene(emptyScene({ nodes: [node] }))
+    renderer.setBadges({ [node.id]: list })
+    for (const scale of [0.5, 1]) {
+      renderer.setViewport({ x: 0, y: 0, scale })
+      for (const state of ['pending', 'running', 'done', 'cached', 'skipped', 'error'] as const) {
+        renderer.setNodeStates({ [node.id]: { state } })
+        renderer.setOverlay({ selection: new Set([node.id]) })
+        const entries = renderer.getNodeBadgeLayout(node)
+        const top = entries.find((entry) => entry.badge.placement === 'above')!
+        const bottom = entries.find((entry) => entry.badge.placement === 'below')!
+        expect(top.y + top.height).toBeLessThan(node.y)
+        expect(bottom.y).toBeGreaterThan(node.y + node.layout.height)
+        const bounds = sceneVisualBounds(renderer.getScene(), {}, renderer.getBadges(), (current) => renderer.getNodeBadgeBounds(current))!
+        expect(bounds.minY).toBeLessThan(top.y)
+        expect(bounds.maxY).toBeGreaterThan(bottom.y + bottom.height)
+      }
+    }
+    renderer.dispose()
+  })
+
+  it('paints external tabs when the body is culled, including drag and resize projections', () => {
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, badgeLayout: 'tabs' })
+    const badge = { ...ERROR_BADGE, glyph: 'External', placement: 'above' as const }
+    const edge = { ...node, x: 30, y: 1215 }
+    renderer.setScene(emptyScene({ nodes: [edge] }))
+    renderer.setViewport({ x: 0, y: 0, scale: 1 })
+    renderer.setBadges({ [edge.id]: [badge] })
+    const paintsLabel = () => calls.some((call) => call.method === 'fillText' && call.args[0] === 'External')
+    renderer.renderNow()
+    expect(paintsLabel()).toBe(true)
+    calls.length = 0
+    renderer.setOverlay({ dragOffsets: new Map([[edge.id, { dx: 5, dy: 80 }]]) })
+    renderer.renderNow()
+    expect(paintsLabel()).toBe(false)
+    calls.length = 0
+    renderer.setOverlay({ resizePreview: { nodeId: edge.id, x: 50, y: 1214, width: 240, height: edge.layout.height } })
+    renderer.renderNow()
+    expect(paintsLabel()).toBe(true)
+    renderer.dispose()
+  })
+
   it('fits known visual bounds and leaves empty or zero-size canvases unchanged', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)

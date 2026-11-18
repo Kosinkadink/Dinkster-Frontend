@@ -49,6 +49,44 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
 })
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`Attached tab overflow and hover, ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 2000 })
+    await page.goto('/#canvas')
+    await page
+      .getByRole('button', {
+        name: `${theme === 'dark' ? 'Dark' : 'Light'} theme`,
+        exact: true,
+      })
+      .click()
+    await page
+      .getByRole('button', { name: 'Attached tabs proposal', exact: true })
+      .click()
+    const canvas = page.getByRole('img', {
+      name: `tabs in ${theme} theme`,
+      exact: true,
+    })
+    await expect(canvas).toHaveAttribute('data-ready', `tabs-${theme}`)
+    await canvas.hover({ position: { x: 267, y: 846 } })
+    await expect(canvas).toHaveAttribute('title', 'Detail 1')
+    await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
+    await page.mouse.move(0, 0)
+    await canvas.click({ position: { x: 290, y: 846 } })
+    const dialog = page.getByRole('dialog', { name: 'Node details' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Detail 2', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Detail 9', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Detail 1', { exact: true })).toHaveCount(0)
+    await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await page
+      .getByRole('button', { name: 'Node anatomy', exact: true })
+      .click()
+    await expect(
+      page.getByRole('img', { name: `anatomy in ${theme} theme`, exact: true }),
+    ).toHaveScreenshot(`anatomy-${theme}.png`)
+  })
+
   test(`Previous type colors stay isolated, ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto('/#canvas')
@@ -122,6 +160,7 @@ for (const theme of ['dark', 'light'] as const) {
           ).toHaveValue('quieter')
         }
         const titles = id === 'titles' || id === 'titles-content'
+        const tabs = id === 'tabs' || id === 'tabs-content'
         if (titles) {
           await expect(
             page.getByRole('combobox', { name: 'Title fitting' }),
@@ -131,15 +170,25 @@ for (const theme of ['dark', 'light'] as const) {
           ? ['previous', 'quieter']
           : titles
             ? ['squeeze', 'ellipsis']
-            : [undefined]) {
+            : tabs
+              ? ['chips', 'tabs']
+              : [undefined]) {
           if (look) {
             await page
               .getByRole('combobox', {
-                name: titles ? 'Title fitting' : 'Outline look',
+                name: titles
+                  ? 'Title fitting'
+                  : tabs
+                    ? 'Badge layout'
+                    : 'Outline look',
               })
               .selectOption(look)
             await expect(canvas).toHaveAttribute(
-              titles ? 'data-title-look' : 'data-outline',
+              titles
+                ? 'data-title-look'
+                : tabs
+                  ? 'data-tab-look'
+                  : 'data-outline',
               look,
             )
           }

@@ -59,6 +59,19 @@ export const canvasPaintTokens = {
     fontSize: 9,
     textIconOffset: 5,
     baselineOffset: 0.5,
+    tab: {
+      height: 16,
+      fontSize: 11,
+      inset: 12,
+      gap: 2,
+      padding: 6,
+      iconSize: 10,
+      iconGap: 4,
+      maxLabelWidth: 120,
+      overlap: 1,
+      hoverStroke: 1,
+      hoverTint: 0.22,
+    },
     colors: {
       subgraph: '#4a4a5e',
       executionError: '#b3402f',
@@ -493,6 +506,7 @@ export interface DesignTokens {
   readonly fontFamily: string
   readonly fontSize: number
   readonly titleFontSize: number
+  readonly badgeLayout: 'chips' | 'tabs'
   readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
   readonly multilineText: {
@@ -628,6 +642,7 @@ export const defaultTokens: DesignTokens = {
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
   titleFontSize: 13,
+  badgeLayout: 'chips',
   titleOverflow: 'ellipsis',
   // Comfy-style prompt fields use 14px type with readable 20px leading and
   // 6px inset. Their 18px label band reduces dead space without changing

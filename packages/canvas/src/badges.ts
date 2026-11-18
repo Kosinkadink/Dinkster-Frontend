@@ -7,7 +7,7 @@
  */
 
 import type { Scene, SceneNode } from './scene.js'
-import { canvasPaintTokens, defaultTokens } from './tokens.js'
+import { canvasPaintTokens, defaultTokens, type DesignTokens } from './tokens.js'
 import type { CanvasIconName } from './toolbox.js'
 
 export interface NodeBadge {
@@ -139,9 +139,9 @@ const badgeWidth = (badge: NodeBadge): number =>
   badge.variant === 'label' ? Math.ceil(badge.glyph.length * canvasPaintTokens.badge.characterWidth) + canvasPaintTokens.badge.labelPadding + (badge.icon === undefined ? 0 : canvasPaintTokens.badge.iconWidth) : BADGE_SIZE
 
 /** Width reserved beside a minimized title for badges inside the header. */
-export const headerBadgeLaneWidth = (badges: readonly NodeBadge[]): number => {
+export const headerBadgeLaneWidth = (badges: readonly NodeBadge[], tokens: DesignTokens = defaultTokens): number => {
   const headerBadges = badges.filter((badge) => badge.placement === undefined)
-  return headerBadges.reduce((total, badge) => total + badgeWidth(badge), 0) +
+  return headerBadges.reduce((total, badge) => total + (tokens.badgeLayout === 'tabs' ? BADGE_SIZE : badgeWidth(badge)), 0) +
     Math.max(0, headerBadges.length - 1) * BADGE_GAP
 }
 
@@ -175,23 +175,147 @@ export function badgeRect(
   }
 }
 
+export interface BadgePlacement extends BadgeRect {
+  readonly badge: NodeBadge
+  readonly compact: boolean
+  /** Original badges behind an overflow tab, in priority order. */
+  readonly overflow?: readonly NodeBadge[]
+}
+
+export interface BadgeLayoutOptions {
+  readonly tokens: DesignTokens
+  /** Outer painted outline edge, in world units from the node body. */
+  readonly outset?: number
+  readonly hoveredId?: string
+}
+
+/** Shared placement for paint, pointer targets and conservative visual bounds. */
+export function layoutNodeBadges(
+  node: SceneNode,
+  badges: readonly NodeBadge[],
+  options: BadgeLayoutOptions,
+): readonly BadgePlacement[] {
+  if (options.tokens.badgeLayout === 'chips') return badges.map((badge, index) => ({
+    ...badgeRect(node, index, badges), badge, compact: badge.variant !== 'label',
+  }))
+  const paint = canvasPaintTokens.badge.tab
+  const inset = Math.min(paint.inset, node.layout.width / 2)
+  const available = Math.max(0, node.layout.width - inset * 2)
+  const strip = paint.padding * 2 + paint.iconSize
+  const fullWidth = (badge: NodeBadge): number => Math.min(available,
+    paint.padding * 2 + paint.iconSize + paint.iconGap + Math.min(paint.maxLabelWidth, badge.glyph.length * paint.fontSize))
+  const result: BadgePlacement[] = []
+  const header = badges.filter((badge) => badge.placement === undefined)
+  const headerCount = Math.min(header.length, Math.floor((available + BADGE_GAP) / BADGE_STRIDE))
+  const headerOverflow = header.length > headerCount ? header.slice(Math.max(0, headerCount - 1)) : []
+  for (let index = 0; index < headerCount; index++) {
+    const folded = headerOverflow.length > 0 && index === headerCount - 1
+    result.push({
+      ...badgeRect(node, index),
+      badge: folded ? {
+        id: 'core.badges.overflow.header', glyph: '+', color: options.tokens.colors.nodeBorder,
+      } : header[index]!,
+      compact: true,
+      ...(folded ? { overflow: headerOverflow } : {}),
+    })
+  }
+  for (const placement of ['above', 'below'] as const) {
+    const lane = badges.filter((badge) => badge.placement === placement)
+    if (lane.length === 0 || available <= 0) continue
+    const total = (widths: readonly number[]) => widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * paint.gap
+    let visible = lane
+    let widths = lane.map(fullWidth)
+    let overflow: readonly NodeBadge[] = []
+    if (total(widths) > available) {
+      const count = Math.max(1, Math.floor((available + paint.gap) / (strip + paint.gap)))
+      if (lane.length > count) {
+        overflow = lane.slice(count - 1)
+        visible = [...lane.slice(0, count - 1), {
+          id: `core.badges.overflow.${placement}`, glyph: `+${overflow.length}`,
+          placement, variant: 'label', color: options.tokens.colors.nodeBorder,
+        }]
+      }
+      widths = visible.map((badge, index) => Math.min(available,
+        overflow.length > 0 && index === visible.length - 1
+          ? paint.padding * 2 + badge.glyph.length * paint.fontSize : strip))
+      // Reserve the overflow count before returning words to priority tabs.
+      while (visible.length > 1 && total(widths) > available) {
+        overflow = lane.slice(visible.length - 2)
+        visible = [...visible.slice(0, -2), { ...visible[visible.length - 1]!, glyph: `+${overflow.length}` }]
+        widths = visible.map((badge, index) => index === visible.length - 1
+          ? Math.min(available, paint.padding * 2 + badge.glyph.length * paint.fontSize) : strip)
+      }
+      for (let index = 0; index < visible.length - (overflow.length > 0 ? 1 : 0); index++) {
+        const trial = [...widths]
+        trial[index] = fullWidth(visible[index]!)
+        if (total(trial) <= available) widths = trial
+      }
+    }
+    const outset = options.outset ?? 0
+    const y = placement === 'above'
+      ? node.y - outset - paint.height + paint.overlap
+      : node.y + node.layout.height + outset - paint.overlap
+    let x = node.x + inset
+    const entries = visible.map((badge, index): BadgePlacement => {
+      const width = widths[index]!
+      const folded = overflow.length > 0 && index === visible.length - 1
+      const entry = {
+        x, y, width, height: paint.height, badge,
+        compact: !folded && width < fullWidth(badge),
+        ...(folded ? { overflow } : {}),
+      }
+      x += width + paint.gap
+      return entry
+    })
+    const hovered = entries.find((entry) => entry.badge.id === options.hoveredId)
+    if (hovered && !hovered.overflow) {
+      const width = fullWidth(hovered.badge)
+      result.push(...entries.filter((entry) => entry !== hovered), {
+        ...hovered, width, compact: false,
+        x: Math.min(hovered.x, node.x + node.layout.width - inset - width),
+      })
+    } else result.push(...entries)
+  }
+  return result
+}
+
+/** Includes hovered expansion; callers apply live resize/drag geometry first. */
+export function nodeBadgeBounds(node: SceneNode, badges: readonly NodeBadge[], options: BadgeLayoutOptions): BadgeRect {
+  const entries = layoutNodeBadges(node, badges, options)
+  const bleed = options.tokens.badgeLayout === 'tabs' ? canvasPaintTokens.badge.tab.hoverStroke / 2 : 0
+  const left = Math.min(node.x, ...entries.map((entry) => entry.x - bleed))
+  const top = Math.min(node.y, ...entries.map((entry) => entry.y - bleed))
+  return {
+    x: left, y: top,
+    width: Math.max(node.x + node.layout.width, ...entries.map((entry) => entry.x + entry.width + bleed)) - left,
+    height: Math.max(node.y + node.layout.height, ...entries.map((entry) => entry.y + entry.height + bleed)) - top,
+  }
+}
+
 export interface BadgeHit {
   readonly node: SceneNode
   readonly badge: NodeBadge
   readonly rect: BadgeRect
+  readonly overflow?: readonly NodeBadge[]
 }
 
 /** Topmost badge under a world point (nodes drawn later win, like hitTest). */
-export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: number): BadgeHit | undefined {
+export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: number,
+  layout?: (node: SceneNode, badges: readonly NodeBadge[]) => readonly BadgePlacement[],
+): BadgeHit | undefined {
   for (let i = scene.nodes.length - 1; i >= 0; i--) {
     const node = scene.nodes[i]!
     const list = badges[node.id]
     if (list) {
-      for (const [index, badge] of list.entries()) {
+      const entries = layout?.(node, list)
+      for (let index = 0; index < (entries?.length ?? list.length); index++) {
+        const entry = entries?.[entries.length - 1 - index]
+        const badge = entry?.badge ?? list[index]!
         if (badge.interactive === false) continue
-        const r = badgeRect(node, index, list)
-        if (wx >= r.x && wx <= r.x + r.width && wy >= r.y && wy <= r.y + r.height) {
-          return { node, badge, rect: r }
+        const rect = entry ? { x: entry.x, y: entry.y, width: entry.width, height: entry.height }
+          : badgeRect(node, index, list)
+        if (wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height) {
+          return { node, badge, rect, ...(entry?.overflow ? { overflow: entry.overflow } : {}) }
         }
       }
     }

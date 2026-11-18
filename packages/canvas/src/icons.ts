@@ -33,6 +33,17 @@ import PanelTopClose from 'lucide/dist/esm/icons/panel-top-close.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import PanelTopOpen from 'lucide/dist/esm/icons/panel-top-open.mjs'
 
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Check from 'lucide/dist/esm/icons/check.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Clock from 'lucide/dist/esm/icons/clock.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Database from 'lucide/dist/esm/icons/database.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import TriangleAlert from 'lucide/dist/esm/icons/triangle-alert.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Info from 'lucide/dist/esm/icons/info.mjs'
+
 import type { ToolboxButton } from './toolbox.js'
 import { canvasPaintTokens } from './tokens.js'
 
@@ -48,6 +59,11 @@ const CONTROLLER_ICONS: Record<SeedControllerMode, IconNode> = {
 }
 
 const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
+  check: Check,
+  clock: Clock,
+  database: Database,
+  'triangle-alert': TriangleAlert,
+  info: Info,
   'volume-x': VolumeX,
   ban: Ban,
   play: Play,
