@@ -184,7 +184,7 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
     [...window.__dinksterTest!.app.store.executions.get().values()].map((execution) => execution.ref.prompt))
   const concatHeader = await headerPoint(page, 'concat')
   await page.mouse.click(concatHeader.x, concatHeader.y, { button: 'right' })
-  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to Selection' }).click()
+  await page.getByTestId('context-menu-item').filter({ hasText: 'Execute up to selection' }).click()
   const newPrompt = (existing: readonly unknown[]) =>
     [...window.__dinksterTest!.app.store.executions.get().values()]
       .find((execution) => !existing.includes(execution.ref.prompt))?.ref.prompt
