@@ -450,6 +450,7 @@ export function accountView(options: AccountViewOptions) {
           {(_current) => (
             <>
               <ProductShell
+                centered
                 title="Dinkster"
                 navigation={navigation()}
                 currentHref={
