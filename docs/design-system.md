@@ -664,13 +664,13 @@ stable hashed hue with theme-specific lightness. Live app theme changes update
 chrome and type paint together. The Pins and links page retains Previous colors
 as a page-only comparison; it cannot change app defaults or other gallery pages.
 
-Node titles and Node titles at content zoom compare current squeezed titles with
-an ellipsis preview in both themes. Fitting, long, renamed and minimized titles
-use the same production layout, including space reserved for header marks.
-The preview fits whole-width letters with the shared cached text fitter instead
-of horizontally condensing them. Its `titleOverflow` token override is limited
-to those gallery pages; app defaults and all other pages keep `squeeze` until
-production adoption. Overview title painting is unchanged.
+Node titles retain normal letter widths and end in an ellipsis when they do not
+fit the space left by header marks. The typed `titleOverflow` default applies to
+app canvases and node previews. Node titles and Node titles at content zoom
+compare this current look with Previous squeezing in both themes, using fitting,
+long, renamed and minimized titles in the same production layout. Only those
+gallery pages can select the previous look; it cannot change other pages or the
+app. Title placement, available width and overview title painting are unchanged.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.

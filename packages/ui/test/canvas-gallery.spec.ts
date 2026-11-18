@@ -78,6 +78,11 @@ for (const theme of ['dark', 'light'] as const) {
           ).toHaveValue('quieter')
         }
         const titles = id === 'titles' || id === 'titles-content'
+        if (titles) {
+          await expect(
+            page.getByRole('combobox', { name: 'Title fitting' }),
+          ).toHaveValue('ellipsis')
+        }
         for (const look of id === 'idle-outline'
           ? ['previous', 'quieter']
           : titles
@@ -99,7 +104,7 @@ for (const theme of ['dark', 'light'] as const) {
           )
         }
         if (id === 'idle-outline' || titles) {
-          const look = titles ? 'ellipsis' : 'previous'
+          const look = titles ? 'squeeze' : 'previous'
           await page
             .getByRole('combobox', {
               name: titles ? 'Title fitting' : 'Outline look',

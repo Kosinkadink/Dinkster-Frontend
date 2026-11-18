@@ -37,7 +37,7 @@ export function CanvasGallery() {
   const [widgetId, setWidgetId] = createSignal('float')
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
-  const [titleLook, setTitleLook] = createSignal<'squeeze' | 'ellipsis'>('squeeze')
+  const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
   let canvas!: HTMLCanvasElement
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
@@ -52,7 +52,15 @@ export function CanvasGallery() {
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
-    void document.fonts.ready.then(() => {
+    void (currentPage === 'titles' || currentPage === 'titles-content'
+      ? Promise.all([
+          document.fonts.ready,
+          document.fonts.load(
+            `italic ${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
+          ),
+        ])
+      : document.fonts.ready
+    ).then(() => {
       if (disposed) return
       const colors = canvasColorsForTheme(currentTheme)
       const tokens = {
@@ -275,15 +283,16 @@ export function CanvasGallery() {
                 setTitleLook(event.currentTarget.value as 'squeeze' | 'ellipsis')
               }
             >
-              <option value="squeeze">Squeezed titles (current)</option>
-              <option value="ellipsis">Ellipsis preview</option>
+              <option value="ellipsis">Ellipsis (current)</option>
+              <option value="squeeze">Squeezed titles (previous)</option>
             </ProductSelect>
           )}
         </ProductField>
         <p class="dinkster-description">
           Compare fitting, long, renamed and minimized titles, including header
-          marks. The ellipsis preview keeps letter widths and title bounds;
-          app defaults and other gallery pages stay unchanged.
+          marks. Current titles keep letter widths and end in an ellipsis when
+          crowded. Previous squeezing overrides only this comparison; app titles
+          and other gallery pages keep ellipsis.
         </p>
       </Show>
       <Show when={page() === 'widget-states'}>
