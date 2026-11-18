@@ -650,6 +650,9 @@ not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
+The Idle outline page compares the current outline with the shared subtle border
+on idle, hovered and selected nodes. Its Outline look selector affects only that
+gallery page; app canvas tokens and all other gallery pages keep their existing paint.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
