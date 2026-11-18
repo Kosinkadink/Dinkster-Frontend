@@ -102,6 +102,17 @@ for (const dpr of [1, 1.25, 2]) {
             result.staleDifferences,
             'A stale frame must fail comparison',
           ).toBeGreaterThan(0)
+          if (fixture === 'anatomy') {
+            const repeated = result.frames.find(
+              (frame) => frame.state === 'repeated repaint',
+            )!
+            expect(repeated.referenceTiles).toBeGreaterThan(0)
+            expect(repeated.candidateTiles).toBe(0)
+            const pan = result.frames.find(
+              (frame) => frame.state === 'same-phase pan',
+            )!
+            expect(pan.candidateTiles).toBeLessThan(pan.referenceTiles)
+          }
           expect(errors).toEqual([])
         })
       }

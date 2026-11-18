@@ -822,6 +822,9 @@ export class CanvasRenderer {
   private reducedMotion = false
   private animationTimeMs = 0
   private previewChecker: CanvasPattern | null | undefined
+  private readonly graphTiles = new Map<string, ImageBitmap>()
+  private graphTileTransform = ''
+  private graphTileSurface: OffscreenCanvas | undefined
   private canvasLayers: readonly CanvasLayerContribution[] = []
   private canvasLayerNodes: readonly CanvasLayerNode[] = []
   private canvasLayerError: (id: string, error: unknown) => void = () => {}
@@ -1367,7 +1370,8 @@ export class CanvasRenderer {
 
   setViewport(viewport: Viewport): void {
     this.viewport = viewport
-    this.invalidate()
+    this.dirty = true
+    this.scheduleFrame()
     for (const cb of this.viewportListeners) cb(viewport)
   }
 
@@ -1381,7 +1385,14 @@ export class CanvasRenderer {
     return this.viewport
   }
 
+  private clearGraphTiles(): void {
+    for (const tile of this.graphTiles.values()) tile.close()
+    this.graphTiles.clear()
+    this.graphTileTransform = ''
+  }
+
   invalidate(): void {
+    this.clearGraphTiles()
     this.dirty = true
     this.scheduleFrame()
   }
@@ -1426,6 +1437,8 @@ export class CanvasRenderer {
     this.rafId = undefined
     this.sceneReplacedListeners.clear()
     this.viewportListeners.clear()
+    this.clearGraphTiles()
+    this.graphTileSurface = undefined
   }
 
   private scheduleFrame(): void {
@@ -1538,7 +1551,18 @@ export class CanvasRenderer {
     // Visible world rect for culling.
     const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
     this.drawCanvasLayers('background', ctx, view, scale)
-    this.drawGraph(ctx, view, scale)
+    if (
+      typeof OffscreenCanvas !== 'undefined' &&
+      typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
+      !this.hasRunningNodes
+    ) {
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      this.drawGraphTiles(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
+      ctx.restore()
+    } else {
+      this.drawGraph(ctx, view, scale)
+    }
 
     const tl = this.getToolboxLayout()
     if (tl) this.drawToolbox(ctx, tl)
@@ -1546,6 +1570,61 @@ export class CanvasRenderer {
     this.drawPresence(ctx, scale)
     this.drawCanvasLayers('foreground', ctx, view, scale)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
+  }
+
+  private drawGraphTiles(
+    ctx: CanvasRenderingContext2D,
+    pixelWidth: number,
+    pixelHeight: number,
+    densityX: number,
+    densityY: number,
+  ): void {
+    const size = 512
+    const bleed = 2
+    const { x, y, scale } = this.viewport
+    const pixelX = x * densityX
+    const pixelY = y * densityY
+    const integerX = Math.floor(pixelX)
+    const integerY = Math.floor(pixelY)
+    const phaseX = pixelX - integerX
+    const phaseY = pixelY - integerY
+    const transform = `${scale}/${densityX}/${densityY}/${phaseX}/${phaseY}`
+    if (transform !== this.graphTileTransform) {
+      this.clearGraphTiles()
+      this.graphTileTransform = transform
+    }
+    const used = new Set<string>()
+    for (let row = Math.floor(-integerY / size); row * size + integerY < pixelHeight; row++) {
+      for (let column = Math.floor(-integerX / size); column * size + integerX < pixelWidth; column++) {
+        const key = `${column}/${row}`
+        used.add(key)
+        let tile = this.graphTiles.get(key)
+        if (tile === undefined) {
+          const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
+          // Reset paint state as well as pixels before rendering another tile.
+          surface.width = surface.height = size + bleed * 2
+          const target = surface.getContext('2d')! as unknown as CanvasRenderingContext2D
+          const originX = phaseX - column * size + bleed
+          const originY = phaseY - row * size + bleed
+          target.setTransform(densityX * scale, 0, 0, densityY * scale, originX, originY)
+          this.drawGraph(target, {
+            x: -originX / (densityX * scale),
+            y: -originY / (densityY * scale),
+            w: (size + bleed * 2) / (densityX * scale),
+            h: (size + bleed * 2) / (densityY * scale),
+          }, scale)
+          tile = surface.transferToImageBitmap()
+          this.graphTiles.set(key, tile)
+        }
+        ctx.drawImage(tile, bleed, bleed, size, size, column * size + integerX, row * size + integerY, size, size)
+      }
+    }
+    // Retain only the visible working set, independent of total graph size or pan distance.
+    for (const [key, tile] of this.graphTiles) {
+      if (used.has(key)) continue
+      tile.close()
+      this.graphTiles.delete(key)
+    }
   }
 
   private drawGraph(

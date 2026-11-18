@@ -449,6 +449,71 @@ describe('link midpoint affordance', () => {
   })
 })
 
+describe('graph image reuse', () => {
+  it.each([66, 300, 1200])('reuses camera-only images for %i nodes and retires invalidated or departed images', (count) => {
+    const fallback = globalThis.OffscreenCanvas
+    const images: { close: ReturnType<typeof vi.fn> }[] = []
+    const painted = recordingCtx()
+    vi.stubGlobal('OffscreenCanvas', class {
+      width = 0
+      height = 0
+      getContext() { return painted.ctx }
+      transferToImageBitmap() {
+        const image = { close: vi.fn() }
+        images.push(image)
+        return image
+      }
+    })
+    const output = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(output.ctx), defaultTokens)
+    try {
+      const base = fixtureScene('clean')
+      const node = base.nodes[0]!
+      renderer.setScene({
+        ...base,
+        nodes: Array.from({ length: count }, (_, i) => ({ ...node, id: `cached-${i}`, x: i % 20 * 320, y: Math.floor(i / 20) * 180 })),
+        links: [],
+      })
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      renderer.renderNow()
+      const initial = images.length
+      expect(initial).toBeGreaterThan(0)
+      expect(painted.calls.some((call) => call.method === 'fillText')).toBe(true)
+      painted.calls.length = 0
+      output.calls.length = 0
+      renderer.setViewport({ x: -1, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(images).toHaveLength(initial)
+      expect(painted.calls).toHaveLength(0)
+      expect(output.calls.filter((call) => call.method === 'drawImage')).toHaveLength(initial)
+
+      renderer.setViewport({ x: -513, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(initial)
+      expect(images.slice(0, initial).some((image) => image.close.mock.calls.length === 1)).toBe(true)
+      const beforeTheme = images.length
+      renderer.setColors(canvasColorsForTheme('light'))
+      expect(images.every((image) => image.close.mock.calls.length === 1)).toBe(true)
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(beforeTheme)
+
+      const beforePhase = images.length
+      renderer.setViewport({ x: -513.25, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(beforePhase)
+      expect(images.slice(0, beforePhase).every((image) => image.close.mock.calls.length === 1)).toBe(true)
+      const beforeZoom = images.length
+      renderer.setViewport({ x: -513.25, y: -1, scale: 1.1 })
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(beforeZoom)
+    } finally {
+      renderer.dispose()
+      vi.stubGlobal('OffscreenCanvas', fallback)
+    }
+    expect(images.every((image) => image.close.mock.calls.length === 1)).toBe(true)
+  })
+})
+
 describe('renderer sizing and scene replacement', () => {
   it('keeps the rounded fractional-DPR backing store stable across renders', () => {
     const previous = globalThis.devicePixelRatio

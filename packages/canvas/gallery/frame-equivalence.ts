@@ -127,8 +127,20 @@ export async function compareCanvasFrames(
   const pixels = (canvas: HTMLCanvasElement) =>
     canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height)
       .data
+  let tilePaints = 0
+  const transfer = OffscreenCanvas.prototype.transferToImageBitmap
+  OffscreenCanvas.prototype.transferToImageBitmap = function () {
+    tilePaints++
+    return transfer.call(this)
+  }
   const candidate = createRenderer()
-  const frames: { state: string; differences: number; pixels: number }[] = []
+  const frames: {
+    state: string
+    differences: number
+    pixels: number
+    candidateTiles: number
+    referenceTiles: number
+  }[] = []
   let initial: Uint8ClampedArray | undefined
   let corruptionDifferences = 0
   let staleDifferences = 0
@@ -136,14 +148,19 @@ export async function compareCanvasFrames(
     // A new reference renderer cannot reuse pixels or state from a prior frame.
     const full = createRenderer()
     try {
+      const before = tilePaints
       candidate.renderer.renderNow()
+      const candidateTiles = tilePaints - before
       full.renderer.renderNow()
+      const referenceTiles = tilePaints - before - candidateTiles
       const actual = pixels(candidate.canvas)
       const expected = pixels(full.canvas)
       frames.push({
         state,
         differences: differingPixels(actual, expected),
         pixels: expected.length / 4,
+        candidateTiles,
+        referenceTiles,
       })
       initial ??= expected.slice()
       if (initial.length === expected.length)
@@ -226,6 +243,7 @@ export async function compareCanvasFrames(
     return { frames, corruptionDifferences, staleDifferences }
   } finally {
     candidate.renderer.dispose()
+    OffscreenCanvas.prototype.transferToImageBitmap = transfer
     host.remove()
   }
 }
