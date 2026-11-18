@@ -1163,7 +1163,7 @@ describe('node chrome paint on the live renderer', () => {
     renderer.dispose()
   })
 
-  it('keeps minimized previews compact when real imagery and header badges arrive', () => {
+  it.each(['dark', 'light'] as const)('keeps minimized previews compact and repaints checker colors from %s theme', (theme) => {
     const base = fixtureScene('clean')
     const source = nodeOf(base, 'img')
     const minimized = {
@@ -1185,7 +1185,7 @@ describe('node chrome paint on the live renderer', () => {
     }
     const image = {} as CanvasImageSource
     const { ctx, calls } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, colors: canvasColorsForTheme(theme) })
     renderer.setScene(emptyScene({ nodes: [minimized] }))
     renderer.setBadges({ [minimized.id]: [MUTED_BADGE] })
     renderer.setNodePreviews({ [minimized.id]: { image, width: 320, height: 240 } })
@@ -1195,6 +1195,19 @@ describe('node chrome paint on the live renderer', () => {
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image)).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === '320 x 240')).toBe(false)
+    const checkerColors = () => {
+      const pattern = calls.filter((call) => call.method === 'createPattern').at(-1)!
+      const tile = pattern.args[0] as { recording: { calls: PaintCall[] } }
+      return new Set(tile.recording.calls.filter((call) => call.method === 'fillRect').map((call) => call.fillStyle))
+    }
+    for (const next of [theme, theme === 'dark' ? 'light' : 'dark', theme] as const) {
+      const colors = canvasColorsForTheme(next)
+      renderer.setColors(colors)
+      renderer.renderNow()
+      expect(checkerColors()).toEqual(new Set([colors.widgetBackground, colors.nodeBorder]))
+      renderer.renderNow()
+      expect(checkerColors()).toEqual(new Set([colors.widgetBackground, colors.nodeBorder]))
+    }
     renderer.dispose()
   })
 
