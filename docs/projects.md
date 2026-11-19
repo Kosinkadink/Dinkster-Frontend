@@ -98,7 +98,14 @@ Unknown needs, unrecorded versions and conflicting versions require correction
 before preparation. Project revision and installed facts are checked before and
 after preparation; changed or dismissed reviews cannot publish a stale plan.
 Closing a preparation cancels waiting through the existing preparation API. A
-completed review expires after the host's stated interval.
+completed review expires after the host's stated interval. Preparation reads the
+managed environment's stable ID and snapshot without browser caching and rechecks
+both around the host review. A switch or snapshot change invalidates the result,
+even if installed pack versions are unchanged. A project already associated with
+another environment cannot prepare software against the running one. Reads retain
+that association and its last-run metadata; they never reassign the project.
+Standalone engines report no managed identity, rather than an engine assignment
+name such as `main`.
 
 ## Desktop windows
 

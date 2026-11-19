@@ -1423,6 +1423,7 @@ export interface LibraryProject {
   readonly created: string
   readonly revision: number
   readonly deleted: boolean
+  readonly environment?: { readonly id: string; readonly lastSnapshot: string; readonly lastRunAt: string } | null
 }
 
 function decodeLibraryProject(value: unknown): LibraryProject {
@@ -1434,7 +1435,17 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     !Number.isSafeInteger(row['revision']) || Number(row['revision']) < 1 || typeof row['deleted'] !== 'boolean') {
     throw new Error('Malformed library project')
   }
-  return { id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'] }
+  const environment = row['environment']
+  if (environment !== undefined && environment !== null &&
+    (typeof environment !== 'object' || Array.isArray(environment) ||
+      !['id', 'lastSnapshot', 'lastRunAt'].every((key) => {
+        const field = (environment as Record<string, unknown>)[key]
+        return typeof field === 'string' && field.length > 0
+      }))) throw new Error('Malformed library project environment')
+  return {
+    id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
+    ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
+  }
 }
 
 /**
@@ -4043,6 +4054,20 @@ export class DinksterConnection {
   /** Browser-safe URL for a descriptor-validated immutable docs asset. */
   docsAssetUrl(packId: string, digest: string): string {
     return `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`
+  }
+
+  async activeEnvironment(signal?: AbortSignal): Promise<{ readonly id: string; readonly snapshot: string } | null> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/environment`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!res.ok) throw new Error(`GET /api/environment failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed active environment')
+    const value = (payload as Record<string, unknown>)['environment']
+    if (value === null) return null
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Malformed active environment')
+    const row = value as Record<string, unknown>
+    if (typeof row['id'] !== 'string' || !/^[0-9a-f]{32}$/.test(row['id']) ||
+      typeof row['snapshot'] !== 'string' || !/^[1-9][0-9]*$/.test(row['snapshot'])) throw new Error('Malformed active environment')
+    return { id: row['id'], snapshot: row['snapshot'] }
   }
 
   async listProjects(cursor?: string, signal?: AbortSignal): Promise<{

@@ -8270,8 +8270,11 @@ export class AppState {
       current()
       const project = await review.backend.connection.getProject(review.project.id, signal)
       const needs = await review.backend.connection.projectNeeds(review.project.id, signal)
+      const running = await review.backend.connection.activeEnvironment(signal)
       current()
-      if (project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
+      if (project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs) ||
+        running?.id !== environment?.id || running?.snapshot !== environment?.snapshot ||
+        project.environment != null && project.environment.id !== running?.id) {
         throw new Error(t('projectNeeds.changed'))
       }
     }
@@ -8281,6 +8284,7 @@ export class AppState {
       new Set(review.changes.map(({ pack }) => pack)).size !== review.changes.length) {
       throw new Error(t('projectNeeds.exactVersionsRequired'))
     }
+    const environment = await review.backend.connection.activeEnvironment(signal)
     await recheck()
     const packs = review.changes.map(({ pack, version }) => ({ pack, version: version! }))
     const plan = await review.backend.connection.planPackInstall(packs, signal, (progress) => {

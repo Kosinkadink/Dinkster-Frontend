@@ -3541,8 +3541,30 @@ describe('workflow library wire', () => {
     await expect(cancelled.fetchLocalAssetBytes('cancelled', abort.signal)).rejects.toThrow()
   })
 
+  it('reads explicit managed identity without caching and preserves standalone null', async () => {
+    const environment = { id: '0123456789abcdef'.repeat(2), snapshot: '17' }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { environment }))
+    const controller = new AbortController()
+    expect(await conn.activeEnvironment(controller.signal)).toEqual(environment)
+    expect(requests[0]).toEqual({ url: 'http://test/api/environment', init: { cache: 'no-store', signal: controller.signal } })
+    const { conn: standalone } = submitHarness(() => jsonResponse(200, { environment: null }))
+    expect(await standalone.activeEnvironment()).toBeNull()
+    const { conn: denied } = submitHarness(() => jsonResponse(403, {}))
+    await expect(denied.activeEnvironment()).rejects.toThrow('403')
+  })
+
+  it.each([
+    {}, { environment: [] }, { environment: { id: 'main', snapshot: '1' } },
+    { environment: { id: 'a'.repeat(32), snapshot: '0' } },
+    { environment: { id: 'a'.repeat(32), snapshot: 2 } },
+  ])('rejects malformed managed identity rather than treating it as standalone', async (body) => {
+    const { conn } = submitHarness(() => jsonResponse(200, body))
+    await expect(conn.activeEnvironment()).rejects.toThrow('Malformed active environment')
+  })
+
   it('reads paginated engine projects and preserves library authority during registration and rename', async () => {
-    const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+    const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
+      environment: { id: 'stable-environment', lastSnapshot: '17', lastRunAt: '2026-11-19T15:00:00Z' } }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3605,6 +3627,8 @@ describe('workflow library wire', () => {
   it.each([
     { items: [{ id: 'p-film', name: 'Film', created: 'invalid', revision: 1, deleted: false }], cursor: null },
     { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 0, deleted: false }], cursor: null },
+    { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      environment: { id: 'another-environment', lastSnapshot: '3' } }], cursor: null },
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))

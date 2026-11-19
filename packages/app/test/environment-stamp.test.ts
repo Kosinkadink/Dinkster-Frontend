@@ -295,6 +295,9 @@ describe('workflow-open requirements', () => {
     await app.checkProjectNeeds(backend)
     const review = app.projectNeedsReview.get()!
     const prepared = { plan: { format: 'dinkster.project-pack-plan/1' }, confirmation: 'opaque', review: 'Reviewed software', expiresInSeconds: 900 }
+    const originalEnvironment = { id: 'a'.repeat(32), snapshot: '2' }
+    let running = originalEnvironment
+    vi.spyOn(backend.connection, 'activeEnvironment').mockImplementation(async () => running)
     let selections: readonly { pack: string; version: string }[] = []
     let enabled: readonly string[] = ['kept']
     let installed = false
@@ -315,6 +318,16 @@ describe('workflow-open requirements', () => {
     expect(enabled).toEqual(['kept'])
     expect(installed).toBe(false)
     expect(app.projectNeedsReview.get()).toBe(review)
+
+    for (const changed of [{ ...originalEnvironment, id: 'b'.repeat(32) }, { ...originalEnvironment, snapshot: '3' }]) {
+      running = originalEnvironment
+      vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { running = changed; return prepared })
+      await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
+    }
+    running = originalEnvironment
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ ...project,
+      environment: { id: 'b'.repeat(32), lastSnapshot: '2', lastRunAt: '2026-11-19T15:00:00Z' } })
+    await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
 
     let revision = 7
     vi.spyOn(backend.connection, 'getProject').mockImplementation(async () => ({ ...project, revision }))
