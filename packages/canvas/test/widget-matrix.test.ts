@@ -46,6 +46,7 @@ function controllerFor(scene: Scene, activate: (hit: unknown, x: number, y: numb
   const controller = new InteractionController(canvas, {
     getScene: () => scene, toWorld: (x: number, y: number) => ({ x, y }), getViewport: () => ({ x: 0, y: 0, scale: 1 }),
     getDetailLevel: () => 'controls',
+    cancelViewportAnimation: () => undefined,
     getOverlay: () => ({}), setOverlay: () => {}, onSceneReplaced: () => () => {}, getBadges: () => ({}),
     getToolboxLayout: () => undefined,
   } as never, { dispatch: () => ({ ok: true }), onWidgetActivate: activate })

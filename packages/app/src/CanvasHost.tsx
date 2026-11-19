@@ -2688,6 +2688,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => {
       settingsTick()
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
+      if (!props.app.settings.get<boolean>('canvas.smoothWheelZoom')) renderer.cancelViewportAnimation()
       repaintMinimap?.()
     })
     createEffect(() => {
@@ -3076,6 +3077,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return dispatchGesture(tab, specializeFreshConnect(invocation))
       },
       wheelNavigationMode: () => props.app.settings.get<WheelNavigationMode>('canvas.scrollBehavior'),
+      smoothWheelZoom: () => props.app.settings.get<boolean>('canvas.smoothWheelZoom'),
       dispatchOccurrenceMutation: (intention) => {
         const tab = activeTab()
         const reg = tab ? props.app.registryForTab(tab) : undefined
@@ -3543,11 +3545,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       )
     const unsubscribeTooltipViewport = renderer.onViewportChange(hideCanvasTooltips)
     const camera = createCameraAnimator({
-      getViewport: () => renderer.getViewport(),
+      getViewport: () => {
+        // Sampling the bookmark's starting view transfers ownership before the next wheel frame.
+        renderer.cancelViewportAnimation()
+        return renderer.getViewport()
+      },
       setViewport: (vp) => renderer.setViewport(vp),
       onViewportChange: (cb) => renderer.onViewportChange(cb),
       viewSize: () => ({ width: canvasEl.clientWidth, height: canvasEl.clientHeight }),
     })
+    // Wheel intent must win before either camera animation advances its next frame.
+    canvasEl.addEventListener('wheel', camera.cancel, { capture: true })
+    onCleanup(() => canvasEl.removeEventListener('wheel', camera.cancel, { capture: true }))
     focusCanvas = () => canvasEl.focus()
     focusSemanticPin = (item): void => controller.setFocusedPin(
       item?.target.kind === 'port'
