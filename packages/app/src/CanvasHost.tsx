@@ -3545,7 +3545,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       )
     const unsubscribeTooltipViewport = renderer.onViewportChange(hideCanvasTooltips)
     const camera = createCameraAnimator({
-      getViewport: () => renderer.getViewport(),
+      getViewport: () => {
+        // Sampling the bookmark's starting view transfers ownership before the next wheel frame.
+        renderer.cancelViewportAnimation()
+        return renderer.getViewport()
+      },
       setViewport: (vp) => renderer.setViewport(vp),
       onViewportChange: (cb) => renderer.onViewportChange(cb),
       viewSize: () => ({ width: canvasEl.clientWidth, height: canvasEl.clientHeight }),
