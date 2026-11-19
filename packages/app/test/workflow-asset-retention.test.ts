@@ -2017,6 +2017,13 @@ describe('workflow candidate admission', () => {
     expect(numeric.commit().ok).toBe(true)
     expect(local.undo()).toBe(true)
     expect(local.doc.graphs.g0!.nodes.n0!.values).toEqual({ scale: 1.25, file: asset('a') })
+    const renamed = local.prepareDispatch!({ command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Renamed asset owner',
+    } })
+    if (!renamed.ok) throw new Error('title candidate rejected')
+    expect(workflowAssetRootsUnchanged(renamed, () => numericSchema)).toBe(true)
+    expect(workflowAssetRoots(renamed.document, history, () => numericSchema))
+      .toEqual({ complete: true, digests: [asset('a').digest] })
   })
 
   const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const

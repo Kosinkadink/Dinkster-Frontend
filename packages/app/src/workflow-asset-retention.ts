@@ -523,11 +523,36 @@ function censusWorkflowAssetRoots(
   return roots
 }
 
+/** Titles affect presentation, not execution inputs or retained asset identities. */
+export function workflowNodeTitlesOnlyChanged(current: WorkflowDocument, candidate: WorkflowDocument): boolean {
+  const sameExcept = (left: object, right: object, key: string): boolean => {
+    const before = Object.entries(left).filter(([name]) => name !== key)
+    const after = Object.entries(right).filter(([name]) => name !== key)
+    return before.length === after.length && after.every(([name, value]) =>
+      Object.hasOwn(left, name) && value === (left as Record<string, unknown>)[name])
+  }
+  if (!sameExcept(current, candidate, 'graphs')) return false
+  if (Object.keys(current.graphs).length !== Object.keys(candidate.graphs).length) return false
+  return Object.entries(candidate.graphs).every(([id, graph]) => {
+    const before = current.graphs[id]
+    if (before === graph) return true
+    if (!before || !sameExcept(before, graph, 'nodes') ||
+        Object.keys(before.nodes).length !== Object.keys(graph.nodes).length) return false
+    return Object.entries(graph.nodes).every(([nodeId, node]) => {
+      const previous = before.nodes[nodeId]
+      return previous === node || (previous !== undefined &&
+        (previous.title === undefined || typeof previous.title === 'string') &&
+        (node.title === undefined || typeof node.title === 'string') && sameExcept(previous, node, 'title'))
+    })
+  })
+}
+
 /** Existing numeric literals in a static graph cannot add asset identities or activate defaults. */
 export function workflowAssetRootsUnchanged(
   prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
   resolve: SchemaResolver,
 ): boolean {
+  if (workflowNodeTitlesOnlyChanged(prepared.currentDocument, prepared.document)) return true
   if (!prepared.forward.every((op) => op.op === 'replace' && op.path.length === 6 &&
       op.path[0] === 'graphs' && op.path[2] === 'nodes' && op.path[4] === 'values' &&
       typeof op.oldValue === 'number' && Number.isFinite(op.oldValue) &&

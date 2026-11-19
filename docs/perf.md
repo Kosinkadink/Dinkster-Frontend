@@ -2488,3 +2488,37 @@ installation/comparison and 11-34 ms to asset-root scans. Those profiler costs
 include instrumentation overhead and are not substituted for the timing rows.
 Asset admission, history and save semantics are unchanged. Comparison results
 remain pending during edits; queue validation is still independent and fresh.
+
+## Metadata-only title edits (2026-11-19, X570)
+
+Optimized production test-mode bundles, local pinned native CPU backend,
+RTX 4090 Vulkan Chromium uncapped, 2560x1440/DPR 1. The same synthetic
+1200-node/1140-link workflow and reading camera received three ordinary
+`node.setTitle` session commands, 1.8 seconds apart. Chrome trace, CPU profiler
+and wrappers around validation and compilation were enabled in both runs.
+These are diagnostic observations from one sequence per build on a shared
+host, not clean acceptance timings, a native-display latency measurement or
+a timing gate. The before build already contains deferred comparison work
+from the numeric-edit repair; that earlier improvement is not credited here.
+
+| Metric (ms, three edits in order) | Before title-only reuse | After title-only reuse |
+| --- | --- | --- |
+| Synchronous dispatch | 131.0 / 84.4 / 88.1 | 80.2 / 71.6 / 67.4 |
+| Maximum frame gap through 1.6 s | 132.9 / 97.7 / 95.6 | 82.0 / 81.1 / 72.4 |
+| Retention validation inside dispatch | 30.0 / 12.6 / 13.7 | 0.5 / 0.4 / 0.4 |
+| Deferred comparison compile | 98.4 / 77.5 / 71.1 | No calls |
+| Maximum frame gap, 350-1600 ms after edit | 41.9 / 44.7 / 47.5 | 41.7 / 51.1 / 37.4 |
+
+Before, compilation began 191-241 ms after dispatch started. After, advisory
+resident/unavailable diagnostics reuse their anchors and reasons only when
+structural sharing proves that node titles alone changed. Full artifacts,
+exports and queue validation still use the current snapshot and revision;
+semantic edits, registry or extension changes, target changes and replacement
+sessions invalidate the advisory cache. The same title proof avoids asset-root
+rescans without admitting new asset identities. Title add/remove and undo/redo
+retain their ordinary document history.
+
+Neither sequence had a later long task in the 350-1600 ms window. The remaining
+67-80 ms dispatches and up to 51.1 ms later frame gap still miss a no-missed-frame
+or high-refresh click goal. This change removes the measured redundant work,
+not all document validation, scene reconstruction or reactive update cost.

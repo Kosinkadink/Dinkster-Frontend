@@ -360,6 +360,7 @@ interface DinksterTestBridge {
       | { ok: true; artifact: DinksterBridgeCompileArtifact & { snapshot: DinksterBridgeTab['store']['doc']; revision: number } }
       | { ok: false; diagnostics: readonly unknown[] }
       | undefined
+    previewComparisonCompile(tab: DinksterBridgeTab): ReturnType<DinksterTestBridge['app']['compileTab']>
     registerRun(tab: DinksterBridgeTab, ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact): void
     /** Open (or focus) the frozen view of a registered execution. */
     openExecutionView(ref: DinksterBridgeExecutionRef): Promise<boolean>

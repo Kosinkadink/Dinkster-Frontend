@@ -21,7 +21,7 @@ import type { AppState, Backend, Tab } from '../src/app-state.js'
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const nodesPayload = JSON.parse(
   readFileSync(join(coreRoot, 'fixtures/dinkster-nodes.json'), 'utf8'),
-) as DinksterNodesPayload
+) as DinksterNodesPayload & { nodes: Record<string, Record<string, unknown>> }
 
 /** Two chained std.math.add_ints (mirrors library.test.ts's CHAIN_DOC). */
 const chainDoc = (a: number) => ({
@@ -104,6 +104,79 @@ describe('session-keyed caches (AP4)', () => {
       app.dispose()
       await vi.runAllTimersAsync()
       expect(compile).toHaveBeenCalledTimes(2)
+    } finally {
+      app.dispose()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
+  it('reuses only availability diagnostics across title history and refreshes semantic inputs', async () => {
+    const { backend, tab } = await nativeSetup()
+    vi.useFakeTimers()
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1 })
+    vi.stubGlobal('cancelAnimationFrame', () => { frame = undefined })
+    const settle = async () => {
+      frame!(0)
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    try {
+      expect(app.previewAvailabilityDiagnostics(tab)).toBeUndefined()
+      await settle()
+      const initial = app.previewAvailabilityDiagnostics(tab)
+      expect(initial).toEqual([])
+      const originalCompile = app.compileTabCached(tab)
+      for (const title of ['First title', 'Second title', null]) {
+        expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n0', title,
+        } })).ok).toBe(true)
+        expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
+      }
+      expect(tab.store.undo()).toBe(true)
+      expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBe('Second title')
+      const renamedCompile = app.compileTabCached(tab)
+      expect(renamedCompile).toEqual(app.compileTab(tab))
+      expect(renamedCompile).not.toBe(originalCompile)
+      if (!renamedCompile?.ok) throw new Error('renamed workflow did not compile')
+      expect(renamedCompile.artifact.snapshot).toStrictEqual(tab.store.doc)
+      expect(renamedCompile.artifact.revision).toBe(tab.store.revision)
+      expect(renamedCompile.artifact.snapshot.graphs.g0!.nodes.n0!.title).toBe('Second title')
+      expect(tab.store.redo()).toBe(true)
+      expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 29,
+      } })).ok).toBe(true)
+      expect(app.previewAvailabilityDiagnostics(tab)).toBeUndefined()
+      await settle()
+      expect(app.previewAvailabilityDiagnostics(tab)).toEqual([])
+      backend.registry.set(buildDinksterRegistry(backend.id, { ...nodesPayload, nodes: {
+        ...nodesPayload.nodes,
+        'std.math.add_ints': { ...nodesPayload.nodes['std.math.add_ints']!, unavailableReason: 'Host refused this node' },
+      } }))
+      expect(app.previewAvailabilityDiagnostics(tab)).toBeUndefined()
+      await settle()
+      expect(app.previewAvailabilityDiagnostics(tab)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'dinksterGraph.nodeUnavailable' }),
+      ]))
+      app.extensionRevision.update((revision) => revision + 1)
+      expect(app.previewAvailabilityDiagnostics(tab)).toBeUndefined()
+      await settle()
+      expect(app.previewAvailabilityDiagnostics(tab)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'dinksterGraph.nodeUnavailable' }),
+      ]))
+      const other = app.addBackend('http://other:8000', 'Other', false, 'dinkster')!
+      other.registry.set(buildDinksterRegistry(other.id, nodesPayload))
+      app.setTabTarget(tab.id, other.id)
+      expect(app.previewAvailabilityDiagnostics(tab)).toBeUndefined()
+      await settle()
+      expect(app.previewAvailabilityDiagnostics(tab)).toEqual([])
+      expect(await app.openDocument(chainDoc(999), 'Replacement')).toEqual([])
+      const replacement = app.activeTab()!
+      app.setTabTarget(replacement.id, other.id)
+      expect(app.previewAvailabilityDiagnostics(replacement)).toBeUndefined()
     } finally {
       app.dispose()
       vi.restoreAllMocks()
