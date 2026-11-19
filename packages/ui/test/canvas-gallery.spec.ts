@@ -311,6 +311,15 @@ for (const theme of ['dark', 'light'] as const) {
               exact: true,
             }),
           ).toHaveScreenshot(`anatomy-${theme}.png`)
+          await page
+            .getByRole('button', { name: 'Widget kinds', exact: true })
+            .click()
+          await expect(
+            page.getByRole('img', {
+              name: `widgets in ${theme} theme`,
+              exact: true,
+            }),
+          ).toHaveScreenshot(`widgets-${theme}.png`)
         }
         if (run) {
           await canvas.hover({ position: { x: 360, y: 218 } })

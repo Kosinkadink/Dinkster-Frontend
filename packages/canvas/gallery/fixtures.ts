@@ -56,7 +56,7 @@ export const canvasGalleryPages = [
   ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
-  ['core-rows', 'Core widget rows proposal'],
+  ['core-rows', 'Core widget rows'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
