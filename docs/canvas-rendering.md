@@ -39,9 +39,11 @@ The browser frame-equivalence check compares a retained-history renderer with
 a fresh renderer at each identical state, plus an independent uncached renderer
 that repaints the complete scene without retained images or candidate bins.
 It compares complete raw RGBA frames without a tolerance, including fractional-DPR pans, exposed edges,
-zoom detail changes, selection, drag, edit, theme, style and resize. Separate
-counting checks require camera-only reuse and bounded image copies for the
-fixed 66-, 300- and 1200-node fixtures. Comparison canvases explicitly disable
+zoom detail changes, selection, cross-tile and reversed drag, release, edit,
+mutable preview pixels, theme, style and resize. Dense overlapping reroutes
+exercise overview batching changes away from the edited node. Separate
+counting checks require camera-only reuse, bounded image copies and reuse of
+distant images during node edits for the fixed 66-, 300- and 1200-node fixtures. Comparison canvases explicitly disable
 frequent-readback optimization so retained and fresh references request the
 same readback policy throughout repeated pixel inspection.
 This affects comparison setup only, not production rendering. Frame-time tools

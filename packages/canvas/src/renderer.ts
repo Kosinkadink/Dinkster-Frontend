@@ -921,9 +921,11 @@ export class CanvasRenderer {
 
   setOverlay(overlay: OverlayState): void {
     const previous = this.overlay
-    if (this.getDetailLevel() === 'overview' && this.scene.links.length >= 256 &&
-        ((previous.dragOffsets === undefined) !== (overlay.dragOffsets === undefined) ||
-         (previous.resizePreview === undefined) !== (overlay.resizePreview === undefined))) {
+    if (this.getDetailLevel() === 'overview' &&
+        (((this.scene.links.length >= 256 || this.scene.reroutes.length >= 256) &&
+          (previous.dragOffsets === undefined) !== (overlay.dragOffsets === undefined)) ||
+         (this.scene.links.length >= 256 &&
+          (previous.resizePreview === undefined) !== (overlay.resizePreview === undefined)))) {
       this.overlay = overlay
       this.invalidate()
       return

@@ -96,9 +96,25 @@ export async function compareCanvasFrames(
       Estimate: { image, width: 320, height: 160, state: 'estimate' },
     }
   }
-  const node = fixture.scene.nodes[0]
+  const node = page === 'structure'
+    ? fixture.scene.nodes.find((candidate) => !fixture.scene.netStubs.some((stub) => stub.nodeId === candidate.id))
+    : fixture.scene.nodes[0]
   if (!node) throw new Error('Frame comparison requires a node fixture')
   let scene = fixture.scene
+  if (page === 'structure') {
+    // Overlapping remote dots expose batching changes outside the edited node's tiles.
+    scene = {
+      ...scene,
+      reroutes: [
+        ...scene.reroutes,
+        ...Array.from({ length: 256 }, (_, index) => ({
+          id: `dense-reroute-${index}`,
+          x: 1200 + index % 8 * 2,
+          y: 600 + Math.floor(index / 8) * 2,
+        })),
+      ],
+    }
+  }
   let states = fixture.states
   let overlay: OverlayState = fixture.overlay
   let colors = tokens.colors
@@ -228,6 +244,15 @@ export async function compareCanvasFrames(
     move('return pan', 8.25, -4.5)
     move('zoom in', 8.25, -4.5, fixture.scale * 1.05)
     move('overview detail', -3.5, 5.25, 0.49)
+    overlay = {
+      ...overlay,
+      dragOffsets: new Map([[node.id, { dx: 23.25, dy: -13.5 }]]),
+    }
+    candidate.renderer.setOverlay(overlay)
+    compare('overview drag')
+    overlay = fixture.overlay
+    candidate.renderer.setOverlay(overlay)
+    compare('overview release')
     move('content detail', -3.5, 5.25, 0.5)
     move('settled zoom', 0, 0, 1)
     overlay = { ...overlay, selection: new Set([node.id]) }
@@ -263,6 +288,14 @@ export async function compareCanvasFrames(
     }
     candidate.renderer.setNodeStates(states)
     compare('execution settled')
+    if (page === 'previews') {
+      const image = fixture.previews.Image!.image as HTMLCanvasElement
+      const context = image.getContext('2d')!
+      context.fillStyle = tokens.colors.nodeHeader
+      context.fillRect(0, 0, image.width, image.height)
+    }
+    candidate.renderer.setNodePreviews(fixture.previews)
+    compare('preview update')
     overlay = {
       ...fixture.overlay,
       hoveredBadge: {

@@ -486,6 +486,8 @@ describe('graph image reuse', () => {
         })),
         links: Array.from({ length: count }, (_, i) => ({
           ...typedLensLink(`cached-link-${i}`, 'FLOAT', i % 20 * 320 + 10, Math.floor(i / 20) * 180 + 10, i % 20 * 320 + 60, Math.floor(i / 20) * 180 + 10),
+          from: { kind: 'port' as const, node: `cached-${i}`, port: 'out' },
+          to: { kind: 'port' as const, node: `cached-${(i + 1) % count}`, port: 'in' },
           get x1() {
             linkEndpointReads++
             return i % 20 * 320 + 10
