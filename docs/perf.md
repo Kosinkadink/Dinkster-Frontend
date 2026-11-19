@@ -6,6 +6,53 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Wheel coalescing with edit and fresh-glide priority (2026-11-19)
+
+The final candidate adds two correctness controls to raster coalescing: a new
+wheel glide cannot inherit an earlier paint's pause, and dirty scene/overlay
+updates bypass the pause. The unchanged production reporting tools run after
+all local validation, with no owner validation overlapping. Hardware, input,
+viewport and backend/pack pins match the preceding coalescing report; both
+interpreter inventories again verify all 41516 sealed files without mismatch.
+The accepted smooth-wheel BEFORE is reused, never replayed. These are
+unequal-time shared-host reports, not isolated causal or display-rate proof.
+
+Probe callback interval p50/p95 in milliseconds, with drag isolated from zoom:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 16.7/17.7 | 0.4/7.0 | 0.2/6.2 | 1.4/2.1 | 1.4/2.0 |
+| 66/fit | 16.7/17.8 | 16.7/17.7 | 0.2/6.4 | 0.2/4.9 | 1.2/17.0 | 1.2/17.1 |
+| 300/read | 15.7/17.7 | 4.5/17.6 | 0.3/5.7 | 0.2/5.7 | 1.2/2.0 | 1.3/4.2 |
+| 300/fit | 16.7/17.7 | 1.7/17.6 | 0.2/9.8 | 0.2/1.3 | 1.6/2.9 | 1.8/3.5 |
+| 1200/read | 4.9/17.7 | 6.7/17.6 | 0.3/6.3 | 0.3/7.7 | 1.7/2.9 | 1.7/2.5 |
+| 1200/fit | 16.6/17.7 | 16.6/17.7 | 0.2/23.0 | 0.1/0.3 | 6.2/15.0 | 5.4/16.5 |
+
+Coalescing intentionally omits intermediate rasters, so those tiny zoom
+callback intervals are not rendered frame times or full-refresh acceptance.
+Actual zoom raster work and newest-input-to-render-end latency are:
+
+| Fixture/camera | Raster p50/p95 (ms) | Paints/s | Input-to-render-end p95 (ms) |
+| --- | --- | --- | --- |
+| 66/read | 7.4/16.2 | 82.0 | 51.2 |
+| 66/fit | 4.3/12.3 | 124.3 | 45.7 |
+| 300/read | 4.8/7.9 | 124.3 | 20.0 |
+| 300/fit | 6.5/17.6 | 76.2 | 25.8 |
+| 1200/read | 7.1/11.4 | 84.9 | 32.9 |
+| 1200/fit | 9.2/27.1 | 52.8 | 28.5 |
+
+Fitted 1200-node flood input-to-render-end p95 is 1198 ms BEFORE -> 28.5 ms
+AFTER; delivery-queue p95 is 24.9 ms AFTER. The prior unfavorable 11542.4 ms
+progress-only result remains below. Latency pairs each actual raster with the
+newest input delivered before it, not every input with its own frame. Paints
+at changing scales repaint sharp pixels; omitted steps retain the actual
+painted camera without rescaling a bitmap. The final target bypasses the
+pause. Dirty-edit, new-glide, skipped-paint alignment and 100 ms-plus-frame
+settle regressions pass, as do all 741 canvas cases, fast/build checks,
+the extended browser wheel contract and full 28-app/286-UI/16-site visual run.
+No assertion or baseline changes. Frame-time goals remain unmet, and this
+report alone does not explain the original intermittent slow spells.
+
 ## Wheel raster coalescing (2026-11-19)
 
 The fitted 1200-node/1140-link production-optimized test-mode AFTER run uses
