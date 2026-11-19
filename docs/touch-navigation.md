@@ -25,11 +25,13 @@ The persisted **Canvas scroll behavior** setting has two modes:
 
 **Smooth wheel zoom** is on by default in Canvas Settings. Each zoom step
 settles over 100 ms about the pointer, and further wheel input updates the
-pending target rather than losing notches. Turning it off restores immediate
-zoom. The reduced-motion preference also uses immediate zoom. Ordinary Pan
-scrolling does not glide. Direct pointer navigation, another camera change,
-a graph change or loss of focus cancels an unfinished glide at its current
-view. Image-editor and minimap wheel navigation are unchanged.
+pending target rather than losing notches. Fast input retargets from the last
+painted view without restarting that frame's elapsed time; the newest target
+settles within 100 ms plus the next frame, without queued animations. Turning
+it off restores immediate zoom. The reduced-motion preference also uses
+immediate zoom. Ordinary Pan scrolling does not glide. Direct pointer
+navigation, another camera change, a graph change or loss of focus cancels
+an unfinished glide at its current view. Image-editor and minimap wheel navigation are unchanged.
 
 The setting does not guess whether an event came from a mouse or trackpad.
 Pixel deltas apply directly, line deltas use 16 CSS pixels per line, and page

@@ -300,6 +300,51 @@ const typedLensLink = (
 })
 
 describe('viewport animation', () => {
+  it('advances during flooded input with stale frame timestamps and settles the latest target within its budget', () => {
+    let pending: FrameRequestCallback | undefined
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const tick = (at: number) => {
+      clock = at
+      const callback = pending
+      pending = undefined
+      if (!callback) throw new Error('Expected a scheduled frame')
+      // Input can run after a frame's timestamp is fixed but before its callback.
+      callback(at - 7)
+    }
+    try {
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      let previous = 1
+      for (let elapsed = 1; elapsed <= 200; elapsed++) {
+        clock = 1000 + elapsed
+        renderer.animateViewport((target) => {
+          const scale = target.scale * 1.001
+          return { x: 320 * (1 - scale), y: 240 * (1 - scale), scale }
+        })
+        if (elapsed % 16 === 0) {
+          tick(clock)
+          const current = renderer.getViewport()
+          expect(current.scale).toBeGreaterThan(previous)
+          expect((320 - current.x) / current.scale).toBeCloseTo(320, 10)
+          expect((240 - current.y) / current.scale).toBeCloseTo(240, 10)
+          previous = current.scale
+        }
+      }
+      for (let elapsed = 208; elapsed <= 312; elapsed += 16) {
+        if (pending) tick(1000 + elapsed)
+      }
+      expect(renderer.getViewport().scale).toBeCloseTo(1.001 ** 200, 10)
+      expect(pending).toBeUndefined()
+    } finally {
+      renderer.dispose()
+      vi.restoreAllMocks()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+  })
+
   it('paints intermediate frames, accumulates targets and yields to an explicit viewport', () => {
     let pending: FrameRequestCallback | undefined
     let clock = 1000
