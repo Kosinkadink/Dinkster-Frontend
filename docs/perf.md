@@ -6,6 +6,58 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Regional node-edit redraws (2026-11-19)
+
+Before is landed `7410bf20`; after is based on `15ea54ef` and retains distant
+graph tiles across node selection, drag, resize and committed/presentation edits.
+The intervening recorder repair and gallery additions do not change the
+production graph renderer. Both use the same
+X570, claimed RTX 4090, Chromium 149 Vulkan, uncapped 2560x1440 viewport,
+2500 ms audit inputs and production-optimized test-mode builds. Each side is
+one run per workload/camera; the accepted before data was not replayed. The
+isolated CPU backend uses the same captured development generation. These
+are reports, not timing gates or whole-issue acceptance.
+
+Frame p50/p95 in milliseconds, with drag measured separately from camera input:
+
+| Fixture/camera | Drag before | Drag after | Pan before | Pan after | Zoom before | Zoom after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 5.3/10.3 | 1.4/2.3 | 16.7/17.7 | 6.1/17.5 | 7.8/13.1 | 7.7/13.9 |
+| 66/fit | 3.1/22.2 | 1.2/16.8 | 2.2/17.5 | 2.1/17.6 | 5.8/15.5 | 5.0/14.0 |
+| 300/read | 6.5/22.3 | 1.2/2.0 | 1.1/17.7 | 4.1/17.5 | 6.6/13.4 | 4.7/11.2 |
+| 300/fit | 7.6/23.8 | 1.9/3.7 | 9.8/31.0 | 9.8/24.4 | 6.8/25.1 | 7.5/25.6 |
+| 1200/read | 6.4/17.2 | 2.4/3.5 | 1.2/17.5 | 13.2/17.7 | 7.8/15.0 | 4.7/8.2 |
+| 1200/fit | 25.0/37.6 | 6.3/14.2 | 25.0/43.7 | 20.6/33.5 | 18.9/47.6 | 21.8/35.5 |
+
+Drag renderer p50/p95 falls from 4.8/7.4 to 1.0/1.7 ms at 66/read,
+6.8/23.3 to 1.5/2.7 ms at 300/fit, and 25.4/36.8 to 5.7/8.3 ms at
+1200/fit. The fixed 66/300/1200 counting controls independently require
+changed-node frames to replace fewer than all visible tiles and retain live
+distant images. Exact browser comparisons cover cross-tile drag/reversal,
+release, edits, mutable previews and dense overview reroute batching changes.
+A batching transition conservatively retires all tiles to avoid stale dots.
+
+The unchanged click tool reports three samples after one warmup. First-frame
+p50 in milliseconds:
+
+| Fixture | Select before | Select after | Context menu before | Context menu after |
+| --- | --- | --- | --- | --- |
+| 66 | 24.4 | 18.7 | 23.7 | 16.5 |
+| 300 | 23.8 | 18.2 | 22.8 | 15.6 |
+| 1200 | 20.6 | 17.7 | 21.1 | 13.5 |
+
+Selection and menu numbers remain above the small-graph first-frame targets.
+Settled observations still include sporadic long gaps; they do not establish
+that the tab-save or garbage collector accounts for those gaps.
+
+Pan/zoom frame gaps and regressions remain in the table. The unchanged wheel
+flood can queue input into subsequent fitted-camera cells, with multi-second
+input-to-render-end observations. Those cells are not isolated click latency
+or causal evidence for a renderer speedup. No validation suite overlapped the
+after timing command, but this remains a shared-host, unequal-time comparison.
+The fitted 1200-node drag tail and camera/zoom results still miss the final
+refresh-rate targets; intermittent slow-spell attribution remains open.
+
 ## Phase-aligned graph images (2026-11-18)
 
 Development comparison, not an accepted performance improvement. Before is

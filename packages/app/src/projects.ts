@@ -6,10 +6,9 @@
  *
  * Two independent concerns live here:
  *
- * 1. The project REGISTRY (`dinkster.projects`): the global, never-scoped list
- *    of project descriptors. The default project always exists and is never
- *    stored; it is synthesized on read so a corrupt or missing envelope can
- *    never lose it.
+ * 1. The engine library owns the project registry. Legacy browser descriptors
+ *    in `dinkster.projects` are registered idempotently on connection, and
+ *    retired only after every valid descriptor has acknowledged.
  *
  * 2. The active-project SCOPE for this window: every piece of per-project
  *    persisted state (tabs, backends, settings, layout) and every
@@ -22,6 +21,8 @@
  * before AppState construction and never changes: switching projects
  * reloads the window.
  */
+
+import type { DinksterConnection } from '@dinkster/client'
 
 export const DEFAULT_PROJECT_ID = 'default'
 export const PROJECTS_KEY = 'dinkster.projects'
@@ -47,9 +48,7 @@ export function validProjectId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(value)
 }
 
-type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
-
-function readEnvelope(storage: StorageLike | undefined): ProjectsEnvelope {
+function readEnvelope(storage: Pick<Storage, 'getItem'> | undefined): ProjectsEnvelope {
   try {
     const parsed = JSON.parse(storage?.getItem(PROJECTS_KEY) ?? 'null') as Partial<ProjectsEnvelope> | null
     if (parsed?.v !== 1 || !Array.isArray(parsed.projects)) return { v: 1, projects: [] }
@@ -69,16 +68,8 @@ function readEnvelope(storage: StorageLike | undefined): ProjectsEnvelope {
   }
 }
 
-function writeEnvelope(envelope: ProjectsEnvelope, storage: StorageLike | undefined): void {
-  try {
-    storage?.setItem(PROJECTS_KEY, JSON.stringify(envelope))
-  } catch {
-    // Full/private storage: the in-memory list remains usable this session.
-  }
-}
-
 /** Every project, default first. The default is synthesized, never stored. */
-export function listProjects(storage: StorageLike | undefined = globalThis.localStorage): readonly ProjectDescriptor[] {
+function legacyProjects(storage: Pick<Storage, 'getItem'> | undefined): readonly ProjectDescriptor[] {
   const envelope = readEnvelope(storage)
   return [
     { id: DEFAULT_PROJECT_ID, name: envelope.defaultName ?? DEFAULT_PROJECT_NAME, createdAt: 0 },
@@ -86,37 +77,37 @@ export function listProjects(storage: StorageLike | undefined = globalThis.local
   ]
 }
 
-export function createProject(
-  name: string,
-  storage: StorageLike | undefined = globalThis.localStorage,
-): ProjectDescriptor {
-  const trimmed = name.trim()
-  const project: ProjectDescriptor = {
-    id: `p-${(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.floor(Math.random() * 1e9)}`).replaceAll(/[^a-z0-9-]/gi, '').toLowerCase()}`,
-    name: trimmed.length > 0 ? trimmed : 'Untitled project',
-    createdAt: Date.now(),
+/** Keep the browser registry intact until every idempotent registration acknowledges. */
+export async function migrateBrowserProjects(
+  connection: Pick<DinksterConnection, 'registerProject'>,
+  storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined = globalThis.localStorage,
+  signal?: AbortSignal,
+  stillCurrent: () => boolean = () => true,
+): Promise<void> {
+  const original = storage?.getItem(PROJECTS_KEY)
+  if (original === undefined || original === null) return
+  // Unreadable envelopes remain available for recovery instead of being retired.
+  const parsed: unknown = JSON.parse(original)
+  if (typeof parsed !== 'object' || parsed === null ||
+    (parsed as Partial<ProjectsEnvelope>).v !== 1 || !Array.isArray((parsed as Partial<ProjectsEnvelope>).projects)) {
+    throw new Error('Browser project list is unreadable')
   }
-  const envelope = readEnvelope(storage)
-  writeEnvelope({ ...envelope, projects: [...envelope.projects, project] }, storage)
-  return project
-}
-
-export function renameProject(
-  id: string,
-  name: string,
-  storage: StorageLike | undefined = globalThis.localStorage,
-): void {
-  const trimmed = name.trim()
-  if (trimmed.length === 0) return
-  const envelope = readEnvelope(storage)
-  if (id === DEFAULT_PROJECT_ID) {
-    writeEnvelope({ ...envelope, defaultName: trimmed }, storage)
-    return
+  const projects = legacyProjects(storage)
+  const hasUnreadableProjects = projects.length - 1 !== (parsed as ProjectsEnvelope).projects.length
+  for (const project of projects) {
+    signal?.throwIfAborted()
+    if (!stillCurrent()) throw new Error('Project connection changed during registration')
+    await connection.registerProject(project.id, project.name, signal)
   }
-  writeEnvelope({
-    ...envelope,
-    projects: envelope.projects.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
-  }, storage)
+  signal?.throwIfAborted()
+  if (!stillCurrent()) throw new Error('Project connection changed during registration')
+  if (hasUnreadableProjects) throw new Error('Some browser projects are unreadable. The original list was kept.')
+  const remaining = storage?.getItem(PROJECTS_KEY)
+  // Another window may have acknowledged and retired the same source already.
+  if (remaining != null && remaining !== original) {
+    throw new Error('Browser project list changed during registration. Reconnect to finish.')
+  }
+  storage?.removeItem(PROJECTS_KEY)
 }
 
 // ---------------------------------------------------------------------------

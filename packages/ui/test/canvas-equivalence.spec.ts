@@ -13,6 +13,8 @@ declare global {
   }
 }
 
+test.describe.configure({ mode: 'parallel' })
+
 let script: string
 const frameStates = [
   'initial',
@@ -23,11 +25,17 @@ const frameStates = [
   'return pan',
   'zoom in',
   'overview detail',
+  'overview drag',
+  'overview release',
   'content detail',
   'settled zoom',
   'selection',
   'drag',
+  'drag across tiles',
+  'reverse drag',
+  'drag release',
   'execution settled',
+  'preview update',
   'badge hover',
   'live resize at tile edge',
   'live resize at lower tile edge',
@@ -65,6 +73,8 @@ test.beforeAll(async () => {
 
 for (const dpr of [1, 1.25, 2]) {
   test.describe(`Whole-frame equivalence at DPR ${dpr}`, () => {
+    // Cases share this DPR's page; independent DPR groups can use separate workers.
+    test.describe.configure({ mode: 'default' })
     let page: Page
     const errors: string[] = []
     test.beforeAll(async ({ browser }, testInfo) => {
@@ -133,6 +143,11 @@ for (const dpr of [1, 1.25, 2]) {
               (frame) => frame.state === 'same-phase pan',
             )!
             expect(pan.candidateTiles).toBeLessThan(pan.referenceTiles)
+            for (const state of ['selection', 'drag', 'drag release', 'edit and release']) {
+              const changed = result.frames.find((frame) => frame.state === state)!
+              expect(changed.candidateTiles, state).toBeGreaterThan(0)
+              expect(changed.candidateTiles, state).toBeLessThan(changed.referenceTiles)
+            }
           }
           expect(
             result.frames.map(({ state, directDifferences }) => ({

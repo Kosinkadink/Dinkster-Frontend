@@ -43,6 +43,15 @@ padding. Below the standard breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
 CSS does not implement keyboard interaction or confirmation policy.
 
+The site geometry scale is `siteLayout` in `dinkster-components.json`, projected
+as `--dinkster-site-*` variables only under `data-density="site"`. It defines the
+1040px centered shell, 220px navigation, 36px fields and main buttons, 28px row
+buttons (32px on mobile), 8px panels and 6px controls, along with the site menu,
+authentication card and provider-logo dimensions. `siteInteraction` supplies the
+unitless 0.14 status tint. These variables do not override app geometry or type.
+Site components consume the scale through the shared stylesheet; a token
+addition alone does not change a rendered component.
+
 ## Shared SolidJS components and gallery
 
 `branding/tokens/design-rules.json` owns button roles/fills, message behavior,
@@ -663,6 +672,14 @@ not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
+Core widget rows proposal compares selected, empty and long values for the core
+kinds. Direct values retain inset fields; color and asset openers use raised
+faces, kind icons and an opening chevron, preserving their real swatches and
+value summaries. The page alone selects `widgetRowLook: 'inset-raised'`;
+production keeps inset rows. Core row look compares that proposal with the
+existing all-inset paint on the same fixture. Number paint is unchanged; this is not a proposed
+number editor or approval of its appearance.
+
 The Idle outline page compares Previous outline with Quieter outline (current)
 on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's
