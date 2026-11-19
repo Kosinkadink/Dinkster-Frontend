@@ -1661,6 +1661,11 @@ describe('worker catalog', () => {
 })
 
 describe('fetchSchemas wire contract', () => {
+  it.each([undefined, 'default', 'p-film'])('keeps schema requests in the configured project %s', async (project) => {
+    const { conn, requests } = submitHarness(nodesRoute, project)
+    await conn.fetchSchemas()
+    expect(requests[0]?.url).toBe(`http://test/api/nodes${project === undefined ? '' : `?project=${project}`}`)
+  })
 
   it('refuses a backend selecting another wire version', async () => {
     const { conn } = submitHarness((url) => url.includes('/api/nodes')

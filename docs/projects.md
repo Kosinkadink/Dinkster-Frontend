@@ -52,6 +52,10 @@ registered with their stable IDs without a prompt. An existing engine record
 wins a name collision. The original browser envelope is removed only after all
 registrations acknowledge and the source is unchanged. Interrupted, failed or
 unreadable migrations preserve it for recovery; reconnecting resumes registration.
+Registration completes before requesting the project's node catalog. If registration
+fails, the catalog stays unavailable rather than falling back to environment-wide
+nodes. The catalog includes core nodes and packs used by the project's saved
+workflows or explicitly enabled for that project.
 No tabs, drafts, layout or other per-device state are removed. A response from a
 retired connection cannot replace the current dialog list or retire migration data.
 

@@ -5309,14 +5309,14 @@ export class AppState {
             this.schemaRequests.set(nativeBackend, request)
             base.schemaState.set({ status: 'loading' })
             this.loadComfyTranslations(nativeBackend, () => gen === staleGen)
+            await migrateBrowserProjects(connection, globalThis.localStorage, undefined, () => current() && gen === staleGen)
+            if (gen < staleGen) continue
+            if (!current()) return targetEpoch
             const fresh = await connection.fetchSchemas()
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
             // and refetch under the current generation instead.
-            if (gen < staleGen) continue
-            if (!current()) return targetEpoch
-            await this.migrateProjectsForBackend(nativeBackend, () => current() && gen === staleGen)
             if (gen < staleGen) continue
             if (!current()) return targetEpoch
             await this.prepareExtensionWorld(nativeBackend, fresh)
@@ -9610,18 +9610,6 @@ export class AppState {
     )
   }
 
-  private async migrateProjectsForBackend(backend: Backend, current: () => boolean): Promise<void> {
-    try {
-      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
-    } catch (cause) {
-      if (!current()) return
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [{
-        severity: 'error', origin: 'schema', code: 'projects.registrationFailed',
-        message: `[${backend.label}] browser project registration failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      }])
-    }
-  }
-
   /** Fetch schemas (+ native diagnostics); failures land in Problems - except
    * the supervisor's engine-not-ready gate, which the supervisor poll narrates
    * (and retries on ready) instead of a scary fetch-failed problem. */
@@ -9636,9 +9624,9 @@ export class AppState {
       this.settings.get<string>('search.registryUrl') === catalogPrefix
     try {
       this.loadComfyTranslations(backend, current)
-      const registry = await backend.connection.fetchSchemas()
+      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
       if (!current()) return
-      await this.migrateProjectsForBackend(backend, current)
+      const registry = await backend.connection.fetchSchemas()
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return

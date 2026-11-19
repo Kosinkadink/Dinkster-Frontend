@@ -2116,7 +2116,8 @@ export class DinksterConnection {
     signal: AbortSignal,
     pairingAttempts = 3,
   ): Promise<SchemaRegistry> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`, { signal })
+    const query = this.project === undefined ? '' : `?${new URLSearchParams({ project: this.project })}`
+    const res = await this.fetchFn(`${this.baseUrl}/api/nodes${query}`, { signal })
     if (res.status === 503) {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
@@ -4059,6 +4060,10 @@ export class DinksterConnection {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, name }), ...(signal === undefined ? {} : { signal }),
     })
+    if (res.status === 503) {
+      const gate = parseEngineNotReady(await res.json().catch(() => undefined))
+      if (gate) throw new EngineNotReadyError(gate.state)
+    }
     if (!res.ok) throw new Error(`POST /api/projects failed: ${res.status}`)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
