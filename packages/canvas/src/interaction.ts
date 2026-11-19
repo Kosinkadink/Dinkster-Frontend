@@ -398,6 +398,7 @@ export interface InteractionHost {
   dispatch(invocation: CommandInvocation): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
+  smoothWheelZoom?(): boolean
   /** Plan and dispatch one drilled occurrence mutation through the injected capability. */
   dispatchOccurrenceMutation?(intention: OccurrenceLinkIntention): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Report an occurrence gesture that cannot be represented atomically. */
@@ -933,6 +934,7 @@ export class InteractionController {
     // (alt-tab, dev tools, native dialogs): abort rather than strand a
     // gesture that would complete against a stale press.
     const onBlur = () => {
+      this.renderer.cancelViewportAnimation()
       this.spaceDown = false
       this.cancelGesture('blur')
       this.resetTouchTracking('blur')
@@ -1091,7 +1093,10 @@ export class InteractionController {
       // republishes the overlay depends on the gesture outcome below.
       const crossGraph = scene.graphId !== this.lastSceneGraphId
       this.lastSceneGraphId = scene.graphId
-      if (crossGraph) this.setSelection([])
+      if (crossGraph) {
+        this.renderer.cancelViewportAnimation()
+        this.setSelection([])
+      }
       const staleNode =
         this.hoveredNode !== undefined && (crossGraph || !scene.nodes.some((n) => n.id === this.hoveredNode))
       const staleReroute =
@@ -1601,6 +1606,7 @@ export class InteractionController {
   // -- gesture entry ---------------------------------------------------------
 
   private onPointerDown(e: PointerEvent): void {
+    this.renderer.cancelViewportAnimation()
     if (e.pointerType === 'touch') {
       this.touchPoints.set(e.pointerId, { cx: e.clientX, cy: e.clientY })
       // Extra fingers during navigation are inert: they neither restart the
@@ -4591,7 +4597,8 @@ export class InteractionController {
     if (this.gesture.kind !== 'idle' && this.activePointerType === 'mouse' && e.buttons === 0)
       this.recoverMissedRelease('wheel-buttons0')
     const { sx, sy } = this.toScreen(e)
-    this.renderer.setViewport(wheelNavigationViewport(this.renderer.getViewport(), {
+    const mode = this.host.wheelNavigationMode?.() ?? 'zoom'
+    const input = {
       screenX: sx,
       screenY: sy,
       deltaX: e.deltaX,
@@ -4600,7 +4607,11 @@ export class InteractionController {
       pageWidth: this.canvas.clientWidth,
       pageHeight: this.canvas.clientHeight,
       ctrlKey: e.ctrlKey,
-    }, this.host.wheelNavigationMode?.() ?? 'zoom'))
+    }
+    const update = (viewport: ReturnType<CanvasRenderer['getViewport']>) => wheelNavigationViewport(viewport, input, mode)
+    if ((mode === 'zoom' || e.ctrlKey) && this.host.smoothWheelZoom?.() === true)
+      this.renderer.animateViewport(update)
+    else this.renderer.setViewport(update(this.renderer.getViewport()))
   }
 
   // -- helpers ---------------------------------------------------------------

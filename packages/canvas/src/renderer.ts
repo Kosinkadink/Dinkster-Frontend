@@ -828,6 +828,7 @@ export class CanvasRenderer {
   private valueDrivenInputPins: ReadonlySet<string> = new Set()
   private nodeStates: Readonly<Record<string, NodeProgress>> = {}
   private viewport: Viewport = { x: canvasPaintTokens.viewport.initialOffset, y: canvasPaintTokens.viewport.initialOffset, scale: 1 }
+  private viewportAnimation: { from: Viewport; to: Viewport; started: number } | undefined
   private dirty = true
   private rafId: number | undefined
   private disposed = false
@@ -1509,9 +1510,31 @@ export class CanvasRenderer {
   }
 
   setViewport(viewport: Viewport): void {
+    this.cancelViewportAnimation()
+    this.applyViewport(viewport)
+    this.scheduleFrame()
+  }
+
+  /** Accumulate wheel targets, then settle the last input over 100ms. */
+  animateViewport(update: (viewport: Viewport) => Viewport): void {
+    const target = this.viewportAnimation?.to ?? this.viewport
+    const to = update(target)
+    if (this.reducedMotion) {
+      this.setViewport(to)
+      return
+    }
+    if (to.x === target.x && to.y === target.y && to.scale === target.scale) return
+    this.viewportAnimation = { from: { ...this.viewport }, to, started: performance.now() }
+    this.scheduleFrame()
+  }
+
+  cancelViewportAnimation(): void {
+    this.viewportAnimation = undefined
+  }
+
+  private applyViewport(viewport: Viewport): void {
     this.viewport = viewport
     this.dirty = true
-    this.scheduleFrame()
     for (const cb of this.viewportListeners) cb(viewport)
   }
 
@@ -1636,6 +1659,7 @@ export class CanvasRenderer {
   }
 
   dispose(): void {
+    this.cancelViewportAnimation()
     this.disposed = true
     if (this.rafId !== undefined) cancelAnimationFrame(this.rafId)
     this.rafId = undefined
@@ -1653,6 +1677,18 @@ export class CanvasRenderer {
   private loop(timestamp: number): void {
     if (this.disposed) return
     this.rafId = undefined
+    const animation = this.viewportAnimation
+    if (animation) {
+      const progress = this.reducedMotion ? 1 : Math.min(1, Math.max(0, (timestamp - animation.started) / 100))
+      const eased = 1 - (1 - progress) ** 3
+      if (progress === 1) this.viewportAnimation = undefined
+      // Linear transform interpolation preserves the wheel's world-space anchor.
+      this.applyViewport(progress === 1 ? animation.to : {
+        x: animation.from.x + (animation.to.x - animation.from.x) * eased,
+        y: animation.from.y + (animation.to.y - animation.from.y) * eased,
+        scale: animation.from.scale + (animation.to.scale - animation.from.scale) * eased,
+      })
+    }
     const animateExecution = this.hasRunningNodes && !this.reducedMotion
     if (animateExecution) {
       this.animationTimeMs = timestamp
@@ -1662,7 +1698,7 @@ export class CanvasRenderer {
       this.dirty = false
       this.render()
     }
-    if (this.dirty || animateExecution) this.scheduleFrame()
+    if (this.dirty || animateExecution || this.viewportAnimation) this.scheduleFrame()
   }
 
   private refreshConnectivity(): void {

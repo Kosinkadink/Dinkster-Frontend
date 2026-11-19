@@ -3146,6 +3146,13 @@ export class AppState {
     registerThemeSetting(this.settings)
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
+      id: 'canvas.smoothWheelZoom',
+      get name() { return t('settings.canvas.smoothWheelZoom.name') },
+      get description() { return t('settings.canvas.smoothWheelZoom.description') },
+      type: 'boolean',
+      defaultValue: true,
+    })
+    this.settings.register({
       id: 'canvas.scrollBehavior',
       get name() { return t('settings.canvas.scrollBehavior.name') },
       type: 'combo',
