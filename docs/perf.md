@@ -2474,10 +2474,14 @@ new value or a superseding value, not physical display presentation.
 | Unchanged production PR 548 head 703fbce597f6 | 702.4 | 239.3-903.4 | 3 of 10 |
 | Deferred comparison compile only | 93.8 | 81.2-101.4 | 10 of 10 |
 | Deferred comparison and static numeric scene reuse | 47.1 | 41.3-65.0 | 10 of 10 |
+| Same repair with static numeric asset-root proof | 51.1 | 42.7-65.0 | 10 of 10 |
 
 All ten increments committed in every run; the last value was 1.11. Each row
 is one ten-click sequence on a shared host, not three trials or a native-display
-latency claim. The incremental prototype still misses the issue's click target.
+latency claim. The final row ran alongside independent CPU browser validation;
+it does not demonstrate a timing win over the scene-reuse-only row. It still
+misses the issue's click target. The static proof was separately exercised on
+the actual fixture/catalog and avoids both admission-comparison censuses.
 A separate instrumented before profile attributed 67-116 ms per edit to
 whole-workflow compilation, 23-46 ms to scene building, 15-24 ms to scene
 installation/comparison and 11-34 ms to asset-root scans. Those profiler costs

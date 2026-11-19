@@ -10,6 +10,7 @@ import {
   createRegistryPainter,
   defaultTokens,
   type OverlayState,
+  type Scene,
   type TextMeasurer,
   type WidgetMeasure,
 } from '../src/index.js'
@@ -112,7 +113,7 @@ export async function compareCanvasFrames(
         )
       : fixture.scene.nodes[0]
   if (!node) throw new Error('Frame comparison requires a node fixture')
-  let scene = fixture.scene
+  let scene: Scene = fixture.scene
   if (page === 'structure') {
     // Overlapping remote dots expose batching changes outside the edited node's tiles.
     scene = {

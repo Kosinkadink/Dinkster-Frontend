@@ -112,3 +112,55 @@ test('select, context menu and drag release do not compile availability before t
   await expect(page.getByTestId('context-submenu')).toBeVisible()
   await page.screenshot({ path: info.outputPath('unselected-context-menu.png') })
 })
+
+test('numeric increments paint without synchronous whole-workflow comparison', async ({ page }, info) => {
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'numeric-counting', schemaWire: 1 },
+    nodes: { 'demo.numeric': { displayName: 'Numeric node', unavailableReason: 'Comparison fixture', interface: [
+      { role: 'input', id: 'scale', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
+        widget: { type: 'FLOAT', default: 1, step: 0.01 } },
+    ] } },
+  } }))
+  await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const counts = window.canvasWorkCounts = { calls: 0 } as Window['canvasWorkCounts']
+    const compile = app.compileTab.bind(app)
+    app.compileTab = (...args) => { counts.calls++; return compile(...args) }
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-counting', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {
+        n0: { id: 'n0', type: 'demo.numeric', values: { scale: 1 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 160, y: 180 } } } } } },
+    }, 'Numeric counting')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    window.addEventListener('pointerup', () => {
+      if (counts.armed !== 'pointerup') return
+      counts.calls = 0; counts.armed = undefined
+      requestAnimationFrame(() => { counts.nextFrame = counts.calls })
+    }, { capture: true })
+  })
+  await expect.poll(() => page.evaluate(() => window.canvasWorkCounts.calls)).toBeGreaterThan(0)
+  const point = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!, viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes[0]!
+    const row = node.layout.rows.find((row) => row.kind === 'widget')!
+    const rect = document.querySelector('canvas.graph-canvas')!.getBoundingClientRect()
+    return { x: rect.left + (node.x + node.layout.width - (row.inset ?? 0) - 8) * viewport.scale + viewport.x,
+      y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+  })
+  for (const expected of [1.01, 1.02, 1.03]) {
+    await page.evaluate(() => { window.canvasWorkCounts.nextFrame = undefined; window.canvasWorkCounts.armed = 'pointerup' })
+    await page.mouse.click(point.x, point.y)
+    await expect.poll(() => page.evaluate(() => window.canvasWorkCounts.nextFrame)).toBe(0)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.scale)).toBeCloseTo(expected)
+  }
+  await page.screenshot({ path: info.outputPath('numeric-increments.png') })
+  for (const expected of [1.02, 1.01, 1]) {
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.scale)).toBeCloseTo(expected)
+  }
+})

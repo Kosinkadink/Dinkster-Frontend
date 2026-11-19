@@ -207,7 +207,7 @@ import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -7038,13 +7038,15 @@ export class AppState {
     const prepared = backend.protocol === 'dinkster' ? tab.store.prepareDispatch?.(effective) : undefined
     if (prepared?.ok) {
       const resolve = this.resolverWithVirtualNodes(this.registryForTab(tab)?.resolve ?? (() => undefined))
-      // History and shared pending documents do not gain identities until this candidate commits.
-      // Admission still retains all of them; selection need only compare the two documents.
-      const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
-      const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
-      const candidate = workflowAssetRoots(prepared.document, history, resolve)
-      if (!workflowAssetRootsCover(current, candidate)) {
-        return this.admitPreparedWorkflowDispatch(tab, prepared)
+      if (!workflowAssetRootsUnchanged(prepared, resolve)) {
+        // History and shared pending documents do not gain identities until this candidate commits.
+        // Admission still retains all of them; selection need only compare the two documents.
+        const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
+        const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
+        const candidate = workflowAssetRoots(prepared.document, history, resolve)
+        if (!workflowAssetRootsCover(current, candidate)) {
+          return this.admitPreparedWorkflowDispatch(tab, prepared)
+        }
       }
     }
     const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
