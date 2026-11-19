@@ -146,6 +146,8 @@ import {
   type LibraryRecord,
   type LibraryProject,
   type ProjectNeeds,
+  type PackInstallPlan,
+  type PackPreparationProgress,
   type BackendDiscovery,
   type DinksterSubmitResult,
   type DinksterJobRecord,
@@ -8255,6 +8257,37 @@ export class AppState {
     this.projectNeedsReview.set(undefined)
     this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
     await this.refreshBackendSchemas(review.backend)
+  }
+
+  async reviewProjectPackInstallation(review: ProjectNeedsReview, signal: AbortSignal,
+    onProgress: (progress: PackPreparationProgress) => void): Promise<PackInstallPlan> {
+    const current = (): void => {
+      signal.throwIfAborted()
+      if (this.projectNeedsReview.get() !== review || !review.current()) throw new Error(t('projectNeeds.changed'))
+    }
+    const recheck = async (): Promise<void> => {
+      current()
+      const project = await review.backend.connection.getProject(review.project.id, signal)
+      const needs = await review.backend.connection.projectNeeds(review.project.id, signal)
+      current()
+      if (project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
+        throw new Error(t('projectNeeds.changed'))
+      }
+    }
+    current()
+    if (review.errors.length > 0 || review.changes.length === 0 ||
+      review.changes.some(({ version }) => version === null) ||
+      new Set(review.changes.map(({ pack }) => pack)).size !== review.changes.length) {
+      throw new Error(t('projectNeeds.exactVersionsRequired'))
+    }
+    await recheck()
+    const packs = review.changes.map(({ pack, version }) => ({ pack, version: version! }))
+    const plan = await review.backend.connection.planPackInstall(packs, signal, (progress) => {
+      current()
+      onProgress(progress)
+    })
+    await recheck()
+    return plan
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {

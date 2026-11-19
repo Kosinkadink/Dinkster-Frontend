@@ -1,5 +1,7 @@
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, For, onCleanup, Show } from 'solid-js'
+import type { PackInstallPlan, PackPreparationProgress } from '@dinkster/client'
 import { ProductErrorBanner, ProductNotice } from '@dinkster/ui'
+import { PackPreparationStatus } from './PackPreparationStatus.js'
 import type { AppState, ProjectNeedsReview } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton } from './ProductControls.js'
@@ -11,7 +13,38 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
   const message = useAppMessage()
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string>()
+  const [plan, setPlan] = createSignal<PackInstallPlan>()
+  const [progress, setProgress] = createSignal<PackPreparationProgress>()
+  const [preparing, setPreparing] = createSignal(false)
+  let controller: AbortController | undefined
+  let expiry: ReturnType<typeof setTimeout> | undefined
+  let disposed = false
+  onCleanup(() => { disposed = true; controller?.abort(); clearTimeout(expiry) })
   const close = (): void => { if (props.app.projectNeedsReview.get() === props.review) props.app.projectNeedsReview.set(undefined) }
+  const reviewInstallation = async (): Promise<void> => {
+    if (busy()) return
+    controller?.abort()
+    clearTimeout(expiry)
+    controller = new AbortController()
+    setBusy(true)
+    setPreparing(true)
+    setError(undefined)
+    setPlan(undefined)
+    setProgress(undefined)
+    try {
+      const result = await props.app.reviewProjectPackInstallation(props.review, controller.signal, (value) => {
+        if (!disposed) setProgress(value)
+      })
+      if (!disposed) {
+        setPlan(result)
+        expiry = setTimeout(() => {
+          setPlan(undefined)
+          setError(message('search.installExpired'))
+        }, Math.min(result.expiresInSeconds * 1000, 2_147_483_647))
+      }
+    } catch (cause) { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { if (!disposed) { setBusy(false); setPreparing(false) } }
+  }
   const enable = async (): Promise<void> => {
     if (busy()) return
     setBusy(true)
@@ -26,7 +59,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
     try { await props.app.checkProjectNeeds(props.review.backend) }
     finally { setBusy(false) }
   }
-  return <ModalSurface title={message('projectNeeds.title')} modalId="project-needs" dismissBlocked={busy()} onRequestClose={close}>
+  return <ModalSurface title={message('projectNeeds.title')} modalId="project-needs" dismissBlocked={busy() && !preparing()} onRequestClose={close}>
     <div class="projects-dialog" data-testid="project-needs">
       <Show when={error()}>{(detail) => <ProductErrorBanner onDismiss={() => setError(undefined)}>{detail()}</ProductErrorBanner>}</Show>
       <p>{props.review.project.name}</p>
@@ -50,10 +83,16 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
         <ProductNotice>{message('projectNeeds.unknown')}</ProductNotice>
         <ul class="projects-dialog-list"><For each={props.review.errors}>{(item) => <li>{item}</li>}</For></ul>
       </Show>
+      <Show when={preparing()}><p role="status"><PackPreparationStatus progress={progress()} /></p></Show>
+      <Show when={plan()}>{(reviewed) => <>
+        <ProductNotice>{message('projectNeeds.reviewOnly')}</ProductNotice>
+        <pre class="node-install-review">{reviewed().review}</pre>
+      </>}</Show>
       <ProductActionFooter>
         <Show when={props.review.enable.length > 0}><ProductButton variant="primary" loading={busy()} disabled={busy()} onClick={() => { void enable() }}>{message('projectNeeds.enable')}</ProductButton></Show>
+        <Show when={props.review.changes.length > 0}><ProductButton disabled={busy()} onClick={() => { void reviewInstallation() }}>{message('projectNeeds.reviewInstallation')}</ProductButton></Show>
         <ProductButton disabled={busy()} onClick={() => { void reviewAgain() }}>{message('projectNeeds.reviewAgain')}</ProductButton>
-        <ProductButton disabled={busy()} onClick={close}>{message('common.close')}</ProductButton>
+        <ProductButton disabled={busy() && !preparing()} onClick={close}>{message('common.close')}</ProductButton>
       </ProductActionFooter>
     </div>
   </ModalSurface>

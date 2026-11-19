@@ -281,6 +281,74 @@ describe('workflow-open requirements', () => {
     expect(savedExtra).toEqual(['other-window-choice'])
   })
 
+  it('prepares one exact project software review without enabling or installing packs', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const project = { id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
+      packs: [{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }], extra: ['kept'], unknown: [],
+      installed: [{ pack: 'different', version: '1.0' }, { pack: 'kept', version: '4.0' }],
+    })
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    const prepared = { plan: { format: 'dinkster.project-pack-plan/1' }, confirmation: 'opaque', review: 'Reviewed software', expiresInSeconds: 900 }
+    let selections: readonly { pack: string; version: string }[] = []
+    let enabled: readonly string[] = ['kept']
+    let installed = false
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async (packs, _signal, progress) => {
+      selections = packs
+      progress?.({ stage: 'retaining-review', sequence: 1, completed: 1, total: 1 })
+      return prepared
+    })
+    vi.spyOn(backend.connection, 'setProjectExtraPacks').mockImplementation(async (_id, extra) => {
+      enabled = extra
+      return { ...project, revision: 8 }
+    })
+    vi.spyOn(backend.connection, 'applyPackInstall').mockImplementation(async () => { installed = true; throw new Error('unexpected apply') })
+    const progress: string[] = []
+    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage))).toEqual(prepared)
+    expect(selections).toEqual([{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }])
+    expect(progress).toEqual(['retaining-review'])
+    expect(enabled).toEqual(['kept'])
+    expect(installed).toBe(false)
+    expect(app.projectNeedsReview.get()).toBe(review)
+
+    let revision = 7
+    vi.spyOn(backend.connection, 'getProject').mockImplementation(async () => ({ ...project, revision }))
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { revision = 8; return prepared })
+    await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
+
+    revision = 7
+    const cancelled = new AbortController()
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { cancelled.abort(); return prepared })
+    await expect(app.reviewProjectPackInstallation(review, cancelled.signal, () => undefined)).rejects.toThrow()
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { app.projectNeedsReview.set(undefined); return prepared })
+    await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
+  })
+
+  it('refuses ambiguous or unknown project needs before preparing software', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    let prepared = false
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { prepared = true; throw new Error('unexpected preparation') })
+    for (const needs of [
+      { packs: [{ pack: 'absent', version: null }], unknown: [] },
+      { packs: [{ pack: 'conflict', version: '1.0' }, { pack: 'conflict', version: '2.0' }], unknown: [] },
+      { packs: [{ pack: 'absent', version: '3.0' }], unknown: [{ scope: 'local', id: 'unreadable' }] },
+    ]) {
+      vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({ ...needs, extra: [], installed: [] })
+      await app.checkProjectNeeds(backend)
+      await expect(app.reviewProjectPackInstallation(app.projectNeedsReview.get()!, new AbortController().signal, () => undefined)).rejects.toThrow('recorded version')
+    }
+    expect(prepared).toBe(false)
+  })
+
   it('discards needs for a workflow replaced during the read', async () => {
     app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()

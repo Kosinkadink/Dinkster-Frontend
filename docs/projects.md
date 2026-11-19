@@ -90,6 +90,14 @@ not install or update software. It rechecks project revision and installed facts
 before an enablement write; stale reviews require a new read. Successful enablement
 shows a dismissible success toast and refreshes the scoped node catalog.
 
+Review installation prepares an exact-version software review through the existing
+host installation API. It does not apply the plan, enable packs, or run a workflow.
+Unknown needs, unrecorded versions and conflicting versions require correction
+before preparation. Project revision and installed facts are checked before and
+after preparation; changed or dismissed reviews cannot publish a stale plan.
+Closing a preparation cancels waiting through the existing preparation API. A
+completed review expires after the host's stated interval.
+
 ## Desktop windows
 
 The desktop shell persists every workspace window with its project binding,
