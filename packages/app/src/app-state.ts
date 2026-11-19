@@ -207,7 +207,7 @@ import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged, workflowNodeTitlesOnlyChanged } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -7061,7 +7061,7 @@ export class AppState {
     resolve: SchemaResolver,
     retainedDocuments: readonly WorkflowDocument[] = [],
   ): readonly Diagnostic[] {
-    if (this.admittedWorkflowCandidates.has(candidate)) return []
+    if (this.admittedWorkflowCandidates.has(candidate) || workflowNodeTitlesOnlyChanged(current, candidate)) return []
     const tab = this.tabs.get().find((entry) => entry.store.doc === current)
     if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
     const documentHistory = { revision: history.revision, undo: [], redo: [] }
@@ -9824,6 +9824,35 @@ export class AppState {
     frame?: number | undefined
     timer?: ReturnType<typeof setTimeout> | undefined
   }>()
+
+  private readonly availabilityPreviews = new WeakMap<Tab, {
+    readonly document: WorkflowDocument
+    readonly registry: SchemaRegistry
+    readonly connection: ConnectionId
+    readonly extensions: number
+    readonly diagnostics: readonly Diagnostic[]
+  }>()
+
+  /** Availability anchors and reasons do not depend on node title overrides. */
+  previewAvailabilityDiagnostics(tab: Tab): readonly Diagnostic[] | undefined {
+    const registry = this.registryForTab(tab)
+    if (!registry || this.disposed) return undefined
+    const connection = this.backendForTab(tab).id
+    const extensions = this.extensionRevision.get()
+    const document = tab.store.doc
+    const cached = this.availabilityPreviews.get(tab)
+    if (cached && cached.registry === registry && cached.connection === connection && cached.extensions === extensions &&
+        (sameExecutionDocument(cached.document, document) || workflowNodeTitlesOnlyChanged(cached.document, document))) {
+      if (cached.document !== document) this.availabilityPreviews.set(tab, { ...cached, document })
+      return cached.diagnostics
+    }
+    const result = this.previewComparisonCompile(tab)
+    if (result === undefined) return undefined
+    const diagnostics = result.ok ? [] : result.diagnostics.filter((diagnostic) =>
+      diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable')
+    this.availabilityPreviews.set(tab, { document, registry, connection, extensions, diagnostics })
+    return diagnostics
+  }
 
   /** Paint edits first; comparison-only diagnostics and previews wait for a pause. */
   previewComparisonCompile(tab: Tab): CompileResult | undefined {
