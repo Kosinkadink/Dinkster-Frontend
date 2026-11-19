@@ -4655,6 +4655,14 @@ export class AppState {
         }
       }
       const replacement: Tab = { ...current, store: session }
+      const comparison = this.comparisonCompiles.get(current)
+      if (sameDocument && comparison && sameExecutionDocument(comparison.document, current.store.doc) &&
+        comparison.registry === this.registryForTab(current) && comparison.connection === backend.id &&
+        comparison.extensions === this.extensionRevision.get()) {
+        // Proven continuation preserves comparison recipes, not a current-session
+        // artifact: the cached store remains the predecessor for full compiles.
+        this.comparisonCompiles.set(replacement, { ...comparison, document: session.doc })
+      }
       // The swap strands in-flight advancement plans keyed to the old store
       // identity (combo refresh responses, queued run completions); record
       // the continuation so they follow the live session instead of dying,
@@ -9809,16 +9817,19 @@ export class AppState {
    * never leak into an exactness verdict. Keyed by the Tab OBJECT (WeakMap):
    * a same-lineage replacement session restarts at revision 0, so an
    * id-keyed entry could answer a fresh session with the OLD session's
-   * compile; closed tabs collect without bookkeeping.
+   * compile. Validated identical authority promotion carries comparison proof
+   * only; the originating store identity still forces full artifacts to refresh.
+   * Closed tabs collect without bookkeeping.
    */
   private comparisonCompiles = new WeakMap<
     Tab,
-    { revision: number; document: WorkflowDocument; registry: SchemaRegistry; extensions: number; result: CompileResult }
+    { store: DocumentSession; revision: number; document: WorkflowDocument; connection: ConnectionId; registry: SchemaRegistry; extensions: number; result: CompileResult }
   >()
 
   readonly comparisonCompilesChanged = createSignal(0)
   private readonly pendingComparisonCompiles = new Map<Tab, {
     readonly document: WorkflowDocument
+    readonly connection: ConnectionId
     readonly registry: SchemaRegistry
     readonly extensions: number
     frame?: number | undefined
@@ -9830,20 +9841,24 @@ export class AppState {
     const registry = this.registryForTab(tab)
     if (!registry || this.disposed) return undefined
     const extensions = this.extensionRevision.get()
+    const connection = this.backendForTab(tab).id
     const cached = this.comparisonCompiles.get(tab)
-    if (cached && sameExecutionDocument(cached.document, tab.store.doc) && cached.registry === registry && cached.extensions === extensions) return cached.result
+    if (cached && sameExecutionDocument(cached.document, tab.store.doc) && cached.connection === connection &&
+      cached.registry === registry && cached.extensions === extensions) return cached.result
     const pending = this.pendingComparisonCompiles.get(tab)
-    if (pending && sameExecutionDocument(pending.document, tab.store.doc) && pending.registry === registry && pending.extensions === extensions) return undefined
+    if (pending && sameExecutionDocument(pending.document, tab.store.doc) && pending.connection === connection &&
+      pending.registry === registry && pending.extensions === extensions) return undefined
     if (pending?.frame !== undefined) cancelAnimationFrame(pending.frame)
     if (pending?.timer !== undefined) clearTimeout(pending.timer)
-    const request: NonNullable<typeof pending> = { document: tab.store.doc, registry, extensions }
+    const request: NonNullable<typeof pending> = { document: tab.store.doc, connection, registry, extensions }
     this.pendingComparisonCompiles.set(tab, request)
     request.frame = requestAnimationFrame(() => {
       request.frame = undefined
       request.timer = setTimeout(() => {
         this.pendingComparisonCompiles.delete(tab)
         if (this.disposed || !this.tabs.get().includes(tab) || !sameExecutionDocument(request.document, tab.store.doc) ||
-          this.registryForTab(tab) !== registry || this.extensionRevision.get() !== extensions) return
+          this.backendForTab(tab).id !== connection || this.registryForTab(tab) !== registry ||
+          this.extensionRevision.get() !== extensions) return
         if (this.compileTabCached(tab) !== undefined) {
           this.comparisonCompilesChanged.update((version) => version + 1)
         }
@@ -9857,14 +9872,18 @@ export class AppState {
     if (!registry) return undefined
     const extensions = this.extensionRevision.get()
     const cached = this.comparisonCompiles.get(tab)
-    if (cached && cached.revision === tab.store.revision && cached.registry === registry && cached.extensions === extensions) {
+    const connection = this.backendForTab(tab).id
+    if (cached && cached.store === tab.store && cached.revision === tab.store.revision &&
+      cached.connection === connection && cached.registry === registry && cached.extensions === extensions) {
       return cached.result
     }
     const result = this.compileTab(tab)
     if (result) {
       this.comparisonCompiles.set(tab, {
+        store: tab.store,
         revision: tab.store.revision,
         document: tab.store.doc,
+        connection,
         registry,
         extensions,
         result,
