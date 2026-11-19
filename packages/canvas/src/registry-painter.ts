@@ -130,9 +130,19 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multiline = row.viewId === 'core.text'
     const multilineLabelHeight = tokens.multilineText.labelHeight
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
-    const labelWidth = multiline
+    let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth, naturalLabelWidth, naturalValueWidth, true)
+    if (row.viewId === 'core.asset' && valuePreview === 'no asset') {
+      // The empty-state message takes priority even when opener controls leave
+      // less than the ordinary label floor. Round up for fitText's pixel floor.
+      const font = ctx.font
+      ctx.font = `italic ${font}`
+      const italicWidth = measureWidth(ctx, valuePreview)
+      ctx.font = font
+      const placeholderWidth = Math.ceil(Math.max(italicWidth, measureWidth(ctx, valuePreview))) + TEXT_PAD * 2
+      labelWidth = Math.min(labelWidth, Math.max(0, fieldWidth - placeholderWidth))
+    }
     const paintLabel = () => {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
