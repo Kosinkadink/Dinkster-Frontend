@@ -37,6 +37,7 @@ export interface SemanticDesignTokens {
     readonly fontFamily: string
     readonly fontMono: string
     readonly metadata: TypeToken
+    readonly canvas: TypeToken
     readonly body: TypeToken
     readonly section: TypeToken
     readonly title: TypeToken
@@ -87,6 +88,7 @@ export interface SemanticDesignTokens {
   readonly interaction: {
     readonly compactControlHeight: number
     readonly primaryInputHeight: number
+    readonly canvasInputHeight: number
     readonly focusRingWidth: number
     readonly hoverOverlay: string
     readonly pressedOverlay: string
@@ -230,6 +232,15 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-type-metadata-weight': String(
       semanticDesignTokens.type.metadata.fontWeight,
     ),
+    '--dinkster-type-canvas-size': px(
+      semanticDesignTokens.type.canvas.fontSize,
+    ),
+    '--dinkster-type-canvas-line': px(
+      semanticDesignTokens.type.canvas.lineHeight,
+    ),
+    '--dinkster-type-canvas-weight': String(
+      semanticDesignTokens.type.canvas.fontWeight,
+    ),
     '--dinkster-type-body-size': px(semanticDesignTokens.type.body.fontSize),
     '--dinkster-type-body-line': px(semanticDesignTokens.type.body.lineHeight),
     '--dinkster-type-body-weight': String(
@@ -302,6 +313,9 @@ export const semanticCssVariablesForTheme = (
     ),
     '--dinkster-input-primary-height': px(
       semanticDesignTokens.interaction.primaryInputHeight,
+    ),
+    '--dinkster-input-canvas-height': px(
+      semanticDesignTokens.interaction.canvasInputHeight,
     ),
     '--dinkster-focus-ring-width': px(
       semanticDesignTokens.interaction.focusRingWidth,

@@ -356,6 +356,14 @@ wrapping footer that stacks at narrow widths. These primitives own structure
 and semantic-token styling only; callers retain value, validation, command,
 and request lifecycle ownership.
 
+`ProductTextInput` accepts `density="canvas"` for an opt-in 24px field with
+12px text from the shared tokens. The default app field remains 40px and the
+site field remains 36px. The canvas variant retains native string values,
+`inputMode`, field associations, validation, focus, disabled and read-only
+behavior; it does not parse numbers. Core widget rows in the gallery shows
+the actual primitive beside the default field, with exact integer strings,
+decimal input and unavailable/invalid states. Canvas editors do not adopt it.
+
 ## Product primitive catalog
 
 Every host control uses one of these primitives. A native control or styling
@@ -470,13 +478,13 @@ not grow. This inventory is a migration queue, not a second component system.
 | Family      | Roles                                                                                           |
 | ----------- | ----------------------------------------------------------------------------------------------- |
 | Space       | 4, 8, 12, 16, 24, 32 px                                                                         |
-| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
+| Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, strong, focus, selected                                                                 |
 | Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
-| Interaction | 32 px compact control, 40 px primary input, 2 px focus ring, hover, pressed, selected, disabled |
+| Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
 | Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
 | Elevation   | low and high only                                                                               |
 

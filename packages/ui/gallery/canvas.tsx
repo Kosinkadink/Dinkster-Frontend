@@ -31,8 +31,10 @@ import {
   ProductButton,
   ProductDialog,
   ProductField,
+  ProductPanel,
   ProductSelect,
   ProductSection,
+  ProductTextInput,
 } from '../src/index.js'
 
 export function CanvasGallery() {
@@ -574,6 +576,70 @@ export function CanvasGallery() {
           />
         </div>
       </ProductSection>
+      <Show when={page() === 'core-rows'}>
+        <ProductSection
+          title="Canvas text input"
+          description="The shared text field at canvas density, not a number-editing proposal. Values remain exact strings; no parsing or editor behavior is added."
+        >
+          <ProductPanel>
+            <ProductField label="Default field">
+              {(attributes) => <ProductTextInput {...attributes} value="42" />}
+            </ProductField>
+            <ProductField label="Canvas seed">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  inputMode="numeric"
+                  value="18446744073709551615"
+                />
+              )}
+            </ProductField>
+            <ProductField label="Canvas decimal">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  inputMode="decimal"
+                  value="-0.125"
+                />
+              )}
+            </ProductField>
+            <ProductField label="Unavailable canvas field">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  disabled
+                  value="24"
+                />
+              )}
+            </ProductField>
+            <ProductField label="Read-only canvas field">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  readOnly
+                  value="9007199254740993"
+                />
+              )}
+            </ProductField>
+            <ProductField
+              label="Invalid canvas field"
+              error="Enter a numeric value."
+            >
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  value="not a number"
+                />
+              )}
+            </ProductField>
+          </ProductPanel>
+        </ProductSection>
+      </Show>
       <Show when={badgeDetails()}>
         {(details) => (
           <ProductDialog
