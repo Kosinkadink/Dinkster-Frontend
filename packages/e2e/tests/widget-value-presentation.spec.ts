@@ -17,16 +17,21 @@ async function paintNode(page: Page, width?: number): Promise<{
       })
     }
     const calls: string[] = []
-    const original = CanvasRenderingContext2D.prototype.fillText
-    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-      calls.push(text)
-      if (maxWidth === undefined) return original.call(this, text, x, y)
-      return original.call(this, text, x, y, maxWidth)
-    }
+    const restore = [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype].map((prototype) => {
+      const original = prototype.fillText
+      prototype.fillText = function (text, x, y, maxWidth) {
+        calls.push(text)
+        if (maxWidth === undefined) return original.call(this, text, x, y)
+        return original.call(this, text, x, y, maxWidth)
+      }
+      return () => { prototype.fillText = original }
+    })
     try {
-      ;(test.renderer! as unknown as { renderNow(): void }).renderNow()
+      const renderer = test.renderer! as unknown as { invalidate(): void; renderNow(): void }
+      renderer.invalidate()
+      renderer.renderNow()
     } finally {
-      CanvasRenderingContext2D.prototype.fillText = original
+      for (const reset of restore) reset()
     }
     const node = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'loader')!
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
