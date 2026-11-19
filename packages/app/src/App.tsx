@@ -1580,7 +1580,7 @@ export function App(props: {
       id: 'projects', get title() { return message('shell.panel.projects.title') },
       get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 18,
-      component: () => <ProjectsDialog onSwitch={switchProject} onOpenWindow={openProjectWindow} />,
+      component: () => <ProjectsDialog connection={activeBackend().connection} onSwitch={switchProject} onOpenWindow={openProjectWindow} />,
     }),
     registerBuiltinPanel({
       id: 'subgraph-definitions', get title() { return message('shell.panel.subgraphDefinitions.title') },
