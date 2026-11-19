@@ -39,6 +39,8 @@ export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
+  const [rowLook, setRowLook] =
+    createSignal<DesignTokens['widgetRowLook']>('inset-raised')
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
@@ -56,6 +58,7 @@ export function CanvasGallery() {
     const currentTheme = theme()
     const currentPage = page()
     const currentWidget = widgetId()
+    const currentRowLook = rowLook()
     const currentOutline = outline()
     const currentTypeLook = typeLook()
     const currentTitleLook = titleLook()
@@ -86,6 +89,10 @@ export function CanvasGallery() {
       const colors = canvasColorsForTheme(currentTheme)
       const tokens: DesignTokens = {
         ...defaultTokens,
+        widgetRowLook:
+          currentPage === 'core-rows'
+            ? currentRowLook
+            : defaultTokens.widgetRowLook,
         badgeLayout: tabsPage ? currentTabLook : defaultTokens.badgeLayout,
         badgeTab: tabsPage ? currentTabSize : defaultTokens.badgeTab,
         titleOverflow:
@@ -267,6 +274,7 @@ export function CanvasGallery() {
       canvas.dataset.outline = currentOutline
       canvas.dataset.typeLook = currentTypeLook
       canvas.dataset.titleLook = currentTitleLook
+      canvas.dataset.rowLook = tokens.widgetRowLook
       canvas.dataset.boundaryNames = currentBoundaryNames
       canvas.dataset.tabLook = currentTabLook
       canvas.dataset.tabSize = `${currentTabSize.height}-${currentTabSize.fontSize}-${currentTabSize.inset}`
@@ -310,6 +318,33 @@ export function CanvasGallery() {
           )}
         </For>
       </nav>
+      <Show when={page() === 'core-rows'}>
+        <ProductField label="Core row look">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={rowLook()}
+              onChange={(event) =>
+                setRowLook(
+                  event.currentTarget.value as DesignTokens['widgetRowLook'],
+                )
+              }
+            >
+              <option value="inset-raised">
+                Inset fields and raised openers
+              </option>
+              <option value="inset">Existing inset rows</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Core row proposal: direct values remain inset fields; color and asset
+          rows have raised faces, kind icons and an opening chevron. Values,
+          swatches, empty states and long names come from the fixture document.
+          Number paint is unchanged, not the number-editing proposal. Production
+          row defaults remain unchanged.
+        </p>
+      </Show>
       <Show when={page() === 'idle-outline'}>
         <ProductField label="Outline look">
           {(attributes) => (

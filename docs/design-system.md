@@ -672,6 +672,14 @@ not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
+Core widget rows proposal compares selected, empty and long values for the core
+kinds. Direct values retain inset fields; color and asset openers use raised
+faces, kind icons and an opening chevron, preserving their real swatches and
+value summaries. The page alone selects `widgetRowLook: 'inset-raised'`;
+production keeps inset rows. Core row look compares that proposal with the
+existing all-inset paint on the same fixture. Number paint is unchanged; this is not a proposed
+number editor or approval of its appearance.
+
 The Idle outline page compares Previous outline with Quieter outline (current)
 on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's
