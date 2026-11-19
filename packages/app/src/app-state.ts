@@ -5574,37 +5574,47 @@ export class AppState {
         startRefresh('reconnect')
       }
       let retentionRefreshTimer: ReturnType<typeof setTimeout> | undefined
+      let retentionRefreshRequested = false
       const reconcileRetentions = (): void => {
-        if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend) return
-        this.workflowRetentionRecoveries.get(connection)?.abort()
+        if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend ||
+          this.workflowRetentionRecoveries.has(connection)) return
+        retentionRefreshRequested = false
+        this.workflowRetentionTimers.delete(connection)
         const controller = new AbortController()
         this.workflowRetentionRecoveries.set(connection, controller)
         this.pendingRetentionRecoveries += 1
-        void reconcileWorkflowRetentions(connection, AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]))
+        void reconcileWorkflowRetentions(connection, controller.signal)
           .then((resolved) => {
-            if (this.disposed || controller.signal.aborted || this.backendFor(id) !== nativeBackend) return
+            if (this.disposed || controller.signal.aborted || retentionRefreshRequested || this.backendFor(id) !== nativeBackend) return
             this.replaceProblems(retentionProblemsOwner, resolved ? [] : [diag(
               'warning', 'validation', 'workflow.retention.unresolved',
               `[${label}] Workflow ownership unconfirmed.`,
             )])
           }).finally(() => {
             this.pendingRetentionRecoveries -= 1
-            if (this.workflowRetentionRecoveries.get(connection) === controller) this.workflowRetentionRecoveries.delete(connection)
+            if (this.workflowRetentionRecoveries.get(connection) === controller) {
+              this.workflowRetentionRecoveries.delete(connection)
+              if (retentionRefreshRequested && retentionRefreshTimer === undefined) reconcileRetentions()
+            }
           })
       }
       this.workflowRetentionRefreshes.set(connection, () => {
-        this.workflowRetentionRecoveries.get(connection)?.abort()
+        if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend) return
+        retentionRefreshRequested = true
         if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
         this.workflowRetentionTimers.add(connection)
         retentionRefreshTimer = setTimeout(() => {
           retentionRefreshTimer = undefined
-          this.workflowRetentionTimers.delete(connection)
           reconcileRetentions()
         }, 400)
       })
       const handleStatusChange = (status: ConnectionStatus): void => {
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         this.submissionAssetOwners = new WeakMap()
+        if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
+        retentionRefreshTimer = undefined
+        retentionRefreshRequested = false
+        this.workflowRetentionTimers.delete(connection)
         this.workflowRetentionRecoveries.get(connection)?.abort()
         this.workflowRetentionRecoveries.delete(connection)
         if (status === 'connected') {

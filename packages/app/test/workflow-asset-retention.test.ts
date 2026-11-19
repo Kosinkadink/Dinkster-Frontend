@@ -368,8 +368,8 @@ describe('workflow retention recovery', () => {
     } finally { retirement.resolve(); app.dispose() }
   })
 
-  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending',
-    'acknowledgment', 'release-acknowledgment', 'changed-roots', 'removed-intent', 'mismatched-receipt'] as const)(
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending', 'journal-change-draining',
+    'acknowledgment', 'release-acknowledgment', 'changed-roots', 'removed-intent', 'mismatched-receipt', 'slow-scan', 'slow-request'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -390,6 +390,15 @@ describe('workflow retention recovery', () => {
       const events = new EventTarget()
       vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
       vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+      const timed = scenario === 'slow-scan' || scenario === 'slow-request' || scenario === 'journal-change-draining'
+      if (timed) {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+        vi.spyOn(AbortSignal, 'timeout').mockImplementation((delay) => {
+          const controller = new AbortController()
+          setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), delay)
+          return controller.signal
+        })
+      }
       const requests: Array<{ signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
       vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
         if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
@@ -398,6 +407,10 @@ describe('workflow retention recovery', () => {
           expect(init?.cache).toBe('no-store')
           const result = deferred<Response>()
           requests.push({ signal: init!.signal!, result })
+          if (scenario === 'slow-request') return new Promise<Response>((resolve, reject) => {
+            init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true })
+            void result.promise.then(resolve)
+          })
           return result.promise
         }
         return new Response('{}', { status: 503 })
@@ -409,11 +422,35 @@ describe('workflow retention recovery', () => {
           ...(scenario === 'release-acknowledgment' ? { acknowledgedRevision: 1, releaseRevision: 1 } : {}) }
         const bytes = JSON.stringify(intent)
         f.entries.set(f.key, bytes)
+        const secondOwner = { ...intent.owner, ownerId: `${intent.owner.ownerId}-second` }
+        if (scenario === 'slow-scan') f.entries.set(`${f.key}-second`, JSON.stringify({ ...intent, owner: secondOwner }))
         const notices = () => app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')
         backend.connection.connect()
         await vi.waitFor(() => expect(sockets).toHaveLength(1))
         sockets.at(-1)!.onopen?.({})
         await vi.waitFor(() => expect(requests).toHaveLength(1))
+        if (scenario === 'slow-request') {
+          await vi.advanceTimersByTimeAsync(10_001)
+          expect(requests[0]!.signal.aborted).toBe(true)
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(1)
+          expect(app.retentionActivity().recoveries).toBe(0)
+          return
+        }
+        if (scenario === 'slow-scan') {
+          await vi.advanceTimersByTimeAsync(6000)
+          requests[0]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(requests).toHaveLength(2)
+          await vi.advanceTimersByTimeAsync(6000)
+          expect(requests[1]!.signal.aborted).toBe(false)
+          expect(app.retentionActivity().recoveries).toBe(1)
+          requests[1]!.result.resolve(new Response(JSON.stringify({ ...f.acknowledgment, ownerId: secondOwner.ownerId })))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(app.retentionActivity().recoveries).toBe(0)
+          expect(notices()).toHaveLength(0)
+          return
+        }
         if (scenario === 'acknowledgment' || scenario === 'release-acknowledgment' || scenario === 'changed-roots' ||
           scenario === 'removed-intent' || scenario === 'mismatched-receipt') {
           const current = JSON.stringify({ ...intent, acknowledgedRevision: scenario === 'release-acknowledgment' ? 2 : 1,
@@ -428,8 +465,15 @@ describe('workflow retention recovery', () => {
           expect(f.entries.get(f.key)).toBe(scenario === 'removed-intent' ? undefined : current)
           return
         }
-        if (scenario === 'journal-change-pending') {
+        if (scenario === 'journal-change-pending' || scenario === 'journal-change-draining') {
           events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          if (scenario === 'journal-change-draining') {
+            await vi.advanceTimersByTimeAsync(450)
+            expect(requests).toHaveLength(1)
+            expect(app.retentionActivity().recoveryTimers).toBe(1)
+          }
+          expect(requests[0]!.signal.aborted).toBe(false)
+          expect(app.retentionActivity().recoveries).toBe(1)
           requests[0]!.result.resolve(new Response('{}', { status: 404 }))
           await new Promise<void>((done) => setImmediate(done))
           expect(notices()).toHaveLength(0)
@@ -437,6 +481,8 @@ describe('workflow retention recovery', () => {
           requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
           await new Promise<void>((done) => setImmediate(done))
           expect(notices()).toHaveLength(0)
+          expect(app.retentionActivity().recoveries).toBe(0)
+          expect(app.retentionActivity().recoveryTimers).toBe(0)
           return
         }
         requests[0]!.result.resolve(new Response('{}', { status: 404 }))
@@ -475,6 +521,7 @@ describe('workflow retention recovery', () => {
         expect(f.entries.get(f.key)).toBe(bytes)
       } finally {
         app.dispose()
+        if (timed) vi.useRealTimers()
       }
     },
   )

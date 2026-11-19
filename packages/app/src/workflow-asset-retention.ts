@@ -641,7 +641,9 @@ export async function reconcileWorkflowRetentions(
           !intent.digests.every((digest: unknown, index: number, digests: unknown[]) =>
             typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest) &&
             (index === 0 || (digests[index - 1] as string) < digest))) throw new Error('Invalid workflow retention intent')
-        const observed = await connection.fetchRetainedAssets(owner, signal)
+        const observationSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+        const observed = await connection.fetchRetainedAssets(owner, observationSignal)
+        observationSignal.throwIfAborted()
         // Recording the matching acknowledgment does not change the intent's authority.
         // Any other concurrent edit still invalidates this observation.
         const current = storage.getItem(key)
