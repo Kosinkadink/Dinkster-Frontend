@@ -14,6 +14,7 @@ import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
+import { paintToolboxIcon } from './icons.js'
 
 const paint = canvasPaintTokens.widget
 const TEXT_PAD = paint.textPadding
@@ -77,9 +78,27 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-    const leftControl = numeric ? WIDGET_EDGE_CONTROL_WIDTH : 0
+    const openerIcon = tokens.widgetRowLook === 'inset-raised'
+      ? row.viewId === 'core.asset' ? 'image'
+        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette' : undefined
+      : undefined
+    if (openerIcon !== undefined) {
+      ctx.fillStyle = tokens.colors.nodeHeader
+      ctx.strokeStyle = tokens.colors.nodeIdleOutline
+      ctx.lineWidth = paint.opener.stroke
+      ctx.beginPath()
+      ctx.roundRect(chrome.x + paint.opener.strokeInset, chrome.y + paint.opener.strokeInset,
+        chrome.width - paint.opener.stroke, chrome.height - paint.opener.stroke, chrome.radius)
+      ctx.fill()
+      ctx.stroke()
+      paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
+        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
+      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingReserve,
+        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
+    }
+    const leftControl = openerIcon !== undefined ? paint.opener.iconReserve : numeric ? WIDGET_EDGE_CONTROL_WIDTH : 0
     const combo = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO'
-    const rightControl = numeric || combo ? WIDGET_EDGE_CONTROL_WIDTH : 0
+    const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? WIDGET_EDGE_CONTROL_WIDTH : 0
     const usableWidth = Math.max(0, width - leftControl - rightControl)
     const naturalLabelWidth = measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,

@@ -296,6 +296,22 @@ for (const theme of ['dark', 'light'] as const) {
             }),
           ).toHaveScreenshot(`boundary-${theme}.png`)
         }
+        if (id === 'core-rows') {
+          await page
+            .getByRole('combobox', { name: 'Core row look', exact: true })
+            .selectOption('inset')
+          await expect(canvas).toHaveAttribute('data-row-look', 'inset')
+          await expect(canvas).toHaveScreenshot(`core-rows-inset-${theme}.png`)
+          await page
+            .getByRole('button', { name: 'Node anatomy', exact: true })
+            .click()
+          await expect(
+            page.getByRole('img', {
+              name: `anatomy in ${theme} theme`,
+              exact: true,
+            }),
+          ).toHaveScreenshot(`anatomy-${theme}.png`)
+        }
         if (run) {
           await canvas.hover({ position: { x: 360, y: 218 } })
           await expect(canvas).toHaveAttribute('title', 'Running')
