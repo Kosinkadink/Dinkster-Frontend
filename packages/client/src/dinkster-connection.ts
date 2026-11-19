@@ -1410,6 +1410,12 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
   }
 }
 
+export interface ProjectNeeds {
+  readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
+  readonly extra: readonly string[]
+  readonly unknown: readonly { readonly scope: string; readonly id: string }[]
+}
+
 export interface LibraryProject {
   readonly id: string
   readonly name: string
@@ -3424,7 +3430,7 @@ export class DinksterConnection {
   async planWorkflowRequirements(document: WorkflowDocument): Promise<WorkflowRequirementPlan> {
     const res = await this.fetchFn(`${this.baseUrl}/api/workflows/plan`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workflows: [document] }),
+      body: JSON.stringify({ workflows: [document], ...(this.project === undefined ? {} : { project: this.project }) }),
     })
     if (!res.ok) throw new Error(`POST /api/workflows/plan failed: ${res.status}`)
     const raw: unknown = await res.json()
@@ -4071,12 +4077,56 @@ export class DinksterConnection {
     return project
   }
 
-  async renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+  async getProject(id: string, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id) throw new Error('Library returned another project')
+    if (project.deleted) throw new Error('Project is unavailable')
+    return project
+  }
+
+  async projectNeeds(id: string, signal?: AbortSignal): Promise<ProjectNeeds> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}/needs`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!res.ok) throw new Error(`GET /api/projects/needs failed: ${res.status}`)
+    const invalid = () => new Error('Malformed project needs')
+    const raw: unknown = await res.json()
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const body = raw as Record<string, unknown>
+    if (!Array.isArray(body['packs']) || !Array.isArray(body['extra']) ||
+      !body['extra'].every((pack) => typeof pack === 'string' && pack.length > 0) || !Array.isArray(body['unknown'])) throw invalid()
+    const packs = body['packs'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+      const pack = raw as Record<string, unknown>
+      if (typeof pack['pack'] !== 'string' || pack['pack'].length === 0 ||
+        !(pack['version'] === null || typeof pack['version'] === 'string' && pack['version'].length > 0)) throw invalid()
+      return { pack: pack['pack'], version: pack['version'] as string | null }
+    })
+    const unknown = body['unknown'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+      const record = raw as Record<string, unknown>
+      if (typeof record['scope'] !== 'string' || record['scope'].length === 0 ||
+        typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
+      return { scope: record['scope'], id: record['id'] }
+    })
+    return { packs, extra: body['extra'] as string[], unknown }
+  }
+
+  renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    return this.patchProject(id, revision, { name }, signal)
+  }
+
+  setProjectExtraPacks(id: string, extra: readonly string[], revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    return this.patchProject(id, revision, { packs: { extra } }, signal)
+  }
+
+  private async patchProject(id: string, revision: number, patch: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revision, patch: { name } }), ...(signal === undefined ? {} : { signal }),
+      body: JSON.stringify({ revision, patch }), ...(signal === undefined ? {} : { signal }),
     })
-    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before renaming.')
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before saving.')
     if (!res.ok) throw new Error(`PATCH /api/projects failed: ${res.status}`)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)

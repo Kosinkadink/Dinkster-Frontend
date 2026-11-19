@@ -3561,6 +3561,44 @@ describe('workflow library wire', () => {
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
   })
 
+  it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
+    const { conn, requests } = submitHarness((url, init) => {
+      if (url.endsWith('/needs')) return jsonResponse(200, needs)
+      return jsonResponse(200, { project: { ...project, revision: init?.method === 'PATCH' ? 8 : 7 } })
+    })
+    const controller = new AbortController()
+    expect(await conn.getProject('p-film', controller.signal)).toEqual(project)
+    expect(await conn.projectNeeds('p-film', controller.signal)).toEqual(needs)
+    expect(requests[1]?.url).toBe('http://test/api/projects/p-film/needs')
+    expect(requests[1]?.init?.cache).toBe('no-store')
+    expect(requests[1]?.init?.signal).toBe(controller.signal)
+    expect(await conn.setProjectExtraPacks('p-film', ['extra-c', 'tools-b'], 7, controller.signal)).toEqual({ ...project, revision: 8 })
+    expect(requests[2]?.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { packs: { extra: ['extra-c', 'tools-b'] } } })
+    const { conn: stale, requests: rejected } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.setProjectExtraPacks('p-film', ['tools-b'], 6)).rejects.toThrow('changed elsewhere')
+    expect(rejected).toHaveLength(1)
+  })
+
+  it.each([
+    { packs: [{ pack: 'tools-a', version: 2 }], extra: [], unknown: [] },
+    { packs: [], extra: [null], unknown: [] },
+    { packs: [], extra: [], unknown: [{ scope: 'local' }] },
+    { packs: [], extra: [] },
+  ])('rejects malformed needs rather than assuming the project needs nothing', async (needs) => {
+    const { conn } = submitHarness(() => jsonResponse(200, needs))
+    await expect(conn.projectNeeds('p-film')).rejects.toThrow('Malformed project needs')
+  })
+
+  it('refuses deleted or mismatched project reads instead of supplying an enablement revision', async () => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: true }
+    const { conn } = submitHarness(() => jsonResponse(200, { project }))
+    await expect(conn.getProject('p-film')).rejects.toThrow('unavailable')
+    await expect(conn.getProject('p-other')).rejects.toThrow('another project')
+  })
+
   it.each([
     { items: [{ id: 'p-film', name: 'Film', created: 'invalid', revision: 1, deleted: false }], cursor: null },
     { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 0, deleted: false }], cursor: null },
@@ -3840,7 +3878,11 @@ describe('memory telemetry transport', () => {
 
 })
 
-it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {
+it.each([
+  [undefined, {}],
+  ['default', { project: 'default' }],
+  ['p-film', { project: 'p-film' }],
+] as const)('reads workflow plans for project %s without a hardware guess or acquisition consent', async (project, scope) => {
   const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document
   expect(workflow).toBeDefined()
   const plan = {
@@ -3849,9 +3891,9 @@ it('reads workflow plans without sending a hardware guess or acquisition consent
     errors: [],
   }
   let payload: unknown = plan
-  const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
+  const { conn, requests } = submitHarness(() => jsonResponse(200, payload), project)
   await expect(conn.planWorkflowRequirements(workflow!)).resolves.toEqual(plan)
-  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow] })
+  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow], ...scope })
   payload = { ...plan, packs: [{ pack: 'tools-a', version: 123 }] }
   await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
   payload = { ...plan, assets: [{ ...plan.assets[0], sources: 'not-a-list' }] }

@@ -67,6 +67,18 @@ A window's project is carried in its URL (`dinksterProject`); workflow pop-outs
 and panel windows inherit the opener's project so they join the same tab
 authority.
 
+## Needs and pack enablement
+
+The client reads `/api/projects/{id}/needs` without cache or acquisition consent.
+It preserves unknown workflow identities and versionless pack needs; malformed
+responses fail instead of becoming an empty needs list. Project reads reject a
+deleted project or an acknowledgment for a different ID.
+
+Extra-pack changes use the current project revision. A stale revision requires a
+new read and review, not an automatic retry that could overwrite another window's
+choices. This changes project enablement only; it does not install software or
+change another project's packs.
+
 ## Desktop windows
 
 The desktop shell persists every workspace window with its project binding,
