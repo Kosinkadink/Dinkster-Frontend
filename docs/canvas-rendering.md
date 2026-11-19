@@ -49,3 +49,20 @@ same readback policy throughout repeated pixel inspection.
 This affects comparison setup only, not production rendering. Frame-time tools
 and measured results are documented in [Performance baselines](perf.md);
 timings are reports, not CI assertions.
+
+## Frame-rate readout
+
+Settings > Diagnostics > Show frame rate adds a readout to the status bar.
+It is off by default and persists across reloads. Each one-second sample
+reports page animation-frame callbacks per second and the slowest interval
+between those callbacks. Idle pages still receive callbacks; the readout
+does not force canvas paints or measure GPU presentation rate, canvas draw
+time, or input latency. Uncapped browser runs can report callback rates above
+the display refresh rate.
+
+Sampling runs only while the readout is enabled, the status bar is shown,
+and the document is visible.
+Hiding the tab discards its incomplete sample; returning starts a fresh
+sample, excluding the background pause. Turning the setting off removes the
+readout and its animation-frame callback. The existing status-bar visibility
+setting still controls whether the bar is shown.

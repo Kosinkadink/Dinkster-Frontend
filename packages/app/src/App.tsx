@@ -5,6 +5,7 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
+import { FrameRateStatus } from './FrameRateStatus.js'
 import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -3032,6 +3033,9 @@ export function App(props: {
           </Show>
         </div>
         <div class="statusbar-right" data-testid="status-trailing" role="group" aria-label={message('shell.tasksNotifications')}>
+          <Show when={(settingsTick(), statusBarVisible() && app.settings.get<boolean>('diagnostics.frameRate'))}>
+            <FrameRateStatus />
+          </Show>
           <For each={statusTrailingContributions()}>{(contribution) => (
             <span class="host-ui-contribution" data-host-ui-contribution={contribution.id}>
               <HostUiProviderHost
