@@ -15,6 +15,7 @@ export type CanvasIconName =
   | 'trash-2' | 'circle' | 'ellipsis-vertical' | 'folder-open' | 'group' | 'ungroup' | 'boxes'
   | 'sliders-horizontal' | 'panel-top-close' | 'panel-top-open'
   | 'check' | 'clock' | 'database' | 'triangle-alert' | 'info'
+  | 'image' | 'palette' | 'chevron-right'
 
 export interface ToolboxButton {
   /** Stable namespaced id ('core.mode.muted', 'core.delete'). */

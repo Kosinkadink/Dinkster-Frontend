@@ -1410,6 +1410,26 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
   }
 }
 
+export interface LibraryProject {
+  readonly id: string
+  readonly name: string
+  readonly created: string
+  readonly revision: number
+  readonly deleted: boolean
+}
+
+function decodeLibraryProject(value: unknown): LibraryProject {
+  if (typeof value !== 'object' || value === null) throw new Error('Malformed library project')
+  const row = value as Record<string, unknown>
+  if (typeof row['id'] !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(row['id']) ||
+    typeof row['name'] !== 'string' || row['name'].trim().length === 0 ||
+    typeof row['created'] !== 'string' || !Number.isFinite(Date.parse(row['created'])) ||
+    !Number.isSafeInteger(row['revision']) || Number(row['revision']) < 1 || typeof row['deleted'] !== 'boolean') {
+    throw new Error('Malformed library project')
+  }
+  return { id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'] }
+}
+
 /**
  * One scoped library record: mutable browse metadata (name/labels/folder)
  * pointing at immutable content bytes by digest. Renames never change
@@ -4015,6 +4035,48 @@ export class DinksterConnection {
   /** Browser-safe URL for a descriptor-validated immutable docs asset. */
   docsAssetUrl(packId: string, digest: string): string {
     return `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`
+  }
+
+  async listProjects(cursor?: string, signal?: AbortSignal): Promise<{
+    readonly items: readonly LibraryProject[]
+    readonly cursor: string | null
+  }> {
+    const query = new URLSearchParams({ limit: '100' })
+    if (cursor !== undefined) query.set('cursor', cursor)
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, signal === undefined ? undefined : { signal })
+    if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
+    const payload = await res.json() as Record<string, unknown> | null
+    if (!payload || !Array.isArray(payload['items']) ||
+      !(payload['cursor'] === null || typeof payload['cursor'] === 'string' && payload['cursor'].length > 0)) {
+      throw new Error('Malformed library project page')
+    }
+    return { items: payload['items'].map(decodeLibraryProject), cursor: payload['cursor'] as string | null }
+  }
+
+  /** Registration is idempotent: the library's existing record wins. */
+  async registerProject(id: string, name: string, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (!res.ok) throw new Error(`POST /api/projects failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id) throw new Error('Library returned another project')
+    return project
+  }
+
+  async renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision, patch: { name } }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before renaming.')
+    if (!res.ok) throw new Error(`PATCH /api/projects failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id) throw new Error('Library returned another project')
+    return project
   }
 
   /** One record by id; undefined on miss/wrong scope (a plain 404 by contract). */

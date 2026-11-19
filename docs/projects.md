@@ -8,11 +8,12 @@ while windows on different projects are fully isolated from each other.
 ## Using projects
 
 Open **Projects** from the app toolbar (folder icon, workspace windows only)
-to create, rename, or switch projects. Every installation starts with a
-**Default** project that carries all pre-project state, so nothing changes
-until a second project is created.
+to create, rename, or switch projects in the selected engine's library. The
+list comes from the engine, including every page, rather than browser storage.
+Every library starts with a **Default** project that carries pre-project state.
+Loading and request failures are shown without substituting a local project list.
 
-- **Create project** adds a new empty project to the registry.
+- **Create project** saves a new empty project in the engine library.
 - **Rename** edits a project's display name in place (Enter commits, Escape
   cancels). The default project can be renamed too.
 - **Switch** rebinds the current window to the chosen project. The window
@@ -39,11 +40,20 @@ and the shared workflow authority. Windows sharing a project converge on one
 SharedWorker tab authority; each project gets its own worker, broadcast
 channels, and web locks, so cross-project state can never bleed.
 
-Global state: the project registry itself, non-layout settings, keybindings,
-and desktop engine management. The engine is a machine resource, not a
-project resource.
+The engine library owns the shared project registry. Non-layout settings,
+keybindings and desktop engine management remain independent of the window scope.
+Renames use the record revision; a conflicting rename is reported and the list
+is refreshed rather than overwriting another window's name.
 
 ## Identity and storage
+
+On first successful connection, existing browser project descriptors are
+registered with their stable IDs without a prompt. An existing engine record
+wins a name collision. The original browser envelope is removed only after all
+registrations acknowledge and the source is unchanged. Interrupted, failed or
+unreadable migrations preserve it for recovery; reconnecting resumes registration.
+No tabs, drafts, layout or other per-device state are removed. A response from a
+retired connection cannot replace the current dialog list or retire migration data.
 
 The default project keeps the legacy unprefixed storage keys and rendezvous
 names, so existing user state becomes the default project with no migration.

@@ -56,6 +56,7 @@ export const canvasGalleryPages = [
   ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
+  ['core-rows', 'Core widget rows proposal'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -364,7 +365,45 @@ export function createCanvasGalleryFixture(
     fixture.scene.links.push(...scene.links)
     labels.push({ text: id, x, y: y - 24 })
   }
-  if (
+  if (page === 'core-rows') {
+    const core = galleryWidgetInputs.filter((item) =>
+      [
+        'integer',
+        'seed',
+        'float',
+        'text',
+        'prompt',
+        'toggle',
+        'choice',
+        'color',
+        'asset',
+      ].includes(item.id),
+    )
+    const definition = schema('Core widgets', core)
+    const empty = {
+      text: '',
+      prompt: '',
+      toggle: false,
+      color: '#00000000',
+      asset: null,
+    }
+    const longAsset = {
+      ...(galleryWidgetInputs.find((item) => item.id === 'asset')!.widget!
+        .default as Record<string, Json>),
+      name: 'a-deliberately-long-reference-image-name-for-review.png',
+    }
+    add('Selected values', definition)
+    add('Empty values', definition, empty)
+    add('Long values', definition, {
+      text: 'A deliberately long single-line value that must stay inside its field',
+      choice: 'dpmpp_2m_sde',
+      asset: longAsset,
+    })
+    fixture.height = Math.max(
+      600,
+      ...fixture.scene.nodes.map((node) => node.y + node.layout.height + 24),
+    )
+  } else if (
     page === 'widgets' ||
     page === 'widget-driven' ||
     page === 'widget-offered' ||

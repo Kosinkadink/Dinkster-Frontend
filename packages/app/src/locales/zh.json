@@ -1,4 +1,6 @@
 {
+  "projectsDialog.description": "项目保存在此引擎的库中。标签页、后端连接和布局仅保存在此设备上。",
+  "projectsDialog.loading": "正在加载项目",
   "execution.scopes.checking": "正在检查可执行的选择...",
   "modelConsent.footer": "下载不会运行工作流，关闭不会取消传输。运行一次仅重试本次捕获的提交。",
   "modelConsent.review": "查看来源",

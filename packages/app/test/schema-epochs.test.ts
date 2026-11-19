@@ -58,6 +58,32 @@ beforeEach(() => {
 })
 
 describe('schema_changed epoch invalidation', () => {
+  it('registers browser projects on connection without removing device drafts', async () => {
+    const source = JSON.stringify({ v: 1, projects: [{ id: 'p-film', name: 'Film', createdAt: 17 }] })
+    const data = new Map([['dinkster.projects', source], ['dinkster.p.p-film.openTabs', 'device draft']])
+    const registered = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => { data.set(key, value) },
+      removeItem: (key: string) => { data.delete(key) },
+    })
+    try {
+      vi.spyOn(nativeConnection(), 'registerProject').mockImplementation(async (id, name) => {
+        registered.set(id, name)
+        return { id, name, created: '2026-11-18T12:34:56Z', revision: 1, deleted: false }
+      })
+      vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
+      ;(backend.connection.status as unknown as { set(value: string): void }).set('connected')
+      await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
+      expect(registered.get('p-film')).toBe('Film')
+      expect(data.has('dinkster.projects')).toBe(false)
+      expect(data.get('dinkster.p.p-film.openTabs')).toBe('device draft')
+    } finally {
+      app.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each(['schema_changed', 'reconnect'])('publishes schemas after %s while advisory metadata is held', async (event) => {
     backend.registry.set(reg(backend, 1))
     let resolve!: (records: readonly ComfyTranslation[]) => void

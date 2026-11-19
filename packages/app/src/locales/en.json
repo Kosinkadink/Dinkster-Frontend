@@ -1,4 +1,6 @@
 {
+  "projectsDialog.description": "Projects are saved in this engine's library. Tabs, backend connections, and layout stay on this device.",
+  "projectsDialog.loading": "Loading projects",
   "execution.scopes.checking": "Checking executable selection...",
   "common.close": "Close",
   "modelConsent.footer": "Download does not run the graph. Dismiss does not cancel transfers. Run once retries only this captured submission.",

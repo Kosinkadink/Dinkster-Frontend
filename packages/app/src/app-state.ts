@@ -218,7 +218,7 @@ import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
-import { activeProjectId, scopedSharedName, scopedStorageKey } from './projects.js'
+import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -5323,6 +5323,9 @@ export class AppState {
             // and refetch under the current generation instead.
             if (gen < staleGen) continue
             if (!current()) return targetEpoch
+            await this.migrateProjectsForBackend(nativeBackend, () => current() && gen === staleGen)
+            if (gen < staleGen) continue
+            if (!current()) return targetEpoch
             await this.prepareExtensionWorld(nativeBackend, fresh)
             if (gen < staleGen) {
               this.pruneExtensionWorlds()
@@ -9614,6 +9617,18 @@ export class AppState {
     )
   }
 
+  private async migrateProjectsForBackend(backend: Backend, current: () => boolean): Promise<void> {
+    try {
+      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
+    } catch (cause) {
+      if (!current()) return
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [{
+        severity: 'error', origin: 'schema', code: 'projects.registrationFailed',
+        message: `[${backend.label}] browser project registration failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      }])
+    }
+  }
+
   /** Fetch schemas (+ native diagnostics); failures land in Problems - except
    * the supervisor's engine-not-ready gate, which the supervisor poll narrates
    * (and retries on ready) instead of a scary fetch-failed problem. */
@@ -9624,11 +9639,13 @@ export class AppState {
     this.invalidateWorkerCatalog(backend)
     backend.schemaState.set({ status: 'loading' })
     const current = (): boolean =>
-      this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request &&
+      !this.disposed && this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request &&
       this.settings.get<string>('search.registryUrl') === catalogPrefix
     try {
       this.loadComfyTranslations(backend, current)
       const registry = await backend.connection.fetchSchemas()
+      if (!current()) return
+      await this.migrateProjectsForBackend(backend, current)
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
