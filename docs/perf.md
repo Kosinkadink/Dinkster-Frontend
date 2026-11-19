@@ -6,6 +6,151 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Optional frame-rate readout (2026-11-19)
+
+The readout is off by default. This production-optimized AFTER report measures
+that default state; enabled-state browser checks separately cover persistence,
+visibility and rendering, not its performance overhead. BEFORE is the accepted
+smooth-wheel run below, landed as `60d7183e`, and was not replayed. The stage 6
+branch changes no renderer behavior and does not include the separate flooded
+wheel repair. Its tiny zoom medians can still contain unchanged-scale cached
+copies, not sustained full-scene raster work or achieved display refresh.
+
+The unchanged audit tools use X570, claimed RTX 4090 Vulkan, Chromium 149,
+uncapped 2560x1440 and 2500 ms inputs. Drag is measured separately from wheel
+input. The CPU backend changed from BEFORE `09a19d69` to `79f1fb51`, with
+packs at `e3cc2acb`. Both launched interpreter inventories verify all41516
+sealed files without mismatch. Independent CPU repair verification overlapped
+this AFTER report on the shared host. Unequal-time sampling and that overlap
+prevent attributing differences to the readout or claiming a causal speedup.
+
+Frame callback interval p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 3.6/17.7 | 0.4/7.0 | 0.3/8.7 | 1.4/2.1 | 1.5/2.2 |
+| 66/fit | 16.7/17.8 | 16.8/17.6 | 0.2/6.4 | 0.3/6.6 | 1.2/17.0 | 1.2/2.9 |
+| 300/read | 15.7/17.7 | 1.7/17.6 | 0.3/5.7 | 0.4/7.1 | 1.2/2.0 | 1.4/3.4 |
+| 300/fit | 16.7/17.7 | 16.9/17.6 | 0.2/9.8 | 0.3/13.6 | 1.6/2.9 | 1.9/3.3 |
+| 1200/read | 4.9/17.7 | 6.8/17.6 | 0.3/6.3 | 0.4/8.8 | 1.7/2.9 | 1.7/2.9 |
+| 1200/fit | 16.6/17.7 | 16.7/17.7 | 0.2/23.0 | 0.2/13.2 | 6.2/15.0 | 8.1/17.9 |
+
+Fitted1200 zoom input-to-render-end p95 is1198 ms BEFORE and120.6 ms AFTER.
+That variation on the unchanged renderer is not evidence that this readout
+fixes input queuing or glide progress. The separate wheel repair owns that
+behavior. Fitted1200 drag regresses and pan tails remain around17.7 ms; the
+original frame-time goals are not met. The readout itself reports page rAF
+callback cadence and maximum interval per one-second sample, not paint cost,
+input delay or GPU presentation. It is a diagnostic tool, not a timing gate.
+
+## Wheel coalescing with edit and fresh-glide priority (2026-11-19)
+
+The final candidate adds two correctness controls to raster coalescing: a new
+wheel glide cannot inherit an earlier paint's pause, and dirty scene/overlay
+updates bypass the pause. The unchanged production reporting tools run after
+all local validation, with no owner validation overlapping. Hardware, input,
+viewport and backend/pack pins match the preceding coalescing report; both
+interpreter inventories again verify all 41516 sealed files without mismatch.
+The accepted smooth-wheel BEFORE is reused, never replayed. These are
+unequal-time shared-host reports, not isolated causal or display-rate proof.
+
+Probe callback interval p50/p95 in milliseconds, with drag isolated from zoom:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 16.7/17.7 | 0.4/7.0 | 0.2/6.2 | 1.4/2.1 | 1.4/2.0 |
+| 66/fit | 16.7/17.8 | 16.7/17.7 | 0.2/6.4 | 0.2/4.9 | 1.2/17.0 | 1.2/17.1 |
+| 300/read | 15.7/17.7 | 4.5/17.6 | 0.3/5.7 | 0.2/5.7 | 1.2/2.0 | 1.3/4.2 |
+| 300/fit | 16.7/17.7 | 1.7/17.6 | 0.2/9.8 | 0.2/1.3 | 1.6/2.9 | 1.8/3.5 |
+| 1200/read | 4.9/17.7 | 6.7/17.6 | 0.3/6.3 | 0.3/7.7 | 1.7/2.9 | 1.7/2.5 |
+| 1200/fit | 16.6/17.7 | 16.6/17.7 | 0.2/23.0 | 0.1/0.3 | 6.2/15.0 | 5.4/16.5 |
+
+Coalescing intentionally omits intermediate rasters, so those tiny zoom
+callback intervals are not rendered frame times or full-refresh acceptance.
+Actual zoom raster work and newest-input-to-render-end latency are:
+
+| Fixture/camera | Raster p50/p95 (ms) | Paints/s | Input-to-render-end p95 (ms) |
+| --- | --- | --- | --- |
+| 66/read | 7.4/16.2 | 82.0 | 51.2 |
+| 66/fit | 4.3/12.3 | 124.3 | 45.7 |
+| 300/read | 4.8/7.9 | 124.3 | 20.0 |
+| 300/fit | 6.5/17.6 | 76.2 | 25.8 |
+| 1200/read | 7.1/11.4 | 84.9 | 32.9 |
+| 1200/fit | 9.2/27.1 | 52.8 | 28.5 |
+
+Fitted 1200-node flood input-to-render-end p95 is 1198 ms BEFORE -> 28.5 ms
+AFTER; delivery-queue p95 is 24.9 ms AFTER. The prior unfavorable 11542.4 ms
+progress-only result remains below. Latency pairs each actual raster with the
+newest input delivered before it, not every input with its own frame. Paints
+at changing scales repaint sharp pixels; omitted steps retain the actual
+painted camera without rescaling a bitmap. The final target bypasses the
+pause. Dirty-edit, new-glide, skipped-paint alignment and 100 ms-plus-frame
+settle regressions pass, as do all 741 canvas cases, fast/build checks,
+the extended browser wheel contract and full 28-app/286-UI/16-site visual run.
+No assertion or baseline changes. Frame-time goals remain unmet, and this
+report alone does not explain the original intermittent slow spells.
+
+## Wheel raster coalescing (2026-11-19)
+
+The fitted 1200-node/1140-link production-optimized test-mode AFTER run uses
+2560x1440, claimed RTX 4090 Vulkan, and the unchanged 2500 ms asynchronous
+1 kHz input tool. The accepted smooth-wheel BEFORE is not replayed. Leaving
+half the previous paint's duration for input delivery between intermediate
+rasters reduces input-to-render-end p95 from 1198 ms BEFORE (11542.4 ms with
+the progress-only correction) to 28.8 ms. Delivery-queue p95 is 25.0 ms.
+The final target bypasses the pause; omitted steps keep the painted camera,
+not a scaled bitmap. Actual raster p50/p95 is 8.0/26.3 ms and 53.5 paints/s,
+so full-refresh targets remain unmet. Probe callback p50/p95 of 0.1/0.3 ms
+includes omitted raster steps and is not a graph-paint rate. The same backend
+and pack pins as the retarget report below apply. This is a shared-host
+candidate report, not independent verification or a landing gate.
+
+## Wheel retargeting under continuous input (2026-11-19)
+
+Before is the accepted smooth-wheel AFTER run below, landed as `60d7183e`;
+it was not replayed. After preserves elapsed time when wheel input retargets
+from the last painted camera and samples the callback's current clock instead
+of its potentially older frame timestamp. X570, claimed RTX 4090, Chromium
+149 Vulkan, uncapped 2560x1440, 2500 ms inputs and the unchanged reporting
+scripts are retained. Both builds are production-optimized test-mode builds.
+The CPU backend pin changed from `09a19d69` to the workflow's `79f1fb51`,
+with packs at `e3cc2acb`; engine and shared-interpreter inventories each verify
+41516 sealed build files without mismatch. This is an unequal-time,
+shared-host report, not isolated frontend causality or a gate. No validation
+suite overlaps this AFTER command.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 16.7/17.7 | 0.4/7.0 | 8.0/10.4 | 1.4/2.1 | 1.4/2.1 |
+| 66/fit | 16.7/17.8 | 16.7/17.7 | 0.2/6.4 | 4.6/12.3 | 1.2/17.0 | 1.3/17.1 |
+| 300/read | 15.7/17.7 | 16.4/17.7 | 0.3/5.7 | 4.7/10.6 | 1.2/2.0 | 1.2/2.0 |
+| 300/fit | 16.7/17.7 | 10.5/18.5 | 0.2/9.8 | 7.5/24.7 | 1.6/2.9 | 1.6/2.8 |
+| 1200/read | 4.9/17.7 | 15.0/17.7 | 0.3/6.3 | 4.9/9.6 | 1.7/2.9 | 1.4/1.8 |
+| 1200/fit | 16.6/17.7 | 20.5/35.5 | 0.2/23.0 | 21.1/36.6 | 6.2/15.0 | 5.1/13.7 |
+
+The earlier tiny zoom medians include unchanged-scale cached copies; the
+repair's progressing scales expose full raster work instead. The unchanged
+1 kHz asynchronous CDP flood still accumulates delivery backlog. AFTER zoom
+input-to-render-end p95 is 2612.7-11542.4 ms, including event-delivery queue
+p95 of 2588.6-11495.7 ms. Fitted 1200-node p95 is now 11542.4 ms versus
+1198 ms before. These unfavorable cells remain reported; neither the
+full-refresh targets nor the complete flood-latency requirement is met.
+The report does not establish that the queue is Chrome-only or that the
+renderer has no further responsibility.
+
+Separate recorded 600 ms fast/flooded browser-timer inputs exercise the real
+wheel handler with the 1200-node image fixture at readable and fitted scales.
+Requested 1 ms intervals are timer/render limited, not literal hardware
+1 kHz. AFTER camera observations never repeat a scale and reach the final
+target 69.2-104.5 ms after the last delivered event; BEFORE fitted flood has
+13/16 repeated observations and final-target delays of 137.0/146.6 ms.
+These observations precede paint, not presentation. Deterministic regression
+coverage independently forces older frame timestamps and requires forward
+motion and target arrival within 100 ms plus one frame. Animated intermediate
+pixel equivalence is not added by these timing/behavior controls.
+
 ## Smooth wheel zoom (2026-11-19)
 
 Before is the accepted regional-redraw run below, whose renderer landed as
