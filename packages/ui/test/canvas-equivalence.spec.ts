@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { build } from 'vite'
 import { fileURLToPath } from 'node:url'
 import type * as frameEquivalence from '../../canvas/gallery/frame-equivalence.js'
@@ -65,23 +65,32 @@ test.beforeAll(async () => {
 
 for (const dpr of [1, 1.25, 2]) {
   test.describe(`Whole-frame equivalence at DPR ${dpr}`, () => {
-    test.use({ deviceScaleFactor: dpr })
+    let page: Page
+    const errors: string[] = []
+    test.beforeAll(async ({ browser }, testInfo) => {
+      page = await browser.newPage({
+        ...testInfo.project.use.contextOptions,
+        baseURL: testInfo.project.use.baseURL!,
+        viewport: testInfo.project.use.viewport!,
+        deviceScaleFactor: dpr,
+      })
+      page.on('pageerror', (error) => errors.push(error.message))
+      await page.goto('/#canvas')
+      await expect(
+        page.getByRole('img', {
+          name: 'anatomy in dark theme',
+          exact: true,
+        }),
+      ).toHaveAttribute('data-ready', 'anatomy-dark')
+      await page.addScriptTag({ content: script })
+    })
+    test.afterAll(async () => {
+      await page?.close()
+    })
     for (const theme of ['dark', 'light'] as const) {
       for (const [fixture] of canvasGalleryPages) {
         if (fixture === 'minimap') continue
-        test(`${fixture}: retained history matches fresh redraws in ${theme} theme`, async ({
-          page,
-        }) => {
-          const errors: string[] = []
-          page.on('pageerror', (error) => errors.push(error.message))
-          await page.goto('/#canvas')
-          await expect(
-            page.getByRole('img', {
-              name: 'anatomy in dark theme',
-              exact: true,
-            }),
-          ).toHaveAttribute('data-ready', 'anatomy-dark')
-          await page.addScriptTag({ content: script })
+        test(`${fixture}: retained history matches fresh redraws in ${theme} theme`, async () => {
           const result = await page.evaluate(
             async ({ fixture, theme }) =>
               window.canvasFrameEquivalence.compareCanvasFrames(fixture, theme),
