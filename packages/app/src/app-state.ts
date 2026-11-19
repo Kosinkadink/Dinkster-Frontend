@@ -4037,6 +4037,7 @@ export class AppState {
       if (persistenceJson(committed, true) === persistenceJson(incoming, true)) return existing.raw
     }
     const locks = key.startsWith(documentCandidatePrefix()) ? globalThis.navigator?.locks : undefined
+    const recoverySlot = key.startsWith(documentCandidatePrefix()) || key.startsWith(tabsCandidatePrefix())
     let previousOwners: NonNullable<typeof existing>['owners'][number][] = []
     let reusable: (NonNullable<typeof existing>['owners'][number] | undefined)[] = []
     const pinned: NonNullable<typeof existing>['owners'][number][] = []
@@ -4123,7 +4124,7 @@ export class AppState {
             canonical?.complete && storage.getItem(tabsKey()) === canonical.raw ? canonical.owners : [])
             return undefined
           }
-          const complete = key.startsWith(documentCandidatePrefix()) &&
+          const complete = recoverySlot &&
             native.length === sources.length && owners.every((retained) => retained.complete) &&
             sources.every(({ backend, registry }) => backend.registry.get() === registry)
           // A displaced shared stage does not make our finished local admission
@@ -4188,7 +4189,7 @@ export class AppState {
           }
           // A peer can displace the stage while this publication waits for its
           // lock. Acknowledge only our finished local inventory, not peer bytes.
-          const settled = current && key.startsWith(documentCandidatePrefix()) && complete
+          const settled = current && recoverySlot && complete
           this.persistedWorkflowSlots.set(key, {
             raw: slot.raw === pending && settled ? acknowledged : slot.raw,
             complete: slot.raw === pending ? settled : slot.complete,

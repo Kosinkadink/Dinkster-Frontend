@@ -150,7 +150,7 @@ describe('open-tab persistence', () => {
       .toContain('late-workspace-admission')
   })
 
-  it.each(['network', 'publication lock'] as const)('settles local document ownership after a peer supersedes its pending recovery stage during %s', async (boundary) => {
+  it.each(['network', 'publication lock', 'workspace removal'] as const)('settles local ownership after a peer supersedes its pending recovery stage during %s', async (boundary) => {
     const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0,
       nodes: { n0: { ...seedBasic.graphs.g0.nodes.n0, type: 'X', values: {} } }, links: {} } } }
     localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
@@ -204,7 +204,11 @@ describe('open-tab persistence', () => {
     app.flushPersistTabs(true)
     await vi.advanceTimersByTimeAsync(500)
     expect(acknowledge).toBeDefined()
-    const pending = JSON.parse(localStorage.getItem(key)!)
+    const sharedKey = boundary === 'workspace removal'
+      ? Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+        .find((key) => key.startsWith('dinkster.openTabsCandidate.'))!
+      : key
+    const pending = JSON.parse(localStorage.getItem(sharedKey)!)
     expect(pending.assetRetention.acknowledged).toBe(false)
     if (boundary === 'publication lock') {
       holdPublication = true
@@ -214,9 +218,10 @@ describe('open-tab persistence', () => {
     }
     const peer = { ...pending, stageId: 'peer-document-stage',
       assetRetention: { stageId: 'peer-retention-stage', acknowledged: true, complete: true, owners: [] } }
-    localStorage.setItem(key, JSON.stringify(peer))
-    if (boundary === 'network') acknowledge!()
-    else releasePublication!()
+    if (boundary === 'workspace removal') localStorage.removeItem(sharedKey)
+    else localStorage.setItem(key, JSON.stringify(peer))
+    if (boundary === 'publication lock') releasePublication!()
+    else acknowledge!()
     await vi.advanceTimersByTimeAsync(5000)
     expect(app.retentionActivity().incompleteSlots).toEqual([])
     expect(Object.values(app.retentionActivity())
@@ -224,7 +229,8 @@ describe('open-tab persistence', () => {
     const saved = JSON.parse(localStorage.getItem(TABS_KEY)!)
     expect(saved.tabs.find((saved: { doc: { lineage: string } }) => saved.doc.lineage === tab.id)
       .doc.graphs.g0.nodes.n0.title).toBe('Changed document')
-    expect(localStorage.getItem(key)).toBe(JSON.stringify(peer))
+    if (boundary === 'workspace removal') expect(localStorage.getItem(sharedKey)).toBeNull()
+    else expect(localStorage.getItem(key)).toBe(JSON.stringify(peer))
   })
 
   it('keeps unchanged local ownership after a peer replaces the canonical stage', async () => {
