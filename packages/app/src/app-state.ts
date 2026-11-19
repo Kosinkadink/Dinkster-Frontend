@@ -11418,6 +11418,12 @@ export class AppState {
     }
   }
 
+  private readonly terminalHydrations = new WeakMap<Backend, Map<string, {
+    readonly job: string
+    readonly current: () => boolean
+    readonly promise: Promise<boolean>
+  }>>()
+
   private prepareExecutionHydration(backend: Backend): PrepareExecutionHydration {
     const connection = backend.connection
     return (ref) => {
@@ -11426,7 +11432,10 @@ export class AppState {
       if (held === undefined) return async () => false
       const backendRegistry = backend.registry.get()
       const executionRegistry = this.registryForExecution(ref)
-      const current = (): boolean => !this.disposed && generation === this.assetConnectionGenerations.get(connection) &&
+      const project = activeProjectId()
+      const storage = globalThis.localStorage
+      const current = (): boolean => !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
+        generation === this.assetConnectionGenerations.get(connection) &&
         this.backendFor(backend.id) === backend && backend.registry.get() === backendRegistry &&
         this.registryForExecution(ref) === executionRegistry &&
         this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
@@ -11438,12 +11447,40 @@ export class AppState {
         if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
         if (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') {
           if (held.jobRef === undefined) return false
-          const receipts = await this.retainTerminalExecutionAssets(backend, held, job,
-            this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)), current)
-          if (receipts === undefined) return false
-          for (const retained of receipts) this.trackResultOwner(backend, retained)
-          this.store.recordAssetRetentions(ref, receipts)
-          return true
+          let admissions = this.terminalHydrations.get(backend)
+          if (admissions === undefined) this.terminalHydrations.set(backend, (admissions = new Map()))
+          for (const [key, admission] of admissions) if (!admission.current()) admissions.delete(key)
+          const key = executionKey(ref)
+          const jobBytes = canonicalJson(job)
+          const existing = admissions.get(key)
+          if (existing?.job === jobBytes) return await existing.promise && existing.current() && current()
+          let receipts: readonly RetainedAssets[] | undefined
+          const admission = {
+            job: jobBytes,
+            current: () => current() && (receipts === undefined || receipts.every((receipt) =>
+              receipt.complete && this.store.get(ref)?.assetRetentions?.some((held) => held.ownerId === receipt.ownerId) &&
+              this.mayAdoptResult(receipt))),
+            promise: Promise.resolve(false),
+          }
+          // Completion events, store notifications and reconnect reads share
+          // one local admission; repeated publication must not append owners.
+          admission.promise = (async () => {
+            const retained = await this.retainTerminalExecutionAssets(backend, held, job,
+              this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)), current)
+            if (retained === undefined) return false
+            for (const receipt of retained) this.trackResultOwner(backend, receipt)
+            this.store.recordAssetRetentions(ref, retained)
+            receipts = retained
+            return true
+          })().then((accepted) => {
+            if (!accepted && admissions.get(key) === admission) admissions.delete(key)
+            return accepted
+          }, (error: unknown) => {
+            if (admissions.get(key) === admission) admissions.delete(key)
+            throw error
+          })
+          admissions.set(key, admission)
+          return admission.promise
         }
         const outputs = workspaceRecord(job.outputs)
           ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}

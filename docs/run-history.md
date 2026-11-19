@@ -73,7 +73,11 @@ Terminal-output hydration claims every sealed output and artifact source before
 installing fetched descriptors. It separately retains the typed producing
 snapshot and source-document digest under an independent shown-result owner.
 The terminal job, attempt, source document and artifact identities must agree;
-missing seals or uncovered outputs withhold publication. A known snapshot can
+missing seals or uncovered outputs withhold publication. Overlapping completion
+notifications share one local admission for the exact terminal record. Repeated
+notifications reuse it only while its complete receipts remain held and their
+journals, backend, registries, project, storage and connection generation remain
+current; a failed admission remains retryable. A known snapshot can
 be complete without reinterpreting an opaque runtime descriptor or an incomplete
 source offer. Compositor resources use the same verified inventory as workflow
 admission. Runs without a producing snapshot and non-terminal reads remain
