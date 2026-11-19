@@ -1,13 +1,16 @@
-import { registerCatalog } from '@dinkster/core'
+import { loadDocument, registerCatalog, type NodeSchema } from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
+  buildScene,
+  updateSceneNodeValues,
   canvasColorsForTheme,
   canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
   defaultTokens,
   type OverlayState,
+  type Scene,
   type TextMeasurer,
   type WidgetMeasure,
 } from '../src/index.js'
@@ -102,11 +105,17 @@ export async function compareCanvasFrames(
       Estimate: { image, width: 320, height: 160, state: 'estimate' },
     }
   }
-  const node = page === 'structure'
-    ? fixture.scene.nodes.find((candidate) => !fixture.scene.netStubs.some((stub) => stub.nodeId === candidate.id))
-    : fixture.scene.nodes[0]
+  const node =
+    page === 'structure'
+      ? fixture.scene.nodes.find(
+          (candidate) =>
+            !fixture.scene.netStubs.some(
+              (stub) => stub.nodeId === candidate.id,
+            ),
+        )
+      : fixture.scene.nodes[0]
   if (!node) throw new Error('Frame comparison requires a node fixture')
-  let scene = fixture.scene
+  let scene: Scene = fixture.scene
   if (page === 'structure') {
     // Overlapping remote dots expose batching changes outside the edited node's tiles.
     scene = {
@@ -115,7 +124,7 @@ export async function compareCanvasFrames(
         ...scene.reroutes,
         ...Array.from({ length: 256 }, (_, index) => ({
           id: `dense-reroute-${index}`,
-          x: 1200 + index % 8 * 2,
+          x: 1200 + (index % 8) * 2,
           y: 600 + Math.floor(index / 8) * 2,
         })),
       ],
@@ -290,7 +299,9 @@ export async function compareCanvasFrames(
             : progress,
         ]),
       ),
-      [node.id]: { state: states[node.id]?.state === 'done' ? 'cached' : 'done' },
+      [node.id]: {
+        state: states[node.id]?.state === 'done' ? 'cached' : 'done',
+      },
     }
     candidate.renderer.setNodeStates(states)
     compare('execution settled')
@@ -396,6 +407,93 @@ export async function compareCanvasFrames(
     candidate.canvas.style.height = `${height}px`
     compare('resize')
     compare('repeated repaint')
+    if (page === 'anatomy') {
+      const numericSchema: NodeSchema = {
+        type: 'Numeric value',
+        displayName: 'Numeric value',
+        category: 'gallery',
+        source: 'v3',
+        isOutputNode: false,
+        items: [galleryWidgetInputs.find((input) => input.id === 'float')!],
+      }
+      const previous = loadDocument({
+        format: 'dinkster-workflow',
+        formatVersion: 1,
+        lineage: 'numeric-frame',
+        root: 'numeric',
+        graphs: {
+          numeric: {
+            id: 'numeric',
+            name: 'Numeric',
+            nextOrdinal: 2,
+            nodes: {
+              first: {
+                id: 'first',
+                type: numericSchema.type,
+                values: { float: 1.25 },
+              },
+              second: {
+                id: 'second',
+                type: numericSchema.type,
+                values: { float: 7.5 },
+              },
+            },
+            links: {},
+            nets: {},
+            reroutes: {},
+          },
+        },
+        view: {
+          graphs: {
+            numeric: {
+              nodes: {
+                first: { position: { x: 40, y: 60 } },
+                second: { position: { x: 360, y: 160 } },
+              },
+            },
+          },
+        },
+      }).document!
+      const graph = previous.graphs.numeric!
+      const current = {
+        ...previous,
+        graphs: {
+          numeric: {
+            ...graph,
+            nodes: {
+              ...graph.nodes,
+              first: { ...graph.nodes.first!, values: { float: 2.75 } },
+            },
+          },
+        },
+      }
+      const numericInput = {
+        graphId: 'numeric',
+        resolve: () => numericSchema,
+        tokens,
+        measure,
+        widgetMeasure,
+      }
+      viewport = { x: 0, y: 0, scale: 1 }
+      candidate.renderer.setViewport(viewport)
+      overlay = {}
+      candidate.renderer.setOverlay(overlay)
+      scene = buildScene({ ...numericInput, document: previous })
+      candidate.renderer.setScene(scene)
+      compare('numeric before')
+      const numericEdit = updateSceneNodeValues(
+        scene,
+        previous,
+        current,
+        'numeric',
+        numericInput.resolve,
+      )
+      if (!numericEdit)
+        throw new Error('Numeric frame must exercise incremental scene updates')
+      candidate.renderer.setScene(numericEdit)
+      scene = buildScene({ ...numericInput, document: current })
+      compare('numeric edit')
+    }
     const corrupt = lastExpected!.slice()
     corrupt[0] = corrupt[0]! ^ 255
     return {

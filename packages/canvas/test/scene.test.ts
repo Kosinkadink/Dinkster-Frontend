@@ -26,7 +26,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
+import { buildScene, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -50,6 +50,28 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {
+    const previous = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
+    const graph = previous.graphs.g0!
+    const old = graph.nodes.n0!
+    const current = { ...previous, graphs: { ...previous.graphs, g0: { ...graph, nodes: {
+      ...graph.nodes, n0: { ...old, values: { ...old.values, width: 137 } },
+    } } } } as WorkflowDocument
+    const resolve = (type: string) => schemas.get(type)
+    const input = { graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure }
+    const before = buildScene({ ...input, document: previous })
+    const updated = updateSceneNodeValues(before, previous, current, 'g0', resolve)
+    expect(updated).toBeDefined()
+    expect(updated).toEqual(buildScene({ ...input, document: current }))
+    expect(updated!.nodes[1]).toBe(before.nodes[1])
+    expect(updated!.nodes[0]!.layout).toBe(before.nodes[0]!.layout)
+    const changedSchema = { ...resolve(old.type)!, widgetGroups: [] }
+    expect(updateSceneNodeValues(before, previous, current, 'g0', (type) => type === old.type ? changedSchema : resolve(type))).toBeUndefined()
+    const deleted = { ...current, graphs: { ...current.graphs, g0: { ...current.graphs.g0!, nodes: {
+      ...graph.nodes, n0: { ...old, values: {} },
+    } } } } as WorkflowDocument
+    expect(updateSceneNodeValues(before, previous, deleted, 'g0', resolve)).toBeUndefined()
+  })
 
   it('reuses semantic layout while reprojecting node position geometry', () => {
     const previous = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument

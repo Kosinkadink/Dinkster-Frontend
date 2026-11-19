@@ -988,6 +988,54 @@ export function updateSceneNodePositions(
   return { ...scene, nodes: nodes as SceneNode[], links, netStubs }
 }
 
+/** Reuse static geometry only when numeric edits leave the effective interface unchanged. */
+export function updateSceneNodeValues(
+  scene: Scene,
+  previous: WorkflowDocument,
+  current: WorkflowDocument,
+  graphId: string,
+  resolve: SchemaResolver,
+): Scene | undefined {
+  if (scene.graphId !== graphId || graphId !== current.root || Object.keys(current.graphs).length !== 1 ||
+      !sameReferencesExcept(previous as unknown as Readonly<Record<string, unknown>>, current as unknown as Readonly<Record<string, unknown>>, 'graphs') ||
+      !sameReferencesExcept(previous.graphs, current.graphs, graphId)) return undefined
+  const before = previous.graphs[graphId]
+  const after = current.graphs[graphId]
+  if (!before || !after || !sameReferencesExcept(before as unknown as Readonly<Record<string, unknown>>, after as unknown as Readonly<Record<string, unknown>>, 'nodes') ||
+      Object.keys(before.nodes).length !== Object.keys(after.nodes).length || scene.nodes.length !== Object.keys(after.nodes).length) return undefined
+  if (after.boundary || Object.keys(after.valueSources ?? {}).length || Object.keys(after.selectors ?? {}).length) return undefined
+  for (const node of Object.values(after.nodes)) {
+    const schema = resolve(node.type)
+    if (node.virtual || node.type.startsWith('#') || node.region || !schema || schema.virtual ||
+        schema.items.some((item) => item.kind !== 'section' && (item.dynamic !== undefined || item.outputDescriptors !== undefined))) return undefined
+  }
+  let changed = false
+  const nodes: SceneNode[] = []
+  for (const existing of scene.nodes) {
+    const old = before.nodes[existing.id]
+    const node = after.nodes[existing.id]
+    if (!old || !node) return undefined
+    if (old === node) { nodes.push(existing); continue }
+    if (existing.node !== old || node.virtual || node.type.startsWith('#') ||
+        !sameReferencesExcept(old as unknown as Readonly<Record<string, unknown>>, node as unknown as Readonly<Record<string, unknown>>, 'values')) return undefined
+    const schema = resolve(node.type)
+    if (!schema || schema.selector || schema.widgetGroups || schema.items.some((item) =>
+      item.kind === 'section' || item.dynamic !== undefined || item.outputDescriptors !== undefined ||
+      (item.kind === 'input' && (item.advanced || item.section !== undefined)))) return undefined
+    for (const key of new Set([...Object.keys(old.values), ...Object.keys(node.values)])) {
+      if (old.values[key] === node.values[key]) continue
+      const input = schema.items.find((item) => item.kind === 'input' && item.id === key)
+      if (input?.kind !== 'input' || !['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '') ||
+          typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
+          (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
+    }
+    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node))) return undefined
+    changed = true
+    nodes.push({ ...existing, node })
+  }
+  return changed ? { ...scene, nodes } : scene
+}
+
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }

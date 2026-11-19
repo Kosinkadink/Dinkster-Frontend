@@ -207,7 +207,7 @@ import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3647,6 +3647,11 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    for (const request of this.pendingComparisonCompiles.values()) {
+      if (request.frame !== undefined) cancelAnimationFrame(request.frame)
+      if (request.timer !== undefined) clearTimeout(request.timer)
+    }
+    this.pendingComparisonCompiles.clear()
     if (this.selectionScopesFrame !== undefined) cancelAnimationFrame(this.selectionScopesFrame)
     if (this.selectionScopesTimer !== undefined) clearTimeout(this.selectionScopesTimer)
     this.pendingSelectionScopes.clear()
@@ -7033,13 +7038,15 @@ export class AppState {
     const prepared = backend.protocol === 'dinkster' ? tab.store.prepareDispatch?.(effective) : undefined
     if (prepared?.ok) {
       const resolve = this.resolverWithVirtualNodes(this.registryForTab(tab)?.resolve ?? (() => undefined))
-      // History and shared pending documents do not gain identities until this candidate commits.
-      // Admission still retains all of them; selection need only compare the two documents.
-      const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
-      const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
-      const candidate = workflowAssetRoots(prepared.document, history, resolve)
-      if (!workflowAssetRootsCover(current, candidate)) {
-        return this.admitPreparedWorkflowDispatch(tab, prepared)
+      if (!workflowAssetRootsUnchanged(prepared, resolve)) {
+        // History and shared pending documents do not gain identities until this candidate commits.
+        // Admission still retains all of them; selection need only compare the two documents.
+        const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
+        const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
+        const candidate = workflowAssetRoots(prepared.document, history, resolve)
+        if (!workflowAssetRootsCover(current, candidate)) {
+          return this.admitPreparedWorkflowDispatch(tab, prepared)
+        }
       }
     }
     const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
@@ -9806,21 +9813,60 @@ export class AppState {
    */
   private comparisonCompiles = new WeakMap<
     Tab,
-    { revision: number; schemaHash: string; result: CompileResult }
+    { revision: number; document: WorkflowDocument; registry: SchemaRegistry; extensions: number; result: CompileResult }
   >()
+
+  readonly comparisonCompilesChanged = createSignal(0)
+  private readonly pendingComparisonCompiles = new Map<Tab, {
+    readonly document: WorkflowDocument
+    readonly registry: SchemaRegistry
+    readonly extensions: number
+    frame?: number | undefined
+    timer?: ReturnType<typeof setTimeout> | undefined
+  }>()
+
+  /** Paint edits first; comparison-only diagnostics and previews wait for a pause. */
+  previewComparisonCompile(tab: Tab): CompileResult | undefined {
+    const registry = this.registryForTab(tab)
+    if (!registry || this.disposed) return undefined
+    const extensions = this.extensionRevision.get()
+    const cached = this.comparisonCompiles.get(tab)
+    if (cached && sameExecutionDocument(cached.document, tab.store.doc) && cached.registry === registry && cached.extensions === extensions) return cached.result
+    const pending = this.pendingComparisonCompiles.get(tab)
+    if (pending && sameExecutionDocument(pending.document, tab.store.doc) && pending.registry === registry && pending.extensions === extensions) return undefined
+    if (pending?.frame !== undefined) cancelAnimationFrame(pending.frame)
+    if (pending?.timer !== undefined) clearTimeout(pending.timer)
+    const request: NonNullable<typeof pending> = { document: tab.store.doc, registry, extensions }
+    this.pendingComparisonCompiles.set(tab, request)
+    request.frame = requestAnimationFrame(() => {
+      request.frame = undefined
+      request.timer = setTimeout(() => {
+        this.pendingComparisonCompiles.delete(tab)
+        if (this.disposed || !this.tabs.get().includes(tab) || !sameExecutionDocument(request.document, tab.store.doc) ||
+          this.registryForTab(tab) !== registry || this.extensionRevision.get() !== extensions) return
+        if (this.compileTabCached(tab) !== undefined) {
+          this.comparisonCompilesChanged.update((version) => version + 1)
+        }
+      }, 100)
+    })
+    return undefined
+  }
 
   compileTabCached(tab: Tab): CompileResult | undefined {
     const registry = this.registryForTab(tab)
     if (!registry) return undefined
+    const extensions = this.extensionRevision.get()
     const cached = this.comparisonCompiles.get(tab)
-    if (cached && cached.revision === tab.store.revision && cached.schemaHash === registry.hash) {
+    if (cached && cached.revision === tab.store.revision && cached.registry === registry && cached.extensions === extensions) {
       return cached.result
     }
     const result = this.compileTab(tab)
     if (result) {
       this.comparisonCompiles.set(tab, {
         revision: tab.store.revision,
-        schemaHash: registry.hash,
+        document: tab.store.doc,
+        registry,
+        extensions,
         result,
       })
     }

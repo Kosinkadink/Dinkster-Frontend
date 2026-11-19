@@ -523,6 +523,34 @@ function censusWorkflowAssetRoots(
   return roots
 }
 
+/** Existing numeric literals in a static graph cannot add asset identities or activate defaults. */
+export function workflowAssetRootsUnchanged(
+  prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
+  resolve: SchemaResolver,
+): boolean {
+  if (!prepared.forward.every((op) => op.op === 'replace' && op.path.length === 6 &&
+      op.path[0] === 'graphs' && op.path[2] === 'nodes' && op.path[4] === 'values' &&
+      typeof op.oldValue === 'number' && Number.isFinite(op.oldValue) &&
+      typeof op.value === 'number' && Number.isFinite(op.value))) return false
+  for (const graph of Object.values(prepared.document.graphs)) {
+    if (graph.boundary || Object.keys(graph.valueSources ?? {}).length || Object.keys(graph.selectors ?? {}).length) return false
+    for (const node of Object.values(graph.nodes)) {
+      const schema = resolve(node.type)
+      // Contextual elaboration can activate another input's asset default.
+      if (node.type.startsWith('#') || node.virtual || node.region || !schema || schema.virtual ||
+          schema.items.some((item) => item.kind !== 'section' &&
+            (item.dynamic !== undefined || item.outputDescriptors !== undefined ||
+              (item.type.kind !== 'concrete' && item.type.kind !== 'asset')))) return false
+    }
+  }
+  return prepared.forward.every((op) => {
+    const node = prepared.document.graphs[String(op.path[1])]?.nodes[String(op.path[3])]
+    const input = node && resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === op.path[5])
+    return input?.kind === 'input' && input.type.kind === 'concrete' &&
+      ['INT', 'FLOAT'].includes(input.type.name) && ['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '')
+  })
+}
+
 /** Changed compositor commands need fresh admission even when their document digest is unchanged. */
 export function workflowAssetRootsCover(
   current: ReturnType<typeof workflowAssetRoots>,
