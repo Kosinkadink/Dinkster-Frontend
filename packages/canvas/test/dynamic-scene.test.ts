@@ -1059,7 +1059,7 @@ describe('dynamic layout on subgraph instances', () => {
     expectNoDanglingEndpoints(scene)
   })
 
-  it('keeps a dotted endpoint unique and its schema label friendly through connect, open, undo, and redo', () => {
+  it('keeps a dotted endpoint unique and its exact label through connect, open, undo, and redo', () => {
     const store = makeStore(docOf({
       g0: { nodes: { src: { type: 'Src' }, instance: { type: '#sub' } } },
       sub: {
@@ -1072,7 +1072,7 @@ describe('dynamic layout on subgraph instances', () => {
     }))
     const instancePin = pinsOf(sceneFrom(store), 'instance', 'in')[0]!
     expect(instancePin.address).toEqual({ port: 'images.images_m0' })
-    expect(portRowsOf(sceneFrom(store), 'instance')[0]!.input!.label).toBe('In')
+    expect(portRowsOf(sceneFrom(store), 'instance')[0]!.input!.label).toBe('in')
 
     const { outcome } = connectToPin(store, { node: 'src', port: 'out' }, 'instance', instancePin)
     expect(outcome.ok).toBe(true)
@@ -1081,13 +1081,13 @@ describe('dynamic layout on subgraph instances', () => {
 
     const opened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
     expect(Object.values(opened.graphs.g0!.links)[0]!.to).toEqual({ node: 'instance', port: 'images.images_m0' })
-    expect(portRowsOf(sceneOf(opened), 'instance')[0]!.input!.label).toBe('In')
+    expect(portRowsOf(sceneOf(opened), 'instance')[0]!.input!.label).toBe('in')
 
     expect(store.undo()).toBe(true)
     expect(Object.keys(store.doc.graphs.g0!.links)).toEqual([])
     expect(store.redo()).toBe(true)
     expect(Object.values(store.doc.graphs.g0!.links)[0]!.to).toEqual({ node: 'instance', port: 'images.images_m0' })
-    expect(portRowsOf(sceneFrom(store), 'instance')[0]!.input!.label).toBe('In')
+    expect(portRowsOf(sceneFrom(store), 'instance')[0]!.input!.label).toBe('in')
   })
 })
 
@@ -1103,7 +1103,7 @@ describe('boundary pseudo-nodes with dynamic boundaries', () => {
     // marked with the family suffix.
     expect(inputs.layout.pins.map((p) => p.portId)).toEqual(['fam', '__add__'])
     const row = inputs.layout.rows.find((r) => r.kind === 'ports')!
-    expect((row.kind === 'ports' && row.output?.label) || undefined).toBe('Images []')
+    expect((row.kind === 'ports' && row.output?.label) || undefined).toBe('images []')
 
     const bind = scene.links.find((l) => l.id === 'boundary:inputs:fam')!
     expect(bind.boundary).toBe(true)
@@ -1150,7 +1150,7 @@ describe('boundary pseudo-nodes with dynamic boundaries', () => {
     const inputs = scene.boundaryNodes.find((b) => b.side === 'inputs')!
     expect(inputs.layout.pins.map((p) => p.portId)).toEqual(['weird.id', '__add__'])
     const row = inputs.layout.rows.find((candidate) => candidate.kind === 'ports')!
-    expect(row.kind === 'ports' && row.output?.label).toBe('In')
+    expect(row.kind === 'ports' && row.output?.label).toBe('in')
     const bind = scene.links.find((l) => l.boundary)!
     expect(bind.id).toBe('boundary:inputs:weird.id')
     expect(bind.from).toEqual({ kind: 'boundary', side: 'inputs', item: 'weird.id' })

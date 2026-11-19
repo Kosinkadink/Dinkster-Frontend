@@ -335,16 +335,16 @@ export function CanvasGallery() {
                 setBoundaryNames(event.currentTarget.value as 'current' | 'ids')
               }
             >
-              <option value="ids">Ids as written (gallery only)</option>
-              <option value="current">Generated names (current)</option>
+              <option value="ids">Ids as written</option>
+              <option value="current">Generated names (previous)</option>
             </ProductSelect>
           )}
         </ProductField>
         <p class="dinkster-description">
-          Compare exact ids with current generated names inside a subgraph and
-          on its collapsed occurrence. Custom display names stay unchanged;
-          unnamed outputs retain their capitalized data type. Only this gallery
-          document stages the new names. App naming is unchanged.
+          Compare production ids as written with previous generated names inside
+          a subgraph and on its collapsed occurrence. Custom display names stay
+          unchanged; unnamed outputs retain their capitalized data type. Only
+          the previous-name comparison stages labels in the gallery document.
         </p>
       </Show>
       <Show when={page() === 'types'}>

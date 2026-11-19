@@ -238,6 +238,12 @@ export function boundaryNamesGalleryScene(
     'cfgScale',
     'named_input',
   ]
+  const previousNames: Record<string, string> = {
+    image: 'Image',
+    positive_prompt: 'Positive prompt',
+    masks_m4: 'Mask',
+    cfgScale: 'CFG scale',
+  }
   const definition: NodeSchema = {
     ...blur,
     type: 'Boundary example',
@@ -288,19 +294,19 @@ export function boundaryNamesGalleryScene(
             ...(id === 'named_input'
               ? { displayName: 'Source image' }
               : exactIds
-                ? { displayName: id }
-                : {}),
+                ? {}
+                : { displayName: previousNames[id] }),
             binds: { kind: 'port', node: 'inner', port: id },
           })),
           outputs: [
             {
               id: 'result',
-              ...(exactIds ? { displayName: 'IMAGE' } : {}),
+              ...(exactIds ? {} : { displayName: 'Image' }),
               binds: { kind: 'port', node: 'inner', port: 'IMAGE' },
             },
             {
               id: 'refined_image',
-              ...(exactIds ? { displayName: 'refined_image' } : {}),
+              ...(exactIds ? {} : { displayName: 'Refined image' }),
               binds: { kind: 'port', node: 'inner', port: 'refined_image' },
             },
             {

@@ -827,6 +827,47 @@ describe('boundary structural identity and presentation', () => {
     expect(outputsOf(result.schema!)).toEqual([expect.objectContaining({ id: 'out', kind: 'output' })])
   })
 
+  it('preserves exact binding ids and explicit names on both sides without collision numbering', () => {
+    const labels = [
+      { id: 'positive_prompt' },
+      { id: 'masks_m4' },
+      { id: 'nested.cfgScale' },
+      { id: 'first', displayName: 'IMAGE' },
+      { id: 'second', displayName: 'IMAGE' },
+      { id: 'third', displayName: 'named_value_m4' },
+      { id: 'fourth', displayName: 'Schema name' },
+    ]
+    const schema: NodeSchema = {
+      ...innerSchemas.KSampler!,
+      type: 'Exact names',
+      items: labels.flatMap((label) => [
+        { ...label, kind: 'input' as const, type: { kind: 'concrete' as const, name: 'IMAGE' }, optional: false },
+        { ...label, kind: 'output' as const, type: { kind: 'concrete' as const, name: 'IMAGE' } },
+      ]),
+    }
+    const def = asDef({
+      id: 'gExact', name: 'Exact', nextOrdinal: 1,
+      nodes: { n0: { id: 'n0', type: schema.type, values: {} } },
+      links: {}, nets: {},
+      boundary: Object.fromEntries(['inputs', 'outputs'].map((side) => [side,
+        labels.map(({ id }, index) => ({
+          id: `${side}_${index}`,
+          ...(id === 'fourth' ? { displayName: 'Custom_name_m7' } : {}),
+          binds: { kind: 'port', node: 'n0', port: id },
+        })),
+      ])),
+    })
+    const result = deriveBoundarySchema(def, (type) => type === schema.type ? schema : undefined)
+    expect(result.diagnostics).toEqual([])
+    for (const ports of [inputsOf(result.schema!), outputsOf(result.schema!)]) {
+      expect(ports.map((port) => port.displayName)).toEqual([
+        'positive_prompt', 'masks_m4', 'nested.cfgScale', 'IMAGE', 'IMAGE', 'named_value_m4', 'Custom_name_m7',
+      ])
+    }
+    expect(inputsOf(result.schema!).map((port) => port.id)).toEqual(labels.map((_, index) => `inputs_${index}`))
+    expect(outputsOf(result.schema!).map((port) => port.id)).toEqual(labels.map((_, index) => `outputs_${index}`))
+  })
+
   it('prefers the bound schema label without changing a dotted boundary id', () => {
     const def = asDef({
       id: 'gIdentity',

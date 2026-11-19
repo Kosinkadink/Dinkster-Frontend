@@ -824,28 +824,12 @@ export function deriveBoundarySchema(
     return true
   }
 
-  const generatedNameCounts = {
-    input: new Map<string, number>(),
-    output: new Map<string, number>(),
-  }
   const displayNameOf = (
     item: BoundaryItem,
     inner: InputSpec | OutputSpec,
-    side: 'input' | 'output',
-  ): { displayName: string } => {
-    const schemaName = inner.displayName?.trim()
-    const generated = schemaName === undefined
-      ? generatedBoundaryLabel(item)
-      : /^[A-Z0-9 _.-]+$/.test(schemaName) || /[ _-](?:m)?\d+$/i.test(schemaName) || /[_-]/.test(schemaName)
-        ? generatedBoundaryLabel(item, schemaName)
-        : schemaName
-    const key = generated.toLowerCase()
-    const ordinal = (generatedNameCounts[side].get(key) ?? 0) + 1
-    generatedNameCounts[side].set(key, ordinal)
-    return {
-      displayName: item.displayName ?? (ordinal === 1 ? generated : `${generated} ${ordinal}`),
-    }
-  }
+  ): { displayName: string } => ({
+    displayName: item.displayName ?? inner.displayName ?? generatedBoundaryLabel(item),
+  })
 
   const projectOutputCount = (
     boundaryOutput: BoundaryItem,
@@ -991,7 +975,7 @@ export function deriveBoundarySchema(
       items.push({
         kind: 'input',
         id: item.id,
-        ...displayNameOf(item, declaring, 'input'),
+        ...displayNameOf(item, declaring),
         ...(declaring.tooltip !== undefined ? { tooltip: declaring.tooltip } : {}),
         type: freshenType(declaring.type, item.binds.node, typeBindingsFor(node)),
         optional: declaring.optional,
@@ -1043,7 +1027,7 @@ export function deriveBoundarySchema(
         fail('boundary.constructConnected', `boundary input '${item.id}': '${item.binds.port}' is already driven inside the definition`)
         continue
       }
-      items.push({ ...freshenInputSpec(inner, item.binds.node, typeBindingsFor(node)), id: item.id, ...displayNameOf(item, inner, 'input') })
+      items.push({ ...freshenInputSpec(inner, item.binds.node, typeBindingsFor(node)), id: item.id, ...displayNameOf(item, inner) })
       continue
     }
     if (inner.dynamic?.kind === 'dynamicCombo') {
@@ -1057,7 +1041,7 @@ export function deriveBoundarySchema(
       }
       const selected = effectiveComboOption(inner.dynamic, scopeAt(node, route.hops)?.[item.binds.port as string])
       items.push({
-        kind: 'input', id: item.id, ...displayNameOf(item, inner, 'input'), type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)), optional: true,
+        kind: 'input', id: item.id, ...displayNameOf(item, inner), type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)), optional: true,
         dynamic: {
           kind: 'dynamicCombo',
           options: inner.dynamic.options.map((o) => ({ key: o.key, inputs: [] })),
@@ -1077,7 +1061,7 @@ export function deriveBoundarySchema(
         continue
       }
       items.push({
-        kind: 'input', id: item.id, ...displayNameOf(item, inner, 'input'), type: freshenType(inner.dynamic.slotType, item.binds.node, typeBindingsFor(node)), optional: true, forceInput: true,
+        kind: 'input', id: item.id, ...displayNameOf(item, inner), type: freshenType(inner.dynamic.slotType, item.binds.node, typeBindingsFor(node)), optional: true, forceInput: true,
       })
       continue
     }
@@ -1147,7 +1131,7 @@ export function deriveBoundarySchema(
     items.push({
       kind: 'input',
       id: item.id,
-      ...displayNameOf(item, inner, 'input'),
+      ...displayNameOf(item, inner),
       ...(inner.tooltip !== undefined ? { tooltip: inner.tooltip } : {}),
       type: primaryType,
       // A widget-backed inner input has a stored value, so the boundary
@@ -1256,7 +1240,7 @@ export function deriveBoundarySchema(
       items.push({
         kind: 'output',
         id: item.id,
-        ...displayNameOf(item, inner, 'output'),
+        ...displayNameOf(item, inner),
         ...(inner.tooltip !== undefined ? { tooltip: inner.tooltip } : {}),
         type: freshenType(inner.type, binding.node, typeBindingsFor(node)),
       })
@@ -1291,7 +1275,7 @@ export function deriveBoundarySchema(
       items.push({
         kind: 'output',
         id: item.id,
-        ...displayNameOf(item, declaring, 'output'),
+        ...displayNameOf(item, declaring),
         ...(declaring.tooltip !== undefined ? { tooltip: declaring.tooltip } : {}),
         type: freshenType(declaring.type, item.binds.node, typeBindingsFor(node)),
         ...(isList !== undefined ? { isList } : {}),
@@ -1307,7 +1291,7 @@ export function deriveBoundarySchema(
     items.push({
       kind: 'output',
       id: item.id,
-      ...displayNameOf(item, inner, 'output'),
+      ...displayNameOf(item, inner),
       ...(inner.tooltip !== undefined ? { tooltip: inner.tooltip } : {}),
       type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
       ...(isList !== undefined ? { isList } : {}),
