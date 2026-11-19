@@ -16,6 +16,18 @@ const geometry = Object.fromEntries(
     `${value}px`,
   ]),
 )
+const siteGeometry = Object.fromEntries(
+  Object.entries(components.siteLayout).map(([key, value]) => [
+    `site-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
+    `${value}px`,
+  ]),
+)
+const siteInteraction = Object.fromEntries(
+  Object.entries(components.siteInteraction).map(([key, value]) => [
+    `site-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
+    String(value),
+  ]),
+)
 const siteType = Object.fromEntries(
   Object.entries(components.siteType).flatMap(([name, value]) => [
     [`type-${name}-size`, `${value.fontSize}px`],
@@ -30,7 +42,7 @@ const classes = (
   'DINKSTER_SIDEBAR_BREAKPOINT',
   `${components.layout.sidebarBreakpoint}px`,
 )
-const css = `${fonts.replaceAll("url('/fonts/", "url('./fonts/")}\n${semanticCssRoot}\n:root {\n${declarations(geometry)}\n}\n[data-density="site"] {\n${declarations(siteType)}\n}\n${classes}`
+const css = `${fonts.replaceAll("url('/fonts/", "url('./fonts/")}\n${semanticCssRoot}\n:root {\n${declarations(geometry)}\n}\n[data-density="site"] {\n${declarations(siteType)}\n${declarations(siteGeometry)}\n${declarations(siteInteraction)}\n}\n${classes}`
 await writeFile(new URL('dinkster.css', dist), css)
 await cp(new URL('../app/public/fonts/', root), new URL('fonts/', dist), {
   recursive: true,

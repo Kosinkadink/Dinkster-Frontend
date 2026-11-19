@@ -43,6 +43,15 @@ padding. Below the standard breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
 CSS does not implement keyboard interaction or confirmation policy.
 
+The site geometry scale is `siteLayout` in `dinkster-components.json`, projected
+as `--dinkster-site-*` variables only under `data-density="site"`. It defines the
+1040px centered shell, 220px navigation, 36px fields and main buttons, 28px row
+buttons (32px on mobile), 8px panels and 6px controls, along with the site menu,
+authentication card and provider-logo dimensions. `siteInteraction` supplies the
+unitless 0.14 status tint. These variables do not override app geometry or type.
+Site components consume the scale through the shared stylesheet; a token
+addition alone does not change a rendered component.
+
 ## Shared SolidJS components and gallery
 
 `branding/tokens/design-rules.json` owns button roles/fills, message behavior,
