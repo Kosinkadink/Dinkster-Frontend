@@ -272,6 +272,64 @@ describe('open-tab persistence', () => {
     expect([...receipts]).toEqual(owners)
   })
 
+  it('keeps an unchanged sibling receipt while overlapping workspace edits are admitted', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0,
+      nodes: { n0: { ...seedBasic.graphs.g0.nodes.n0, type: 'X', values: {} } }, links: {} } } }
+    const sibling = { ...document, lineage: 'unchanged-sibling',
+      graphs: { g0: { ...document.graphs.g0, nodes: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Edited workflow', doc: document }, { title: 'Unchanged workflow', doc: sibling }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    let hold = false
+    const waiting: (() => void)[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      if (hold) await new Promise<void>((resolve) => waiting.push(resolve))
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }])
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(10000)
+    const siblingJournals = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.'))
+      .map((key) => [key, localStorage.getItem(key)!] as const)
+      .filter(([, raw]) => JSON.parse(raw).documentLineage === sibling.lineage)
+      .sort(([a], [b]) => a.localeCompare(b))
+    const before = siblingJournals()
+    expect(before.length).toBeGreaterThan(0)
+    const tab = app.tabs.get().find((tab) => tab.id === document.lineage)!
+    hold = true
+    for (const title of ['First edit', 'Second edit']) {
+      expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n0', title,
+      } })).ok).toBe(true)
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(500)
+    }
+    expect(waiting.length).toBeGreaterThan(0)
+    hold = false
+    for (const release of waiting.splice(0)) release()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(Object.values(app.retentionActivity())
+      .some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    expect(siblingJournals()).toEqual(before)
+    for (const [, raw] of before) {
+      const intent = JSON.parse(raw)
+      expect(receipts.get(intent.owner.ownerId)?.revision).toBe(intent.acknowledgedRevision)
+    }
+    expect(JSON.parse(localStorage.getItem(TABS_KEY)!).tabs.find((tab: { doc: { lineage: string } }) =>
+      tab.doc.lineage === document.lineage).doc.graphs.g0.nodes.n0.title).toBe('Second edit')
+  })
+
   it('persists camera and scroll changes without validating, serializing or checksumming workflows', async () => {
     const first = createEditableApp()
     await vi.advanceTimersByTimeAsync(1000)

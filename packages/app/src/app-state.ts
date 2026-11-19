@@ -4045,9 +4045,9 @@ export class AppState {
       if (activeProjectId() !== project || globalThis.localStorage !== storage) return
       previousOwners = [...(this.persistedWorkflowSlots.get(key)?.owners ?? [])]
       const canonical = this.persistedWorkflowSlots.get(tabsKey())
-      // A peer can replace canonical bytes without ending our admitted lifetime.
-      // Keep that local receipt stable instead of rotating through recovery owners.
-      const admitted = [...(canonical?.complete ? canonical.owners : []),
+      // Pending slot replacement does not end its acknowledged receipt lifetimes.
+      // Reuse only locally held receipts that still pass the exact journal checks.
+      const admitted = [...(canonical?.owners ?? []),
         ...[...this.persistedWorkflowSlots].filter(([slotKey, slot]) =>
           slot.complete && storage.getItem(slotKey) === slot.raw).flatMap(([, slot]) => slot.owners)]
       reusable = native.map((source) => key.startsWith(documentCandidatePrefix()) ? undefined : admitted.find((owner) => {
