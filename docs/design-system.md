@@ -208,6 +208,8 @@ Gallery routes `#site-security` (alice and the reference Security rows),
 and `#site-card` (centered sign-in/providers) exercise the shared patterns.
 The Security route has computed-geometry and interaction checks at 1280,
 1440, 1920 and 390px; screenshots are captures, not an approved baseline.
+The canvas gallery uses app density and its full-width shell rather than the
+centered account frame; its fixed-size renderer fixtures retain their space.
 
 ## Shared design build checks
 

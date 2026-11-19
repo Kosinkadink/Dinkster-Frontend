@@ -3,6 +3,7 @@ import {
   Match,
   Show,
   Switch,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -858,6 +859,10 @@ function Gallery() {
 
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
+  createEffect(() => {
+    document.documentElement.dataset.density =
+      route() === '#canvas' ? 'app' : 'site'
+  })
   onMount(() => {
     const update = () => setRoute(window.location.hash)
     window.addEventListener('hashchange', update)

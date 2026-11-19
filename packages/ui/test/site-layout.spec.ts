@@ -27,6 +27,13 @@ for (const width of [1280, 1440, 1920, 390]) {
         wordmark: rect('.dinkster-brand .dinkster-wordmark').height,
         panelRadius: style('.dinkster-list').borderRadius,
         rowButton: rect('.dinkster-row .dinkster-button').height,
+        rowTextPadding: style('.dinkster-row').paddingTop,
+        rowButtonInset:
+          rect('.dinkster-row .dinkster-button').top -
+          rect('.dinkster-row').top,
+        panelToHelper:
+          rect('section:last-of-type > .dinkster-description').top -
+          rect('section:last-of-type .dinkster-list').bottom,
         titleSize: style('.dinkster-title').fontSize,
         titleToHeading:
           rect('section .dinkster-heading').top -
@@ -44,6 +51,9 @@ for (const width of [1280, 1440, 1920, 390]) {
       wordmark: 30,
       panelRadius: '8px',
       rowButton: width < 768 ? 32 : 28,
+      rowTextPadding: '12px',
+      rowButtonInset: 16,
+      panelToHelper: 12,
       titleSize: '20px',
       titleToHeading: 32,
       headingToPanel: 12,
@@ -83,6 +93,11 @@ for (const width of [1280, 1440, 1920, 390]) {
         .boundingBox())!
       expect(navigation.x).toBe(8)
       expect(navigation.width).toBe(240)
+      expect(
+        (await page
+          .getByRole('link', { name: 'Profile', exact: true })
+          .boundingBox())!.x - navigation.x,
+      ).toBe(5)
       await page.screenshot({
         path: `test-results/captures/site-navigation-${width}.png`,
         fullPage: true,
@@ -99,6 +114,39 @@ for (const width of [1280, 1440, 1920, 390]) {
     }
   })
 }
+
+test('site statuses and disclosure retain semantic colors and keyboard behavior', async ({
+  page,
+}) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#site-keys')
+    for (const [label, color] of [
+      ['Active', 'rgb(50, 230, 165)'],
+      ['Revoked', 'rgb(255, 116, 104)'],
+      ['Expired', 'rgb(245, 191, 105)'],
+      ['Not published', 'rgb(170, 179, 188)'],
+    ] as const) {
+      const pill = page
+        .locator('.dinkster-status-pill')
+        .filter({ hasText: label })
+      await expect(pill).toHaveCSS('color', color)
+      expect((await pill.boundingBox())!.height).toBe(20)
+    }
+    const disclosure = page.getByText('Revoked and expired', { exact: true })
+    await disclosure.focus()
+    await page.keyboard.press('Enter')
+    await expect(
+      page.getByText('No other keys.', { exact: true }),
+    ).toBeVisible()
+    await page.screenshot({
+      path: `test-results/captures/site-statuses-${width}.png`,
+      fullPage: true,
+    })
+    await page.keyboard.press('Space')
+    await expect(page.getByText('No other keys.', { exact: true })).toBeHidden()
+  }
+})
 
 test('approved site picture slot keeps its initial for absent, refused and failed pictures', async ({
   page,
@@ -162,7 +210,7 @@ test('approved site Profile groups fields and saves only changed values', async 
 test('approved site centered card bundles provider logos and has no shell', async ({
   page,
 }) => {
-  for (const width of [1440, 390]) {
+  for (const width of [1280, 1440, 1920, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#site-card')
     await expect(
@@ -188,7 +236,7 @@ test('approved site centered card bundles provider logos and has no shell', asyn
       expect((await button.boundingBox())!.width).toBe(220)
     }
     const rect = (await card.boundingBox())!
-    expect(rect.width).toBe(width === 1440 ? 440 : 358)
+    expect(rect.width).toBe(width < 768 ? 358 : 440)
     expect(rect.x + rect.width / 2).toBe(width / 2)
     await page.screenshot({
       path: `test-results/captures/site-card-${width}.png`,
