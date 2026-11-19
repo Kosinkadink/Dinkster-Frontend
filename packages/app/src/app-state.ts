@@ -1928,7 +1928,7 @@ function mergePersistedTabs(
   }
   return {
     ...workspace,
-    incorporatedWorkspaceStages,
+    incorporatedWorkspaceStages: incorporatedWorkspaceStages.sort(),
     ...(Object.keys(documentCandidateStages).length > 0 ? { documentCandidateStages } : {}),
     ...(Object.keys(documentCandidateDigests).length > 0 ? { documentCandidateDigests } : {}),
     tabs: workspace.tabs.map((tab) => {

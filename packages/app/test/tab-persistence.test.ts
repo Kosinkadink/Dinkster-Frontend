@@ -973,6 +973,32 @@ describe('open-tab persistence', () => {
     restored.dispose()
   })
 
+  it('reconciles the same workspace stages independently of storage enumeration order', () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    const canonical = { v: 1, active: document.lineage, workspaceRevision: 1, workspaceOperationWatermarks: {},
+      tabs: [{ title: 'Empty workflow', doc: document, documentRevision: 0 }] }
+    const key = localStorage.key.bind(localStorage)
+    let reversed = false
+    vi.spyOn(localStorage, 'key').mockImplementation((index) => key(reversed ? localStorage.length - index - 1 : index))
+    const snapshots = []
+    for (const reverse of [false, true]) {
+      localStorage.clear()
+      localStorage.setItem(TABS_KEY, JSON.stringify(canonical))
+      for (const stageId of ['stage-z', 'stage-a']) localStorage.setItem(`dinkster.openTabsCandidate.${stageId}`,
+        JSON.stringify({ ...canonical, assetRetention: { stageId, acknowledged: false },
+          tabs: canonical.tabs.map((tab) => ({ ...tab, documentDirty: true })) }))
+      reversed = reverse
+      const app = createEditableApp()
+      app.flushPersistTabs(true)
+      const { assetRetention: _retention, ...snapshot } = JSON.parse(localStorage.getItem(TABS_KEY)!)
+      expect(snapshot.tabs).toHaveLength(1)
+      expect(new Set(snapshot.incorporatedWorkspaceStages)).toEqual(new Set(['stage-a', 'stage-z']))
+      snapshots.push(snapshot)
+      app.dispose()
+    }
+    expect(snapshots[1]).toEqual(snapshots[0])
+  })
+
   it('keeps independently staged edits for different document lineages', () => {
     const seed = prepareWorkflowApp(new AppState())
     flush()
