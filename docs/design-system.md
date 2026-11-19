@@ -961,7 +961,9 @@ after its response. The page always includes a return-to-Dinkster link.
 The `dinkster.site/1` manifest hashes the unbound template in `files` and provides
 `callback.template`, `callback.csp`, `callback.textSlots` and
 `callback.destinationSlot`. The existing frontend wheel version and SHA-256
-identify the distribution. Verify the template hash before binding values.
+identify the distribution. The wheel packager requires the callback template and
+checks its manifest slots, digest and exact embedded-style CSP before producing
+a release. Consumers also verify the template hash before binding values.
 
 Replace all slots simultaneously in one pass (not repeated replacements):
 

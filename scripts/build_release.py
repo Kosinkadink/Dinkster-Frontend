@@ -77,6 +77,7 @@ def build(
     for required in (
         "account.html",
         "authorization.html",
+        "callback.html",
         "about.html",
         "about.js",
         "desktop-library.html",
@@ -87,6 +88,41 @@ def build(
     ):
         if not (site / required).is_file():
             raise ValueError(f"site distribution must contain {required}")
+    site_manifest = json.loads((site / "manifest.json").read_text(encoding="utf-8"))
+    callback = site_manifest.get("callback", {})
+    callback_html = (site / "callback.html").read_text(encoding="utf-8")
+    style = re.search(r"<style>(.*?)</style>", callback_html, re.DOTALL)
+    if style is None:
+        raise ValueError("callback template must contain its embedded stylesheet")
+    style_hash = base64.b64encode(hashlib.sha256(style[1].encode()).digest()).decode()
+    callback_csp = (
+        "default-src 'none'; script-src 'none'; connect-src 'none'; "
+        f"style-src 'sha256-{style_hash}'; img-src data:; font-src data:; "
+        "base-uri 'none'; form-action 'none'"
+    )
+    if (
+        site_manifest.get("format") != "dinkster.site/1"
+        or callback.get("template") != "callback.html"
+        or callback.get("textSlots")
+        != [
+            "__CALLBACK_HEADING__",
+            "__CALLBACK_MESSAGE__",
+            "__CALLBACK_RETURN_LABEL__",
+        ]
+        or callback.get("destinationSlot") != "__CALLBACK_RETURN_URL__"
+        or any(
+            slot not in callback_html
+            for slot in [*callback["textSlots"], callback["destinationSlot"]]
+        )
+        or callback.get("csp") != callback_csp
+        or f'<meta http-equiv="Content-Security-Policy" content="{callback_csp}">'
+        not in callback_html
+        or site_manifest.get("files", {}).get("callback.html")
+        != hashlib.sha256((site / "callback.html").read_bytes()).hexdigest()
+    ):
+        raise ValueError(
+            "site distribution must contain a valid callback manifest contract"
+        )
     sources = [(dist, ""), (site, "site/")]
     sources.extend(
         (root / "branding" / directory, f"branding/{directory}/")
