@@ -1,0 +1,233 @@
+import { expect, test } from '../../e2e/visual.js'
+
+test('browse projects and separately paged workflows and files without network access', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      dinksterLibrary: {
+        installations: async () => [{ id: 'studio', name: 'Local studio' }],
+        projects: async (installation: string, cursor: string | null) => {
+          if (installation !== 'studio') throw new Error('Wrong installation')
+          if (cursor !== null && cursor !== 'next-project')
+            throw new Error('Wrong project cursor')
+          return cursor === null
+            ? {
+                items: [{ id: 'grain', name: 'Film grain tests' }],
+                cursor: 'next-project',
+              }
+            : { items: [{ id: 'empty', name: 'Empty project' }], cursor: null }
+        },
+        workflows: async (
+          installation: string,
+          project: string,
+          cursor: string | null,
+        ) => {
+          if (installation !== 'studio') throw new Error('Wrong installation')
+          if (project === 'empty') return { items: [], cursor: null }
+          if (project !== 'grain') throw new Error('Wrong project')
+          if (cursor !== null && cursor !== 'next-workflow')
+            throw new Error('Wrong workflow cursor')
+          return cursor === null
+            ? {
+                items: [
+                  {
+                    id: 'portrait',
+                    name: 'Portrait workflow',
+                    description: 'Saved workflow',
+                  },
+                ],
+                cursor: 'next-workflow',
+              }
+            : {
+                items: [{ id: 'landscape', name: 'Landscape workflow' }],
+                cursor: null,
+              }
+        },
+        assets: async (
+          installation: string,
+          project: string,
+          cursor: string | null,
+        ) => {
+          if (installation !== 'studio') throw new Error('Wrong installation')
+          if (project === 'empty') return { items: [], cursor: null }
+          if (project !== 'grain') throw new Error('Wrong project')
+          if (cursor !== null && cursor !== 'next-file')
+            throw new Error('Wrong file cursor')
+          return cursor === null
+            ? {
+                items: [
+                  {
+                    id: 'image',
+                    name: 'Portrait.png',
+                    description: 'image/png',
+                  },
+                ],
+                cursor: 'next-file',
+              }
+            : {
+                items: [
+                  {
+                    id: 'audio',
+                    name: 'Soundscape.flac',
+                    description: 'audio/flac',
+                  },
+                ],
+                cursor: null,
+              }
+        },
+      },
+    })
+  })
+  const requests: string[] = []
+  page.on('request', (request) => requests.push(request.url()))
+  await page.goto('/desktop-library.html')
+  await expect(
+    page.getByRole('list', { name: 'Local installations' }),
+  ).toContainText('Local studio')
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-installations.png',
+    fullPage: true,
+  })
+  await page.getByRole('button', { name: 'View projects', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'Local studio',
+  )
+  await page
+    .getByRole('button', { name: 'Show more projects', exact: true })
+    .click()
+  await expect(
+    page.getByRole('list', { name: 'Projects', exact: true }),
+  ).toContainText('Empty project')
+  await expect(
+    page.getByRole('button', { name: 'Show more projects', exact: true }),
+  ).toHaveCount(0)
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-projects.png',
+    fullPage: true,
+  })
+  await page
+    .getByRole('listitem')
+    .filter({ hasText: 'Film grain tests' })
+    .getByRole('button')
+    .click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'Film grain tests',
+  )
+  await expect(
+    page.getByRole('list', { name: 'Saved workflows' }),
+  ).toContainText('Portrait workflow')
+  await expect(
+    page.getByRole('list', { name: 'Files', exact: true }),
+  ).toContainText('Portrait.png')
+  await page.getByRole('button', { name: 'Show more saved workflows' }).click()
+  await expect(
+    page.getByRole('list', { name: 'Saved workflows' }),
+  ).toContainText('Landscape workflow')
+  await expect(
+    page.getByRole('list', { name: 'Files', exact: true }),
+  ).not.toContainText('Soundscape.flac')
+  await page.getByRole('button', { name: 'Show more files' }).click()
+  await expect(
+    page.getByRole('list', { name: 'Files', exact: true }),
+  ).toContainText('Soundscape.flac')
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-assets.png',
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-assets-narrow.png',
+    fullPage: true,
+  })
+  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Show more projects', exact: true })
+    .click()
+  await page
+    .getByRole('listitem')
+    .filter({ hasText: 'Empty project' })
+    .getByRole('button')
+    .click()
+  await expect(
+    page.getByText('No saved workflows in this project.', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText('No recorded files in this project.', { exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText('Portrait.png', { exact: true })).toHaveCount(0)
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-empty.png',
+    fullPage: true,
+  })
+  expect(
+    requests.every((url) => new URL(url).origin === 'http://127.0.0.1:5287'),
+  ).toBe(true)
+})
+
+test('an unreadable library is one plain notice, not an empty library or a storage prompt', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      dinksterLibrary: {
+        installations: async () => [{ id: 'studio', name: 'Local studio' }],
+        projects: async () => {
+          throw new Error('records.sqlite format 9000')
+        },
+      },
+    })
+  })
+  await page.goto('/desktop-library.html')
+  await page.getByRole('button', { name: 'View projects', exact: true }).click()
+  await expect(page.getByRole('note')).toHaveText(
+    'By the way, these projects and files cannot be shown with the installed tools.',
+  )
+  await expect(page.getByText('No projects yet.', { exact: true })).toHaveCount(
+    0,
+  )
+  await expect(page.getByText(/records.sqlite|format 9000/)).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-unreadable.png',
+    fullPage: true,
+  })
+})
+
+test('leaving a slow project list immediately ignores its late failure', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      dinksterLibrary: {
+        installations: async () => [{ id: 'studio', name: 'Local studio' }],
+        projects: async () =>
+          new Promise((_resolve, reject) => {
+            Object.assign(window, {
+              rejectLibrary: () => reject(new Error('Late failure')),
+            })
+          }),
+      },
+    })
+  })
+  await page.goto('/desktop-library.html')
+  await page.getByRole('button', { name: 'View projects', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('Loading projects')
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-loading.png',
+    fullPage: true,
+  })
+  await page.getByRole('button', { name: 'Installations', exact: true }).click()
+  await page.evaluate(() =>
+    (window as unknown as { rejectLibrary: () => void }).rejectLibrary(),
+  )
+  await expect(
+    page.getByRole('list', { name: 'Local installations' }),
+  ).toBeVisible()
+  await expect(page.getByRole('note')).toHaveCount(0)
+})
