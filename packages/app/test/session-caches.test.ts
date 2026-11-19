@@ -10,7 +10,7 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import type { AppState, Backend, Tab } from '../src/app-state.js'
@@ -69,6 +69,49 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('session-keyed caches (AP4)', () => {
+  it('coalesces comparison work after paint without answering edits with stale recipes', async () => {
+    const { tab } = await nativeSetup()
+    vi.useFakeTimers()
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1 })
+    vi.stubGlobal('cancelAnimationFrame', () => { frame = undefined })
+    const compile = vi.spyOn(app, 'compileTab')
+    try {
+      expect(app.previewComparisonCompile(tab)).toBeUndefined()
+      expect(compile).not.toHaveBeenCalled()
+      frame!(0)
+      await vi.advanceTimersByTimeAsync(99)
+      expect(compile).not.toHaveBeenCalled()
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 19,
+      } })).ok).toBe(true)
+      expect(app.previewComparisonCompile(tab)).toBeUndefined()
+      frame!(100)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(compile).toHaveBeenCalledTimes(1)
+      const ready = app.previewComparisonCompile(tab)
+      expect(ready).toEqual(app.compileTab(tab))
+      expect(ready).toBeDefined()
+      expect((await app.dispatchTo(tab, { command: 'node.move', params: {
+        graphId: 'g0', positions: { n0: { x: 197, y: 83 } },
+      } })).ok).toBe(true)
+      expect(app.previewComparisonCompile(tab)).toBe(ready)
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 31,
+      } })).ok).toBe(true)
+      expect(app.previewComparisonCompile(tab)).toBeUndefined()
+      // Teardown must not publish a comparison from the retired app.
+      app.dispose()
+      await vi.runAllTimersAsync()
+      expect(compile).toHaveBeenCalledTimes(2)
+    } finally {
+      app.dispose()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
   it('compileTabCached never answers a same-lineage replacement with the old session compile', async () => {
     const { backend, tab } = (await nativeSetup())
     const first = app.compileTabCached(tab)

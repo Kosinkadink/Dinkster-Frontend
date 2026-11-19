@@ -106,15 +106,20 @@ for (const dpr of [1, 1.25, 2]) {
               window.canvasFrameEquivalence.compareCanvasFrames(fixture, theme),
             { fixture, theme },
           )
+          const expectedStates =
+            fixture === 'anatomy'
+              ? [...frameStates, 'numeric before', 'numeric edit']
+              : frameStates
           expect(
             result.frames.map(({ state, differences }) => ({
               state,
               differences,
             })),
             fixture,
-          ).toEqual(frameStates.map((state) => ({ state, differences: 0 })))
+          ).toEqual(expectedStates.map((state) => ({ state, differences: 0 })))
           expect(
-            result.frames.find((frame) => frame.state === 'execution settled')!.candidateTiles,
+            result.frames.find((frame) => frame.state === 'execution settled')!
+              .candidateTiles,
             'Settled execution must exercise retained graph images',
           ).toBeGreaterThan(0)
           expect(
@@ -143,10 +148,19 @@ for (const dpr of [1, 1.25, 2]) {
               (frame) => frame.state === 'same-phase pan',
             )!
             expect(pan.candidateTiles).toBeLessThan(pan.referenceTiles)
-            for (const state of ['selection', 'drag', 'drag release', 'edit and release']) {
-              const changed = result.frames.find((frame) => frame.state === state)!
+            for (const state of [
+              'selection',
+              'drag',
+              'drag release',
+              'edit and release',
+            ]) {
+              const changed = result.frames.find(
+                (frame) => frame.state === state,
+              )!
               expect(changed.candidateTiles, state).toBeGreaterThan(0)
-              expect(changed.candidateTiles, state).toBeLessThan(changed.referenceTiles)
+              expect(changed.candidateTiles, state).toBeLessThan(
+                changed.referenceTiles,
+              )
             }
           }
           expect(
@@ -155,7 +169,7 @@ for (const dpr of [1, 1.25, 2]) {
               differences: directDifferences,
             })),
             'Cached frames must also match independent direct painting',
-          ).toEqual(frameStates.map((state) => ({ state, differences: 0 })))
+          ).toEqual(expectedStates.map((state) => ({ state, differences: 0 })))
           expect(errors).toEqual([])
         })
       }
