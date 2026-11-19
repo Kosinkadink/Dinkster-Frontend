@@ -1515,7 +1515,7 @@ export class CanvasRenderer {
     this.scheduleFrame()
   }
 
-  /** Accumulate wheel targets, then settle the last input over 100ms. */
+  /** Accumulate wheel targets and settle within 100ms of the latest input. */
   animateViewport(update: (viewport: Viewport) => Viewport): void {
     const target = this.viewportAnimation?.to ?? this.viewport
     const to = update(target)

@@ -6,6 +6,52 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Wheel retargeting under continuous input (2026-11-19)
+
+Before is the accepted smooth-wheel AFTER run below, landed as `60d7183e`;
+it was not replayed. After preserves elapsed time when wheel input retargets
+from the last painted camera and samples the callback's current clock instead
+of its potentially older frame timestamp. X570, claimed RTX 4090, Chromium
+149 Vulkan, uncapped 2560x1440, 2500 ms inputs and the unchanged reporting
+scripts are retained. Both builds are production-optimized test-mode builds.
+The CPU backend pin changed from `09a19d69` to the workflow's `79f1fb51`,
+with packs at `e3cc2acb`; engine and shared-interpreter inventories each verify
+41516 sealed build files without mismatch. This is an unequal-time,
+shared-host report, not isolated frontend causality or a gate. No validation
+suite overlaps this AFTER command.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 16.7/17.7 | 0.4/7.0 | 8.0/10.4 | 1.4/2.1 | 1.4/2.1 |
+| 66/fit | 16.7/17.8 | 16.7/17.7 | 0.2/6.4 | 4.6/12.3 | 1.2/17.0 | 1.3/17.1 |
+| 300/read | 15.7/17.7 | 16.4/17.7 | 0.3/5.7 | 4.7/10.6 | 1.2/2.0 | 1.2/2.0 |
+| 300/fit | 16.7/17.7 | 10.5/18.5 | 0.2/9.8 | 7.5/24.7 | 1.6/2.9 | 1.6/2.8 |
+| 1200/read | 4.9/17.7 | 15.0/17.7 | 0.3/6.3 | 4.9/9.6 | 1.7/2.9 | 1.4/1.8 |
+| 1200/fit | 16.6/17.7 | 20.5/35.5 | 0.2/23.0 | 21.1/36.6 | 6.2/15.0 | 5.1/13.7 |
+
+The earlier tiny zoom medians include unchanged-scale cached copies; the
+repair's progressing scales expose full raster work instead. The unchanged
+1 kHz asynchronous CDP flood still accumulates delivery backlog. AFTER zoom
+input-to-render-end p95 is 2612.7-11542.4 ms, including event-delivery queue
+p95 of 2588.6-11495.7 ms. Fitted 1200-node p95 is now 11542.4 ms versus
+1198 ms before. These unfavorable cells remain reported; neither the
+full-refresh targets nor the complete flood-latency requirement is met.
+The report does not establish that the queue is Chrome-only or that the
+renderer has no further responsibility.
+
+Separate recorded 600 ms fast/flooded browser-timer inputs exercise the real
+wheel handler with the 1200-node image fixture at readable and fitted scales.
+Requested 1 ms intervals are timer/render limited, not literal hardware
+1 kHz. AFTER camera observations never repeat a scale and reach the final
+target 69.2-104.5 ms after the last delivered event; BEFORE fitted flood has
+13/16 repeated observations and final-target delays of 137.0/146.6 ms.
+These observations precede paint, not presentation. Deterministic regression
+coverage independently forces older frame timestamps and requires forward
+motion and target arrival within 100 ms plus one frame. Animated intermediate
+pixel equivalence is not added by these timing/behavior controls.
+
 ## Smooth wheel zoom (2026-11-19)
 
 Before is the accepted regional-redraw run below, whose renderer landed as
