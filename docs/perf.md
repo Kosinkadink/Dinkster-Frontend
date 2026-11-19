@@ -6,6 +6,43 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Optional frame-rate readout (2026-11-19)
+
+The readout is off by default. This production-optimized AFTER report measures
+that default state; enabled-state browser checks separately cover persistence,
+visibility and rendering, not its performance overhead. BEFORE is the accepted
+smooth-wheel run below, landed as `60d7183e`, and was not replayed. The stage 6
+branch changes no renderer behavior and does not include the separate flooded
+wheel repair. Its tiny zoom medians can still contain unchanged-scale cached
+copies, not sustained full-scene raster work or achieved display refresh.
+
+The unchanged audit tools use X570, claimed RTX 4090 Vulkan, Chromium 149,
+uncapped 2560x1440 and 2500 ms inputs. Drag is measured separately from wheel
+input. The CPU backend changed from BEFORE `09a19d69` to `79f1fb51`, with
+packs at `e3cc2acb`. Both launched interpreter inventories verify all41516
+sealed files without mismatch. Independent CPU repair verification overlapped
+this AFTER report on the shared host. Unequal-time sampling and that overlap
+prevent attributing differences to the readout or claiming a causal speedup.
+
+Frame callback interval p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 3.6/17.7 | 0.4/7.0 | 0.3/8.7 | 1.4/2.1 | 1.5/2.2 |
+| 66/fit | 16.7/17.8 | 16.8/17.6 | 0.2/6.4 | 0.3/6.6 | 1.2/17.0 | 1.2/2.9 |
+| 300/read | 15.7/17.7 | 1.7/17.6 | 0.3/5.7 | 0.4/7.1 | 1.2/2.0 | 1.4/3.4 |
+| 300/fit | 16.7/17.7 | 16.9/17.6 | 0.2/9.8 | 0.3/13.6 | 1.6/2.9 | 1.9/3.3 |
+| 1200/read | 4.9/17.7 | 6.8/17.6 | 0.3/6.3 | 0.4/8.8 | 1.7/2.9 | 1.7/2.9 |
+| 1200/fit | 16.6/17.7 | 16.7/17.7 | 0.2/23.0 | 0.2/13.2 | 6.2/15.0 | 8.1/17.9 |
+
+Fitted1200 zoom input-to-render-end p95 is1198 ms BEFORE and120.6 ms AFTER.
+That variation on the unchanged renderer is not evidence that this readout
+fixes input queuing or glide progress. The separate wheel repair owns that
+behavior. Fitted1200 drag regresses and pan tails remain around17.7 ms; the
+original frame-time goals are not met. The readout itself reports page rAF
+callback cadence and maximum interval per one-second sample, not paint cost,
+input delay or GPU presentation. It is a diagnostic tool, not a timing gate.
+
 ## Smooth wheel zoom (2026-11-19)
 
 Before is the accepted regional-redraw run below, whose renderer landed as
