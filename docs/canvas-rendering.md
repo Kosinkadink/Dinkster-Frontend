@@ -50,6 +50,23 @@ This affects comparison setup only, not production rendering. Frame-time tools
 and measured results are documented in [Performance baselines](perf.md);
 timings are reports, not CI assertions.
 
+## Numeric edits and comparison diagnostics
+
+Static numeric widget edits reuse scene geometry when the effective interface
+is unchanged. Dynamic interfaces, subgraphs, conditional rows, sections and
+layout changes retain the full scene-build path. Each increment still commits
+its own document command and history entry. Existing finite numeric literals
+in static, concretely typed graphs also avoid repeating the asset-identity
+census. Dynamic or unresolved interfaces, value sources, subgraphs and asset
+changes keep the full ownership/admission path.
+
+Canvas-only compilation for resident availability and preview recipe comparison
+waits until after a painted frame and a 100 ms editing pause. New edits replace
+the pending comparison rather than queueing old revisions. Unproven previews
+remain stale until the current comparison is ready; old compile diagnostics
+are not presented as current. View-only changes reuse a proven comparison.
+Queue actions still validate the current workflow independently.
+
 ## Frame-rate readout
 
 Settings > Diagnostics > Show frame rate adds a readout to the status bar.

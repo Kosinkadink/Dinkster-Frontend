@@ -8,7 +8,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsUnchanged } from '../src/workflow-asset-retention.js'
 import { imageDocumentDigest } from '../src/image-document-local.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -1630,6 +1630,35 @@ describe('retained app dispatch', () => {
     expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
   })
 
+  it('keeps numeric increments synchronous and individually undoable beside an asset', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const numericSchema: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+      widget: { widgetType: 'ASSET', options: {} },
+    }, {
+      kind: 'input', id: 'scale', optional: false, type: { kind: 'concrete', name: 'FLOAT' },
+      widget: { widgetType: 'FLOAT', options: {}, default: 1 },
+    }] }
+    const base = session().doc
+    const document = { ...base, graphs: { g0: { ...base.graphs.g0!, nodes: {
+      n0: { ...base.graphs.g0!.nodes.n0!, values: { files: asset('a'), scale: 1 } },
+    } } } }
+    app = createWorkflowApp([numericSchema], document)
+    const tab = app.activeTab()!
+    for (const value of [1.01, 1.02, 1.03]) {
+      const outcome = app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'scale', value,
+      } })
+      expect(outcome).not.toBeInstanceOf(Promise)
+      expect(outcome).toMatchObject({ ok: true })
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ files: asset('a'), scale: value })
+    }
+    for (const value of [1.02, 1.01, 1]) {
+      expect(tab.store.undo()).toBe(true)
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ files: asset('a'), scale: value })
+    }
+  })
+
   it.each(['valid', 'malformed'] as const)('keeps asset-neutral commands synchronous with %s existing identities', async (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const document = session().doc
@@ -1955,6 +1984,41 @@ describe('retained workflow opens', () => {
 })
 
 describe('workflow candidate admission', () => {
+  it('reuses ownership for existing static numeric literals but checks identities and contextual defaults', () => {
+    const numericSchema: NodeSchema = { ...schema, items: [
+      { kind: 'input', id: 'scale', optional: false, type: { kind: 'concrete', name: 'FLOAT' },
+        widget: { widgetType: 'FLOAT', options: {}, default: 1 } },
+      { kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+        widget: { widgetType: 'ASSET', options: {} } },
+    ] }
+    const base = session().doc
+    const document = { ...base, graphs: { g0: { ...base.graphs.g0!, nodes: {
+      n0: { ...base.graphs.g0!.nodes.n0!, values: { scale: 1.25, file: asset('a') } },
+    } } } }
+    const local = createLocalSession(document, coreCommandRegistry([], () => numericSchema))
+    const prepare = (inputId: string, value: core.Json) => {
+      const result = local.prepareDispatch!({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId, value } })
+      if (!result.ok) throw new Error('candidate rejected')
+      return result
+    }
+    const numeric = prepare('scale', 2.75)
+    expect(workflowAssetRootsUnchanged(numeric, () => numericSchema)).toBe(true)
+    const history = { revision: 0, undo: [], redo: [] }
+    expect(workflowAssetRoots(numeric.document, history, () => numericSchema)).toEqual({ complete: true, digests: [asset('a').digest] })
+    expect(workflowAssetRootsUnchanged(prepare('file', asset('b')), () => numericSchema)).toBe(false)
+    expect(workflowAssetRootsUnchanged(prepare('file', 7), () => numericSchema)).toBe(false)
+    const contextual: NodeSchema = { ...numericSchema, items: [...numericSchema.items, {
+      kind: 'output', id: 'entries', type: { kind: 'concrete', name: 'IMAGE' },
+      dynamic: { kind: 'autogrow', count: { input: 'scale', suffix: 'index' }, template: [],
+        naming: { kind: 'prefix', prefix: 'entry', min: 0, max: 5 } },
+    }] }
+    expect(workflowAssetRootsUnchanged(numeric, () => contextual)).toBe(false)
+    expect(workflowAssetRootsUnchanged(numeric, () => undefined)).toBe(false)
+    expect(numeric.commit().ok).toBe(true)
+    expect(local.undo()).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values).toEqual({ scale: 1.25, file: asset('a') })
+  })
+
   const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const
 
   it('accepts parsed scalar schema metadata without treating it as asset storage', () => {
