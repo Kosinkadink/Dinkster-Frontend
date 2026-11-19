@@ -876,7 +876,7 @@ export const curveView: WidgetView<Json> = {
       ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
         { role: 'curveSample' })
     }
-    ctx.text(1, 0, `${points.length} points - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'} - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }

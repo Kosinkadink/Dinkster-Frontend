@@ -527,7 +527,10 @@ shared read-only companion treatment and omit the chevron. Every row keeps its
 compact value preview. Compact rows preserve a short complete value by shrinking and
 ellipsizing the label first; values too long to fit beside the 44px label floor
 retain proportional sharing. The ASSET `no asset` placeholder uses muted italic
-text and remains complete at ordinary and minimum node widths. Activating the
+text and remains complete at ordinary and minimum node widths. Its measured
+text and padding take priority over the label floor after opener icons reserve
+their space; the label may disappear if even its ellipsis cannot fit. Long asset
+names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT, single-line STRING, COLOR,
 COMBO, and MOUNT use a small non-modal popover anchored to that row. A

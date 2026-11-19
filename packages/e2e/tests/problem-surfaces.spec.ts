@@ -119,6 +119,32 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
       }, 'Resident model')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
+    await waitForStartupOwnership(page)
+    await expect.poll(() => page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      return app.previewComparisonCompile(app.activeTab()!) !== undefined
+    })).toBe(true)
+    const titleCompileCounts = await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      const tab = app.activeTab()!
+      let compiles = 0
+      const original = app.compileTab.bind(app)
+      app.compileTab = (...args) => { compiles++; return original(...args) }
+      const counts: number[] = []
+      try {
+        for (const title of ['Renamed model', 'Renamed model again', null]) {
+          const outcome = tab.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'target', title } })
+          if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
+          await new Promise((resolve) => setTimeout(resolve, 250))
+          counts.push(compiles)
+        }
+        if (!tab.store.undo() || !tab.store.redo()) throw new Error('Title history unavailable')
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        counts.push(compiles)
+      } finally { app.compileTab = original }
+      return counts
+    })
+    expect(titleCompileCounts).toEqual([0, 0, 0, 0])
     await widenRail(page)
     await railTab(page, 'problems').click()
     const panel = page.getByTestId('problems-panel')
