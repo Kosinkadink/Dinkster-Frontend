@@ -1,5 +1,6 @@
 import { For, Show, createSignal, type JSX } from 'solid-js'
-import { ProductButton } from './controls.js'
+import { ChevronRight } from 'lucide-solid'
+import { ProductButton, ProductIcon } from './controls.js'
 import { ProductErrorBanner } from './messages.js'
 import { useProductStrings } from './strings.js'
 
@@ -89,9 +90,23 @@ export function ProductDisclosure(props: {
 }) {
   return (
     <details class="dinkster-disclosure" open={props.open}>
-      <summary>{props.title}</summary>
+      <summary>
+        <ProductIcon icon={ChevronRight} />
+        {props.title}
+      </summary>
       <div class="dinkster-stack">{props.children}</div>
     </details>
+  )
+}
+
+export function ProductStatusPill(props: {
+  tone: 'good' | 'warning' | 'problem' | 'neutral'
+  children: JSX.Element
+}) {
+  return (
+    <span class="dinkster-status-pill" data-tone={props.tone}>
+      <span>{props.children}</span>
+    </span>
   )
 }
 
