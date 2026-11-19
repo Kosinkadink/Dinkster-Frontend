@@ -23,6 +23,21 @@ The persisted **Canvas scroll behavior** setting has two modes:
   canvas movement. `Ctrl`+wheel zooms about the pointer instead; macOS
   trackpad pinch arrives through this path with `ctrlKey` set.
 
+**Smooth wheel zoom** is on by default in Canvas Settings. Each zoom step
+settles over 100 ms about the pointer, and further wheel input updates the
+pending target rather than losing notches. Fast input retargets from the last
+painted view without restarting that frame's elapsed time; the newest target
+settles within 100 ms plus the next frame, without queued animations. Costly
+animated paints leave input-delivery time before the next raster, dropping
+intermediate scales rather than queuing them. During that interval the camera
+stays at the last painted view; no old bitmap is scaled. The final target and
+manual camera changes bypass this raster pause, as do graph edits and overlay
+invalidations. A new glide starts without inheriting an earlier paint's pause.
+Turning it off restores immediate zoom. The reduced-motion preference also uses
+immediate zoom. Ordinary Pan scrolling does not glide. Direct pointer
+navigation, another camera change, a graph change or loss of focus cancels
+an unfinished glide at its current view. Image-editor and minimap wheel navigation are unchanged.
+
 The setting does not guess whether an event came from a mouse or trackpad.
 Pixel deltas apply directly, line deltas use 16 CSS pixels per line, and page
 deltas use the visible canvas width or height. Touchscreen two-finger

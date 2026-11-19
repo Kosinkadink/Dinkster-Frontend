@@ -828,8 +828,11 @@ export class CanvasRenderer {
   private valueDrivenInputPins: ReadonlySet<string> = new Set()
   private nodeStates: Readonly<Record<string, NodeProgress>> = {}
   private viewport: Viewport = { x: canvasPaintTokens.viewport.initialOffset, y: canvasPaintTokens.viewport.initialOffset, scale: 1 }
+  private viewportAnimation: { from: Viewport; to: Viewport; started: number; sampled: number } | undefined
   private dirty = true
   private rafId: number | undefined
+  private paintEnded = -Infinity
+  private paintDuration = 0
   private disposed = false
   private hasRunningNodes = false
   private reducedMotion = false
@@ -1509,9 +1512,34 @@ export class CanvasRenderer {
   }
 
   setViewport(viewport: Viewport): void {
+    this.cancelViewportAnimation()
+    this.applyViewport(viewport)
+    this.scheduleFrame()
+  }
+
+  /** Accumulate wheel targets and settle within 100ms of the latest input. */
+  animateViewport(update: (viewport: Viewport) => Viewport): void {
+    const target = this.viewportAnimation?.to ?? this.viewport
+    const to = update(target)
+    if (this.reducedMotion) {
+      this.setViewport(to)
+      return
+    }
+    if (to.x === target.x && to.y === target.y && to.scale === target.scale) return
+    if (!this.viewportAnimation) this.paintEnded = -Infinity
+    // Retarget from the last visible frame without discarding its elapsed time.
+    const sampled = this.viewportAnimation?.sampled ?? performance.now()
+    this.viewportAnimation = { from: { ...this.viewport }, to, started: sampled, sampled }
+    this.scheduleFrame()
+  }
+
+  cancelViewportAnimation(): void {
+    this.viewportAnimation = undefined
+  }
+
+  private applyViewport(viewport: Viewport): void {
     this.viewport = viewport
     this.dirty = true
-    this.scheduleFrame()
     for (const cb of this.viewportListeners) cb(viewport)
   }
 
@@ -1636,6 +1664,7 @@ export class CanvasRenderer {
   }
 
   dispose(): void {
+    this.cancelViewportAnimation()
     this.disposed = true
     if (this.rafId !== undefined) cancelAnimationFrame(this.rafId)
     this.rafId = undefined
@@ -1653,6 +1682,27 @@ export class CanvasRenderer {
   private loop(timestamp: number): void {
     if (this.disposed) return
     this.rafId = undefined
+    const animation = this.viewportAnimation
+    if (animation && !this.dirty && performance.now() - animation.started < 100 && performance.now() - this.paintEnded < this.paintDuration / 2) {
+      // Leave input delivery time between expensive animated paints. Publish
+      // the unchanged visible camera so host overlays and frame work stay live.
+      for (const cb of this.viewportListeners) cb(this.viewport)
+      this.scheduleFrame()
+      return
+    }
+    if (animation) {
+      // A frame timestamp can precede wheel delivery in this same frame.
+      animation.sampled = performance.now()
+      const progress = this.reducedMotion ? 1 : Math.min(1, Math.max(0, (animation.sampled - animation.started) / 100))
+      const eased = 1 - (1 - progress) ** 3
+      if (progress === 1) this.viewportAnimation = undefined
+      // Linear transform interpolation preserves the wheel's world-space anchor.
+      this.applyViewport(progress === 1 ? animation.to : {
+        x: animation.from.x + (animation.to.x - animation.from.x) * eased,
+        y: animation.from.y + (animation.to.y - animation.from.y) * eased,
+        scale: animation.from.scale + (animation.to.scale - animation.from.scale) * eased,
+      })
+    }
     const animateExecution = this.hasRunningNodes && !this.reducedMotion
     if (animateExecution) {
       this.animationTimeMs = timestamp
@@ -1660,9 +1710,12 @@ export class CanvasRenderer {
     }
     if (this.dirty) {
       this.dirty = false
+      const started = performance.now()
       this.render()
+      this.paintEnded = performance.now()
+      this.paintDuration = this.paintEnded - started
     }
-    if (this.dirty || animateExecution) this.scheduleFrame()
+    if (this.dirty || animateExecution || this.viewportAnimation) this.scheduleFrame()
   }
 
   private refreshConnectivity(): void {

@@ -299,6 +299,155 @@ const typedLensLink = (
   typeName,
 })
 
+describe('viewport animation', () => {
+  it('coalesces costly intermediate paints without advancing the visible camera or losing the final target', () => {
+    let pending: FrameRequestCallback | undefined
+    let clock = 1000
+    let charged = false
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx, calls } = recordingCtx()
+    const fill = ctx.fillRect.bind(ctx)
+    ctx.fillRect = (...args) => {
+      fill(...args)
+      if (!charged) { clock += 40; charged = true }
+    }
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const tick = (at: number) => {
+      clock = at
+      charged = false
+      const callback = pending
+      pending = undefined
+      if (!callback) throw new Error('Expected a scheduled frame')
+      callback(at)
+    }
+    try {
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      renderer.animateViewport(() => ({ x: -100, y: -50, scale: 2 }))
+      tick(1020)
+      const visible = renderer.getViewport()
+      const paintedCalls = calls.length
+      clock = 1061
+      renderer.animateViewport(() => ({ x: -300, y: -150, scale: 4 }))
+      tick(1062)
+      expect(renderer.getViewport()).toEqual(visible)
+      expect(calls).toHaveLength(paintedCalls)
+      renderer.invalidate()
+      tick(1063)
+      expect(calls.length).toBeGreaterThan(paintedCalls)
+      expect(renderer.getViewport().scale).toBeGreaterThan(visible.scale)
+      tick(1120)
+      expect(renderer.getViewport()).toEqual({ x: -300, y: -150, scale: 4 })
+      expect(calls.length).toBeGreaterThan(paintedCalls)
+      expect(calls.filter(call => call.method === 'scale').at(-1)?.args).toEqual([4, 4])
+      expect(pending).toBeUndefined()
+      renderer.animateViewport(() => ({ x: 0, y: 0, scale: 2 }))
+      renderer.setViewport({ x: 9, y: -7, scale: 0.75 })
+      tick(1161)
+      expect(renderer.getViewport()).toEqual({ x: 9, y: -7, scale: 0.75 })
+      expect(calls.filter(call => call.method === 'scale').at(-1)?.args).toEqual([0.75, 0.75])
+      expect(pending).toBeUndefined()
+      clock = 1202
+      renderer.animateViewport(() => ({ x: 0, y: 0, scale: 2 }))
+      tick(1203)
+      expect(renderer.getViewport().scale).toBeGreaterThan(0.75)
+    } finally {
+      renderer.dispose()
+      vi.restoreAllMocks()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+  })
+
+  it('advances during flooded input with stale frame timestamps and settles the latest target within its budget', () => {
+    let pending: FrameRequestCallback | undefined
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const tick = (at: number) => {
+      clock = at
+      const callback = pending
+      pending = undefined
+      if (!callback) throw new Error('Expected a scheduled frame')
+      // Input can run after a frame's timestamp is fixed but before its callback.
+      callback(at - 7)
+    }
+    try {
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      let previous = 1
+      for (let elapsed = 1; elapsed <= 200; elapsed++) {
+        clock = 1000 + elapsed
+        renderer.animateViewport((target) => {
+          const scale = target.scale * 1.001
+          return { x: 320 * (1 - scale), y: 240 * (1 - scale), scale }
+        })
+        if (elapsed % 16 === 0) {
+          tick(clock)
+          const current = renderer.getViewport()
+          expect(current.scale).toBeGreaterThan(previous)
+          expect((320 - current.x) / current.scale).toBeCloseTo(320, 10)
+          expect((240 - current.y) / current.scale).toBeCloseTo(240, 10)
+          previous = current.scale
+        }
+      }
+      for (let elapsed = 208; elapsed <= 312; elapsed += 16) {
+        if (pending) tick(1000 + elapsed)
+      }
+      expect(renderer.getViewport().scale).toBeCloseTo(1.001 ** 200, 10)
+      expect(pending).toBeUndefined()
+    } finally {
+      renderer.dispose()
+      vi.restoreAllMocks()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+  })
+
+  it('paints intermediate frames, accumulates targets and yields to an explicit viewport', () => {
+    let pending: FrameRequestCallback | undefined
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const tick = (at: number) => {
+      clock = at
+      const callback = pending
+      pending = undefined
+      if (!callback) throw new Error('Expected a scheduled frame')
+      callback(at)
+    }
+    try {
+      renderer.setViewport({ x: 33, y: -17, scale: 1.25 })
+      renderer.animateViewport(() => ({ x: -234, y: 204, scale: 2.5 }))
+      expect(renderer.getViewport()).toEqual({ x: 33, y: -17, scale: 1.25 })
+      tick(1025)
+      const middle = renderer.getViewport()
+      expect(middle.scale).toBeGreaterThan(1.25)
+      expect(middle.scale).toBeLessThan(2.5)
+      expect((300 - middle.x) / middle.scale).toBeCloseTo((300 - 33) / 1.25)
+      expect((-238 - middle.y) / middle.scale).toBeCloseTo((-238 + 17) / 1.25)
+      expect(calls.length).toBeGreaterThan(0)
+      renderer.animateViewport((target) => ({ ...target, scale: target.scale * 1.5 }))
+      tick(1125)
+      expect(renderer.getViewport()).toEqual({ x: -234, y: 204, scale: 3.75 })
+      expect(pending).toBeUndefined()
+      renderer.animateViewport(() => ({ x: 0, y: 0, scale: 2 }))
+      renderer.setViewport({ x: 91, y: -83, scale: 0.75 })
+      tick(1300)
+      expect(renderer.getViewport()).toEqual({ x: 91, y: -83, scale: 0.75 })
+      expect(pending).toBeUndefined()
+      renderer.setReducedMotion(true)
+      renderer.animateViewport(() => ({ x: 3, y: 5, scale: 1 }))
+      expect(renderer.getViewport()).toEqual({ x: 3, y: 5, scale: 1 })
+    } finally {
+      renderer.dispose()
+      vi.restoreAllMocks()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+  })
+})
+
 describe('typed overview detail', () => {
   it('switches painted text and link controls at the shared detail boundary', () => {
     const scene = fixtureScene('clean')

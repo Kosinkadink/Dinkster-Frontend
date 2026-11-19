@@ -108,6 +108,7 @@ function interactionHarness(scene: Scene) {
     getScene: () => scene, toWorld: (x: number, y: number) => ({ x, y }),
     getViewport: () => ({ x: 0, y: 0, scale: 1 }), getToolboxLayout: () => undefined,
     getDetailLevel: () => 'controls',
+    cancelViewportAnimation: () => undefined,
     getBadges: () => ({}), setOverlay: (value: any) => overlays.push(value),
     onSceneReplaced: () => () => undefined,
   } as unknown as CanvasRenderer
