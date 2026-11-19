@@ -102,23 +102,49 @@ async function focusGraph(pane: Locator, title: string) {
 test.beforeEach(async ({ page }) => {
   // Observe actual paint calls, not registry getters, without changing the painter.
   await page.addInitScript(() => {
-    const fillRect = CanvasRenderingContext2D.prototype.fillRect
-    CanvasRenderingContext2D.prototype.fillRect = function(x, y, width, height) {
-      if (x === 0 && y === 0 && width >= this.canvas.clientWidth && height >= this.canvas.clientHeight) {
-        delete (this.canvas as HTMLCanvasElement).dataset['extensionWorld']
+    // Track the painted connection world through retained bitmap copies, not
+    // just direct text calls on the visible canvas.
+    const worlds = new WeakMap<object, string>()
+    const mark = (canvas: HTMLCanvasElement | OffscreenCanvas, world?: string) => {
+      if (world === undefined) worlds.delete(canvas)
+      else worlds.set(canvas, world)
+      if (canvas instanceof HTMLCanvasElement) {
+        if (world === undefined) delete canvas.dataset['extensionWorld']
+        else canvas.dataset['extensionWorld'] = world
       }
-      fillRect.call(this, x, y, width, height)
     }
-    const clearRect = CanvasRenderingContext2D.prototype.clearRect
-    CanvasRenderingContext2D.prototype.clearRect = function(x, y, width, height) {
-      delete (this.canvas as HTMLCanvasElement).dataset['extensionWorld']
-      clearRect.call(this, x, y, width, height)
+    for (const prototype of [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype]) {
+      const fillRect = prototype.fillRect
+      prototype.fillRect = function(x, y, width, height) {
+        if (this.canvas instanceof HTMLCanvasElement && x === 0 && y === 0 &&
+          width >= this.canvas.clientWidth && height >= this.canvas.clientHeight) mark(this.canvas)
+        fillRect.call(this, x, y, width, height)
+      }
+      const clearRect = prototype.clearRect
+      prototype.clearRect = function(x, y, width, height) {
+        mark(this.canvas)
+        clearRect.call(this, x, y, width, height)
+      }
+      const fillText = prototype.fillText
+      prototype.fillText = function(text, x, y, maxWidth) {
+        if (text.startsWith('World ')) mark(this.canvas, text)
+        if (maxWidth === undefined) fillText.call(this, text, x, y)
+        else fillText.call(this, text, x, y, maxWidth)
+      }
+      const drawImage = prototype.drawImage
+      prototype.drawImage = function(this: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, source: CanvasImageSource, ...args: number[]) {
+        const world = worlds.get(source)
+        if (world !== undefined) mark(this.canvas, world)
+        return (drawImage as (source: CanvasImageSource, ...args: number[]) => void).call(this, source, ...args)
+      } as CanvasRenderingContext2D['drawImage']
     }
-    const fillText = CanvasRenderingContext2D.prototype.fillText
-    CanvasRenderingContext2D.prototype.fillText = function(text, x, y, maxWidth) {
-      if (text.startsWith('World ')) (this.canvas as HTMLCanvasElement).dataset['extensionWorld'] = text
-      if (maxWidth === undefined) fillText.call(this, text, x, y)
-      else fillText.call(this, text, x, y, maxWidth)
+    const transfer = OffscreenCanvas.prototype.transferToImageBitmap
+    OffscreenCanvas.prototype.transferToImageBitmap = function() {
+      const image = transfer.call(this)
+      const world = worlds.get(this)
+      if (world !== undefined) worlds.set(image, world)
+      mark(this)
+      return image
     }
   })
   await page.routeWebSocket('**/ws*', () => {})
