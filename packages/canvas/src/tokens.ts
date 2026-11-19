@@ -423,6 +423,7 @@ export const canvasPaintTokens = {
   },
   widget: {
     opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    curve: { sourceRows: 2, inset: 2, minSampleHeight: 1 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -518,7 +519,7 @@ export interface DesignTokens {
   readonly fontFamily: string
   readonly fontSize: number
   readonly titleFontSize: number
-  readonly widgetRowLook: 'inset' | 'inset-raised'
+  readonly widgetRowLook: 'inset' | 'inset-raised' | 'inset-raised-collections'
   readonly badgeLayout: 'chips' | 'tabs'
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'

@@ -715,6 +715,15 @@ compares these current rows with previous all-inset paint on the same fixture;
 that comparison does not change other pages. Number paint is unchanged; this
 is not a proposed number editor or approval of its appearance.
 
+Collection widget rows proposal compares the current inset collection rows with
+raised multi-choice, list, palette and curve openers. Only that gallery page
+selects `widgetRowLook: 'inset-raised-collections'`. It uses selected, empty or
+minimal, and long or varied document values: selection counts, literal list
+values, palette swatches and counts, and sampled curves with point counts and
+interpolation. Curves require at least one point, so the minimal fixture is a
+flat one-point curve. Production defaults, other pages and editors do not use
+the proposal. Collection row look switches both paints on the same document.
+
 The Idle outline page compares Previous outline with Quieter outline (current)
 on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's

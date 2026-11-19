@@ -53,9 +53,11 @@ export async function compareCanvasFrames(
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
     widgetRowLook:
-      page === 'core-rows'
-        ? ('inset-raised' as const)
-        : defaultTokens.widgetRowLook,
+      page === 'collection-rows'
+        ? ('inset-raised-collections' as const)
+        : page === 'core-rows'
+          ? ('inset-raised' as const)
+          : defaultTokens.widgetRowLook,
     badgeLayout:
       page === 'tabs' ||
       page === 'tabs-content' ||
