@@ -429,17 +429,17 @@ test('unpinning restores whole-template tracking', async ({ page }) => {
   expect(await fwdSlots(page)).toEqual(['req', 'sub'])
 })
 
-test('generated names and custom names round-trip through document persistence', async ({ page }) => {
+test('exact ids and custom names round-trip through document persistence', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
   const item = (id: string) => panel.locator(`[data-testid=boundary-item][data-boundary-id="${id}"]`)
   const itemName = (id: string) => item(id).locator('.boundary-name')
   const firstMask = 'workflow.input.masks_m4'
 
-  await expect(itemName(firstMask)).toHaveText('Mask')
-  await expect(itemName('workflow.input.masks_m7')).toHaveText('Mask 2')
-  await expect(itemName('image_3')).toHaveText('Image')
-  await expect(itemName('MASK')).toHaveText('Mask')
-  await expect(item(firstMask).getByTestId('boundary-name-input')).toHaveAttribute('placeholder', 'Mask')
+  await expect(itemName(firstMask)).toHaveText('masks_m4')
+  await expect(itemName('workflow.input.masks_m7')).toHaveText('masks_m7')
+  await expect(itemName('image_3')).toHaveText('image_3')
+  await expect(itemName('MASK')).toHaveText('MASK')
+  await expect(item(firstMask).getByTestId('boundary-name-input')).toHaveAttribute('placeholder', 'masks_m4')
 
   await item(firstMask).scrollIntoViewIfNeeded()
   await capture(page, 'before-boundary-generated-names-wide')
@@ -467,7 +467,7 @@ test('generated names and custom names round-trip through document persistence',
 
   await blurControls(page)
   await page.keyboard.press('Control+z')
-  await expect(itemName(firstMask)).toHaveText('Mask')
+  await expect(itemName(firstMask)).toHaveText('masks_m4')
   await page.keyboard.press('Control+Shift+z')
   await expect(itemName(firstMask)).toHaveText('Subject mask')
 
@@ -489,7 +489,7 @@ test('generated names and custom names round-trip through document persistence',
   const persistedInput = item(firstMask).getByTestId('boundary-name-input')
   await persistedInput.fill('')
   await persistedInput.press('Enter')
-  await expect(itemName(firstMask)).toHaveText('Mask')
+  await expect(itemName(firstMask)).toHaveText('masks_m4')
 })
 
 test('empty and frozen states preserve inspection semantics', async ({ page }) => {
