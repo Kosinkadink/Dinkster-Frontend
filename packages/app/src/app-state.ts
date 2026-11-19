@@ -8206,7 +8206,8 @@ export class AppState {
       this.projectNeedsChecks.get(backend) === request &&
       documents.every(({ store, revision, document }) => {
         const tab = this.liveTabContinuing(store)
-        return tab !== undefined && this.backendForTab(tab) === backend && tab.store.revision === revision && tab.store.doc === document
+        return tab !== undefined && this.backendForTab(tab) === backend && tab.store.revision === revision &&
+          (tab.store.doc === document || tab.store !== store && canonicalJson(tab.store.doc) === canonicalJson(document))
       })
     if (this.projectNeedsReview.get()?.backend === backend) this.projectNeedsReview.set(undefined)
     try {

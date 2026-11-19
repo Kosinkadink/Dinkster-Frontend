@@ -87,8 +87,10 @@ are ignored. Already-installed compatible packs can be enabled only in this
 project. Missing or conflicting versions are listed separately as environment
 changes, and unreadable workflows stay visible as unknown needs. This review does
 not install or update software. It rechecks project revision and installed facts
-before an enablement write; stale reviews require a new read. Successful enablement
-shows a dismissible success toast and refreshes the scoped node catalog.
+before an enablement write; stale reviews require a new read. Transferring an
+unchanged workflow into its shared editing session preserves the review; edits
+or document replacements invalidate it. Successful enablement shows a dismissible
+success toast and refreshes the scoped node catalog.
 
 Review installation prepares an exact-version software review through the existing
 host installation API. It does not apply the plan, enable packs, or run a workflow.
