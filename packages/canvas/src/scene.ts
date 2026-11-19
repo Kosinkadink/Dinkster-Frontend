@@ -2483,7 +2483,7 @@ export function scenesEqual(a: Scene, b: Scene): boolean {
   return structuralEqual(a, b)
 }
 
-function structuralEqual(a: unknown, b: unknown): boolean {
+export function structuralEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
