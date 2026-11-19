@@ -70,8 +70,10 @@ authority.
 ## Needs and pack enablement
 
 The client reads `/api/projects/{id}/needs` without cache or acquisition consent.
-It preserves unknown workflow identities and versionless pack needs; malformed
-responses fail instead of becoming an empty needs list. Project reads reject a
+It preserves unknown workflow identities, versionless pack needs, and installed
+pack versions separately from workflow requirements. Installed packs can be disabled
+for a project; installed versions are not approval to update a shared environment.
+Malformed responses fail instead of becoming an empty needs list. Project reads reject a
 deleted project or an acknowledgment for a different ID.
 
 Extra-pack changes use the current project revision. A stale revision requires a

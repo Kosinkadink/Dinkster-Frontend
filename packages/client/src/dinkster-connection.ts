@@ -1412,6 +1412,7 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
 
 export interface ProjectNeeds {
   readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
+  readonly installed: readonly { readonly pack: string; readonly version: string | null }[]
   readonly extra: readonly string[]
   readonly unknown: readonly { readonly scope: string; readonly id: string }[]
 }
@@ -4096,13 +4097,19 @@ export class DinksterConnection {
     const body = raw as Record<string, unknown>
     if (!Array.isArray(body['packs']) || !Array.isArray(body['extra']) ||
       !body['extra'].every((pack) => typeof pack === 'string' && pack.length > 0) || !Array.isArray(body['unknown'])) throw invalid()
-    const packs = body['packs'].map((raw: unknown) => {
-      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
-      const pack = raw as Record<string, unknown>
-      if (typeof pack['pack'] !== 'string' || pack['pack'].length === 0 ||
-        !(pack['version'] === null || typeof pack['version'] === 'string' && pack['version'].length > 0)) throw invalid()
-      return { pack: pack['pack'], version: pack['version'] as string | null }
-    })
+    const readPacks = (rows: unknown): ProjectNeeds['packs'] => {
+      if (!Array.isArray(rows)) throw invalid()
+      return rows.map((raw: unknown) => {
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+        const pack = raw as Record<string, unknown>
+        if (typeof pack['pack'] !== 'string' || pack['pack'].length === 0 ||
+          !(pack['version'] === null || typeof pack['version'] === 'string' && pack['version'].length > 0)) throw invalid()
+        return { pack: pack['pack'], version: pack['version'] as string | null }
+      })
+    }
+    const packs = readPacks(body['packs'])
+    const installed = readPacks(body['installed'])
+    if (new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
     const unknown = body['unknown'].map((raw: unknown) => {
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
       const record = raw as Record<string, unknown>
@@ -4110,7 +4117,7 @@ export class DinksterConnection {
         typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
       return { scope: record['scope'], id: record['id'] }
     })
-    return { packs, extra: body['extra'] as string[], unknown }
+    return { packs, installed, extra: body['extra'] as string[], unknown }
   }
 
   renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
