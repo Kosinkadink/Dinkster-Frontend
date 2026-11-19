@@ -634,10 +634,14 @@ Pack locale labels may arrive during confirmation without invalidating its schem
 snapshot. Real registry replacements still invalidate it, even with the same hash;
 startup does not wait for locale downloads.
 Asset publication still requires its exact acknowledgment; an unavailable
-retention route never implies an empty complete set. Journal notifications coalesce
-a follow-up ownership scan without canceling an active read. A scan remains busy
-through that follow-up; its ten-second timeout applies separately to each owner
-read, not to the total number of journals. Disconnect and disposal still cancel
+retention route never implies an empty complete set. Connection startup scans the
+full journal; subsequent notifications coalesce only their changed owner keys
+without canceling an active read. Unresolved diagnostics for other keys remain
+until those owners are observed again or their journals are removed. An unreadable
+inventory requires a full scan on the next notification. These observations grant
+no adoption or release authority. A scan remains busy through its follow-up; its
+ten-second timeout applies separately to each owner read, not to the total number
+of journals. Disconnect and disposal still cancel
 the old connection's scan, and a timed-out owner remains unconfirmed. Restoration
 and crash-safe local writes remain synchronous; newly created durable holders
 are not certified by this startup check.

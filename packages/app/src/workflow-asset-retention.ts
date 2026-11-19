@@ -590,18 +590,28 @@ export async function reconcileWorkflowRetentions(
   connection: DinksterConnection,
   signal: AbortSignal,
   storage?: Pick<Storage, 'length' | 'key' | 'getItem'>,
+  recovery?: { readonly keys: ReadonlySet<string> | undefined; readonly unresolved: Set<string>; unreadable: boolean },
 ): Promise<boolean> {
   const prefix = scopedStorageKey('dinkster.workflow-retentions.')
   let resolved = true
   try {
     storage ??= globalThis.localStorage
     const entries: Array<readonly [string, string | null]> = []
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index)
-      if (key?.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+    if (recovery?.keys !== undefined) {
+      for (const key of recovery.keys) {
+        if (key.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+      }
+    } else {
+      recovery?.unresolved.clear()
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index)
+        if (key?.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+      }
     }
     for (const [key, bytes] of entries) {
       signal.throwIfAborted()
+      recovery?.unresolved.delete(key)
+      if (bytes === null && recovery?.keys !== undefined) continue
       try {
         const raw: unknown = JSON.parse(bytes ?? 'null')
         if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Invalid workflow retention intent')
@@ -646,20 +656,29 @@ export async function reconcileWorkflowRetentions(
         observationSignal.throwIfAborted()
         // Recording the matching acknowledgment does not change the intent's authority.
         // Any other concurrent edit still invalidates this observation.
-        const current = storage.getItem(key)
+        let current: string | null
+        try { current = storage.getItem(key) } catch (error) {
+          if (recovery) recovery.unreadable = true
+          throw error
+        }
         if ((current !== bytes && current !== JSON.stringify({ ...intent, acknowledgedRevision: releasing ? 2 : 1 })) ||
           !retentionMatches(observed, owner,
           releasing ? [] : intent.digests, releasing ? true : intent.complete,
-          releasing ? undefined : sourceToken as string | undefined, releasing ? 2 : 1)) resolved = false
+          releasing ? undefined : sourceToken as string | undefined, releasing ? 2 : 1)) {
+          resolved = false
+          recovery?.unresolved.add(key)
+        }
       } catch {
         resolved = false
+        recovery?.unresolved.add(key)
       }
     }
     signal.throwIfAborted()
   } catch {
+    if (recovery) recovery.unreadable = true
     return false
   }
-  return resolved
+  return resolved && (recovery === undefined || recovery.unresolved.size === 0)
 }
 
 /** Durable owners are never released merely because their caller leaves or fails. */
