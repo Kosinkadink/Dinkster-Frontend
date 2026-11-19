@@ -6,6 +6,251 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Phase-aligned graph images (2026-11-18)
+
+Development comparison, not an accepted performance improvement. Before is
+`8e6b3e9d` (extracted direct graph painter); after is `e0295030` (retained
+512-device-pixel graph tiles). X570, RTX 4090, Chromium 149 Vulkan, uncapped,
+2560x1440, 2500 ms inputs, three alternating repetitions per side. Both use
+production-optimized test-mode builds and the unchanged audit frame harness.
+The isolated CPU backend uses the hosted pin `09a19d69` and a verified sealed
+pack generation. Ordinary production entry, fast gates and kept units also
+pass; that does not establish performance acceptance.
+
+Each cell is the median of three per-run p50/p95 frame times, in milliseconds.
+Drag runs separately from pan/zoom. These are not pooled percentiles or a
+claim about display refresh rate.
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 1.5/2.0 | 4.9/10.7 | 2.6/5.0 | 6.6/10.3 | 1.5/2.1 | 4.9/11.5 |
+| 66/fit | 1.4/2.7 | 2.7/23.5 | 2.5/6.5 | 4.5/12.5 | 1.3/9.1 | 2.8/20.5 |
+| 300/read | 1.9/2.6 | 8.4/13.8 | 2.1/3.0 | 7.3/10.4 | 1.9/2.6 | 6.0/19.3 |
+| 300/fit | 3.0/11.1 | 6.2/22.7 | 2.8/6.2 | 7.2/24.0 | 3.2/12.3 | 5.8/18.8 |
+| 1200/read | 1.9/2.6 | 18.6/24.7 | 2.2/3.3 | 16.6/21.3 | 2.2/3.4 | 9.4/17.1 |
+| 1200/fit | 10.8/31.9 | 22.4/37.5 | 6.7/19.9 | 21.6/37.7 | 11.7/37.2 | 22.3/32.7 |
+
+This candidate regresses active movement despite passing retained-history
+pixel comparisons and eligible same-phase pan counting checks. Exact-phase
+and scale changes retire tiles; each missing tile invokes the graph painter.
+Counting reuse for a matching transform alone does not bound work for normal
+fractional camera input or repeated graph invalidation. This implementation
+is not ready for adoption. A separate 300-node diagnostic confirms that
+integer camera steps paint zero tiles, while fractional-phase changes repaint
+20 tiles at readable zoom and 24 at fit. All 24 actual pointer-pan samples at
+each zoom change phase and repaint graph tiles (470 and 492 graph-painter
+invocations respectively). This establishes a cache-miss mechanism on that
+input path, not an attribution of every measured frame gap.
+
+The unchanged wheel-flood probe can queue events across camera presets. Some
+input-to-render-end values reach seconds, and some subsequent fitted pan
+cells include queued work. Those values are not isolated click latency or
+proof of a specific tab-save/GC cause. The separate drag runs retain their
+existing settle and valid-movement checks. Raw cells are retained rather than
+rerun to replace unfavorable measurements.
+
+## Pixel-aligned pan reuse (2026-11-18)
+
+Aligning paint translation to physical pixels keeps the logical camera's
+fractional coordinates and avoids resampling retained images. Three new
+candidate-only repetitions use the same production build mode, hardware and
+unchanged pan/zoom harness as the preceding comparison; the earlier baseline
+cells are retained, not rerun. Zoom still rerasterizes at each new scale.
+The source remains a development candidate, not an accepted improvement.
+
+Median per-run p50/p95 times in milliseconds:
+
+| Fixture/camera | Pan frame | Pan renderer | Zoom frame | Zoom renderer |
+| --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 0.1/0.2 | 8.6/13.2 | 7.5/12.0 |
+| 66/fit | 16.0/17.6 | 0.1/0.2 | 5.0/15.0 | 4.4/13.7 |
+| 300/read | 5.0/17.7 | 0.1/0.2 | 7.9/11.7 | 7.1/10.7 |
+| 300/fit | 6.4/23.3 | 5.4/20.5 | 8.6/24.6 | 7.8/24.1 |
+| 1200/read | 14.9/17.7 | 0.1/0.2 | 16.8/22.0 | 16.2/21.0 |
+| 1200/fit | 24.3/39.5 | 19.0/33.4 | 20.5/36.8 | 20.1/36.3 |
+
+A separate controlled 300-node pointer-pan probe reduces graph-painter calls
+from 470 to 10 at readable zoom (only newly exposed tiles), and from 492 to
+zero at fit, across 24 samples per camera. Fractional camera coordinates are
+unchanged. The 66/300/1200 counting cases now require reuse on fractional pans
+as well as integer pans, and retain bitmap lifetime checks on zoom/theme/
+departure/disposal. The prior implementation fails all three new controls.
+
+Lower renderer CPU cost is not display-frame acceptance: the uncapped frame
+probe still reports gaps around 17 ms, whose initiating cause is not yet
+established. Fitted pan cells follow wheel flooding and retain the preceding
+queue-contamination limitation. Zoom remains more expensive than direct
+painting. No frame, zoom, or whole-issue target is accepted from these runs.
+
+## Tile-region scene culling (2026-11-18)
+
+Before rebuilding missing graph tiles, nodes and links are culled once to
+complete tile bounds, including bleed. Each tile retains its own exact
+painter, clipping and raster origin. The overview batching threshold still
+uses the complete scene, not the reduced candidate list. Integer/fractional
+pan reuse and bitmap retirement behavior are unchanged.
+
+One candidate production-optimized test-mode run uses the same X570 RTX 4090,
+Chromium 149 Vulkan, uncapped 2560x1440 and 2500 ms audit inputs. Before values
+below are the preceding three-run aligned medians, not new paired runs; after
+values are one run. Shared-host CPU validation overlapped this run. These
+frame p50/p95 values are reporting evidence, not causal speedup or acceptance.
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag after |
+| --- | --- | --- | --- | --- | --- |
+| 300/read | 5.0/17.7 | 5.1/17.5 | 7.9/11.7 | 6.3/11.7 | 7.1/23.7 |
+| 300/fit | 6.4/23.3 | 2.0/17.5 | 8.6/24.6 | 9.0/28.7 | 12.4/37.6 |
+| 1200/read | 14.9/17.7 | 5.9/17.4 | 16.8/22.0 | 8.6/13.9 | 13.6/17.5 |
+| 1200/fit | 24.3/39.5 | 1.1/17.4 | 20.5/36.8 | 22.0/43.6 | 27.6/64.0 |
+
+Readable pan renderer p50/p95 is 0.1/0.3 ms at both sizes. Fitted zoom/drag
+remain expensive and wheel queues contaminate later cells; the seconds-long
+input delays are not isolated click measurements. No target is accepted.
+A separate instrumented zoom probe reduces readable endpoint projections
+from about 11970 to 2955 per 300-node frame and 36480 to 3665 at 1200 nodes.
+Its full-scene control retains the preliminary culling pass, so its render
+means are not an independent baseline. The fixed 66/300/1200 tests bound
+reads of offscreen geometry as well as image copies and fractional reuse;
+the prior painter fails all three geometry bounds. Raw GPU diagnostic
+readbacks also show an initial fitted-frame mismatch in an unchanged
+control; that diagnostic is not counted as strict equivalence acceptance.
+The separate 97-case fresh-renderer browser comparison and 90 unchanged
+gallery comparisons pass. Four fractional-DPR anatomy/overview captures in
+both themes are byte-identical to the prior renderer and were inspected.
+
+## GPU frame readback control (2026-11-18)
+
+The earlier fitted-frame mismatch is reproducible without changing the
+painter, scene or camera. On the same production-optimized 1200-node fitted
+canvas, five consecutive invalidated redraws with default context options
+have adjacent RGBA channel differences of 0, 33786, 0 and 0. Chromium also
+warns about repeated readbacks. Explicitly choosing either
+`willReadFrequently: false` or `true` at initial context creation yields
+zero differences for all four adjacent comparisons, without a warning.
+Fresh full-scene and region-culled renderers also match at 300 and 1200
+nodes, with and without app layers. These controls isolate the diagnostic's
+readback-policy transition, not a culling change or a frame-time cause.
+
+The whole-frame helper now explicitly chooses `willReadFrequently: false`
+for both retained and fresh canvases. On Chromium 149 Vulkan, six execution-
+state cases fail before this setup change; all 97 cases pass after it, with
+identical zero-tolerance assertions. Production contexts are unchanged.
+These pixel controls do not accept a performance target, explain the user's
+original slow spells or replace any preceding timing sample.
+
+## Per-tile candidate binning (2026-11-18)
+
+Missing tiles receive only intersecting nodes and links, in scene order.
+Bounds are computed once per rebuild, including live offsets, resize geometry,
+paint padding and bleed. Conservative neighboring bins are checked with the
+painter's world-space comparisons so floating-point edge rounding cannot
+exclude a touched tile. Tile raster origins, clipping and transfers are unchanged.
+
+Production-optimized test-mode build, X570 RTX 4090, Chromium 149 Vulkan,
+uncapped 2560x1440, unchanged audit harness, 2500 ms inputs. Before values at
+300/1200 nodes are the single region-culling run above; the 66-node baseline
+is the earlier three-run aligned median. After is one candidate run. These
+are not paired causal estimates. CPU validation overlapped candidate timing.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 16.7/17.7 | 1.8/17.6 | 8.6/13.2 | 8.5/13.7 | not measured | 5.6/16.8 |
+| 66/fit | 16.0/17.6 | 16.8/17.5 | 5.0/15.0 | 5.6/17.6 | not measured | 3.0/24.7 |
+| 300/read | 5.1/17.5 | 3.7/17.5 | 6.3/11.7 | 5.4/13.9 | 7.1/23.7 | 8.1/24.9 |
+| 300/fit | 2.0/17.5 | 2.0/17.5 | 9.0/28.7 | 9.5/32.7 | 12.4/37.6 | 9.7/30.9 |
+| 1200/read | 5.9/17.4 | 1.3/17.5 | 8.6/13.9 | 7.1/12.2 | 13.6/17.5 | 7.7/16.7 |
+| 1200/fit | 1.1/17.4 | 3.6/17.5 | 22.0/43.6 | 22.5/48.1 | 27.6/64.0 | 25.0/64.8 |
+
+A separate same-browser instrumented comparison calls the actual preceding
+and candidate tile methods across 12 scales. Excluding the first scale,
+300-node fitted endpoint projections fall from 13624 to 570 per frame and
+node-candidate visits from 7200 to 366; at 1200 fitted they fall from 31946
+to 2280 and 16882 to 1225. Graph-painter calls remain 24 and 15 respectively.
+Synchronous fitted render means are 6.12 -> 5.02 ms at 300 nodes but
+15.95 -> 17.63 ms at 1200. Thus work counts improve without establishing
+fitted-frame speedup. Sixteen raw GPU frame comparisons across both sizes,
+readable/fitted cameras, exposed pans and zoom match the prior renderer.
+
+The fixed 66/300/1200 tests retain fractional reuse and lifetime assertions
+and bound public link-endpoint reads by the scene count plus 128. The prior
+renderer fails all three: 390>194, 1056>428 and 1956>1328. A separate boundary
+probe finds 245 missed inclusions in 5856 arithmetic-only bin checks; the
+conservative world-space check has none. The preliminary arithmetic-only
+candidate's timing and captures are retained separately, not substituted
+for final measurements. Four final anatomy/overview captures at DPR1.25
+are byte-identical to prior-renderer controls and were inspected.
+
+Readable pan renderer p50/p95 remains 0.1/0.2-0.3 ms, while frame p95 stays
+near 17.5 ms. Fitted zoom/drag remain expensive. Wheel flooding queues events
+across cells, with seconds-long input delays that are not isolated clicks;
+the preceding queue and shared-host limitations still apply. No target,
+slow-spell cause, display refresh rate or whole-issue acceptance is claimed.
+
+## Canonical uncached repaint and badge extent integration (2026-11-18)
+
+One candidate run uses the unchanged production-optimized audit harness on
+X570 RTX 4090, Chromium 149 Vulkan, uncapped 2560x1440, with 2500 ms inputs.
+The candidate includes the canonical uncached full-scene raster path and
+landed badge extent API; production badge layout remains chips. Before is
+the preceding title/palette candidate run, not a replay. These unpaired,
+shared-host observations overlap browser checks and builds; they do not
+establish a causal speedup or satisfy a performance gate.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 15.5/17.7 | 1.3/17.6 | 7.9/13.3 | 8.7/14.3 | 5.1/15.4 | 5.8/14.0 |
+| 66/fit | 2.0/17.6 | 1.4/17.5 | 5.3/16.0 | 6.3/16.5 | 2.9/22.3 | 4.1/22.8 |
+| 300/read | 6.2/17.7 | 1.1/17.5 | 5.0/12.7 | 6.6/12.9 | 7.9/23.8 | 10.4/18.7 |
+| 300/fit | 1.8/17.5 | 1.1/17.5 | 10.0/35.7 | 10.1/30.0 | 9.6/30.6 | 6.6/23.0 |
+| 1200/read | 3.1/17.6 | 1.5/17.5 | 6.0/15.8 | 7.9/12.6 | 6.4/19.2 | 7.7/15.0 |
+| 1200/fit | 1.3/17.6 | 4.0/17.6 | 19.2/43.0 | 17.2/44.3 | 24.7/51.8 | 26.0/47.4 |
+
+Readable pan renderer p50/p95 is 0.1-0.2/0.2-0.3 ms, while frame p95 remains
+17.5-17.6 ms. Fitted 1200 drag input-to-render-end p50/p95 is
+18582.5/25380.6 ms with renderer p50/p95 25.1/46.4 ms. Wheel-queued input
+contaminates that value; it is not isolated click latency or an explanation
+of the intermittent slow spells. The measured frame targets remain unmet.
+The unchanged sealed native generation verifies 42185 files with no errors.
+
+## Graph images with adopted title and palette paint (2026-11-18)
+
+The cache candidate includes the normal-width title ellipsis and per-theme
+type colors adopted in main `07018799`. One candidate run uses the unchanged audit
+harness, X570 RTX 4090, Chromium 149 Vulkan, uncapped 2560x1440 and 2500 ms
+inputs. Before is the preceding single tile-binning run, not a replay.
+These are unpaired reports, not causal speedup or target acceptance. CPU
+browser validation and capture work overlapped part of the candidate run.
+
+Frame p50/p95 in milliseconds:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 1.8/17.6 | 15.5/17.7 | 8.5/13.7 | 7.9/13.3 | 5.6/16.8 | 5.1/15.4 |
+| 66/fit | 16.8/17.5 | 2.0/17.6 | 5.6/17.6 | 5.3/16.0 | 3.0/24.7 | 2.9/22.3 |
+| 300/read | 3.7/17.5 | 6.2/17.7 | 5.4/13.9 | 5.0/12.7 | 8.1/24.9 | 7.9/23.8 |
+| 300/fit | 2.0/17.5 | 1.8/17.5 | 9.5/32.7 | 10.0/35.7 | 9.7/30.9 | 9.6/30.6 |
+| 1200/read | 1.3/17.5 | 3.1/17.6 | 7.1/12.2 | 6.0/15.8 | 7.7/16.7 | 6.4/19.2 |
+| 1200/fit | 3.6/17.5 | 1.3/17.6 | 22.5/48.1 | 19.2/43.0 | 25.0/64.8 | 24.7/51.8 |
+
+Readable-pan renderer p50/p95 remains 0.1/0.2-0.3 ms, but frame p95 remains
+17.5-17.7 ms. Wheel flooding still queues events: the final fitted drag has
+input-to-render-end p50/p95 18523.8/25119.8 ms despite renderer p50/p95
+24.3/47.3 ms. This is contaminated queued-input reporting, not isolated
+click latency or an explanation of the original intermittent slow spells.
+
+The integrated retained-history/fresh-tile comparisons pass, but an
+additional main-direct versus tiled control at physically aligned DPR1.25
+finds 785/697 different RGBA channels in dark/light anatomy and 1872/892
+in overview. Fractional-paint alignment also intentionally differs from
+main's former fractional raster origin. The aligned control still requires
+source discrimination; it is not explained away by that tradeoff. No pixel
+tolerance or assertion was relaxed, and direct painting is now checked as
+an additional independent oracle. This candidate is not ready for adoption.
+
 ## Canvas click and save reporting (2026-11-17)
 
 The reporting tools in `scripts/canvas-performance/` retain the input and
