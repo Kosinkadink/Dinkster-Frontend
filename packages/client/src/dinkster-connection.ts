@@ -1430,7 +1430,10 @@ export interface LibraryProject {
   readonly created: string
   readonly revision: number
   readonly deleted: boolean
-  readonly environment?: { readonly id: string; readonly lastSnapshot: string; readonly lastRunAt: string } | null
+  readonly environment?: { readonly id: string } & (
+    { readonly lastSnapshot: string; readonly lastRunAt: string } |
+    { readonly lastSnapshot: null; readonly lastRunAt: null }
+  ) | null
 }
 
 function decodeLibraryProject(value: unknown): LibraryProject {
@@ -1443,12 +1446,18 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     throw new Error('Malformed library project')
   }
   const environment = row['environment']
-  if (environment !== undefined && environment !== null &&
-    (typeof environment !== 'object' || Array.isArray(environment) ||
-      !['id', 'lastSnapshot', 'lastRunAt'].every((key) => {
-        const field = (environment as Record<string, unknown>)[key]
-        return typeof field === 'string' && field.length > 0
-      }))) throw new Error('Malformed library project environment')
+  if (environment !== undefined && environment !== null) {
+    if (typeof environment !== 'object' || Array.isArray(environment)) {
+      throw new Error('Malformed library project environment')
+    }
+    const binding = environment as Record<string, unknown>
+    if (typeof binding['id'] !== 'string' || binding['id'].length === 0 ||
+      !((binding['lastSnapshot'] === null && binding['lastRunAt'] === null) ||
+        (typeof binding['lastSnapshot'] === 'string' && binding['lastSnapshot'].length > 0 &&
+          typeof binding['lastRunAt'] === 'string' && binding['lastRunAt'].length > 0))) {
+      throw new Error('Malformed library project environment')
+    }
+  }
   return {
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),

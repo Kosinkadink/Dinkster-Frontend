@@ -104,6 +104,9 @@ both around the host review. A switch or snapshot change invalidates the result,
 even if installed pack versions are unchanged. A project already associated with
 another environment cannot prepare software against the running one. Reads retain
 that association and its last-run metadata; they never reassign the project.
+A selected environment with no run has both last snapshot and last-run time set
+to null. It remains associated for review checks without claiming a run occurred;
+a response with only one of these values is rejected as incomplete.
 Standalone engines report no managed identity, rather than an engine assignment
 name such as `main`.
 

@@ -3586,9 +3586,14 @@ describe('workflow library wire', () => {
     await expect(conn.activeEnvironment()).rejects.toThrow('Malformed active environment')
   })
 
-  it('reads paginated engine projects and preserves library authority during registration and rename', async () => {
+  it.each([
+    undefined,
+    null,
+    { id: 'stable-environment', lastSnapshot: '17', lastRunAt: '2026-11-19T15:00:00Z' },
+    { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
+  ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
     const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
-      environment: { id: 'stable-environment', lastSnapshot: '17', lastRunAt: '2026-11-19T15:00:00Z' } }
+      ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3651,8 +3656,14 @@ describe('workflow library wire', () => {
   it.each([
     { items: [{ id: 'p-film', name: 'Film', created: 'invalid', revision: 1, deleted: false }], cursor: null },
     { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 0, deleted: false }], cursor: null },
-    { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
-      environment: { id: 'another-environment', lastSnapshot: '3' } }], cursor: null },
+    ...[
+      { id: 'another-environment', lastSnapshot: '3' },
+      { id: 'another-environment', lastSnapshot: null, lastRunAt: '2026-11-19T15:00:00Z' },
+      { id: 'another-environment', lastSnapshot: '3', lastRunAt: null },
+      { id: '', lastSnapshot: null, lastRunAt: null },
+      { id: 'another-environment', lastSnapshot: '', lastRunAt: '2026-11-19T15:00:00Z' },
+    ].map((environment) => ({ items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      environment }], cursor: null })),
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))
