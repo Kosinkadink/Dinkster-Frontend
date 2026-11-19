@@ -3144,6 +3144,13 @@ export class AppState {
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
     registerLocaleSetting(this.settings)
     registerThemeSetting(this.settings)
+    this.settings.register({
+      id: 'diagnostics.frameRate',
+      get name() { return t('settings.diagnostics.frameRate.name') },
+      get description() { return t('settings.diagnostics.frameRate.description') },
+      type: 'boolean',
+      defaultValue: false,
+    })
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',

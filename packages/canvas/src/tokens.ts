@@ -656,7 +656,7 @@ export const defaultTokens: DesignTokens = {
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
   titleFontSize: 13,
-  widgetRowLook: 'inset',
+  widgetRowLook: 'inset-raised',
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
