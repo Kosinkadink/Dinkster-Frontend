@@ -25,15 +25,11 @@ import {
 /** Whole-frame comparisons use raw channels, without screenshot tolerances. */
 function differingPixels(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
   if (a.length !== b.length) throw new Error('Frame dimensions differ')
+  const left = new Uint32Array(a.buffer, a.byteOffset, a.byteLength / 4)
+  const right = new Uint32Array(b.buffer, b.byteOffset, b.byteLength / 4)
   let count = 0
-  for (let i = 0; i < a.length; i += 4) {
-    if (
-      a[i] !== b[i] ||
-      a[i + 1] !== b[i + 1] ||
-      a[i + 2] !== b[i + 2] ||
-      a[i + 3] !== b[i + 3]
-    )
-      count++
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) count++
   }
   return count
 }
@@ -156,8 +152,8 @@ export async function compareCanvasFrames(
     referenceTiles: number
   }[] = []
   let initial: Uint8ClampedArray | undefined
-  let corruptionDifferences = 0
-  let staleDifferences = 0
+  let lastExpected: Uint8ClampedArray | undefined
+  let lastComparable: Uint8ClampedArray | undefined
   const compare = (state: string) => {
     // A new reference renderer cannot reuse pixels or state from a prior frame.
     const full = createRenderer()
@@ -201,11 +197,8 @@ export async function compareCanvasFrames(
         referenceTiles,
       })
       initial ??= expected.slice()
-      if (initial.length === expected.length)
-        staleDifferences = differingPixels(initial, expected)
-      const corrupt = expected.slice()
-      corrupt[0] = corrupt[0]! ^ 255
-      corruptionDifferences = differingPixels(corrupt, expected)
+      if (initial.length === expected.length) lastComparable = expected
+      lastExpected = expected
     } finally {
       full.renderer.dispose()
       full.canvas.remove()
@@ -347,7 +340,13 @@ export async function compareCanvasFrames(
     candidate.canvas.style.height = `${height}px`
     compare('resize')
     compare('repeated repaint')
-    return { frames, corruptionDifferences, staleDifferences }
+    const corrupt = lastExpected!.slice()
+    corrupt[0] = corrupt[0]! ^ 255
+    return {
+      frames,
+      corruptionDifferences: differingPixels(corrupt, lastExpected!),
+      staleDifferences: differingPixels(initial!, lastComparable!),
+    }
   } finally {
     candidate.renderer.dispose()
     OffscreenCanvas.prototype.transferToImageBitmap = transfer
