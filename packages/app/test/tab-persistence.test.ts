@@ -150,7 +150,7 @@ describe('open-tab persistence', () => {
       .toContain('late-workspace-admission')
   })
 
-  it('settles local document ownership after a peer supersedes its pending recovery stage', async () => {
+  it.each(['network', 'publication lock'] as const)('settles local document ownership after a peer supersedes its pending recovery stage during %s', async (boundary) => {
     const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0,
       nodes: { n0: { ...seedBasic.graphs.g0.nodes.n0, type: 'X', values: {} } }, links: {} } } }
     localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
@@ -186,16 +186,37 @@ describe('open-tab persistence', () => {
       graphId: 'g0', nodeId: 'n0', title: 'Changed document',
     } })).ok).toBe(true)
     hold = true
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    let holdPublication = false
+    let releasePublication: (() => void) | undefined
+    if (boundary === 'publication lock') {
+      Object.defineProperty(globalThis.navigator, 'locks', {
+        configurable: true,
+        value: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
+          if (holdPublication) {
+            holdPublication = false
+            return new Promise<unknown>((resolve) => { releasePublication = () => resolve(callback()) })
+          }
+          return Promise.resolve(callback())
+        } },
+      })
+    }
     app.flushPersistTabs(true)
     await vi.advanceTimersByTimeAsync(500)
     expect(acknowledge).toBeDefined()
-    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
     const pending = JSON.parse(localStorage.getItem(key)!)
     expect(pending.assetRetention.acknowledged).toBe(false)
+    if (boundary === 'publication lock') {
+      holdPublication = true
+      acknowledge!()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(releasePublication).toBeDefined()
+    }
     const peer = { ...pending, stageId: 'peer-document-stage',
       assetRetention: { stageId: 'peer-retention-stage', acknowledged: true, complete: true, owners: [] } }
     localStorage.setItem(key, JSON.stringify(peer))
-    acknowledge!()
+    if (boundary === 'network') acknowledge!()
+    else releasePublication!()
     await vi.advanceTimersByTimeAsync(5000)
     expect(app.retentionActivity().incompleteSlots).toEqual([])
     expect(Object.values(app.retentionActivity())

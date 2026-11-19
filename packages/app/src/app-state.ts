@@ -4169,15 +4169,16 @@ export class AppState {
       } })
       const publish = (): string | undefined => {
         const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
-        if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
-          storage.getItem(key) !== pending || reusable.some((owner, index) => {
+        const current = !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
+          !reusable.some((owner, index) => {
             if (owner === undefined || owners[index] !== owner.retained) return false
             const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
             return intent?.acknowledgedRevision !== owner.retained.revision || intent.releaseRevision !== undefined
-          }) || sources.some(({ backend, registry, generation, tab }) =>
-            !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
-            this.assetConnectionGenerations.get(backend.connection) !== generation ||
-            (tab !== undefined && this.backendForTab(tab) !== backend))) {
+          }) && sources.every(({ backend, registry, generation, tab }) =>
+            this.backends.get().includes(backend) && backend.registry.get() === registry &&
+            this.assetConnectionGenerations.get(backend.connection) === generation &&
+            (tab === undefined || this.backendForTab(tab) === backend))
+        if (!current || storage.getItem(key) !== pending) {
           const slot = this.persistedWorkflowSlots.get(key)
           if (slot === undefined) {
             const canonical = this.persistedWorkflowSlots.get(tabsKey())
@@ -4185,7 +4186,12 @@ export class AppState {
               canonical?.complete && storage.getItem(tabsKey()) === canonical.raw ? canonical.owners : [])
             return undefined
           }
-          this.persistedWorkflowSlots.set(key, { raw: slot.raw, complete: slot.raw !== pending && slot.complete,
+          // A peer can displace the stage while this publication waits for its
+          // lock. Acknowledge only our finished local inventory, not peer bytes.
+          const settled = current && key.startsWith(documentCandidatePrefix()) && complete
+          this.persistedWorkflowSlots.set(key, {
+            raw: slot.raw === pending && settled ? acknowledged : slot.raw,
+            complete: slot.raw === pending ? settled : slot.complete,
             owners: [...new Set([...slot.owners, ...previousOwners]), ...replacements] })
           return undefined
         }
