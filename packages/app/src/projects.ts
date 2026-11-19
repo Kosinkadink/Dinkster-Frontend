@@ -23,6 +23,8 @@
  * reloads the window.
  */
 
+import type { DinksterConnection } from '@dinkster/client'
+
 export const DEFAULT_PROJECT_ID = 'default'
 export const PROJECTS_KEY = 'dinkster.projects'
 export const PROJECT_URL_PARAM = 'dinksterProject'
@@ -49,7 +51,7 @@ export function validProjectId(value: unknown): value is string {
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 
-function readEnvelope(storage: StorageLike | undefined): ProjectsEnvelope {
+function readEnvelope(storage: Pick<Storage, 'getItem'> | undefined): ProjectsEnvelope {
   try {
     const parsed = JSON.parse(storage?.getItem(PROJECTS_KEY) ?? 'null') as Partial<ProjectsEnvelope> | null
     if (parsed?.v !== 1 || !Array.isArray(parsed.projects)) return { v: 1, projects: [] }
@@ -78,7 +80,7 @@ function writeEnvelope(envelope: ProjectsEnvelope, storage: StorageLike | undefi
 }
 
 /** Every project, default first. The default is synthesized, never stored. */
-export function listProjects(storage: StorageLike | undefined = globalThis.localStorage): readonly ProjectDescriptor[] {
+export function listProjects(storage: Pick<Storage, 'getItem'> | undefined = globalThis.localStorage): readonly ProjectDescriptor[] {
   const envelope = readEnvelope(storage)
   return [
     { id: DEFAULT_PROJECT_ID, name: envelope.defaultName ?? DEFAULT_PROJECT_NAME, createdAt: 0 },
@@ -117,6 +119,34 @@ export function renameProject(
     ...envelope,
     projects: envelope.projects.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
   }, storage)
+}
+
+/** Keep the browser registry intact until every idempotent registration acknowledges. */
+export async function migrateBrowserProjects(
+  connection: Pick<DinksterConnection, 'registerProject'>,
+  storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined = globalThis.localStorage,
+  signal?: AbortSignal,
+): Promise<void> {
+  const original = storage?.getItem(PROJECTS_KEY)
+  if (original === undefined || original === null) return
+  // Unreadable envelopes remain available for recovery instead of being retired.
+  const parsed: unknown = JSON.parse(original)
+  if (typeof parsed !== 'object' || parsed === null ||
+    (parsed as Partial<ProjectsEnvelope>).v !== 1 || !Array.isArray((parsed as Partial<ProjectsEnvelope>).projects)) {
+    throw new Error('Browser project list is unreadable')
+  }
+  const projects = listProjects(storage)
+  const hasUnreadableProjects = projects.length - 1 !== (parsed as ProjectsEnvelope).projects.length
+  for (const project of projects) {
+    signal?.throwIfAborted()
+    await connection.registerProject(project.id, project.name, signal)
+  }
+  signal?.throwIfAborted()
+  if (hasUnreadableProjects) throw new Error('Some browser projects are unreadable. The original list was kept.')
+  if (storage?.getItem(PROJECTS_KEY) !== original) {
+    throw new Error('Browser project list changed during registration. Reconnect to finish.')
+  }
+  storage?.removeItem(PROJECTS_KEY)
 }
 
 // ---------------------------------------------------------------------------
