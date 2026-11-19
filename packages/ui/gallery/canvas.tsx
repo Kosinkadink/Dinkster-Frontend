@@ -62,7 +62,11 @@ export function CanvasGallery() {
     const currentBoundaryNames = boundaryNames()
     const currentTabLook = tabLook()
     const currentTabSize = tabSize()
-    const tabsPage = currentPage === 'tabs' || currentPage === 'tabs-content'
+    const tabsPage =
+      currentPage === 'tabs' ||
+      currentPage === 'tabs-content' ||
+      currentPage === 'run-editable' ||
+      currentPage === 'run-frozen'
     document.documentElement.dataset.theme = currentTheme
     let disposed = false
     let renderer: CanvasRenderer | undefined
@@ -393,7 +397,23 @@ export function CanvasGallery() {
           and other gallery pages keep ellipsis.
         </p>
       </Show>
-      <Show when={page() === 'tabs' || page() === 'tabs-content'}>
+      <Show when={page() === 'run-editable' || page() === 'run-frozen'}>
+        <p class="dinkster-description">
+          Gallery-only run presentation. The editable workflow shows running and
+          failed nodes only; the frozen run shows every recorded state.
+          Collapsed nodes aggregate their occurrences before filtering. Nodes
+          without execution stay unmarked. These pages do not change production
+          run paint; tab dimensions remain an adjustable, unapproved proposal.
+        </p>
+      </Show>
+      <Show
+        when={
+          page() === 'tabs' ||
+          page() === 'tabs-content' ||
+          page() === 'run-editable' ||
+          page() === 'run-frozen'
+        }
+      >
         <ProductField label="Badge layout">
           {(attributes) => (
             <ProductSelect

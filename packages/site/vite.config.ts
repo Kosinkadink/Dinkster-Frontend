@@ -13,6 +13,7 @@ export default defineConfig({
         'account-view': 'src/account.tsx',
         authorization: 'src/authorization.tsx',
         about: 'src/about.tsx',
+        'desktop-library': 'src/desktop-library.tsx',
       },
       preserveEntrySignatures: 'strict',
       output: {

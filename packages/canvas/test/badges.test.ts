@@ -14,7 +14,9 @@ import {
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
 import { badgeRect, BYPASSED_BADGE, ERROR_BADGE, executionErrorBadge, hitTestBadge, layoutNodeBadges, nodeBadgeBounds, LOG_INFO_BADGE, MUTED_BADGE, SUBGRAPH_BADGE, type BadgeMap, type NodeBadge } from '../src/badges.js'
-import { buildScene, type Scene } from '../src/scene.js'
+import { buildScene, nodeStatesForGraph, type Scene } from '../src/scene.js'
+import { executionNodePresentation } from '../src/badges.js'
+import type { NodeProgress } from '@dinkster/core'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -35,6 +37,69 @@ function sceneOf(workflow: string, graphId = 'g0'): Scene {
     widgetMeasure,
   })
 }
+
+describe('execution node presentation', () => {
+  const projected: Record<string, NodeProgress> = {
+    queued: { state: 'pending' },
+    active: { state: 'running', value: 0.37, max: 80 },
+    finished: { state: 'done' },
+    reused: { state: 'cached' },
+    omitted: { state: 'skipped' },
+    failed: { state: 'error' },
+  }
+
+  it('keeps only running and failed paint in editable workflows without changing progress', () => {
+    const presentation = executionNodePresentation(projected, false, defaultTokens)
+    expect(presentation.states).toEqual({
+      active: { state: 'running', value: 0.37, max: 80 },
+      failed: { state: 'error' },
+    })
+    expect(Object.keys(presentation.badges)).toEqual(['active', 'failed'])
+    expect(presentation.badges.active).toEqual([expect.objectContaining({
+      glyph: 'Running', placement: 'below', icon: 'play',
+      color: defaultTokens.stateColors.running,
+    })])
+    expect(presentation.badges.failed).toEqual([expect.objectContaining({
+      glyph: 'Failed', placement: 'below', icon: 'triangle-alert',
+      color: defaultTokens.stateColors.error,
+    })])
+    expect(Object.keys(projected)).toHaveLength(6)
+  })
+
+  it('keeps every frozen state with its corresponding bottom label and theme paint', () => {
+    const tokens = {
+      ...defaultTokens,
+      stateColors: { pending: 'queued-paint', running: 'running-paint', done: 'done-paint', cached: 'cached-paint', skipped: 'skipped-paint', error: 'error-paint' },
+    }
+    const presentation = executionNodePresentation(projected, true, tokens)
+    expect(presentation.states).toEqual(projected)
+    expect(Object.fromEntries(Object.entries(presentation.badges).map(([id, badges]) =>
+      [id, badges.map((badge) => [badge.glyph, badge.placement, badge.icon, badge.color])],
+    ))).toEqual({
+      queued: [['Queued', 'below', 'clock', 'queued-paint']],
+      active: [['Running', 'below', 'play', 'running-paint']],
+      finished: [['Finished', 'below', 'check', 'done-paint']],
+      reused: [['Cached', 'below', 'database', 'cached-paint']],
+      omitted: [['Skipped', 'below', 'ban', 'skipped-paint']],
+      failed: [['Failed', 'below', 'triangle-alert', 'error-paint']],
+    })
+    expect(executionNodePresentation({}, true, defaultTokens)).toEqual({ states: {}, badges: {} })
+    expect(executionNodePresentation({}, false, defaultTokens)).toEqual({ states: {}, badges: {} })
+  })
+
+  it('filters collapsed occurrences after severity aggregation and running progress averaging', () => {
+    const scene = sceneOf('exec-subgraph')
+    for (const [runtime, expected] of [
+      [{ a: { state: 'done', value: 1 }, b: { state: 'running', value: 0.2 }, c: { state: 'running', value: 0.6 } }, { state: 'running', value: 0.4 }],
+      [{ a: { state: 'done' }, b: { state: 'error' }, c: { state: 'running', value: 0.6 } }, { state: 'error' }],
+    ] as const) {
+      const mapped = nodeStatesForGraph(runtime, scene, (id) => id === 'n0' ? ['a', 'b', 'c'] : [])
+      const presentation = executionNodePresentation(mapped, false, defaultTokens)
+      expect(presentation.states).toEqual({ n0: expected })
+      expect(Object.keys(presentation.badges)).toEqual(['n0'])
+    }
+  })
+})
 
 describe('attached tab geometry', () => {
   const scene = sceneOf('exec-basic')

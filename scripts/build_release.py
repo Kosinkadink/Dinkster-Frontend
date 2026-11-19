@@ -79,6 +79,8 @@ def build(
         "authorization.html",
         "about.html",
         "about.js",
+        "desktop-library.html",
+        "desktop-library.js",
         "account-view.js",
         "authorization.js",
         "manifest.json",
