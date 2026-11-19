@@ -6,9 +6,11 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { CircleAlert, type LucideIcon } from 'lucide-solid'
+import { ChevronDown, CircleAlert, type LucideIcon } from 'lucide-solid'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
+import githubMark from '../../../branding/providers/github-mark.svg?url'
+import googleMark from '../../../branding/providers/google-mark.svg?url'
 
 export type ProductRole = keyof typeof rules.buttonRoles
 export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
@@ -104,6 +106,27 @@ export function ProductButton(
   )
 }
 
+export function ProductProviderButton(
+  props: ButtonAttributes & {
+    provider: 'github' | 'google'
+    pending?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, ['provider', 'children'])
+  return (
+    <div class="dinkster-provider">
+      <ProductButton {...button}>
+        <img
+          class="dinkster-provider-logo"
+          src={local.provider === 'github' ? githubMark : googleMark}
+          alt=""
+        />
+        {local.children}
+      </ProductButton>
+    </div>
+  )
+}
+
 export function ProductIconButton(
   props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
     label: string
@@ -167,7 +190,12 @@ export function ProductTextArea(
 export function ProductSelect(
   props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
 ) {
-  return <select {...props} class="dinkster-input" />
+  return (
+    <div class="dinkster-select">
+      <select {...props} class="dinkster-input" />
+      <ProductIcon icon={ChevronDown} />
+    </div>
+  )
 }
 
 export function ProductCheckbox(
