@@ -17,7 +17,7 @@ beforeAll(() => {
 })
 afterAll(() => vi.unstubAllGlobals())
 
-function fakeCtx() {
+function fakeCtx(charWidth = 6) {
   const texts: string[] = []
   const textCalls: Array<{ text: string; x: number; y: number; align: CanvasTextAlign; fill: string; font: string }> = []
   const clips: Array<{ x: number; y: number; width: number; height: number }> = []
@@ -51,7 +51,7 @@ function fakeCtx() {
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
-    measureText: (t: string) => ({ width: t.length * 6 }),
+    measureText: (t: string) => ({ width: t.length * charWidth }),
     fillText(text: string, x: number, y: number) {
       texts.push(text)
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
@@ -383,6 +383,7 @@ describe('registry painter label/value split', () => {
 
   it.each([
     { look: 'inset' as const, width: 112 },
+    { look: 'inset-raised' as const, width: 121 },
     { look: 'inset-raised' as const, width: 160 },
   ])('keeps a short ASSET placeholder whole with $look controls and a long label', ({ look, width }) => {
     const tokens = { ...defaultTokens, widgetRowLook: look }
@@ -400,7 +401,7 @@ describe('registry painter label/value split', () => {
       kind: (type) => type === 'ASSET' ? assetKind : undefined,
       viewsFor: (type) => type === 'ASSET' ? [assetView] : [],
     }
-    const painted = fakeCtx()
+    const painted = fakeCtx(width === 121 ? 6.05 : 6)
     createRegistryPainter(assetRegistry)({
       ctx: painted.ctx,
       row: {
@@ -410,7 +411,7 @@ describe('registry painter label/value split', () => {
       value: null, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
     })
     expect(painted.texts).toContain('no asset')
-    expect(painted.texts[0]).toMatch(/\.\.\.$/)
+    if (width !== 121) expect(painted.texts[0]).toMatch(/\.\.\.$/)
     const placeholder = painted.textCalls.find((call) => call.text === 'no asset')!
     expect(placeholder.fill).toBe(defaultTokens.colors.label)
     expect(placeholder.font).toContain('italic')
