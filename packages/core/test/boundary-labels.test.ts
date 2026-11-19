@@ -9,16 +9,16 @@ const item = (id: string, port = id, displayName?: string): BoundaryItem => ({
 })
 
 describe('generated boundary labels', () => {
-  it('hides dynamic member and collision suffixes and disambiguates by stable order', () => {
+  it('preserves dynamic member and collision suffixes', () => {
     const items = [
       item('masks_m4'),
       item('masks_m7'),
       item('image_3'),
     ]
-    expect([...defaultBoundaryLabels(items).values()]).toEqual(['Mask', 'Mask 2', 'Image'])
+    expect([...defaultBoundaryLabels(items).values()]).toEqual(['masks_m4', 'masks_m7', 'image_3'])
   })
 
-  it('humanizes raw type-like and implementation-style port ids', () => {
+  it('preserves binding ids independently of interface ids and display names', () => {
     const items = [
       item('raw', 'MASK'),
       item('prompt', 'positive_prompt'),
@@ -26,12 +26,12 @@ describe('generated boundary labels', () => {
       item('spaced-member', 'Masks M4'),
       item('spaced-ordinal', 'Image 3'),
     ]
-    expect([...defaultBoundaryLabels(items).values()]).toEqual(['Mask', 'Positive prompt', 'VAE', 'Mask 2', 'Image'])
+    expect([...defaultBoundaryLabels(items).values()]).toEqual(['MASK', 'positive_prompt', 'VAE', 'Masks M4', 'Image 3'])
   })
 
   it('names unattached slots from their stable interface ids', () => {
     const unattached: BoundaryItem = { id: 'unused_input', binds: { kind: 'unbound', type: { kind: 'concrete', name: 'FLOAT' } } }
-    expect(defaultBoundaryLabels([unattached]).get(unattached.id)).toBe('Unused input')
+    expect(defaultBoundaryLabels([unattached]).get(unattached.id)).toBe('unused_input')
   })
 })
 

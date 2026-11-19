@@ -22,11 +22,7 @@ beforeAll(() => {
   vi.stubGlobal('Path2D', class Path2D {
     constructor(readonly d: string) {}
   })
-  vi.stubGlobal('OffscreenCanvas', class OffscreenCanvas {
-    readonly recording = recordingCtx()
-    constructor(readonly width: number, readonly height: number) {}
-    getContext() { return this.recording.ctx }
-  })
+  vi.stubGlobal('OffscreenCanvas', undefined)
 })
 afterAll(() => {
   vi.unstubAllGlobals()
@@ -118,7 +114,12 @@ function fakeCanvas(ctx: CanvasRenderingContext2D): HTMLCanvasElement {
     clientHeight: 1200,
     width: 0,
     height: 0,
+    ownerDocument: { createElement: () => {
+      const recording = recordingCtx()
+      return { width: 0, height: 0, recording, getContext: () => recording.ctx }
+    } },
   }
+  Object.assign(ctx, { canvas })
   return canvas as unknown as HTMLCanvasElement
 }
 
@@ -132,7 +133,7 @@ function mutableCanvas(ctx: CanvasRenderingContext2D, clientWidth: number, clien
   let width = 0
   let height = 0
   const canvas = {
-    getContext: () => ctx,
+    ...fakeCanvas(ctx),
     get clientWidth() { return size.clientWidth },
     get clientHeight() { return size.clientHeight },
     get width() { return width },
@@ -446,6 +447,101 @@ describe('link midpoint affordance', () => {
     )).toBe(false)
     // The name label still marks the midpoint.
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'latents')).toBe(true)
+  })
+})
+
+describe('graph image reuse', () => {
+  it.each([66, 300, 1200])('reuses camera-only images for %i nodes and retires invalidated or departed images', (count) => {
+    const fallback = globalThis.OffscreenCanvas
+    const images: { close: ReturnType<typeof vi.fn> }[] = []
+    const painted = recordingCtx()
+    vi.stubGlobal('OffscreenCanvas', class {
+      width = 0
+      height = 0
+      getContext() { return painted.ctx }
+      transferToImageBitmap() {
+        const image = { close: vi.fn() }
+        images.push(image)
+        return image
+      }
+    })
+    const output = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(output.ctx), defaultTokens)
+    try {
+      const base = fixtureScene('clean')
+      const node = base.nodes[0]!
+      let offscreenLayoutReads = 0
+      let linkEndpointReads = 0
+      renderer.setScene({
+        ...base,
+        nodes: Array.from({ length: count }, (_, i) => ({
+          ...node,
+          id: `cached-${i}`,
+          x: i % 20 * 320,
+          y: Math.floor(i / 20) * 180,
+          get layout() {
+            if (this.x > 4096) offscreenLayoutReads++
+            return node.layout
+          },
+        })),
+        links: Array.from({ length: count }, (_, i) => ({
+          ...typedLensLink(`cached-link-${i}`, 'FLOAT', i % 20 * 320 + 10, Math.floor(i / 20) * 180 + 10, i % 20 * 320 + 60, Math.floor(i / 20) * 180 + 10),
+          get x1() {
+            linkEndpointReads++
+            return i % 20 * 320 + 10
+          },
+        })),
+      })
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      offscreenLayoutReads = 0
+      linkEndpointReads = 0
+      renderer.renderNow()
+      // Geometry is inspected once for binning, then only in intersecting tiles.
+      expect(offscreenLayoutReads).toBeLessThanOrEqual(count)
+      expect(linkEndpointReads).toBeLessThanOrEqual(count + 128)
+      const initial = images.length
+      expect(initial).toBeGreaterThan(0)
+      expect(painted.calls.some((call) => call.method === 'fillText')).toBe(true)
+      painted.calls.length = 0
+      output.calls.length = 0
+      renderer.setViewport({ x: -1, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(images).toHaveLength(initial)
+      expect(painted.calls).toHaveLength(0)
+      expect(output.calls.filter((call) => call.method === 'drawImage')).toHaveLength(initial)
+      expect(initial).toBeLessThanOrEqual(12)
+
+      renderer.setViewport({ x: -513, y: -1, scale: 1 })
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(initial)
+      expect(images.slice(0, initial).some((image) => image.close.mock.calls.length === 1)).toBe(true)
+      const beforeTheme = images.length
+      renderer.setColors(canvasColorsForTheme('light'))
+      expect(images.every((image) => image.close.mock.calls.length === 1)).toBe(true)
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(beforeTheme)
+
+      const beforePhase = images.length
+      painted.calls.length = 0
+      for (const [x, y] of [[-513.25, -1.25], [-513.75, -1.75], [-514.125, -2.125]] as const) {
+        output.calls.length = 0
+        renderer.setViewport({ x, y, scale: 1 })
+        renderer.renderNow()
+        expect(renderer.getViewport()).toEqual({ x, y, scale: 1 })
+        expect(images).toHaveLength(beforePhase)
+        expect(painted.calls).toHaveLength(0)
+        expect(output.calls.filter((call) => call.method === 'drawImage').length).toBeLessThanOrEqual(12)
+      }
+      const beforeZoom = images.length
+      renderer.setViewport({ x: -513.25, y: -1, scale: 1.1 })
+      renderer.renderNow()
+      expect(images.length).toBeGreaterThan(beforeZoom)
+      expect(images.slice(0, beforeZoom).every((image) => image.close.mock.calls.length === 1)).toBe(true)
+    } finally {
+      renderer.dispose()
+      vi.stubGlobal('OffscreenCanvas', fallback)
+    }
+    expect(images.every((image) => image.close.mock.calls.length === 1)).toBe(true)
   })
 })
 

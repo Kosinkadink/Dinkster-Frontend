@@ -26,12 +26,14 @@ An information badge highlights the Boundary tab while its editor is available;
 the badge clears after navigating back out of the definition. The badge follows
 the tab when it is moved to another dock zone, floated, or opened in a window.
 
-Each item shows its generated name, canvas destination, binding kind, and
-region role when applicable. Generated names prefer meaningful schema labels,
-humanize type-like labels, remove implementation suffixes such as `_m4` and
-`_3`, and number repeated names in boundary order. The **Display name** field
-sets a user-defined name shared by the interior boundary panel and every
-collapsed occurrence; clearing it restores the generated name. Names persist
+Each item shows its name, canvas destination, binding kind, and region role
+when applicable. Names prefer an explicit boundary display name, then the
+bound schema's display name, then the bound port or widget tap id as written.
+Case, punctuation, member suffixes and uppercase output type labels are
+preserved; repeated labels are not numbered. Unattached and literal-source
+slots fall back to their interface ids. The **Display name** field sets a
+user-defined name shared by the interior boundary panel and every collapsed
+occurrence; clearing it restores the schema name or exact binding id. Names persist
 through save/load, copy/paste, and undo/redo. **Show** uses the standard
 diagnostic focus route to select and center the destination node without
 changing the workflow. Long identities wrap, and the panel remains vertically

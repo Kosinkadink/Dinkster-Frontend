@@ -685,6 +685,13 @@ app. Title placement, available width and overview title painting are unchanged.
 The canvas gallery loads its regular, semibold and italic faces before measuring
 or painting, so a cold page and a return from a comparison use the same glyphs.
 
+Subgraph names compares previous generated names with production ids as
+written in the interior Inputs/Outputs panels and the collapsed occurrence.
+The default gallery document uses production derivation without display-name
+overrides for ids. Exact case, underscores, member suffixes, custom names and
+uppercase unnamed output types pass through the real schema/scene builder.
+Only the previous-name comparison stages historical labels as explicit names.
+
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
 Intentional paint changes include reviewed picture differences; token-only

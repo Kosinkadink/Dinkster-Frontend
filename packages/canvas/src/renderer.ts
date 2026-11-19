@@ -834,6 +834,9 @@ export class CanvasRenderer {
   private reducedMotion = false
   private animationTimeMs = 0
   private previewChecker: CanvasPattern | null | undefined
+  private readonly graphTiles = new Map<string, ImageBitmap>()
+  private graphTileTransform = ''
+  private graphTileSurface: OffscreenCanvas | undefined
   private canvasLayers: readonly CanvasLayerContribution[] = []
   private canvasLayerNodes: readonly CanvasLayerNode[] = []
   private canvasLayerError: (id: string, error: unknown) => void = () => {}
@@ -1422,7 +1425,8 @@ export class CanvasRenderer {
 
   setViewport(viewport: Viewport): void {
     this.viewport = viewport
-    this.invalidate()
+    this.dirty = true
+    this.scheduleFrame()
     for (const cb of this.viewportListeners) cb(viewport)
   }
 
@@ -1436,7 +1440,14 @@ export class CanvasRenderer {
     return this.viewport
   }
 
+  private clearGraphTiles(): void {
+    for (const tile of this.graphTiles.values()) tile.close()
+    this.graphTiles.clear()
+    this.graphTileTransform = ''
+  }
+
   invalidate(): void {
+    this.clearGraphTiles()
     this.dirty = true
     this.scheduleFrame()
   }
@@ -1482,6 +1493,8 @@ export class CanvasRenderer {
     this.rafId = undefined
     this.sceneReplacedListeners.clear()
     this.viewportListeners.clear()
+    this.clearGraphTiles()
+    this.graphTileSurface = undefined
   }
 
   private scheduleFrame(): void {
@@ -1587,19 +1600,203 @@ export class CanvasRenderer {
     ctx.fillStyle = t.colors.canvasBackground
     ctx.fillRect(0, 0, w, h)
 
-    const { x: vx, y: vy, scale } = this.viewport
+    const { scale } = this.viewport
+    // Align paint, not the logical camera, to physical pixels so camera-only
+    // translation preserves sharp retained imagery without bitmap resampling.
+    const vx = Math.round(this.viewport.x * pixelWidth / w) / (pixelWidth / w)
+    const vy = Math.round(this.viewport.y * pixelHeight / h) / (pixelHeight / h)
     ctx.translate(vx, vy)
     ctx.scale(scale, scale)
+
+    // Visible world rect for culling.
+    const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
+    this.drawCanvasLayers('background', ctx, view, scale)
+    if (
+      typeof OffscreenCanvas !== 'undefined' &&
+      typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
+      !this.hasRunningNodes
+    ) {
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      this.drawGraphTiles(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
+      ctx.restore()
+    } else if (typeof OffscreenCanvas !== 'undefined' && !this.hasRunningNodes) {
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      this.drawGraphUncached(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
+      ctx.restore()
+    } else {
+      this.drawGraph(ctx, view, scale)
+    }
+
+    const tl = this.getToolboxLayout()
+    if (tl) this.drawToolbox(ctx, tl)
+    this.drawTypeAdornments(ctx, view)
+    this.drawPresence(ctx, scale)
+    this.drawCanvasLayers('foreground', ctx, view, scale)
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+  }
+
+  /** Full-scene repaints share the retained images' raster origins and alpha composition, not their candidate bins or pixels. */
+  private drawGraphUncached(
+    ctx: CanvasRenderingContext2D,
+    pixelWidth: number,
+    pixelHeight: number,
+    densityX: number,
+    densityY: number,
+  ): void {
+    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    const { x, y, scale } = this.viewport
+    const pixelX = Math.round(x * densityX)
+    const pixelY = Math.round(y * densityY)
+    const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
+    for (let row = Math.floor(-pixelY / size); row < Math.ceil((pixelHeight - pixelY) / size); row++) {
+      for (let column = Math.floor(-pixelX / size); column < Math.ceil((pixelWidth - pixelX) / size); column++) {
+        surface.width = surface.height = size + bleed * 2
+        const target = surface.getContext('2d')! as unknown as CanvasRenderingContext2D
+        const originX = -column * size + bleed
+        const originY = -row * size + bleed
+        target.setTransform(densityX * scale, 0, 0, densityY * scale, originX, originY)
+        this.drawGraph(target, {
+          x: -originX / (densityX * scale),
+          y: -originY / (densityY * scale),
+          w: (size + bleed * 2) / (densityX * scale),
+          h: (size + bleed * 2) / (densityY * scale),
+        }, scale)
+        ctx.drawImage(surface, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
+      }
+    }
+  }
+
+  private drawGraphTiles(
+    ctx: CanvasRenderingContext2D,
+    pixelWidth: number,
+    pixelHeight: number,
+    densityX: number,
+    densityY: number,
+  ): void {
+    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    const { x, y, scale } = this.viewport
+    const pixelX = Math.round(x * densityX)
+    const pixelY = Math.round(y * densityY)
+    const transform = `${scale}/${densityX}/${densityY}`
+    if (transform !== this.graphTileTransform) {
+      this.clearGraphTiles()
+      this.graphTileTransform = transform
+    }
+    const used = new Set<string>()
+    const firstColumn = Math.floor(-pixelX / size)
+    const lastColumn = Math.ceil((pixelWidth - pixelX) / size) - 1
+    const firstRow = Math.floor(-pixelY / size)
+    const lastRow = Math.ceil((pixelHeight - pixelY) / size) - 1
+    type TileScene = { nodes: SceneNode[]; links: Scene['links'][number][] }
+    let scenes: Map<string, TileScene> | undefined
+    for (let row = firstRow; row <= lastRow; row++) {
+      for (let column = firstColumn; column <= lastColumn; column++) {
+        const key = `${column}/${row}`
+        used.add(key)
+        let tile = this.graphTiles.get(key)
+        if (tile === undefined) {
+          if (scenes === undefined) {
+            scenes = new Map()
+            for (let r = firstRow; r <= lastRow; r++) {
+              for (let c = firstColumn; c <= lastColumn; c++) {
+                const id = `${c}/${r}`
+                if (!this.graphTiles.has(id)) scenes.set(id, { nodes: [], links: [] })
+              }
+            }
+            // Bin once, including paint padding and bleed. Each tile keeps its
+            // canonical origin, clipping and original scene order.
+            const assign = (bounds: ReturnType<typeof linkBounds>, append: (scene: TileScene) => void) => {
+              // Include neighboring bins before applying the painter's exact
+              // world-space comparisons: multiplication can round an edge out.
+              const left = Math.max(firstColumn, Math.floor((bounds.minX * densityX * scale - bleed) / size) - 1)
+              const right = Math.min(lastColumn, Math.floor((bounds.maxX * densityX * scale + bleed) / size) + 1)
+              const top = Math.max(firstRow, Math.floor((bounds.minY * densityY * scale - bleed) / size) - 1)
+              const bottom = Math.min(lastRow, Math.floor((bounds.maxY * densityY * scale + bleed) / size) + 1)
+              for (let r = top; r <= bottom; r++) {
+                for (let c = left; c <= right; c++) {
+                  const scene = scenes!.get(`${c}/${r}`)
+                  if (!scene) continue
+                  const x = (c * size - bleed) / (densityX * scale)
+                  const y = (r * size - bleed) / (densityY * scale)
+                  const w = (size + bleed * 2) / (densityX * scale)
+                  const h = (size + bleed * 2) / (densityY * scale)
+                  if (bounds.maxX < x || bounds.minX > x + w || bounds.maxY < y || bounds.minY > y + h) continue
+                  append(scene)
+                }
+              }
+            }
+            const detailLevel = this.getDetailLevel()
+            const pad = structureCullPad(scale, this.tokens.pinRadius, detailLevel)
+            const paintPad = linkCullPad(scale)
+            const off = (id: string) => this.overlay.dragOffsets?.get(id) ?? ZERO_OFFSET
+            for (const entry of this.scene.nodes) {
+              const node = this.nodeForPaint(entry)
+              const offset = off(node.id)
+              const layout = node.layout
+              const badges = detailLevel !== 'overview' && this.tokens.badgeLayout === 'tabs'
+                ? this.getNodeBadgeBounds(node) : undefined
+              assign({
+                minX: Math.min(node.x - pad, badges?.x ?? node.x) + offset.dx,
+                maxX: Math.max(node.x + layout.width + pad, badges ? badges.x + badges.width : node.x + layout.width) + offset.dx,
+                minY: Math.min(node.y - pad, badges?.y ?? node.y) + offset.dy,
+                maxY: Math.max(node.y + layout.height + pad, badges ? badges.y + badges.height : node.y + layout.height) + offset.dy,
+              }, (scene) => scene.nodes.push(entry))
+            }
+            for (const link of this.scene.links) {
+              const from = this.linkEndForPaint(link.from, 'out', link.x1, link.y1)
+              const to = this.linkEndForPaint(link.to, 'in', link.x2, link.y2)
+              const a = off(sceneEndId(link.from))
+              const b = off(sceneEndId(link.to))
+              const bounds = linkBounds(from.x + a.dx, from.y + a.dy, to.x + b.dx, to.y + b.dy)
+              assign({
+                minX: bounds.minX - paintPad,
+                maxX: bounds.maxX + paintPad,
+                minY: bounds.minY - paintPad,
+                maxY: bounds.maxY + paintPad,
+              }, (scene) => scene.links.push(link))
+            }
+          }
+          const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
+          // Reset paint state as well as pixels before rendering another tile.
+          surface.width = surface.height = size + bleed * 2
+          const target = surface.getContext('2d')! as unknown as CanvasRenderingContext2D
+          const originX = -column * size + bleed
+          const originY = -row * size + bleed
+          target.setTransform(densityX * scale, 0, 0, densityY * scale, originX, originY)
+          this.drawGraph(target, {
+            x: -originX / (densityX * scale),
+            y: -originY / (densityY * scale),
+            w: (size + bleed * 2) / (densityX * scale),
+            h: (size + bleed * 2) / (densityY * scale),
+          }, scale, { ...this.scene, ...scenes.get(key)! })
+          tile = surface.transferToImageBitmap()
+          this.graphTiles.set(key, tile)
+        }
+        ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
+      }
+    }
+    // Retain only the visible working set, independent of total graph size or pan distance.
+    for (const [key, tile] of this.graphTiles) {
+      if (used.has(key)) continue
+      tile.close()
+      this.graphTiles.delete(key)
+    }
+  }
+
+  private drawGraph(
+    ctx: CanvasRenderingContext2D,
+    view: Readonly<{ x: number; y: number; w: number; h: number }>,
+    scale: number,
+    scene: Scene = this.scene,
+  ): void {
+    const t = this.tokens
     const detailLevel = this.getDetailLevel()
     const contentDetail = detailLevel !== 'overview'
     const paintPad = linkCullPad(scale)
     const rerouteRadius = detailRadius(REROUTE_RADIUS, scale, detailLevel)
     const structurePad = structureCullPad(scale, t.pinRadius, detailLevel)
-
-    // Visible world rect for culling.
-    const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
-    this.drawCanvasLayers('background', ctx, view, scale)
-
     const offsets = this.overlay.dragOffsets
     const off = (nodeId: string) => offsets?.get(nodeId) ?? ZERO_OFFSET
 
@@ -1633,7 +1830,7 @@ export class CanvasRenderer {
     if (detailLevel === 'overview' && this.scene.links.length >= 256 && offsets === undefined &&
         this.overlay.resizePreview === undefined && this.scopeHighlight === undefined && this.inactiveNodes === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
-      for (const link of this.scene.links) {
+      for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
             this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
@@ -1655,7 +1852,7 @@ export class CanvasRenderer {
       }
     }
 
-    for (const link of this.scene.links) {
+    for (const link of scene.links) {
       if (batchedOverviewLinks.has(link.id)) continue
       // Collapsed-net noodles exist for connectivity only; endpoint tags
       // are their visual form.
@@ -1963,7 +2160,7 @@ export class CanvasRenderer {
       ctx.restore()
     }
 
-    for (const sceneNode of this.scene.nodes) {
+    for (const sceneNode of scene.nodes) {
       const node = this.nodeForPaint(sceneNode)
       const o = off(node.id)
       const badges = contentDetail && t.badgeLayout === 'tabs' ? this.getNodeBadgeBounds(node) : undefined
@@ -2117,16 +2314,6 @@ export class CanvasRenderer {
       ctx.restore()
       ctx.restore()
     }
-    const tl = this.getToolboxLayout()
-    if (tl) this.drawToolbox(ctx, tl)
-
-    this.drawTypeAdornments(ctx, view)
-
-    this.drawPresence(ctx, scale)
-
-    this.drawCanvasLayers('foreground', ctx, view, scale)
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
   }
 
   private drawCanvasLayers(
