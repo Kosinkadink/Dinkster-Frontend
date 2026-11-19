@@ -78,9 +78,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-    const openerIcon = tokens.widgetRowLook === 'inset-raised'
+    const openerIcon = tokens.widgetRowLook !== 'inset'
       ? row.viewId === 'core.asset' ? 'image'
-        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette' : undefined
+        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+        : tokens.widgetRowLook === 'inset-raised-collections'
+          ? row.viewId === 'core.multiSelect' ? 'list-checks'
+            : row.viewId === 'core.list' ? 'list'
+            : row.viewId === 'core.colors' ? 'palette'
+            : row.viewId === 'core.curve' ? 'spline' : undefined
+          : undefined
       : undefined
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.nodeHeader
@@ -130,9 +136,19 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multiline = row.viewId === 'core.text'
     const multilineLabelHeight = tokens.multilineText.labelHeight
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
-    const labelWidth = multiline
+    let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth, naturalLabelWidth, naturalValueWidth, true)
+    if (row.viewId === 'core.asset' && valuePreview === 'no asset') {
+      // The empty-state message takes priority even when opener controls leave
+      // less than the ordinary label floor. Round up for fitText's pixel floor.
+      const font = ctx.font
+      ctx.font = `italic ${font}`
+      const italicWidth = measureWidth(ctx, valuePreview)
+      ctx.font = font
+      const placeholderWidth = Math.ceil(Math.max(italicWidth, measureWidth(ctx, valuePreview))) + TEXT_PAD * 2
+      labelWidth = Math.min(labelWidth, Math.max(0, fieldWidth - placeholderWidth))
+    }
     const paintLabel = () => {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
@@ -214,6 +230,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           if (style['role'] === 'curveSample') {
             ctx.fillStyle = tokens.colors.widgetAffordanceActive
+            if (tokens.widgetRowLook === 'inset-raised-collections') {
+              // Keep the trace below the summary; field padding erases thin samples.
+              const plotHeight = rowHeight - paint.curve.inset * 2
+              ctx.fillRect(contentStart + rx * contentWidth,
+                y + rowHeight + paint.curve.inset + ry / paint.curve.sourceRows * plotHeight,
+                Math.min(rw, 1 - rx) * contentWidth,
+                Math.max(paint.curve.minSampleHeight, rh / paint.curve.sourceRows * plotHeight))
+              return
+            }
           }
           const unitHeight = multiline ? multilineHeight : rowHeight
           const rectTop = multiline

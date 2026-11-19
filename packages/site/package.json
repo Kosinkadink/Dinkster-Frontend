@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm -w build:ui && vite build && tsx build.ts",
+    "build": "pnpm -w build:ui && vite build && vite build --ssr src/callback.tsx && tsx build.ts",
     "typecheck": "tsc --noEmit",
     "test:browser": "playwright test"
   },

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { defaultTokens } from '../../canvas/src/tokens.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
@@ -295,6 +296,38 @@ for (const theme of ['dark', 'light'] as const) {
               exact: true,
             }),
           ).toHaveScreenshot(`boundary-${theme}.png`)
+        }
+        if (id === 'collection-rows') {
+          const look = page.getByRole('combobox', {
+            name: 'Collection row look',
+            exact: true,
+          })
+          await expect(look).toHaveValue('inset-raised-collections')
+          await look.selectOption(defaultTokens.widgetRowLook)
+          await expect(canvas).toHaveAttribute(
+            'data-row-look',
+            defaultTokens.widgetRowLook,
+          )
+          await expect(canvas).toHaveScreenshot(
+            `collection-rows-current-${theme}.png`,
+          )
+          await look.selectOption('inset-raised-collections')
+          await expect(canvas).toHaveAttribute(
+            'data-row-look',
+            'inset-raised-collections',
+          )
+          await page
+            .getByRole('button', { name: 'Widget kinds', exact: true })
+            .click()
+          const widgets = page.getByRole('img', {
+            name: `widgets in ${theme} theme`,
+            exact: true,
+          })
+          await expect(widgets).toHaveAttribute(
+            'data-row-look',
+            defaultTokens.widgetRowLook,
+          )
+          await expect(widgets).toHaveScreenshot(`widgets-${theme}.png`)
         }
         if (id === 'core-rows') {
           await page

@@ -715,6 +715,15 @@ compares these current rows with previous all-inset paint on the same fixture;
 that comparison does not change other pages. Number paint is unchanged; this
 is not a proposed number editor or approval of its appearance.
 
+Collection widget rows proposal compares the current inset collection rows with
+raised multi-choice, list, palette and curve openers. Only that gallery page
+selects `widgetRowLook: 'inset-raised-collections'`. It uses selected, empty or
+minimal, and long or varied document values: selection counts, literal list
+values, palette swatches and counts, and sampled curves with point counts and
+interpolation. Curves require at least one point, so the minimal fixture is a
+flat one-point curve. Production defaults, other pages and editors do not use
+the proposal. Collection row look switches both paints on the same document.
+
 The Idle outline page compares Previous outline with Quieter outline (current)
 on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's
@@ -941,6 +950,42 @@ frontend wheel, covered by its version and wheel hash. Template configuration
 placeholders must be HTML-attribute escaped by the service. No Node tooling is
 required by the Python consumer. The renderer reports only fixed route/timing
 events through the shared no-send reporting function.
+
+### One-response callback page
+
+`callback.html` is a static rendering of `ProductAuthCard` and `ProductLink`.
+It embeds the shared stylesheet, bundled Noto faces and color wordmark, with no
+scripts or follow-up asset requests. A loopback listener may close immediately
+after its response. The page always includes a return-to-Dinkster link.
+
+The `dinkster.site/1` manifest hashes the unbound template in `files` and provides
+`callback.template`, `callback.csp`, `callback.textSlots` and
+`callback.destinationSlot`. The existing frontend wheel version and SHA-256
+identify the distribution. Verify the template hash before binding values.
+
+Replace all slots simultaneously in one pass (not repeated replacements):
+
+- `__CALLBACK_HEADING__`: heading, accessible card label and document title.
+- `__CALLBACK_MESSAGE__`: terminal outcome, as plain text.
+- `__CALLBACK_RETURN_LABEL__`: link label, normally "Return to Dinkster".
+- `__CALLBACK_RETURN_URL__`: destination in a double-quoted `href` attribute.
+
+HTML-escape every value, including both quote characters, `&`, `<` and `>`.
+Text slots never accept markup or a URL. Slot-like text inside a supplied value
+stays literal. The engine must validate and capture the originating HTTP(S) app
+root before starting authorization, without credentials, query or fragment, then
+attribute-escape it for the destination slot. The provider's `flow.redirect` is
+the callback endpoint, not the app return destination. Escaping alone does not
+validate a destination; do not bind untrusted provider URLs to this slot.
+
+Serve as UTF-8 HTML with `Cache-Control: no-store`, `X-Content-Type-Options:
+nosniff` and `Referrer-Policy: no-referrer`. Use the manifest's exact CSP as a
+response header, optionally adding `frame-ancestors 'none'` there (not supported
+in a meta policy). The same CSP is embedded before content: deny by default,
+only the exact stylesheet SHA-256 allowed, `data:` images/fonts, no base URL or
+form submission. It permits no scripts, connections, external assets or inline
+style attributes. Binding the slots does not change the stylesheet hash. Do not
+add a service policy that permits extra sources or substitute style content.
 
 ## Replacement rule
 

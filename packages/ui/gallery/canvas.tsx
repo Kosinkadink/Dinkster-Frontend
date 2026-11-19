@@ -42,6 +42,9 @@ export function CanvasGallery() {
   const [rowLook, setRowLook] = createSignal<DesignTokens['widgetRowLook']>(
     defaultTokens.widgetRowLook,
   )
+  const [collectionLook, setCollectionLook] = createSignal<
+    DesignTokens['widgetRowLook']
+  >('inset-raised-collections')
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
@@ -60,6 +63,7 @@ export function CanvasGallery() {
     const currentPage = page()
     const currentWidget = widgetId()
     const currentRowLook = rowLook()
+    const currentCollectionLook = collectionLook()
     const currentOutline = outline()
     const currentTypeLook = typeLook()
     const currentTitleLook = titleLook()
@@ -91,9 +95,11 @@ export function CanvasGallery() {
       const tokens: DesignTokens = {
         ...defaultTokens,
         widgetRowLook:
-          currentPage === 'core-rows'
-            ? currentRowLook
-            : defaultTokens.widgetRowLook,
+          currentPage === 'collection-rows'
+            ? currentCollectionLook
+            : currentPage === 'core-rows'
+              ? currentRowLook
+              : defaultTokens.widgetRowLook,
         badgeLayout: tabsPage ? currentTabLook : defaultTokens.badgeLayout,
         badgeTab: tabsPage ? currentTabSize : defaultTokens.badgeTab,
         titleOverflow:
@@ -344,6 +350,36 @@ export function CanvasGallery() {
           states and long names come from the fixture document. Previous inset
           rows compares the old paint on this page only. Number paint is
           unchanged, not the number-editing proposal.
+        </p>
+      </Show>
+      <Show when={page() === 'collection-rows'}>
+        <ProductField label="Collection row look">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={collectionLook()}
+              onChange={(event) =>
+                setCollectionLook(
+                  event.currentTarget.value as DesignTokens['widgetRowLook'],
+                )
+              }
+            >
+              <option value="inset-raised-collections">
+                Raised collection openers
+              </option>
+              <option value={defaultTokens.widgetRowLook}>
+                Current collection rows
+              </option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Gallery-only collection row proposal. Multi-choice, list, palette and
+          curve rows open editors and have raised faces, kind icons and
+          chevrons. Counts, list text, color swatches and curve samples come
+          from document values. A curve requires at least one point; the minimal
+          example is flat. Production defaults and editor appearances are
+          unchanged.
         </p>
       </Show>
       <Show when={page() === 'idle-outline'}>
