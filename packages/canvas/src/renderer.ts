@@ -831,6 +831,8 @@ export class CanvasRenderer {
   private viewportAnimation: { from: Viewport; to: Viewport; started: number; sampled: number } | undefined
   private dirty = true
   private rafId: number | undefined
+  private paintEnded = -Infinity
+  private paintDuration = 0
   private disposed = false
   private hasRunningNodes = false
   private reducedMotion = false
@@ -1680,6 +1682,13 @@ export class CanvasRenderer {
     if (this.disposed) return
     this.rafId = undefined
     const animation = this.viewportAnimation
+    if (animation && performance.now() - animation.started < 100 && performance.now() - this.paintEnded < this.paintDuration / 2) {
+      // Leave input delivery time between expensive animated paints. Publish
+      // the unchanged visible camera so host overlays and frame work stay live.
+      for (const cb of this.viewportListeners) cb(this.viewport)
+      this.scheduleFrame()
+      return
+    }
     if (animation) {
       // A frame timestamp can precede wheel delivery in this same frame.
       animation.sampled = performance.now()
@@ -1700,7 +1709,10 @@ export class CanvasRenderer {
     }
     if (this.dirty) {
       this.dirty = false
+      const started = performance.now()
       this.render()
+      this.paintEnded = performance.now()
+      this.paintDuration = this.paintEnded - started
     }
     if (this.dirty || animateExecution || this.viewportAnimation) this.scheduleFrame()
   }

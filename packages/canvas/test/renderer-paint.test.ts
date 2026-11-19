@@ -300,6 +300,56 @@ const typedLensLink = (
 })
 
 describe('viewport animation', () => {
+  it('coalesces costly intermediate paints without advancing the visible camera or losing the final target', () => {
+    let pending: FrameRequestCallback | undefined
+    let clock = 1000
+    let charged = false
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx, calls } = recordingCtx()
+    const fill = ctx.fillRect.bind(ctx)
+    ctx.fillRect = (...args) => {
+      fill(...args)
+      if (!charged) { clock += 40; charged = true }
+    }
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const tick = (at: number) => {
+      clock = at
+      charged = false
+      const callback = pending
+      pending = undefined
+      if (!callback) throw new Error('Expected a scheduled frame')
+      callback(at)
+    }
+    try {
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      renderer.animateViewport(() => ({ x: -100, y: -50, scale: 2 }))
+      tick(1020)
+      const visible = renderer.getViewport()
+      const paintedCalls = calls.length
+      clock = 1061
+      renderer.animateViewport(() => ({ x: -300, y: -150, scale: 4 }))
+      tick(1062)
+      expect(renderer.getViewport()).toEqual(visible)
+      expect(calls).toHaveLength(paintedCalls)
+      tick(1120)
+      expect(renderer.getViewport()).toEqual({ x: -300, y: -150, scale: 4 })
+      expect(calls.length).toBeGreaterThan(paintedCalls)
+      expect(calls.filter(call => call.method === 'scale').at(-1)?.args).toEqual([4, 4])
+      expect(pending).toBeUndefined()
+      renderer.animateViewport(() => ({ x: 0, y: 0, scale: 2 }))
+      renderer.setViewport({ x: 9, y: -7, scale: 0.75 })
+      tick(1161)
+      expect(renderer.getViewport()).toEqual({ x: 9, y: -7, scale: 0.75 })
+      expect(calls.filter(call => call.method === 'scale').at(-1)?.args).toEqual([0.75, 0.75])
+      expect(pending).toBeUndefined()
+    } finally {
+      renderer.dispose()
+      vi.restoreAllMocks()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+  })
+
   it('advances during flooded input with stale frame timestamps and settles the latest target within its budget', () => {
     let pending: FrameRequestCallback | undefined
     let clock = 1000

@@ -27,8 +27,11 @@ The persisted **Canvas scroll behavior** setting has two modes:
 settles over 100 ms about the pointer, and further wheel input updates the
 pending target rather than losing notches. Fast input retargets from the last
 painted view without restarting that frame's elapsed time; the newest target
-settles within 100 ms plus the next frame, without queued animations. Turning
-it off restores immediate zoom. The reduced-motion preference also uses
+settles within 100 ms plus the next frame, without queued animations. Costly
+animated paints leave input-delivery time before the next raster, dropping
+intermediate scales rather than queuing them. During that interval the camera
+stays at the last painted view; no old bitmap is scaled. The final target and
+manual camera changes bypass this raster pause. Turning it off restores immediate zoom. The reduced-motion preference also uses
 immediate zoom. Ordinary Pan scrolling does not glide. Direct pointer
 navigation, another camera change, a graph change or loss of focus cancels
 an unfinished glide at its current view. Image-editor and minimap wheel navigation are unchanged.

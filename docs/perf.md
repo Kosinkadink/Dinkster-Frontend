@@ -6,6 +6,21 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Wheel raster coalescing (2026-11-19)
+
+The fitted 1200-node/1140-link production-optimized test-mode AFTER run uses
+2560x1440, claimed RTX 4090 Vulkan, and the unchanged 2500 ms asynchronous
+1 kHz input tool. The accepted smooth-wheel BEFORE is not replayed. Leaving
+half the previous paint's duration for input delivery between intermediate
+rasters reduces input-to-render-end p95 from 1198 ms BEFORE (11542.4 ms with
+the progress-only correction) to 28.8 ms. Delivery-queue p95 is 25.0 ms.
+The final target bypasses the pause; omitted steps keep the painted camera,
+not a scaled bitmap. Actual raster p50/p95 is 8.0/26.3 ms and 53.5 paints/s,
+so full-refresh targets remain unmet. Probe callback p50/p95 of 0.1/0.3 ms
+includes omitted raster steps and is not a graph-paint rate. The same backend
+and pack pins as the retarget report below apply. This is a shared-host
+candidate report, not independent verification or a landing gate.
+
 ## Wheel retargeting under continuous input (2026-11-19)
 
 Before is the accepted smooth-wheel AFTER run below, landed as `60d7183e`;
