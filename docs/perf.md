@@ -2522,3 +2522,6 @@ Neither sequence had a later long task in the 350-1600 ms window. The remaining
 67-80 ms dispatches and up to 51.1 ms later frame gap still miss a no-missed-frame
 or high-refresh click goal. This change removes the measured redundant work,
 not all document validation, scene reconstruction or reactive update cost.
+The after sequence measured [title-only reuse cd926868713e](https://github.com/Kosinkadink/Dinkster-Frontend/commit/cd926868713e86f169135927e138a74171a684c5). A subsequent cache-hit update
+advances the comparison document to retain reuse across alternating titles and
+position edits; a cache regression covers that case, but it was not retimed.

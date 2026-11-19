@@ -133,7 +133,13 @@ describe('session-keyed caches (AP4)', () => {
           graphId: 'g0', nodeId: 'n0', title,
         } })).ok).toBe(true)
         expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
+        expect((await app.dispatchTo(tab, { command: 'node.move', params: {
+          graphId: 'g0', positions: { n0: { x: title?.length ?? 0, y: 83 } },
+        } })).ok).toBe(true)
+        expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
       }
+      expect(tab.store.undo()).toBe(true)
+      expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
       expect(tab.store.undo()).toBe(true)
       expect(app.previewAvailabilityDiagnostics(tab)).toBe(initial)
       expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBe('Second title')

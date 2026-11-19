@@ -547,7 +547,7 @@ export function workflowNodeTitlesOnlyChanged(current: WorkflowDocument, candida
   })
 }
 
-/** Existing numeric literals in a static graph cannot add asset identities or activate defaults. */
+/** Titles and existing static numeric literals cannot add asset identities or activate defaults. */
 export function workflowAssetRootsUnchanged(
   prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
   resolve: SchemaResolver,

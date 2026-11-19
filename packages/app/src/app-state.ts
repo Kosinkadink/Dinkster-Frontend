@@ -9843,6 +9843,7 @@ export class AppState {
     const cached = this.availabilityPreviews.get(tab)
     if (cached && cached.registry === registry && cached.connection === connection && cached.extensions === extensions &&
         (sameExecutionDocument(cached.document, document) || workflowNodeTitlesOnlyChanged(cached.document, document))) {
+      if (cached.document !== document) this.availabilityPreviews.set(tab, { ...cached, document })
       return cached.diagnostics
     }
     const result = this.previewComparisonCompile(tab)
