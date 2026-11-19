@@ -49,6 +49,12 @@ import Image from 'lucide/dist/esm/icons/image.mjs'
 import Palette from 'lucide/dist/esm/icons/palette.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ChevronRight from 'lucide/dist/esm/icons/chevron-right.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import List from 'lucide/dist/esm/icons/list.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ListChecks from 'lucide/dist/esm/icons/list-checks.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Spline from 'lucide/dist/esm/icons/spline.mjs'
 
 import type { ToolboxButton } from './toolbox.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -73,6 +79,9 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   image: Image,
   palette: Palette,
   'chevron-right': ChevronRight,
+  list: List,
+  'list-checks': ListChecks,
+  spline: Spline,
   'volume-x': VolumeX,
   ban: Ban,
   play: Play,

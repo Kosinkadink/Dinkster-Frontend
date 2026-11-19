@@ -78,9 +78,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-    const openerIcon = tokens.widgetRowLook === 'inset-raised'
+    const openerIcon = tokens.widgetRowLook !== 'inset'
       ? row.viewId === 'core.asset' ? 'image'
-        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette' : undefined
+        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+        : tokens.widgetRowLook === 'inset-raised-collections'
+          ? row.viewId === 'core.multiSelect' ? 'list-checks'
+            : row.viewId === 'core.list' ? 'list'
+            : row.viewId === 'core.colors' ? 'palette'
+            : row.viewId === 'core.curve' ? 'spline' : undefined
+          : undefined
       : undefined
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.nodeHeader
@@ -214,6 +220,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           if (style['role'] === 'curveSample') {
             ctx.fillStyle = tokens.colors.widgetAffordanceActive
+            if (tokens.widgetRowLook === 'inset-raised-collections') {
+              // Keep the trace below the summary; field padding erases thin samples.
+              const plotHeight = rowHeight - paint.curve.inset * 2
+              ctx.fillRect(contentStart + rx * contentWidth,
+                y + rowHeight + paint.curve.inset + ry / paint.curve.sourceRows * plotHeight,
+                Math.min(rw, 1 - rx) * contentWidth,
+                Math.max(paint.curve.minSampleHeight, rh / paint.curve.sourceRows * plotHeight))
+              return
+            }
           }
           const unitHeight = multiline ? multilineHeight : rowHeight
           const rectTop = multiline
