@@ -1,11 +1,13 @@
 import { defineConfig } from 'vite'
 import solid from 'vite-plugin-solid'
 
-export default defineConfig({
-  plugins: [solid()],
+export default defineConfig(({ isSsrBuild }) => ({
+  plugins: [solid({ ssr: true })],
+  ssr: { noExternal: ['@dinkster/ui'] },
   base: './',
   build: {
-    manifest: true,
+    outDir: isSsrBuild ? 'dist/.callback' : 'dist',
+    manifest: !isSsrBuild,
     cssCodeSplit: false,
     assetsInlineLimit: 0,
     rollupOptions: {
@@ -23,4 +25,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
