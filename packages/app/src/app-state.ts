@@ -144,6 +144,8 @@ import {
   type ExecutionState,
   type ExecutionStatus,
   type LibraryRecord,
+  type LibraryProject,
+  type ProjectNeeds,
   type BackendDiscovery,
   type DinksterSubmitResult,
   type DinksterJobRecord,
@@ -2445,6 +2447,16 @@ interface BackendBase {
  */
 export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection }
 
+export interface ProjectNeedsReview {
+  readonly backend: Backend
+  readonly project: LibraryProject
+  readonly needs: ProjectNeeds
+  readonly enable: readonly string[]
+  readonly changes: ProjectNeeds['packs']
+  readonly errors: readonly string[]
+  readonly current: () => boolean
+}
+
 /** A live socket alone does not make the backend's required HTTP metadata usable. */
 export function backendConnectionStatus(backend: Backend): ConnectionStatus {
   const status = backend.connection.status.get()
@@ -2582,6 +2594,9 @@ export class AppState {
   readonly searchOpen = createSignal(false)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
+  readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
+  private readonly projectNeedsChecks = new WeakMap<Backend, object>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
   readonly templateGalleryOpen = createSignal(false)
@@ -5341,6 +5356,7 @@ export class AppState {
             // Older backend without epochs: one refetch is the best we can do.
             if (fresh.epoch === undefined || fresh.epoch >= targetEpoch || targetEpoch === goal) {
               base.schemaState.set({ status: 'ready' })
+              void this.checkProjectNeeds(nativeBackend)
               return targetEpoch
             }
           }
@@ -8173,7 +8189,76 @@ export class AppState {
     } }
   }
 
+  async checkProjectNeeds(backend: Backend): Promise<void> {
+    if (backend.connection.status.get() !== 'connected') return
+    const projectId = activeProjectId()
+    const registry = backend.registry.get()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const request = {}
+    this.projectNeedsChecks.set(backend, request)
+    const documents = this.tabs.get().filter((tab) => this.backendForTab(tab) === backend)
+      .map((tab) => ({ store: tab.store, revision: tab.store.revision, document: tab.store.doc }))
+    const current = (): boolean => !this.disposed && activeProjectId() === projectId &&
+      this.backends.get().includes(backend) && backend.connection.status.get() === 'connected' &&
+      this.assetConnectionGenerations.get(backend.connection) === generation && backend.registry.get() === registry &&
+      this.projectNeedsChecks.get(backend) === request &&
+      documents.every(({ store, revision, document }) => {
+        const tab = this.liveTabContinuing(store)
+        return tab !== undefined && this.backendForTab(tab) === backend && tab.store.revision === revision && tab.store.doc === document
+      })
+    if (this.projectNeedsReview.get()?.backend === backend) this.projectNeedsReview.set(undefined)
+    try {
+      const project = await backend.connection.getProject(projectId)
+      const needs = await backend.connection.projectNeeds(projectId)
+      if (!current()) return
+      const required = new Map<string, { pack: string; version: string | null }>()
+      const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
+      for (const pack of needs.packs) add(pack.pack, pack.version)
+      for (const pack of needs.extra) add(pack, null)
+      const errors = new Set(needs.unknown.map(({ scope, id }) => `${scope}/${id}`))
+      for (const { document } of documents) {
+        for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+          if (node.virtual === true || node.type.startsWith('#')) continue
+          const saved = document.environment?.nodes[node.type]
+          const schema = registry?.resolve(node.type)
+          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? undefined : 'core')
+          if (pack === undefined) { errors.add(node.type); continue }
+          const provenance = saved?.pack !== undefined ? document.environment?.packs[pack] : registry?.packs?.get(pack)
+          if (pack !== 'core') add(pack, provenance?.version ?? null)
+        }
+      }
+      const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
+      const enabled = new Set([...needs.extra, ...needs.packs.map(({ pack }) => pack)])
+      const changes = [...required.values()].filter(({ pack, version }) =>
+        !installed.has(pack) || version !== null && installed.get(pack) !== version)
+      const changing = new Set(changes.map(({ pack }) => pack))
+      const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
+        .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
+      if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
+      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current })
+    } catch (error) {
+      if (!current()) return
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
+        `Project needs unavailable: ${error instanceof Error ? error.message : String(error)}`)])
+    }
+  }
+
+  async enableReviewedProjectPacks(review: ProjectNeedsReview): Promise<void> {
+    if (this.projectNeedsReview.get() !== review || !review.current()) throw new Error('Project changed. Review its needs again.')
+    const project = await review.backend.connection.getProject(review.project.id)
+    const needs = await review.backend.connection.projectNeeds(review.project.id)
+    if (this.projectNeedsReview.get() !== review || !review.current() || project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
+      throw new Error('Project or installed packs changed. Review its needs again.')
+    }
+    await review.backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...review.enable])].sort(), project.revision)
+    if (!review.current()) return
+    this.projectNeedsReview.set(undefined)
+    this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+    await this.refreshBackendSchemas(review.backend)
+  }
+
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
+    void this.checkProjectNeeds(backend)
     const document = tab.store.doc
     const revision = tab.store.revision
     const bytes = JSON.stringify(document)
@@ -9641,6 +9726,7 @@ export class AppState {
       if (backend.protocol === 'dinkster') {
         void this.refreshPackLocaleOverlay(backend, registry)
         await this.restoreExecutionResults(backend, layered, current)
+        if (current()) void this.checkProjectNeeds(backend)
       }
     } catch (e) {
       if (!current()) return

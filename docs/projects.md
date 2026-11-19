@@ -81,6 +81,15 @@ new read and review, not an automatic retry that could overwrite another window'
 choices. This changes project enablement only; it does not install software or
 change another project's packs.
 
+On connection and workflow opening, one Project needs review combines saved project
+requirements, extra packs, and used nodes in open workflows. Unused stamp entries
+are ignored. Already-installed compatible packs can be enabled only in this
+project. Missing or conflicting versions are listed separately as environment
+changes, and unreadable workflows stay visible as unknown needs. This review does
+not install or update software. It rechecks project revision and installed facts
+before an enablement write; stale reviews require a new read. Successful enablement
+shows a dismissible success toast and refreshes the scoped node catalog.
+
 ## Desktop windows
 
 The desktop shell persists every workspace window with its project binding,

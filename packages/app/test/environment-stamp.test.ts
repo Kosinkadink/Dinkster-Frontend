@@ -224,6 +224,82 @@ describe('workflow-open requirements', () => {
     ]))
   })
 
+  it('reviews only workflow-used packs and preserves extras when enabling an installed pack', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+    const project = { id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
+      packs: [], extra: ['already-enabled'], unknown: [],
+      installed: [{ pack: 'vhs.video', version: '3.1.4' }, { pack: 'unused', version: '9.0' }, { pack: 'already-enabled', version: '1.0' }],
+    })
+    await open(docJson('needs-enabled', ['std.b'], {
+      packs: { 'vhs.video': { version: '3.1.4' }, unused: { version: '9.0' } },
+      nodes: { 'std.b': { pack: 'vhs.video', signature: 'sig-b-1' } },
+    }))
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    expect(review.enable).toEqual(['vhs.video'])
+    expect(review.changes).toEqual([])
+    let savedExtra: readonly string[] = ['already-enabled']
+    vi.spyOn(backend.connection, 'setProjectExtraPacks').mockImplementation(async (id, extra, revision) => {
+      if (id !== project.id || revision !== project.revision) throw new Error('stale project')
+      savedExtra = extra
+      return { ...project, revision: 8 }
+    })
+    vi.spyOn(app, 'refreshBackendSchemas').mockResolvedValue()
+    await app.enableReviewedProjectPacks(review)
+    expect(savedExtra).toEqual(['already-enabled', 'vhs.video'])
+    expect(app.projectNeedsReview.get()).toBeUndefined()
+  })
+
+  it('separates missing and version-conflicting packs from project-only enablement', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
+      packs: [{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }], extra: [],
+      unknown: [{ scope: 'local', id: 'unreadable' }], installed: [{ pack: 'different', version: '1.0' }],
+    })
+    await app.checkProjectNeeds(backend)
+    expect(app.projectNeedsReview.get()).toMatchObject({
+      enable: [], changes: [{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }], errors: ['local/unreadable'],
+    })
+    let savedExtra: readonly string[] = ['other-window-choice']
+    const review = app.projectNeedsReview.get()!
+    vi.spyOn(backend.connection, 'setProjectExtraPacks').mockImplementation(async (_id, extra) => {
+      savedExtra = extra
+      return { ...review.project, revision: 9 }
+    })
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ ...review.project, revision: 8 })
+    await expect(app.enableReviewedProjectPacks(review)).rejects.toThrow('changed')
+    expect(savedExtra).toEqual(['other-window-choice'])
+  })
+
+  it('discards needs for a workflow replaced during the read', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    let finish!: (needs: { packs: []; extra: string[]; installed: []; unknown: [] }) => void
+    vi.spyOn(backend.connection, 'projectNeeds').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    await open(docJson('stale-needs', ['std.a']))
+    const checking = app.checkProjectNeeds(backend)
+    await Promise.resolve()
+    const resolveOld = finish
+    await open(docJson('stale-needs', ['std.b']))
+    resolveOld({ packs: [], extra: ['missing'], installed: [], unknown: [] })
+    await checking
+    expect(app.projectNeedsReview.get()).toBeUndefined()
+  })
+
   it('discards a plan for a replaced tab even when the replacement has the same lineage', async () => {
     app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()
