@@ -1335,18 +1335,33 @@ test('Project rows preserve names, rename drafts and host actions', async ({ pag
   await closeGallery(page)
   await page.evaluate(async () => {
     const componentPath = '/src/ProjectsDialog.tsx'
-    const projectsPath = '/src/projects.ts'
     const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
     const { ProjectsDialog } = await import(componentPath)
-    const { createProject } = await import(projectsPath)
     const { render } = await import(rendererPath)
-    createProject('Studio production with a long descriptive project name')
-    createProject('Audio experiments')
+    const records = new Map([
+      ['default', { id: 'default', name: 'Default', revision: 1 }],
+      ['p-studio', { id: 'p-studio', name: 'Studio production with a long descriptive project name', revision: 1 }],
+      ['p-audio', { id: 'p-audio', name: 'Audio experiments', revision: 1 }],
+    ])
+    const connection = {
+      listProjects: async () => ({ items: [...records.values()], cursor: null }),
+      registerProject: async (id: string, name: string) => {
+        const project = records.get(id) ?? { id, name, revision: 1 }
+        records.set(id, project)
+        return project
+      },
+      renameProject: async (id: string, name: string, revision: number) => {
+        const project = { id, name, revision: revision + 1 }
+        records.set(id, project)
+        return project
+      },
+    }
     const host = document.createElement('section')
     host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:720px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
     host.setAttribute('aria-label', 'Projects fixture')
     document.querySelector('.canvas-pane')!.append(host)
     const dispose = render(() => ProjectsDialog({
+      connection,
       onSwitch: (id: string) => { host.dataset['switched'] = id },
       onOpenWindow: (id: string) => { host.dataset['opened'] = id },
     }), host)

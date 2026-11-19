@@ -3536,6 +3536,42 @@ describe('workflow library wire', () => {
     await expect(cancelled.fetchLocalAssetBytes('cancelled', abort.signal)).rejects.toThrow()
   })
 
+  it('reads paginated engine projects and preserves library authority during registration and rename', async () => {
+    const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+    const { conn, requests } = submitHarness((url, init) => {
+      if (init?.method === 'POST') return jsonResponse(200, { project })
+      if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
+      return jsonResponse(200, { items: [project], cursor: 'p-next' })
+    })
+    const controller = new AbortController()
+    expect(await conn.listProjects('p-before', controller.signal)).toEqual({ items: [project], cursor: 'p-next' })
+    expect(requests[0]?.url).toBe('http://test/api/projects?limit=100&cursor=p-before')
+    expect(requests[0]?.init?.signal).toBe(controller.signal)
+    expect(await conn.registerProject('p-film', 'Browser name')).toEqual(project)
+    expect(JSON.parse(requests[1]?.init?.body as string)).toEqual({ id: 'p-film', name: 'Browser name' })
+    expect(await conn.renameProject('p-film', 'Renamed', 7)).toEqual({ ...project, name: 'Renamed', revision: 8 })
+    expect(requests[2]?.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { name: 'Renamed' } })
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
+  })
+
+  it.each([
+    { items: [{ id: 'p-film', name: 'Film', created: 'invalid', revision: 1, deleted: false }], cursor: null },
+    { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 0, deleted: false }], cursor: null },
+    { items: [], cursor: 2 },
+  ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
+    const { conn } = submitHarness(() => jsonResponse(200, page))
+    await expect(conn.listProjects()).rejects.toThrow('Malformed library project')
+  })
+
+  it('refuses a registration acknowledgment for another project', async () => {
+    const { conn } = submitHarness(() => jsonResponse(200, { project: {
+      id: 'p-other', name: 'Other', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+    } }))
+    await expect(conn.registerProject('p-film', 'Film')).rejects.toThrow('another project')
+  })
+
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listLibrary({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')
