@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection, LibraryProject } from '@dinkster/client'
 import { ProductErrorBanner, ProductToast } from '@dinkster/ui'
 import { ProductActionFooter } from './ProductForm.js'
@@ -14,6 +14,7 @@ export function ProjectsDialog(props: {
   readonly onOpenWindow?: (projectId: string) => void
 }) {
   const message = useAppMessage()
+  const currentConnection = createMemo(() => props.connection)
   const [projects, setProjects] = createSignal<readonly LibraryProject[]>([])
   const [loading, setLoading] = createSignal(true)
   const [busy, setBusy] = createSignal(false)
@@ -40,7 +41,7 @@ export function ProjectsDialog(props: {
   }
 
   createEffect(() => {
-    const connection = props.connection
+    const connection = currentConnection()
     const controller = new AbortController()
     lifetime = controller
     onCleanup(() => controller.abort())

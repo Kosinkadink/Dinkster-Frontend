@@ -36,13 +36,15 @@ function mount(options: { readonly withOpenWindow?: boolean; readonly connection
   const onOpenWindow = vi.fn()
   const connection = options.connection ?? engine()
   const [client, setClient] = createSignal(connection)
+  const [backendStatus, setBackendStatus] = createSignal(0)
+  const currentClient = (): ProjectClient => { backendStatus(); return client() }
   const root = document.createElement('div')
   document.body.append(root)
   const unmount = render(() => (options.withOpenWindow === true
-    ? <ProjectsDialog connection={client()} onSwitch={onSwitch} onOpenWindow={onOpenWindow} />
-    : <ProjectsDialog connection={client()} onSwitch={onSwitch} />
+    ? <ProjectsDialog connection={currentClient()} onSwitch={onSwitch} onOpenWindow={onOpenWindow} />
+    : <ProjectsDialog connection={currentClient()} onSwitch={onSwitch} />
   ), root)
-  return { root, onSwitch, onOpenWindow, unmount, setClient }
+  return { root, onSwitch, onOpenWindow, unmount, setClient, refreshBackendStatus: () => setBackendStatus((value) => value + 1) }
 }
 
 function rows(root: HTMLElement): readonly HTMLElement[] {
@@ -76,6 +78,19 @@ describe('ProjectsDialog', () => {
     actionButton(created, 'Switch').click()
     expect(onSwitch).toHaveBeenCalledWith(created.dataset['projectId'])
     unmount()
+  })
+
+  it('keeps an unsaved name when backend status changes on the same connection', async () => {
+    const mounted = mount()
+    await flush()
+    const draft = mounted.root.querySelector<HTMLInputElement>('input[aria-label="New project name"]')!
+    draft.value = 'Unsaved studio'
+    draft.dispatchEvent(new Event('input', { bubbles: true }))
+    mounted.refreshBackendStatus()
+    await flush()
+    expect(draft.value).toBe('Unsaved studio')
+    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="projects-create"]')!.disabled).toBe(false)
+    mounted.unmount()
   })
 
   it('preserves another window rename on conflict and uses its refreshed revision on retry', async () => {
