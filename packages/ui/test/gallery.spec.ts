@@ -159,7 +159,10 @@ test('account values copy exactly, history expands by keyboard and signed-out sh
   await expect(
     page.getByRole('button', { name: 'Toggle navigation' }),
   ).toHaveCount(0)
-  expect((await page.getByRole('main').boundingBox())!.x).toBe(0)
+  const frame = (await page.locator('.dinkster-shell-body').boundingBox())!
+  const content = (await page.getByRole('main').boundingBox())!
+  expect(content.x).toBe(frame.x)
+  expect(content.width).toBe(frame.width)
   await page.getByRole('link', { name: 'Return to the gallery' }).click()
   await expect(page.getByRole('navigation')).toHaveCount(1)
 })
@@ -636,7 +639,8 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   await page.getByRole('button', { name: 'Review removal' }).click()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click()
   await page.getByRole('link', { name: 'Forms', exact: true }).click()
   await expect(
     page.getByText('Loading selected page', { exact: true }),

@@ -82,9 +82,12 @@ The page lets height, text size and inset vary independently, including a
 continues to use chips. Candidate tab icons and labels choose a light or dark
 foreground against their actual fill, including the hovered fill.
 
-- `ProductShell` owns the full-width frame and responsive navigation. The top
-  bar and sidebar stay in place while the page scrolls; below the breakpoint
-  the top bar stays and the opened navigation scrolls with the page. Its caller
+- `ProductShell` owns the frame and responsive navigation. With site density,
+  its 1040px centered frame contains 220px navigation and a 32px content gap.
+  Its wordmark, Account product label and 32px account circle share that frame.
+  On phones the navigation is a 240px overlay aligned 8px from the window edge;
+  it closes on an outside press, Escape or a choice without moving the page.
+  App density retains the full-width frame. The top bar stays while scrolling. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
   `ProductLoading` until data arrives. Selecting from open mobile navigation
   moves focus into the persistent main region, so loading and loaded content
@@ -175,6 +178,38 @@ navigation contracts, and runs axe on every page at rest and with a menu,
 toast, refused form and dialog showing. `pnpm test:visual` includes these
 checks. Keyboard focus, hover and pressed states are real browser states, not
 simulated CSS classes.
+
+### Centered site patterns
+
+Use these inside `data-density="site"` with the shipped stylesheet:
+
+- `ProductAuthCard` takes `title`, `children` and optional `footer`. It owns a
+  centered 440px card with 28px padding and a 40px wordmark, without top bar or
+  navigation. It does not own submission, OAuth or session logic.
+- `ProductProviderButton` takes `provider` (`github` or `google`), translated
+  children and ordinary button attributes. Its bundled SVG logo is 20px; the
+  button is 220px wide and 36px high. Put providers after the form and "or".
+- `ProductPanel` groups fields or facts inside one bordered 8px panel.
+  `ProductField` children become label/control rows; controls are at most
+  360px wide, and stack below labels on phones. Keep Save outside the panel
+  in `dinkster-actions`, 16px below it and at the right.
+- `ProductStatusPill` takes `tone` (`good`, `warning`, `problem`, `neutral`) and
+  translated children. It is for value/item statuses, not row descriptions.
+  Semantic status colors have a 14% tint; neutral uses the shared hover gray.
+- `ProductAccountMenu.pictureSrc` accepts an optional same-origin HTTP(S)
+  picture. Null, disallowed origins and load failures keep the name initial.
+  No upload or avatar-setting behavior is provided. The site trigger has no
+  visible name or caret, and its menu aligns right edges with a 4px gap.
+- Site selects and disclosures retain native keyboard behavior and draw
+  Lucide chevrons rather than browser triangles.
+
+Gallery routes `#site-security` (alice and the reference Security rows),
+`#site-profile` (grouped fields/Save/facts), `#site-keys` (status/disclosure),
+and `#site-card` (centered sign-in/providers) exercise the shared patterns.
+The Security route has computed-geometry and interaction checks at 1280,
+1440, 1920 and 390px; screenshots are captures, not an approved baseline.
+The canvas gallery uses app density and its full-width shell rather than the
+centered account frame; its fixed-size renderer fixtures retain their space.
 
 ## Shared design build checks
 

@@ -1,11 +1,48 @@
-import { For, Show, createSignal, createUniqueId, type JSX } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  onCleanup,
+  type JSX,
+} from 'solid-js'
 import { Menu, type LucideIcon } from 'lucide-solid'
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
+import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
 import { ProductIcon } from './controls.js'
 import { useProductStrings } from './strings.js'
 
 export function ProductBrandMark() {
   return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />
+}
+
+export function ProductWordmark() {
+  return <img class="dinkster-wordmark" src={wordmarkUrl} alt="Dinkster" />
+}
+
+/** A standalone site flow has no shell navigation or top bar. */
+export function ProductAuthCard(props: {
+  title: string
+  children: JSX.Element
+  footer?: JSX.Element
+}) {
+  return (
+    <main class="dinkster-auth">
+      <div class="dinkster-auth-column">
+        <ProductWordmark />
+        <section class="dinkster-auth-card" aria-label={props.title}>
+          <h1 class="dinkster-title">{props.title}</h1>
+          {props.children}
+        </section>
+        {props.footer}
+      </div>
+    </main>
+  )
+}
+
+export function ProductPanel(props: { children: JSX.Element }) {
+  return <div class="dinkster-panel">{props.children}</div>
 }
 
 export function ProductWindowChrome(props: {
@@ -38,7 +75,25 @@ export function ProductShell(props: {
   const [open, setOpen] = createSignal(false)
   const navigationId = createUniqueId()
   let navigationToggle!: HTMLButtonElement
+  let sidebar!: HTMLElement
   let main!: HTMLElement
+  createEffect(() => {
+    if (!open()) return
+    const dismiss = (event: PointerEvent) => {
+      if (
+        !sidebar.contains(event.target as Node) &&
+        !navigationToggle.contains(event.target as Node)
+      )
+        setOpen(false)
+    }
+    const resize = () => setOpen(false)
+    document.addEventListener('pointerdown', dismiss)
+    window.addEventListener('resize', resize)
+    onCleanup(() => {
+      document.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('resize', resize)
+    })
+  })
   return (
     <div
       class="dinkster-shell"
@@ -58,68 +113,73 @@ export function ProductShell(props: {
       }}
     >
       <header class="dinkster-topbar">
-        <div class="dinkster-brand">
-          <Show when={props.navigation.length > 0}>
-            <button
-              type="button"
-              class="dinkster-button dinkster-mobile-nav"
-              data-icon-only=""
-              aria-label={strings.toggleNavigation}
-              ref={navigationToggle}
-              aria-expanded={open()}
-              aria-controls={navigationId}
-              onClick={() => setOpen(!open())}
-            >
-              <ProductIcon icon={Menu} />
-            </button>
-          </Show>
-          <ProductBrandMark />
-          <strong class="dinkster-brand-title">{props.title}</strong>
+        <div class="dinkster-topbar-inner">
+          <div class="dinkster-brand">
+            <Show when={props.navigation.length > 0}>
+              <button
+                type="button"
+                class="dinkster-button dinkster-mobile-nav"
+                data-icon-only=""
+                aria-label={strings.toggleNavigation}
+                ref={navigationToggle}
+                aria-expanded={open()}
+                aria-controls={navigationId}
+                onClick={() => setOpen(!open())}
+              >
+                <ProductIcon icon={Menu} />
+              </button>
+            </Show>
+            <ProductBrandMark />
+            <ProductWordmark />
+            <strong class="dinkster-brand-title">{props.title}</strong>
+          </div>
+          {props.account}
         </div>
-        {props.account}
       </header>
-      <Show when={props.navigation.length > 0}>
-        <aside class="dinkster-sidebar" data-open={open()}>
-          <nav
-            id={navigationId}
-            class="dinkster-nav"
-            aria-label={strings.mainNavigation}
-          >
-            <For each={props.navigation}>
-              {(item) => (
-                <a
-                  class="dinkster-nav-item"
-                  href={item.href}
-                  aria-current={
-                    props.currentHref === item.href ? 'page' : undefined
-                  }
-                  onClick={(event) => {
-                    if (
-                      event.button !== 0 ||
-                      event.ctrlKey ||
-                      event.metaKey ||
-                      event.altKey ||
-                      event.shiftKey
-                    )
-                      return
-                    event.preventDefault()
-                    const closing = open()
-                    props.onNavigate(item.href)
-                    setOpen(false)
-                    if (closing) main.focus()
-                  }}
-                >
-                  <ProductIcon icon={item.icon} />
-                  {item.label}
-                </a>
-              )}
-            </For>
-          </nav>
-        </aside>
-      </Show>
-      <main class="dinkster-page" tabindex="-1" ref={main}>
-        {props.children}
-      </main>
+      <div class="dinkster-shell-body">
+        <Show when={props.navigation.length > 0}>
+          <aside class="dinkster-sidebar" data-open={open()} ref={sidebar}>
+            <nav
+              id={navigationId}
+              class="dinkster-nav"
+              aria-label={strings.mainNavigation}
+            >
+              <For each={props.navigation}>
+                {(item) => (
+                  <a
+                    class="dinkster-nav-item"
+                    href={item.href}
+                    aria-current={
+                      props.currentHref === item.href ? 'page' : undefined
+                    }
+                    onClick={(event) => {
+                      if (
+                        event.button !== 0 ||
+                        event.ctrlKey ||
+                        event.metaKey ||
+                        event.altKey ||
+                        event.shiftKey
+                      )
+                        return
+                      event.preventDefault()
+                      const closing = open()
+                      props.onNavigate(item.href)
+                      setOpen(false)
+                      if (closing) main.focus()
+                    }}
+                  >
+                    <ProductIcon icon={item.icon} />
+                    {item.label}
+                  </a>
+                )}
+              </For>
+            </nav>
+          </aside>
+        </Show>
+        <main class="dinkster-page" tabindex="-1" ref={main}>
+          {props.children}
+        </main>
+      </div>
     </div>
   )
 }
