@@ -789,11 +789,27 @@ export function resultReceiptCurrent(retained: RetainedAssets): boolean {
   } catch { return false }
 }
 
+const retirementListeners = new WeakMap<DinksterConnection, Set<(key: string) => void>>()
+
+/** Local retirement has no storage event in the renderer that performed it. */
+export function onAssetOwnerRetirement(connection: DinksterConnection, listener: (key: string) => void): () => void {
+  let listeners = retirementListeners.get(connection)
+  if (listeners === undefined) {
+    listeners = new Set()
+    retirementListeners.set(connection, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) retirementListeners.delete(connection)
+  }
+}
+
 /** Only the lifetime that admitted an owner may retire its captured revision. */
 export async function retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
   const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
-  const storage = globalThis.localStorage
   try {
+    const storage = globalThis.localStorage
     const bytes = storage.getItem(key)
     const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
     if (intent === null || intent.acknowledgedRevision !== retained.revision ||
@@ -828,6 +844,10 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
     }
   } catch {
     // Unconfirmed retirement stays journaled; recovery never replays DELETE.
+  } finally {
+    for (const listener of retirementListeners.get(connection) ?? []) {
+      try { listener(key) } catch (error) { console.warn('Asset retirement observer failed', error) }
+    }
   }
 }
 

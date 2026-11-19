@@ -637,7 +637,10 @@ Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Connection startup scans the
 full journal; subsequent notifications coalesce only their changed owner keys
 without canceling an active read. Unresolved diagnostics for other keys remain
-until those owners are observed again or their journals are removed. An unreadable
+until those owners are observed again or their journals are removed. Local
+retirement, including source-preview handoff and ImageDocument replacement,
+notifies the same connection-scoped observer because it emits no storage event
+in its own renderer. Backend disposal removes that observer. An unreadable
 inventory requires a full scan on the next notification. These observations grant
 no adoption or release authority. A scan remains busy through its follow-up; its
 ten-second timeout applies separately to each owner read, not to the total number

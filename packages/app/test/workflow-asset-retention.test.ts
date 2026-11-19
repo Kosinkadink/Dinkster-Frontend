@@ -8,7 +8,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, readAssetPreview, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { imageDocumentDigest } from '../src/image-document-local.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -85,6 +85,28 @@ describe('workflow retention recovery', () => {
       } else expect(f.storage.getItem(f.key)).toBeNull()
     },
   )
+
+  it('isolates retirement observers and stops delivering after unsubscription', async () => {
+    const f = recoveryFixture()
+    vi.stubGlobal('localStorage', f.storage)
+    f.entries.set(f.key, JSON.stringify({ ...f.intent, acknowledgedRevision: 1 }))
+    const released = { ...f.acknowledgment, revision: 2, complete: true, digests: [] }
+    const connection = { ...f.connection, releaseRetainedAssets: async () => released } as unknown as DinksterConnection
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failure = new Error('Observer refused')
+    const stopThrowing = onAssetOwnerRetirement(connection, () => { throw failure })
+    const delivered: string[] = []
+    const stopReceiving = onAssetOwnerRetirement(connection, (key) => delivered.push(key))
+    try {
+      await expect(retireAssetOwner(connection, f.acknowledgment)).resolves.toBeUndefined()
+      expect(f.storage.getItem(f.key)).toBeNull()
+      expect(delivered).toEqual([f.key])
+      expect(warning).toHaveBeenCalledWith('Asset retirement observer failed', failure)
+      stopReceiving()
+      await expect(retireAssetOwner(connection, f.acknowledgment)).resolves.toBeUndefined()
+      expect(delivered).toEqual([f.key])
+    } finally { stopThrowing(); stopReceiving() }
+  })
 
   it('reports failed terminal cleanup and preserves the journal and independent holder', async () => {
     const f = recoveryFixture()
@@ -288,7 +310,7 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
-  it.each(['workflow edit', 'preview replacement'] as const)('does not warn about ownership retired by an acknowledged %s', async (operation) => {
+  it.each(['workflow edit', 'preview replacement', 'source preview handoff'] as const)('does not warn about ownership retired by an acknowledged %s', async (operation) => {
     const f = recoveryFixture()
     f.entries.clear()
     vi.stubGlobal('localStorage', f.storage)
@@ -311,6 +333,9 @@ describe('workflow retention recovery', () => {
     const saved = new Map<string, RetainedAssets>()
     const pending = deferred<RetainedAssets>()
     const retirement = deferred<void>()
+    const retiring = deferred<void>()
+    const handoff = deferred<void>()
+    let sourceRead: Promise<unknown> | undefined
     let observed: RetainedAssets | undefined
     const app = prepareWorkflowApp(new AppState())
     try {
@@ -324,7 +349,7 @@ describe('workflow retention recovery', () => {
         return receipt
       })
       vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
-        if (owner.ownerId === observed?.ownerId) await retirement.promise
+        if (owner.ownerId === observed?.ownerId) { retiring.resolve(); await retirement.promise }
         const receipt = { ...owner, revision: 2, complete: true, digests: [] }
         saved.set(owner.ownerId, receipt)
         return receipt
@@ -355,7 +380,12 @@ describe('workflow retention recovery', () => {
         await vi.waitFor(() => expect([...saved.values()].some((receipt) => receipt.ownerKind === 'preview')).toBe(true))
         await new Promise<void>((done) => setImmediate(done))
       }
-      observed = [...saved.values()].reverse().find((receipt) => operation === 'preview replacement'
+      if (operation === 'source preview handoff') {
+        sourceRead = readAssetPreview(backend.connection, { complete: true, digests: [asset('b').digest] },
+          () => handoff.promise, () => true, async () => true)
+        await vi.waitFor(() => expect([...saved.values()].some((receipt) => receipt.ownerKind === 'preview')).toBe(true))
+      }
+      observed = [...saved.values()].reverse().find((receipt) => operation !== 'workflow edit'
         ? receipt.ownerKind === 'preview' : receipt.ownerKind === 'document' && receipt.digests.includes(asset('b').digest))!
       expect(observed.complete).toBe(true)
       const key = scopedStorageKey(`dinkster.workflow-retentions.${observed.ownerId}`)
@@ -364,14 +394,17 @@ describe('workflow retention recovery', () => {
       if (operation === 'preview replacement') {
         backend.connection.ingest({ type: 'node_event', event: 'dinkster.curve.histogram', jobId: 'recovery-preview',
           nodeId: 'image', data: { histogram: Array.from({ length: 256 }, () => 2) } })
-      } else expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
-      await vi.waitFor(() => expect(app.retentionActivity().retirements).toBeGreaterThan(0))
+      } else if (operation === 'source preview handoff') handoff.resolve()
+      else expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
+      await retiring.promise
+      if (operation !== 'source preview handoff') expect(app.retentionActivity().retirements).toBeGreaterThan(0)
       expect(saved.get(observed.ownerId)?.revision).toBe(1)
       retirement.resolve()
       await vi.waitFor(() => {
         expect(saved.get(observed!.ownerId)?.revision).toBe(2)
         expect(app.retentionActivity().retirements).toBe(0)
       })
+      await sourceRead
       pending.resolve(observed)
       await vi.waitFor(() => {
         expect(app.retentionActivity().recoveries).toBe(0)
@@ -379,8 +412,8 @@ describe('workflow retention recovery', () => {
       })
       expect(f.entries.has(key)).toBe(false)
       expect(app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')).toEqual([])
-      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(operation === 'preview replacement' ? 'b' : 'c')])
-    } finally { retirement.resolve(); app.dispose() }
+      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(operation === 'workflow edit' ? 'c' : 'b')])
+    } finally { handoff.resolve(); retirement.resolve(); await sourceRead; app.dispose() }
   })
 
   it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending', 'journal-change-draining',

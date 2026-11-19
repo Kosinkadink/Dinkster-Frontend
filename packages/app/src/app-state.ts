@@ -209,7 +209,7 @@ import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, resultReceiptCurrent, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, resultReceiptCurrent, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3672,6 +3672,8 @@ export class AppState {
     this.workflowAssetChecks.clear()
     for (const controller of this.workflowRetentionRecoveries.values()) controller.abort()
     this.workflowRetentionRecoveries.clear()
+    for (const unsubscribe of this.retirementObservers.values()) unsubscribe()
+    this.retirementObservers.clear()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -4794,6 +4796,7 @@ export class AppState {
   private pendingRetentionRecoveries = 0
   private readonly workflowRetentionTimers = new Set<DinksterConnection>()
   private readonly workflowRetentionRefreshes = new Map<DinksterConnection, (key: string) => void>()
+  private readonly retirementObservers = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
   private refreshWorkflowAssets(tab: Tab): void {
@@ -5597,7 +5600,7 @@ export class AppState {
             }
           })
       }
-      this.workflowRetentionRefreshes.set(connection, (key) => {
+      const refreshRetentions = (key: string): void => {
         if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend) return
         dirtyRetentions.add(key)
         retentionRefreshRequested = true
@@ -5607,7 +5610,14 @@ export class AppState {
           retentionRefreshTimer = undefined
           reconcileRetentions()
         }, 400)
-      })
+      }
+      this.workflowRetentionRefreshes.set(connection, refreshRetentions)
+      this.retirementObservers.set(connection, onAssetOwnerRetirement(connection, (key) => {
+        try {
+          if (globalThis.localStorage?.getItem(key) !== null || this.workflowRetentionRecoveries.has(connection) ||
+            unresolvedRetentions.has(key)) refreshRetentions(key)
+        } catch { refreshRetentions(key) }
+      }))
       const handleStatusChange = (status: ConnectionStatus): void => {
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         this.submissionAssetOwners = new WeakMap()
@@ -5672,6 +5682,8 @@ export class AppState {
           this.clearProblems(schemaProblemsOwner)
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
+          this.retirementObservers.get(connection)?.()
+          this.retirementObservers.delete(connection)
           this.workflowRetentionRecoveries.get(connection)?.abort()
           this.workflowRetentionRecoveries.delete(connection)
           this.workflowRetentionRefreshes.delete(connection)
@@ -8690,15 +8702,6 @@ export class AppState {
     this.pendingAssetRetirements += 1
     try { await retireAssetOwner(connection, retained) } finally {
       this.pendingAssetRetirements -= 1
-      const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
-      // Local removal emits no storage event in this renderer. Refresh the
-      // retired key so a late observation cannot leave a permanent warning.
-      try {
-        if (globalThis.localStorage?.getItem(key) !== null || this.workflowRetentionRecoveries.has(connection) ||
-          this.problems.get().some((problem) => problem.code === 'workflow.retention.unresolved')) {
-          this.workflowRetentionRefreshes.get(connection)?.(key)
-        }
-      } catch { this.workflowRetentionRefreshes.get(connection)?.(key) }
       this.finishResultHolderDisposal()
     }
   }
