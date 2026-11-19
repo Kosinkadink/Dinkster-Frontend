@@ -5,6 +5,7 @@ import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
 import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
 import { activeProjectId, migrateBrowserProjects } from './projects.js'
+import { useAppMessage } from './locale.js'
 
 /** The engine owns project records; switching reloads the window's device scope. */
 export function ProjectsDialog(props: {
@@ -12,6 +13,7 @@ export function ProjectsDialog(props: {
   readonly onSwitch: (projectId: string) => void
   readonly onOpenWindow?: (projectId: string) => void
 }) {
+  const message = useAppMessage()
   const [projects, setProjects] = createSignal<readonly LibraryProject[]>([])
   const [loading, setLoading] = createSignal(true)
   const [busy, setBusy] = createSignal(false)
@@ -109,9 +111,9 @@ export function ProjectsDialog(props: {
       <Show when={error()}>{(message) => <ProductErrorBanner onDismiss={() => setError(undefined)}>{message()}</ProductErrorBanner>}</Show>
       <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
       <p class="projects-dialog-intro">
-        Projects are saved in this engine's library. Tabs, backend connections, and layout stay on this device.
+        {message('projectsDialog.description')}
       </p>
-      <Show when={loading()}><ProductEmptyState tone="loading" title="Loading projects" /></Show>
+      <Show when={loading()}><ProductEmptyState tone="loading" title={message('projectsDialog.loading')} /></Show>
       <ul class="projects-dialog-list">
         <For each={projects()}>{(project) => (
           <li data-project-id={project.id}>
