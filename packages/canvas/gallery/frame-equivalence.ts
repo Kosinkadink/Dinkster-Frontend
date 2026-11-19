@@ -239,14 +239,28 @@ export async function compareCanvasFrames(
     }
     candidate.renderer.setOverlay(overlay)
     compare('drag')
-    states = Object.fromEntries(
-      Object.entries(states).map(([id, progress]) => [
-        id,
-        progress.state === 'running'
-          ? { ...progress, state: 'done' as const }
-          : progress,
-      ]),
-    )
+    for (const [state, dx, dy] of [
+      ['drag across tiles', 703.25, 19.5],
+      ['reverse drag', -37.25, 41.5],
+    ] as const) {
+      overlay = { ...overlay, dragOffsets: new Map([[node.id, { dx, dy }]]) }
+      candidate.renderer.setOverlay(overlay)
+      compare(state)
+    }
+    overlay = { ...fixture.overlay, selection: new Set([node.id]) }
+    candidate.renderer.setOverlay(overlay)
+    compare('drag release')
+    states = {
+      ...Object.fromEntries(
+        Object.entries(states).map(([id, progress]) => [
+          id,
+          progress.state === 'running'
+            ? { ...progress, state: 'done' as const }
+            : progress,
+        ]),
+      ),
+      [node.id]: { state: states[node.id]?.state === 'done' ? 'cached' : 'done' },
+    }
     candidate.renderer.setNodeStates(states)
     compare('execution settled')
     overlay = {

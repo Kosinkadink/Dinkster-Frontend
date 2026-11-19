@@ -34,6 +34,7 @@ import {
   REROUTE_SOCKET_OFFSET,
   REROUTE_SOCKET_RADIUS,
   sceneEndId,
+  structuralEqual,
   selectorBadgeRect,
   selectorCandidatePinPosition,
   selectorOutPinPosition,
@@ -851,9 +852,32 @@ export class CanvasRenderer {
     this.scheduleFrame()
   }
 
+  private replacePaintScene(scene: Scene): void {
+    const { nodes: beforeNodes, links: beforeLinks, ...before } = this.scene
+    const { nodes: afterNodes, links: afterLinks, ...after } = scene
+    if (!structuralEqual(before, after) ||
+        !structuralEqual(beforeNodes.map((node) => node.id), afterNodes.map((node) => node.id)) ||
+        !structuralEqual(beforeLinks.map((link) => link.id), afterLinks.map((link) => link.id))) {
+      this.scene = scene
+      this.invalidate()
+      return
+    }
+    const changedNodes = new Set(afterNodes.filter((node, index) => !structuralEqual(node, beforeNodes[index])).map((node) => node.id))
+    const changedLinks = new Set(afterLinks.filter((link, index) => !structuralEqual(link, beforeLinks[index])).map((link) => link.id))
+    for (const link of [...beforeLinks, ...afterLinks]) {
+      if (!changedLinks.has(link.id)) continue
+      changedNodes.add(sceneEndId(link.from))
+      changedNodes.add(sceneEndId(link.to))
+    }
+    this.invalidateNodeTiles(changedNodes)
+    this.scene = scene
+    this.invalidateNodeTiles(changedNodes)
+    this.requestRender()
+  }
+
   setScene(scene: Scene): void {
     this.baseScene = scene
-    this.scene = this.sceneWithBodyRegions(scene)
+    this.replacePaintScene(this.sceneWithBodyRegions(scene))
     this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
@@ -865,7 +889,6 @@ export class CanvasRenderer {
       height: node.layout.height,
     })))
     this.refreshTypeAdornments()
-    this.invalidate()
     // Notify AFTER installation so listeners (gesture cancellation) observe
     // the new scene through getScene().
     for (const listener of this.sceneReplacedListeners) listener(this.scene)
@@ -897,8 +920,60 @@ export class CanvasRenderer {
   }
 
   setOverlay(overlay: OverlayState): void {
+    const previous = this.overlay
+    if (this.getDetailLevel() === 'overview' && this.scene.links.length >= 256 &&
+        ((previous.dragOffsets === undefined) !== (overlay.dragOffsets === undefined) ||
+         (previous.resizePreview === undefined) !== (overlay.resizePreview === undefined))) {
+      this.overlay = overlay
+      this.invalidate()
+      return
+    }
+    const nodes = new Set<string>()
+    const local = new Set<keyof OverlayState>([
+      'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'hoveredNode',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge',
+    ])
+    const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
+    for (const key of keys) {
+      const before = previous[key]
+      const after = overlay[key]
+      if (before === after) continue
+      if (key === 'selection' || key === 'linkSelection' || key === 'rerouteSelection' ||
+          key === 'valueSourceSelection' || key === 'selectorSelection' || key === 'groupSelection' ||
+          key === 'netViewSelection' || key === 'dropTargets' || key === 'hiddenLinkIds') {
+        const left = previous[key]
+        const right = overlay[key]
+        const changed = [...left ?? [], ...right ?? []].filter((id) => !!left?.has(id) !== !!right?.has(id))
+        if (changed.length === 0) continue
+        if (key === 'selection') {
+          for (const id of changed) nodes.add(id)
+          continue
+        }
+      }
+      if (!local.has(key)) {
+        this.overlay = overlay
+        this.invalidate()
+        return
+      }
+      if (key === 'dragOffsets') {
+        for (const id of new Set([...previous.dragOffsets?.keys() ?? [], ...overlay.dragOffsets?.keys() ?? []])) {
+          const a = previous.dragOffsets?.get(id)
+          const b = overlay.dragOffsets?.get(id)
+          if (a?.dx !== b?.dx || a?.dy !== b?.dy) nodes.add(id)
+        }
+      } else {
+        for (const state of [previous, overlay]) {
+          const value = state[key]
+          if (typeof value === 'string') nodes.add(value)
+          else if (value && 'nodeId' in value) nodes.add(value.nodeId)
+        }
+      }
+    }
+    this.invalidateNodeTiles(nodes)
     this.overlay = overlay
-    this.invalidate()
+    this.invalidateNodeTiles(nodes)
+    this.dirty = true
+    this.scheduleFrame()
   }
 
   getScene(): Scene {
@@ -922,16 +997,19 @@ export class CanvasRenderer {
     return { x: (sx - x) / scale, y: (sy - y) / scale }
   }
 
+  private updateNodePaint(before: Readonly<Record<string, unknown>>, after: Readonly<Record<string, unknown>>, apply: () => void): void {
+    const ids = new Set([...Object.keys(before), ...Object.keys(after)].filter((id) => !structuralEqual(before[id], after[id])))
+    this.invalidateNodeTiles(ids)
+    apply()
+    this.invalidateNodeTiles(ids)
+    this.requestRender()
+  }
+
   setNodeStates(states: Readonly<Record<string, NodeProgress>>): void {
-    this.nodeStates = states
-    this.hasRunningNodes = false
-    for (const nodeId in states) {
-      if (states[nodeId]?.state === 'running') {
-        this.hasRunningNodes = true
-        break
-      }
-    }
-    this.invalidate()
+    this.updateNodePaint(this.nodeStates, states, () => {
+      this.nodeStates = states
+      this.hasRunningNodes = Object.values(states).some((state) => state.state === 'running')
+    })
   }
 
   setReducedMotion(reduced: boolean): void {
@@ -954,8 +1032,7 @@ export class CanvasRenderer {
 
   /** Companion (propagated) values per node/valueKey. Derived, never stored. */
   setCompanions(companions: CompanionMap): void {
-    this.companions = companions
-    this.invalidate()
+    this.updateNodePaint(this.companions, companions, () => { this.companions = companions })
   }
 
   private presence: readonly PresenceActor[] = []
@@ -968,7 +1045,7 @@ export class CanvasRenderer {
    */
   setPresence(actors: readonly PresenceActor[]): void {
     this.presence = actors
-    this.invalidate()
+    this.requestRender()
   }
 
   getPresence(): readonly PresenceActor[] {
@@ -985,8 +1062,7 @@ export class CanvasRenderer {
    * Derived per scene build, never stored.
    */
   setRowMarks(marks: RowMarkMap): void {
-    this.rowMarks = marks
-    this.invalidate()
+    this.updateNodePaint(this.rowMarks, marks, () => { this.rowMarks = marks })
   }
 
   private lensCapabilities: RendererLensCapabilities = {}
@@ -1022,8 +1098,7 @@ export class CanvasRenderer {
 
   /** Exact input-pin problem rings, projected by the host's shared resolver. */
   setPortProblems(problems: PortProblemMap): void {
-    this.portProblems = problems
-    this.invalidate()
+    this.updateNodePaint(this.portProblems, problems, () => { this.portProblems = problems })
   }
 
   /** Header badges per node (subgraph marker, error chip, extensions). */
@@ -1034,13 +1109,14 @@ export class CanvasRenderer {
       .join('\u0000')
     const before = laneSignature(this.badges)
     const after = laneSignature(badges)
-    this.badges = badges
-    if (before !== after) {
-      this.scene = this.sceneWithBodyRegions(this.baseScene)
-      this.refreshTypeAdornments()
-      for (const listener of this.sceneReplacedListeners) listener(this.scene)
-    }
-    this.invalidate()
+    this.updateNodePaint(this.badges, badges, () => {
+      this.badges = badges
+      if (before !== after) {
+        this.replacePaintScene(this.sceneWithBodyRegions(this.baseScene))
+        this.refreshTypeAdornments()
+        for (const listener of this.sceneReplacedListeners) listener(this.scene)
+      }
+    })
   }
 
   getBadges(): BadgeMap {
@@ -1088,8 +1164,7 @@ export class CanvasRenderer {
   private nodeDecorations: Readonly<Record<string, NodeDecoration>> = {}
 
   setNodeDecorations(decorations: Readonly<Record<string, NodeDecoration>>): void {
-    this.nodeDecorations = decorations
-    this.invalidate()
+    this.updateNodePaint(this.nodeDecorations, decorations, () => { this.nodeDecorations = decorations })
   }
 
   getNodeDecorations(): Readonly<Record<string, NodeDecoration>> {
@@ -1101,7 +1176,7 @@ export class CanvasRenderer {
   /** Selection toolbox rows (host-derived, like badges). */
   setToolbox(rows: readonly ToolboxRow[]): void {
     this.toolbox = rows
-    this.invalidate()
+    this.requestRender()
   }
 
   /**
@@ -1307,15 +1382,18 @@ export class CanvasRenderer {
 
   /** Preview imagery/placeholders per node, allocated inside the node body. */
   setNodePreviews(previews: PreviewMap): void {
+    // Canvas/video pixels can change without replacing their source object.
+    this.invalidateNodeTiles(new Set(Object.keys(previews)))
     const before = Object.keys(this.previews).sort().join('\u0000')
     const after = Object.keys(previews).sort().join('\u0000')
-    this.previews = previews
-    if (before !== after) {
-      this.scene = this.sceneWithBodyRegions(this.baseScene)
-      this.refreshTypeAdornments()
-      for (const listener of this.sceneReplacedListeners) listener(this.scene)
-    }
-    this.invalidate()
+    this.updateNodePaint(this.previews, previews, () => {
+      this.previews = previews
+      if (before !== after) {
+        this.replacePaintScene(this.sceneWithBodyRegions(this.baseScene))
+        this.refreshTypeAdornments()
+        for (const listener of this.sceneReplacedListeners) listener(this.scene)
+      }
+    })
   }
 
   getNodePreviews(): PreviewMap {
@@ -1332,13 +1410,14 @@ export class CanvasRenderer {
       .join('\u0000')
     const before = lineCounts(this.outputTexts)
     const after = lineCounts(outputTexts)
-    this.outputTexts = outputTexts
-    if (before !== after) {
-      this.scene = this.sceneWithBodyRegions(this.baseScene)
-      this.refreshTypeAdornments()
-      for (const listener of this.sceneReplacedListeners) listener(this.scene)
-    }
-    this.invalidate()
+    this.updateNodePaint(this.outputTexts, outputTexts, () => {
+      this.outputTexts = outputTexts
+      if (before !== after) {
+        this.replacePaintScene(this.sceneWithBodyRegions(this.baseScene))
+        this.refreshTypeAdornments()
+        for (const listener of this.sceneReplacedListeners) listener(this.scene)
+      }
+    })
   }
 
   getNodeOutputTexts(): OutputTextMap {
@@ -1354,6 +1433,7 @@ export class CanvasRenderer {
    * state, never recomputed in the draw loop.
    */
   setScopeHighlight(scope: ScopeHighlight | undefined): void {
+    if (this.scopeHighlight === scope) return
     this.scopeHighlight = scope
     this.invalidate()
   }
@@ -1364,8 +1444,10 @@ export class CanvasRenderer {
 
   /** Compiler-derived lazy-selector cones; membership only, never topology. */
   setInactiveNodes(nodes: ReadonlySet<string> | undefined): void {
+    const unchanged = nodes === this.inactiveNodes || (nodes !== undefined && this.inactiveNodes !== undefined &&
+      nodes.size === this.inactiveNodes.size && [...nodes].every((id) => this.inactiveNodes!.has(id)))
     this.inactiveNodes = nodes
-    this.invalidate()
+    if (!unchanged) this.invalidate()
   }
 
   getInactiveNodes(): ReadonlySet<string> | undefined {
@@ -1381,6 +1463,7 @@ export class CanvasRenderer {
    * random selector renders its recorded roll instead of '?'.
    */
   setSelectorResolutions(resolutions: ReadonlyMap<string, string> | undefined): void {
+    if (this.selectorResolutions === resolutions) return
     this.selectorResolutions = resolutions
     this.invalidate()
   }
@@ -1446,10 +1529,73 @@ export class CanvasRenderer {
     this.graphTileTransform = ''
   }
 
-  invalidate(): void {
-    this.clearGraphTiles()
+  private invalidateGraphBounds(bounds: ReturnType<typeof linkBounds>): void {
+    if (this.graphTiles.size === 0) return
+    const [scale, densityX, densityY] = this.graphTileTransform.split('/').map(Number) as [number, number, number]
+    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    for (const [key, tile] of this.graphTiles) {
+      const [column, row] = key.split('/').map(Number) as [number, number]
+      const x = (column * size - bleed) / (densityX * scale)
+      const y = (row * size - bleed) / (densityY * scale)
+      const width = (size + bleed * 2) / (densityX * scale)
+      const height = (size + bleed * 2) / (densityY * scale)
+      if (bounds.maxX < x || bounds.minX > x + width || bounds.maxY < y || bounds.minY > y + height) continue
+      tile.close()
+      this.graphTiles.delete(key)
+    }
+  }
+
+  private nodePaintBounds(entry: SceneNode): ReturnType<typeof linkBounds> {
+    const node = this.nodeForPaint(entry)
+    const offset = this.overlay.dragOffsets?.get(node.id) ?? ZERO_OFFSET
+    const layout = node.layout
+    const pad = structureCullPad(this.viewport.scale, this.tokens.pinRadius, this.getDetailLevel())
+    const badges = this.getDetailLevel() !== 'overview' && this.tokens.badgeLayout === 'tabs'
+      ? this.getNodeBadgeBounds(node) : undefined
+    return {
+      minX: Math.min(node.x - pad, badges?.x ?? node.x) + offset.dx,
+      maxX: Math.max(node.x + layout.width + pad, badges ? badges.x + badges.width : node.x + layout.width) + offset.dx,
+      minY: Math.min(node.y - pad, badges?.y ?? node.y) + offset.dy,
+      maxY: Math.max(node.y + layout.height + pad, badges ? badges.y + badges.height : node.y + layout.height) + offset.dy,
+    }
+  }
+
+  private linkPaintBounds(link: Scene['links'][number]): ReturnType<typeof linkBounds> {
+    const from = this.linkEndForPaint(link.from, 'out', link.x1, link.y1)
+    const to = this.linkEndForPaint(link.to, 'in', link.x2, link.y2)
+    const a = this.overlay.dragOffsets?.get(sceneEndId(link.from)) ?? ZERO_OFFSET
+    const b = this.overlay.dragOffsets?.get(sceneEndId(link.to)) ?? ZERO_OFFSET
+    const bounds = linkBounds(from.x + a.dx, from.y + a.dy, to.x + b.dx, to.y + b.dy)
+    const pad = linkCullPad(this.viewport.scale)
+    return { minX: bounds.minX - pad, maxX: bounds.maxX + pad, minY: bounds.minY - pad, maxY: bounds.maxY + pad }
+  }
+
+  private invalidateNodeTiles(ids: ReadonlySet<string>): void {
+    if (ids.size === 0 || this.graphTiles.size === 0) return
+    const nodes = this.scene.nodes.filter((node) => ids.has(node.id))
+    if (nodes.length !== ids.size || this.scene.netStubs.some((stub) => ids.has(stub.nodeId))) {
+      this.clearGraphTiles()
+      return
+    }
+    for (const node of nodes) this.invalidateGraphBounds(this.nodePaintBounds(node))
+    for (const link of this.scene.links) {
+      if (ids.has(sceneEndId(link.from)) || ids.has(sceneEndId(link.to))) this.invalidateGraphBounds(this.linkPaintBounds(link))
+    }
+    const union = this.selectionUnionOutlineRect()
+    if (union) {
+      const pad = MULTI_SELECTION_OUTLINE_STROKE_WIDTH / this.viewport.scale
+      this.invalidateGraphBounds({ minX: union.x - pad, minY: union.y - pad, maxX: union.x + union.width + pad, maxY: union.y + union.height + pad })
+    }
+  }
+
+  private requestRender(): void {
     this.dirty = true
     this.scheduleFrame()
+  }
+
+  invalidate(): void {
+    this.clearGraphTiles()
+    this.requestRender()
   }
 
   /**
@@ -1727,35 +1873,11 @@ export class CanvasRenderer {
                 }
               }
             }
-            const detailLevel = this.getDetailLevel()
-            const pad = structureCullPad(scale, this.tokens.pinRadius, detailLevel)
-            const paintPad = linkCullPad(scale)
-            const off = (id: string) => this.overlay.dragOffsets?.get(id) ?? ZERO_OFFSET
             for (const entry of this.scene.nodes) {
-              const node = this.nodeForPaint(entry)
-              const offset = off(node.id)
-              const layout = node.layout
-              const badges = detailLevel !== 'overview' && this.tokens.badgeLayout === 'tabs'
-                ? this.getNodeBadgeBounds(node) : undefined
-              assign({
-                minX: Math.min(node.x - pad, badges?.x ?? node.x) + offset.dx,
-                maxX: Math.max(node.x + layout.width + pad, badges ? badges.x + badges.width : node.x + layout.width) + offset.dx,
-                minY: Math.min(node.y - pad, badges?.y ?? node.y) + offset.dy,
-                maxY: Math.max(node.y + layout.height + pad, badges ? badges.y + badges.height : node.y + layout.height) + offset.dy,
-              }, (scene) => scene.nodes.push(entry))
+              assign(this.nodePaintBounds(entry), (scene) => scene.nodes.push(entry))
             }
             for (const link of this.scene.links) {
-              const from = this.linkEndForPaint(link.from, 'out', link.x1, link.y1)
-              const to = this.linkEndForPaint(link.to, 'in', link.x2, link.y2)
-              const a = off(sceneEndId(link.from))
-              const b = off(sceneEndId(link.to))
-              const bounds = linkBounds(from.x + a.dx, from.y + a.dy, to.x + b.dx, to.y + b.dy)
-              assign({
-                minX: bounds.minX - paintPad,
-                maxX: bounds.maxX + paintPad,
-                minY: bounds.minY - paintPad,
-                maxY: bounds.maxY + paintPad,
-              }, (scene) => scene.links.push(link))
+              assign(this.linkPaintBounds(link), (scene) => scene.links.push(link))
             }
           }
           const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)

@@ -27,6 +27,9 @@ const frameStates = [
   'settled zoom',
   'selection',
   'drag',
+  'drag across tiles',
+  'reverse drag',
+  'drag release',
   'execution settled',
   'badge hover',
   'live resize at tile edge',
@@ -133,6 +136,11 @@ for (const dpr of [1, 1.25, 2]) {
               (frame) => frame.state === 'same-phase pan',
             )!
             expect(pan.candidateTiles).toBeLessThan(pan.referenceTiles)
+            for (const state of ['selection', 'drag', 'drag release', 'edit and release']) {
+              const changed = result.frames.find((frame) => frame.state === state)!
+              expect(changed.candidateTiles, state).toBeGreaterThan(0)
+              expect(changed.candidateTiles, state).toBeLessThan(changed.referenceTiles)
+            }
           }
           expect(
             result.frames.map(({ state, directDifferences }) => ({

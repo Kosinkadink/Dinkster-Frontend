@@ -12,9 +12,14 @@ the same graph order, clipping and raster origin. Tiles outside the visible
 working set are closed rather than retained indefinitely.
 
 Tiles are copied at their original pixel size, never stretched. Zoom changes
-repaint at the new scale, preserving sharp text and geometry. Scene, overlay, preview, execution-state, theme and style
-updates invalidate retained graph images. Disposing the renderer closes its
-remaining images. Running-node frames retain direct graph painting and never
+repaint at the new scale, preserving sharp text and geometry. Node selection,
+drag, resize, presentation and committed edits retire tiles touching the old
+and new node bounds and connected links, retaining distant images. Tile
+invalidation includes badge extents, paint padding, bleed and selection-union
+outlines. Mutable preview sources repaint their supplied nodes even when the
+image object is unchanged. Structural edits, compound gestures, theme and
+style changes conservatively retire the complete graph. Disposing the
+renderer closes its remaining images. Running-node frames retain direct graph painting and never
 reuse graph images. Without transferable offscreen bitmaps, settled scenes
 repaint the complete scene on fresh canonical offscreen surfaces, without
 retained images or candidate bins. Shared raster origins and transparent

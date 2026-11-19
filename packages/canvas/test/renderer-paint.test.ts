@@ -532,6 +532,43 @@ describe('graph image reuse', () => {
         expect(painted.calls).toHaveLength(0)
         expect(output.calls.filter((call) => call.method === 'drawImage').length).toBeLessThanOrEqual(12)
       }
+      for (const overlay of [
+        { selection: new Set(['cached-2']) },
+        { selection: new Set(['cached-2']), dragOffsets: new Map([['cached-2', { dx: 703, dy: 19 }]]) },
+        { selection: new Set(['cached-2']), dragOffsets: new Map([['cached-2', { dx: -37, dy: 41 }]]) },
+        { selection: new Set(['cached-2']) },
+      ]) {
+        const live = images.filter((image) => image.close.mock.calls.length === 0)
+        const beforeEdit = images.length
+        renderer.setOverlay(overlay)
+        renderer.renderNow()
+        expect(images.length - beforeEdit).toBeGreaterThan(0)
+        expect(images.length - beforeEdit).toBeLessThan(live.length)
+        expect(live.some((image) => image.close.mock.calls.length === 0)).toBe(true)
+      }
+      const beforeCommit = images.length
+      const committedScene = renderer.getScene()
+      renderer.setScene({
+        ...committedScene,
+        nodes: committedScene.nodes.map((node) => node.id === 'cached-2'
+          ? { ...node, x: node.x + 17, layout: { ...node.layout, title: 'Edited' } }
+          : node),
+      })
+      renderer.setNodeStates({})
+      renderer.setCompanions({})
+      renderer.setBadges({})
+      renderer.setNodeDecorations({})
+      renderer.setPortProblems({})
+      renderer.setNodePreviews({})
+      renderer.setNodeOutputTexts({})
+      renderer.setInactiveNodes(undefined)
+      renderer.setSelectorResolutions(undefined)
+      renderer.setScopeHighlight(undefined)
+      renderer.setToolbox([])
+      renderer.setPresence([])
+      renderer.renderNow()
+      expect(images.length - beforeCommit).toBeGreaterThan(0)
+      expect(images.length - beforeCommit).toBeLessThan(12)
       const beforeZoom = images.length
       renderer.setViewport({ x: -513.25, y: -1, scale: 1.1 })
       renderer.renderNow()
