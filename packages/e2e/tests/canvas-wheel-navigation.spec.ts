@@ -72,6 +72,20 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
   await page.clock.runFor(120)
   expect((await viewport(page)).scale).toBeCloseTo(start.scale * Math.exp(80 * 0.0012), 10)
   await setViewport(page, start)
+  let previousScale = start.scale
+  for (let elapsed = 1; elapsed <= 200; elapsed++) {
+    await wheel(page, { ...point, deltaX: 0, deltaY: -1 })
+    await page.clock.runFor(1)
+    if (elapsed % 16 === 0) {
+      const current = await viewport(page)
+      expect(current.scale).toBeGreaterThan(previousScale)
+      expect((point.screenX - current.x) / current.scale).toBeCloseTo((point.screenX - start.x) / start.scale, 10)
+      previousScale = current.scale
+    }
+  }
+  await page.clock.runFor(116)
+  expect((await viewport(page)).scale).toBeCloseTo(start.scale * Math.exp(200 * 0.0012), 10)
+  await setViewport(page, start)
   await page.getByTestId('graph-canvas').evaluate((canvas) => (canvas as HTMLCanvasElement).focus())
   await page.keyboard.press('Shift+Digit1')
   await wheel(page, { ...point, deltaX: 0, deltaY: -120 })
