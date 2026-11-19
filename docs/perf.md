@@ -6,6 +6,43 @@ performance project are removed: their absolute limits were not calibrated
 from the slowest hosted runner with a threefold margin. These tables remain
 an unchanged measurement record, not active test gates or rerun instructions.
 
+## Smooth wheel zoom (2026-11-19)
+
+Before is the accepted regional-redraw run below, whose renderer landed as
+`1338449e`; it was not replayed. After adds default-on 100 ms wheel easing
+inside the renderer's frame loop. X570, claimed RTX 4090, Chromium 149 Vulkan,
+uncapped 2560x1440, 2500 ms inputs and the unchanged audit scripts are retained.
+Both are production-optimized test-mode builds. The freshly captured CPU
+backend uses the same pinned sources, installed package versions and pack
+artifact digests; only local source paths differ. No validation suite overlaps
+the after command. These are unequal-time, shared-host reports, not gates.
+
+Frame p50/p95 in milliseconds; drag runs separately from camera input:
+
+| Fixture/camera | Pan before | Pan after | Zoom before | Zoom after | Drag before | Drag after |
+| --- | --- | --- | --- | --- | --- | --- |
+| 66/read | 6.1/17.5 | 16.7/17.7 | 7.7/13.9 | 0.4/7.0 | 1.4/2.3 | 1.4/2.1 |
+| 66/fit | 2.1/17.6 | 16.7/17.8 | 5.0/14.0 | 0.2/6.4 | 1.2/16.8 | 1.2/17.0 |
+| 300/read | 4.1/17.5 | 15.7/17.7 | 4.7/11.2 | 0.3/5.7 | 1.2/2.0 | 1.2/2.0 |
+| 300/fit | 9.8/24.4 | 16.7/17.7 | 7.5/25.6 | 0.2/9.8 | 1.9/3.7 | 1.6/2.9 |
+| 1200/read | 13.2/17.7 | 4.9/17.7 | 4.7/8.2 | 0.3/6.3 | 2.4/3.5 | 1.7/2.9 |
+| 1200/fit | 20.6/33.5 | 16.6/17.7 | 21.8/35.5 | 0.2/23.0 | 6.3/14.2 | 6.2/15.0 |
+
+The zoom distribution contains many tiny renders (renderer p50 0.0-0.1 ms),
+with p95 5.2-22.6 ms and frame maxima up to 134.3 ms. Its small frame median
+is not evidence of sustained full refresh rate. The unchanged wheel flood
+still queues input: fitted 1200-node zoom input-to-render-end p95 is 1198 ms.
+Pan has near-zero renderer cost but roughly 17.7 ms frame tails. Neither
+observation establishes tab-save or garbage-collection attribution. These
+numbers retain unfavorable cells and do not satisfy the whole-issue targets.
+
+Controlled-clock browser checks separately establish intermediate frames,
+pointer anchoring, accumulated/reversed input, bookmark and pointer takeover,
+disabling an active glide, persisted default-on/off behavior and immediate
+reduced-motion behavior. The original two-axis pan and Ctrl-wheel policy
+case passes against the production-optimized build and native CPU backend.
+These behavior checks do not assert frame-time limits.
+
 ## Regional node-edit redraws (2026-11-19)
 
 Before is landed `7410bf20`; after is based on `15ea54ef` and retains distant

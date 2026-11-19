@@ -1372,6 +1372,8 @@
   "settings.canvas.scrollBehavior.name": "画布滚动行为",
   "settings.canvas.scrollBehavior.option.pan": "平移",
   "settings.canvas.scrollBehavior.option.zoom": "缩放",
+  "settings.canvas.smoothWheelZoom.description": "在滚轮缩放步进之间短暂平滑过渡。关闭后立即缩放。减少动态效果时也使用立即缩放。",
+  "settings.canvas.smoothWheelZoom.name": "平滑滚轮缩放",
   "settings.execution.mirrorPreviews.description": "本地计算仅用于显示的节点（其模式声明了前端镜像显示，显示为近似伴生值）的估算结果；权威结果仍来自执行。",
   "settings.execution.mirrorPreviews.name": "镜像值估计",
   "settings.execution.previewAnimation.description": "视频模型预览是如何到达的。帧环流媒体暂停画布循环；编码动画每次更新发送一个独立的WebP动画文件。",

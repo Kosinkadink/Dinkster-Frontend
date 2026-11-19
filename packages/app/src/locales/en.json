@@ -1370,6 +1370,8 @@
   "settings.canvas.scrollBehavior.name": "Canvas scroll behavior",
   "settings.canvas.scrollBehavior.option.pan": "Pan",
   "settings.canvas.scrollBehavior.option.zoom": "Zoom",
+  "settings.canvas.smoothWheelZoom.description": "Glide briefly between wheel zoom steps. Turn off for immediate zoom. Reduced motion uses immediate zoom.",
+  "settings.canvas.smoothWheelZoom.name": "Smooth wheel zoom",
   "settings.execution.mirrorPreviews.description": "Locally compute display-only estimates for nodes whose schema declares a frontend mirror (shown as approximate companion values); authoritative results still come from execution.",
   "settings.execution.mirrorPreviews.name": "Mirrored value estimates",
   "settings.execution.previewAnimation.description": "How video-model previews arrive. Frame ring streams stills the canvas cycles; encoded animation ships a self-contained animated WebP per update.",
