@@ -13,6 +13,8 @@ declare global {
   }
 }
 
+test.describe.configure({ mode: 'parallel' })
+
 let script: string
 const frameStates = [
   'initial',
@@ -71,6 +73,8 @@ test.beforeAll(async () => {
 
 for (const dpr of [1, 1.25, 2]) {
   test.describe(`Whole-frame equivalence at DPR ${dpr}`, () => {
+    // Cases share this DPR's page; independent DPR groups can use separate workers.
+    test.describe.configure({ mode: 'default' })
     let page: Page
     const errors: string[] = []
     test.beforeAll(async ({ browser }, testInfo) => {
