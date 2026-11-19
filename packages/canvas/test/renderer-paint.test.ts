@@ -299,6 +299,52 @@ const typedLensLink = (
   typeName,
 })
 
+describe('viewport animation', () => {
+  it('paints intermediate frames, accumulates targets and yields to an explicit viewport', () => {
+    let pending: FrameRequestCallback | undefined
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    const tick = (at: number) => {
+      clock = at
+      const callback = pending
+      pending = undefined
+      if (!callback) throw new Error('Expected a scheduled frame')
+      callback(at)
+    }
+    try {
+      renderer.setViewport({ x: 33, y: -17, scale: 1.25 })
+      renderer.animateViewport(() => ({ x: -234, y: 204, scale: 2.5 }))
+      expect(renderer.getViewport()).toEqual({ x: 33, y: -17, scale: 1.25 })
+      tick(1025)
+      const middle = renderer.getViewport()
+      expect(middle.scale).toBeGreaterThan(1.25)
+      expect(middle.scale).toBeLessThan(2.5)
+      expect((300 - middle.x) / middle.scale).toBeCloseTo((300 - 33) / 1.25)
+      expect((-238 - middle.y) / middle.scale).toBeCloseTo((-238 + 17) / 1.25)
+      expect(calls.length).toBeGreaterThan(0)
+      renderer.animateViewport((target) => ({ ...target, scale: target.scale * 1.5 }))
+      tick(1125)
+      expect(renderer.getViewport()).toEqual({ x: -234, y: 204, scale: 3.75 })
+      expect(pending).toBeUndefined()
+      renderer.animateViewport(() => ({ x: 0, y: 0, scale: 2 }))
+      renderer.setViewport({ x: 91, y: -83, scale: 0.75 })
+      tick(1300)
+      expect(renderer.getViewport()).toEqual({ x: 91, y: -83, scale: 0.75 })
+      expect(pending).toBeUndefined()
+      renderer.setReducedMotion(true)
+      renderer.animateViewport(() => ({ x: 3, y: 5, scale: 1 }))
+      expect(renderer.getViewport()).toEqual({ x: 3, y: 5, scale: 1 })
+    } finally {
+      renderer.dispose()
+      vi.restoreAllMocks()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+  })
+})
+
 describe('typed overview detail', () => {
   it('switches painted text and link controls at the shared detail boundary', () => {
     const scene = fixtureScene('clean')
