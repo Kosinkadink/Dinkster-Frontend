@@ -312,7 +312,7 @@ describe('workflow-open requirements', () => {
     })
     vi.spyOn(backend.connection, 'applyPackInstall').mockImplementation(async () => { installed = true; throw new Error('unexpected apply') })
     const progress: string[] = []
-    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage))).toEqual({ installation: prepared, affectedProjects: null })
+    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage))).toMatchObject({ installation: prepared, affectedProjects: null })
     expect(selections).toEqual([{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }])
     expect(progress).toEqual(['retaining-review'])
     expect(enabled).toEqual(['kept'])
@@ -407,6 +407,19 @@ describe('workflow-open requirements', () => {
     mutateNeeds = false
     mutateList = true
     await expect(prepare()).rejects.toThrow('changed')
+    mutateList = false
+    let clock = 1000
+    let scanTime = 449_999
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    vi.spyOn(backend.connection, 'listProjects').mockImplementation(async () => {
+      clock += scanTime
+      return { items: projects, cursor: null }
+    })
+    const almostExpired = await prepare()
+    expect(almostExpired.expiresAt - performance.now()).toBe(2)
+    clock = 1000
+    scanTime = 450_000
+    await expect(prepare()).rejects.toThrow(/expired/)
   })
 
   it('refuses ambiguous or unknown project needs before preparing software', async () => {

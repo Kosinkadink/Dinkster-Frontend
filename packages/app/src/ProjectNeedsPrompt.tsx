@@ -36,11 +36,12 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
         if (!disposed) setProgress(value)
       })
       if (!disposed) {
+        if (performance.now() >= result.expiresAt) throw new Error(message('search.installExpired'))
         setPlan(result)
         expiry = setTimeout(() => {
           setPlan(undefined)
           setError(message('search.installExpired'))
-        }, Math.min(result.installation.expiresInSeconds * 1000, 2_147_483_647))
+        }, Math.min(result.expiresAt - performance.now(), 2_147_483_647))
       }
     } catch (cause) { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { if (!disposed) { setBusy(false); setPreparing(false) } }

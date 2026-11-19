@@ -114,7 +114,9 @@ Projects on another environment are excluded. The project list is read without
 browser caching, including every page, and both the list and the other projects'
 needs are rechecked before presenting the result. Missing impact, unbound projects
 or unreadable workflow needs are reported as unknown, not as an empty affected
-list. This review still cannot apply changes to shared software.
+list. Time spent collecting impact counts against the prepared review's lifetime;
+a result that expires during those reads is not shown. This review still cannot
+apply changes to shared software.
 
 ## Desktop windows
 

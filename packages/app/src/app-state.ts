@@ -2451,6 +2451,7 @@ export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly co
 
 export interface ProjectPackInstallationReview {
   readonly installation: PackInstallPlan
+  readonly expiresAt: number
   readonly affectedProjects: readonly LibraryProject[] | null
 }
 
@@ -8296,9 +8297,11 @@ export class AppState {
       current()
       onProgress(progress)
     })
+    const expiresAt = performance.now() + plan.expiresInSeconds * 1000
     await recheck()
+    if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
     const impact = plan.plan['format'] === 'dinkster.project-pack-plan/1' ? plan.plan.packChanges : undefined
-    if (impact == null || environment === null) return { installation: plan, affectedProjects: null }
+    if (impact == null || environment === null) return { installation: plan, expiresAt, affectedProjects: null }
     const changed = new Set(impact.map(({ pack }) => pack))
     const readProjects = async (): Promise<readonly LibraryProject[]> => {
       const projects = new Map<string, LibraryProject>()
@@ -8343,7 +8346,8 @@ export class AppState {
     }
     if (JSON.stringify(await readProjects()) !== JSON.stringify(projects)) throw new Error(t('projectNeeds.changed'))
     await recheck()
-    return { installation: plan, affectedProjects: known ? affected : null }
+    if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
+    return { installation: plan, expiresAt, affectedProjects: known ? affected : null }
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
