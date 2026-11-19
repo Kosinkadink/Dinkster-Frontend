@@ -119,6 +119,7 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
       }, 'Resident model')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
+    await waitForStartupOwnership(page)
     await widenRail(page)
     await railTab(page, 'problems').click()
     const panel = page.getByTestId('problems-panel')
