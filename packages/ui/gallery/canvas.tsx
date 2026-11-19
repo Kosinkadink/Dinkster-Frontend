@@ -39,8 +39,9 @@ export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
-  const [rowLook, setRowLook] =
-    createSignal<DesignTokens['widgetRowLook']>('inset-raised')
+  const [rowLook, setRowLook] = createSignal<DesignTokens['widgetRowLook']>(
+    defaultTokens.widgetRowLook,
+  )
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
@@ -333,16 +334,16 @@ export function CanvasGallery() {
               <option value="inset-raised">
                 Inset fields and raised openers
               </option>
-              <option value="inset">Existing inset rows</option>
+              <option value="inset">Previous inset rows</option>
             </ProductSelect>
           )}
         </ProductField>
         <p class="dinkster-description">
-          Core row proposal: direct values remain inset fields; color and asset
-          rows have raised faces, kind icons and an opening chevron. Values,
-          swatches, empty states and long names come from the fixture document.
-          Number paint is unchanged, not the number-editing proposal. Production
-          row defaults remain unchanged.
+          Direct values use inset fields; color and asset rows have raised
+          faces, kind icons and an opening chevron. Values, swatches, empty
+          states and long names come from the fixture document. Previous inset
+          rows compares the old paint on this page only. Number paint is
+          unchanged, not the number-editing proposal.
         </p>
       </Show>
       <Show when={page() === 'idle-outline'}>
