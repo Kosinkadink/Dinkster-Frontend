@@ -74,6 +74,23 @@ The Windows NSIS installer is currently unsigned. Windows may show an
 unknown-publisher or SmartScreen warning. electron-builder's normal certificate
 configuration remains available for signing a later release.
 
+## Library browser assets
+
+The frontend wheel includes `site/desktop-library.html` and its renderer for
+Desktop's no-engine library browser. It uses the shared Product components,
+stylesheet and bundled Noto fonts. Desktop supplies the `dinksterLibrary`
+preload bridge: saved local installations, project pages, saved-workflow pages
+and recorded-file pages. Each page contains display entries and an opaque
+continuation cursor. Workflows and files page independently within the selected
+project. The renderer has no engine URL, SQLite access or file-reading command.
+It displays only metadata, not file contents or model-folder inventory.
+
+The installation list, project list and project assets have loading and empty
+states. An unavailable bridge or unreadable library gets one plain by-the-way
+notice rather than an empty-library claim, raw storage diagnostics or an approval
+prompt. Back navigation takes effect without waiting for a query, and late
+responses from a page that was left cannot change the current page.
+
 ## Multiple windows
 
 Use the arrow-out action on a workflow tab to move that workflow into its own

@@ -237,6 +237,15 @@ for (const theme of ['dark', 'light'] as const) {
         }
         const titles = id === 'titles' || id === 'titles-content'
         const tabs = id === 'tabs' || id === 'tabs-content'
+        const run = id === 'run-editable' || id === 'run-frozen'
+        if (run) {
+          await expect(
+            page.getByText('Gallery-only run presentation.', { exact: false }),
+          ).toBeVisible()
+          await expect(
+            page.getByRole('combobox', { name: 'Badge layout', exact: true }),
+          ).toHaveValue('tabs')
+        }
         if (titles) {
           await expect(
             page.getByRole('combobox', { name: 'Title fitting' }),
@@ -286,6 +295,24 @@ for (const theme of ['dark', 'light'] as const) {
               exact: true,
             }),
           ).toHaveScreenshot(`boundary-${theme}.png`)
+        }
+        if (run) {
+          await canvas.hover({ position: { x: 360, y: 218 } })
+          await expect(canvas).toHaveAttribute('title', 'Running')
+          await page.mouse.move(0, 0)
+          await page
+            .getByRole('combobox', { name: 'Tab height', exact: true })
+            .selectOption('20')
+          await expect(canvas).toHaveAttribute('data-tab-size', '20-11-12')
+          await page
+            .getByRole('button', { name: 'Node anatomy', exact: true })
+            .click()
+          await expect(
+            page.getByRole('img', {
+              name: `anatomy in ${theme} theme`,
+              exact: true,
+            }),
+          ).toHaveScreenshot(`anatomy-${theme}.png`)
         }
         if (id === 'idle-outline' || titles) {
           const look = titles ? 'squeeze' : 'previous'

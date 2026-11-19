@@ -6,6 +6,7 @@
  * shows. Badges are pure view state; they never touch the document.
  */
 
+import type { NodeProgress, NodeRunState } from '@dinkster/core'
 import type { Scene, SceneNode } from './scene.js'
 import { canvasPaintTokens, defaultTokens, type DesignTokens } from './tokens.js'
 import type { CanvasIconName } from './toolbox.js'
@@ -37,6 +38,37 @@ export interface NodeBadge {
 
 /** node id -> badges; index 0 renders rightmost in the header. */
 export type BadgeMap = Readonly<Record<string, readonly NodeBadge[]>>
+
+const executionStateLabels: Readonly<Record<NodeRunState, { glyph: string; icon: CanvasIconName }>> = {
+  pending: { glyph: 'Queued', icon: 'clock' },
+  running: { glyph: 'Running', icon: 'play' },
+  done: { glyph: 'Finished', icon: 'check' },
+  cached: { glyph: 'Cached', icon: 'database' },
+  skipped: { glyph: 'Skipped', icon: 'ban' },
+  error: { glyph: 'Failed', icon: 'triangle-alert' },
+}
+
+/** Apply view visibility after runtime occurrences have been projected and aggregated. */
+export function executionNodePresentation(
+  projected: Readonly<Record<string, NodeProgress>>,
+  frozen: boolean,
+  tokens: DesignTokens,
+): { states: Record<string, NodeProgress>; badges: BadgeMap } {
+  const states: Record<string, NodeProgress> = {}
+  const badges: Record<string, NodeBadge[]> = {}
+  for (const [id, progress] of Object.entries(projected)) {
+    if (!frozen && progress.state !== 'running' && progress.state !== 'error') continue
+    states[id] = progress
+    badges[id] = [{
+      id: `core.execution.state.${progress.state}`,
+      ...executionStateLabels[progress.state],
+      variant: 'label',
+      placement: 'below',
+      color: tokens.stateColors[progress.state],
+    }]
+  }
+  return { states, badges }
+}
 
 /** Strongest document problem anchored to each exact input pin id. */
 export type PortProblemKind = 'error' | 'blocking-warning' | 'warning'
