@@ -2,6 +2,7 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   createSignal,
   createUniqueId,
   onCleanup,
@@ -62,7 +63,11 @@ function Menu(props: {
       const placement = placeFloatingSurface({
         surface,
         anchor: {
-          left: fitsFromLeft ? anchor.left : anchor.right - surface.width,
+          left:
+            fitsFromLeft &&
+            !(props.account && trigger.closest('[data-density="site"]'))
+              ? anchor.left
+              : anchor.right - surface.width,
           top: anchor.top,
           right: anchor.right,
           bottom: anchor.bottom,
@@ -138,6 +143,7 @@ function Menu(props: {
           ref={menu}
           id={id}
           class="dinkster-menu dinkster-menu-popover"
+          data-account={props.account ? '' : undefined}
           role="menu"
           tabindex="-1"
           aria-label={props.menuName}
@@ -231,14 +237,31 @@ export function ProductMenu(props: {
   )
 }
 
-/** The signed-in person's menu: their initial and name on the trigger, then
- * name, email and Sign out, which acts at once. */
+/** Site triggers show a picture or initial; the menu identifies the session. */
 export function ProductAccountMenu(props: {
   name: string
   email: string
+  pictureSrc?: string | null
   onSignOut: () => void
 }) {
   const strings = useProductStrings()
+  const [failed, setFailed] = createSignal(false)
+  const picture = createMemo(() => {
+    if (!props.pictureSrc) return undefined
+    try {
+      const url = new URL(props.pictureSrc, window.location.href)
+      return url.origin === window.location.origin &&
+        ['http:', 'https:'].includes(url.protocol)
+        ? url.href
+        : undefined
+    } catch {
+      return undefined
+    }
+  })
+  createEffect(() => {
+    picture()
+    setFailed(false)
+  })
   return (
     <Menu
       triggerName={`${strings.accountMenu}: ${props.name}`}
@@ -260,7 +283,12 @@ export function ProductAccountMenu(props: {
         // Drawn by the stylesheet so the initial is not part of the visible
         // label that the accessible name has to contain.
         data-initial={[...props.name.trim()][0]?.toLocaleUpperCase() ?? ''}
-      />
+        data-picture={!!picture() && !failed()}
+      >
+        <Show when={picture() && !failed()}>
+          <img src={picture()} alt="" onError={() => setFailed(true)} />
+        </Show>
+      </span>
       <span class="dinkster-menu-label" data-compact="true">
         {props.name}
       </span>

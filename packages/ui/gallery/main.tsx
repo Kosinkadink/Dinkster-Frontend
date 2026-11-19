@@ -60,6 +60,7 @@ import {
 } from '../src/index.js'
 import '../dist/dinkster.css'
 import { CanvasGallery } from './canvas.js'
+import { SiteGallery } from './site.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -855,4 +856,24 @@ function Gallery() {
   )
 }
 
-render(() => <Gallery />, document.getElementById('root')!)
+function GalleryRoot() {
+  const [route, setRoute] = createSignal(window.location.hash)
+  onMount(() => {
+    const update = () => setRoute(window.location.hash)
+    window.addEventListener('hashchange', update)
+    onCleanup(() => window.removeEventListener('hashchange', update))
+  })
+  return (
+    <Show when={route().startsWith('#site-')} fallback={<Gallery />}>
+      <SiteGallery
+        route={route()}
+        onNavigate={(href) => {
+          window.location.hash = href
+          setRoute(href)
+        }}
+      />
+    </Show>
+  )
+}
+
+render(() => <GalleryRoot />, document.getElementById('root')!)
