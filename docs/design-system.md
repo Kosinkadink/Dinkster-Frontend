@@ -692,6 +692,14 @@ overrides for ids. Exact case, underscores, member suffixes, custom names and
 uppercase unnamed output types pass through the real schema/scene builder.
 Only the previous-name comparison stages historical labels as explicit names.
 
+Editable workflow run states and Frozen run states compare the same six runtime
+states and absent execution. Editable paint retains only running and failed
+nodes; frozen paint retains every recorded state and its bottom label. Collapsed
+instances aggregate occurrence severity and running progress before this
+visibility filter. These gallery-only pages use the shared canvas presentation
+API, not an adopted app-view policy. Attached tabs and their adjustable dimensions
+remain proposals; production run paint and chip defaults are unchanged.
+
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots.
 Intentional paint changes include reviewed picture differences; token-only

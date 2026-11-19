@@ -23,6 +23,8 @@ import {
   executionBlockedBadge,
   executionErrorBadge,
   executionExpandedBadge,
+  executionNodePresentation,
+  nodeStatesForGraph,
   logWarningBadge,
   toolboxButton,
   type BadgeMap,
@@ -50,6 +52,8 @@ export const canvasGalleryPages = [
   ['tabs', 'Attached tabs proposal'],
   ['tabs-content', 'Attached tabs at content zoom'],
   ['states', 'Node states'],
+  ['run-editable', 'Editable workflow run states'],
+  ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
   ['widget-driven', 'Link-driven widgets'],
@@ -604,6 +608,49 @@ export function createCanvasGalleryFixture(
       hoveredNode: 'Hovered',
     }
     fixture.height = 440
+  } else if (page === 'run-editable' || page === 'run-frozen') {
+    const progress: Record<string, NodeProgress> = {
+      Queued: { state: 'pending' },
+      Running: { state: 'running', value: 0.45 },
+      Finished: { state: 'done' },
+      Cached: { state: 'cached' },
+      Skipped: { state: 'skipped' },
+      Failed: { state: 'error' },
+      active: { state: 'running', value: 0.3 },
+      complete: { state: 'done', value: 1 },
+      failed: { state: 'error' },
+    }
+    const ids = [
+      'Queued',
+      'Running',
+      'Finished',
+      'Cached',
+      'Skipped',
+      'Failed',
+      'No execution',
+      'Collapsed running + done',
+      'Collapsed done + failed',
+    ]
+    ids.forEach((id) => add(id, sample))
+    fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
+      ...node,
+      isSubgraph: node.id.startsWith('Collapsed'),
+    }))
+    const projected = nodeStatesForGraph(progress, fixture.scene, (id) =>
+      id === 'Collapsed running + done'
+        ? ['active', 'complete']
+        : id === 'Collapsed done + failed'
+          ? ['complete', 'failed']
+          : [id],
+    )
+    const presentation = executionNodePresentation(
+      projected,
+      page === 'run-frozen',
+      tokens,
+    )
+    fixture.states = presentation.states
+    fixture.badges = presentation.badges
+    fixture.height = 800
   } else if (page === 'states') {
     const ids = [
       'Default',

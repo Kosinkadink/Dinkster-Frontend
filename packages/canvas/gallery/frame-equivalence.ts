@@ -53,7 +53,10 @@ export async function compareCanvasFrames(
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
     badgeLayout:
-      page === 'tabs' || page === 'tabs-content'
+      page === 'tabs' ||
+      page === 'tabs-content' ||
+      page === 'run-editable' ||
+      page === 'run-frozen'
         ? ('tabs' as const)
         : defaultTokens.badgeLayout,
   }
