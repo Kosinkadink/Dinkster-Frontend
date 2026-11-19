@@ -4047,18 +4047,26 @@ export class AppState {
       const canonical = this.persistedWorkflowSlots.get(tabsKey())
       // Pending slot replacement does not end its acknowledged receipt lifetimes.
       // Reuse only locally held receipts that still pass the exact journal checks.
-      const admitted = [...(canonical?.owners ?? []),
+      const admitted = [...previousOwners, ...(canonical?.owners ?? []),
         ...[...this.persistedWorkflowSlots].filter(([slotKey, slot]) =>
           slot.complete && storage.getItem(slotKey) === slot.raw).flatMap(([, slot]) => slot.owners)]
-      reusable = native.map((source) => key.startsWith(documentCandidatePrefix()) ? undefined : admitted.find((owner) => {
-        if (!owner.retained.complete || owner.project !== project || owner.storage !== storage ||
-          owner.backend !== source.backend || owner.registry !== source.registry || owner.generation !== source.generation ||
-          canonicalJson(owner.document) !== canonicalJson(source.document)) return false
-        const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
-        return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined
-      }))
+      reusable = native.map((source) => {
+        if (key.startsWith(documentCandidatePrefix())) return undefined
+        const matching = admitted.filter((owner) => {
+          if (!owner.retained.complete || owner.project !== project || owner.storage !== storage ||
+            owner.backend !== source.backend || owner.registry !== source.registry || owner.generation !== source.generation ||
+            canonicalJson(owner.document) !== canonicalJson(source.document)) return false
+          const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
+          return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined
+        })
+        // Keep every already settled local receipt for this unchanged document,
+        // not just the one selected for the replacement's serialized inventory.
+        for (const owner of matching) {
+          if (!pinned.some((held) => held.backend === owner.backend && held.retained === owner.retained)) pinned.push(owner)
+        }
+        return matching[0]
+      })
       // Stored peer receipts never enter the local admission inventory.
-      pinned.push(...reusable.filter((owner) => owner !== undefined))
       previousOwners = [...new Set([...previousOwners, ...pinned])]
       const current = key === tabsKey() ? storage.getItem(key) : null
       if (current !== null && parsePersistedTabs(current) !== undefined) {
@@ -4171,8 +4179,7 @@ export class AppState {
       const publish = (): string | undefined => {
         const replacements = owners.map((retained, index) => ({ ...native[index]!, project, storage, retained }))
         const current = !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
-          !reusable.some((owner, index) => {
-            if (owner === undefined || owners[index] !== owner.retained) return false
+          !pinned.some((owner) => {
             const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
             return intent?.acknowledgedRevision !== owner.retained.revision || intent.releaseRevision !== undefined
           }) && sources.every(({ backend, registry, generation, tab }) =>
@@ -4204,6 +4211,8 @@ export class AppState {
         this.persistedWorkflowSlots.set(key, { raw: committed, complete, owners: [
           ...(complete ? [] : previousOwners),
           ...replacements,
+          ...pinned.filter((owner) => !replacements.some((replacement) =>
+            replacement.backend === owner.backend && replacement.retained === owner.retained)),
         ] })
         // Only this app's exact staged generations confer release authority.
         // Stored receipts from another window or lifetime remain observation-only.

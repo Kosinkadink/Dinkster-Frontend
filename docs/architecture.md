@@ -529,7 +529,11 @@ An acknowledged local canonical receipt remains reusable while an overlapping
 workspace edit leaves its containing slot pending. Reuse still requires exact
 document bytes, backend, registry, connection generation, project and storage,
 plus the unchanged acknowledged journal revision with no release fence. Aggregate
-slot completion does not determine an individual receipt's lifetime.
+slot completion does not determine an individual receipt's lifetime. When several
+local slots already hold receipts for the same unchanged document, publication
+keeps each acknowledged receipt in its local inventory, even when only one is
+serialized. A later document change or the final local slot's removal ends those
+lifetimes through the ordinary guarded retirement path.
 Recovered receipts from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
