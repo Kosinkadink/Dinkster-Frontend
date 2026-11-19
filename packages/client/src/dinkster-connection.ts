@@ -965,7 +965,14 @@ export interface PackPreparationProgress {
 }
 
 export type PackInstallPlan = {
-  readonly plan: Readonly<Record<string, unknown>>
+  readonly plan: Readonly<Record<string, unknown>> & {
+    readonly packChanges?: readonly {
+      readonly pack: string
+      readonly kind: 'added' | 'removed' | 'changed'
+      readonly sourceChanged: boolean
+      readonly dependenciesChanged: boolean
+    }[] | null
+  }
   readonly review: string
   readonly expiresInSeconds: number
 } & (
@@ -3413,7 +3420,18 @@ export class DinksterConnection {
       cancel()
       throw new Error('Malformed pack installation plan response')
     }
-    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as Record<string, unknown>,
+    const changes = (plan as Record<string, unknown>)['packChanges']
+    if (changes !== undefined && changes !== null && (!Array.isArray(changes) || changes.some((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return true
+      const row = raw as Record<string, unknown>
+      return typeof row['pack'] !== 'string' || row['pack'].length === 0 ||
+        typeof row['kind'] !== 'string' || !['added', 'removed', 'changed'].includes(row['kind']) ||
+        typeof row['sourceChanged'] !== 'boolean' || typeof row['dependenciesChanged'] !== 'boolean'
+    }) || new Set(changes.map((row: { pack: string }) => row.pack)).size !== changes.length)) {
+      cancel()
+      throw new Error('Malformed pack installation impact')
+    }
+    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as PackInstallPlan['plan'],
       review: body['review'], expiresInSeconds: body['expiresInSeconds'] as number }
   }
 
@@ -4076,7 +4094,7 @@ export class DinksterConnection {
   }> {
     const query = new URLSearchParams({ limit: '100' })
     if (cursor !== undefined) query.set('cursor', cursor)
-    const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, signal === undefined ? undefined : { signal })
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
     if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
     const payload = await res.json() as Record<string, unknown> | null
     if (!payload || !Array.isArray(payload['items']) ||

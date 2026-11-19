@@ -146,6 +146,14 @@ function preparedReview(result: unknown) {
 it.each([
   { format: 'dinkster.plan/1', base: null },
   { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
+  { format: 'dinkster.project-pack-plan/1', packChanges: null },
+  { format: 'dinkster.project-pack-plan/1', packChanges: [] },
+  { format: 'dinkster.project-pack-plan/1', packChanges: [
+    { pack: 'image', kind: 'changed', sourceChanged: true, dependenciesChanged: false },
+    { pack: 'shared', kind: 'changed', sourceChanged: false, dependenciesChanged: true },
+    { pack: 'old', kind: 'removed', sourceChanged: true, dependenciesChanged: false },
+    { pack: 'new', kind: 'added', sourceChanged: true, dependenciesChanged: true },
+  ] },
 ])('plans exact pack selections with an opaque host plan and applies only confirmation', async (hostPlan) => {
   const plan = { confirmation: 'opaque-review-token', plan: hostPlan,
     review: 'Install sampling 2.1 and image 3.2', expiresInSeconds: 900 }
@@ -169,6 +177,22 @@ it.each([
   expect(await connection.applyPackInstall(reviewed.confirmation)).toEqual({ generation: 3,
     activation: { epoch: 7, added: ['sampling', 'image'], removed: [], reloaded: ['models'], unchanged: ['base'] } })
   expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
+})
+
+it.each([
+  {}, 'unknown', [null],
+  [{ pack: '', kind: 'added', sourceChanged: true, dependenciesChanged: false }],
+  [{ pack: 'image', kind: 'unchanged', sourceChanged: false, dependenciesChanged: false }],
+  [{ pack: 'image', kind: ['changed'], sourceChanged: true, dependenciesChanged: false }],
+  [{ pack: 'image', kind: 'changed', sourceChanged: true }],
+  [{ pack: 'image', kind: 'changed', sourceChanged: 'true', dependenciesChanged: false }],
+  Array(2).fill({ pack: 'image', kind: 'changed', sourceChanged: true, dependenciesChanged: false }),
+])('refuses malformed retained impact rather than claiming no affected projects: %j', async (packChanges) => {
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async () => jsonResponse(200, preparedReview({ confirmation: 'token',
+      plan: { format: 'dinkster.project-pack-plan/1', packChanges }, review: 'Review', expiresInSeconds: 900 })),
+    webSocketFactory: () => ({}) as WebSocketLike })
+  await expect(connection.planPackInstall([{ pack: 'image', version: '3.2' }])).rejects.toThrow('Malformed pack installation impact')
 })
 
 it('retains terminal-only installation commands without granting HTTP confirmation', async () => {

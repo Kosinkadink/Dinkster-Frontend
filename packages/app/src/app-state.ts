@@ -2449,6 +2449,11 @@ interface BackendBase {
  */
 export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection }
 
+export interface ProjectPackInstallationReview {
+  readonly installation: PackInstallPlan
+  readonly affectedProjects: readonly LibraryProject[] | null
+}
+
 export interface ProjectNeedsReview {
   readonly backend: Backend
   readonly project: LibraryProject
@@ -8261,7 +8266,7 @@ export class AppState {
   }
 
   async reviewProjectPackInstallation(review: ProjectNeedsReview, signal: AbortSignal,
-    onProgress: (progress: PackPreparationProgress) => void): Promise<PackInstallPlan> {
+    onProgress: (progress: PackPreparationProgress) => void): Promise<ProjectPackInstallationReview> {
     const current = (): void => {
       signal.throwIfAborted()
       if (this.projectNeedsReview.get() !== review || !review.current()) throw new Error(t('projectNeeds.changed'))
@@ -8292,7 +8297,53 @@ export class AppState {
       onProgress(progress)
     })
     await recheck()
-    return plan
+    const impact = plan.plan['format'] === 'dinkster.project-pack-plan/1' ? plan.plan.packChanges : undefined
+    if (impact == null || environment === null) return { installation: plan, affectedProjects: null }
+    const changed = new Set(impact.map(({ pack }) => pack))
+    const readProjects = async (): Promise<readonly LibraryProject[]> => {
+      const projects = new Map<string, LibraryProject>()
+      const cursors = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await review.backend.connection.listProjects(cursor, signal)
+        current()
+        for (const project of page.items) {
+          if (projects.has(project.id)) throw new Error(t('projectNeeds.changed'))
+          projects.set(project.id, project)
+        }
+        cursor = page.cursor ?? undefined
+        if (cursor !== undefined && cursors.has(cursor)) throw new Error(t('projectNeeds.changed'))
+        if (cursor !== undefined) cursors.add(cursor)
+      } while (cursor !== undefined)
+      return [...projects.values()].sort((a, b) => a.id.localeCompare(b.id))
+    }
+    const projects = await readProjects()
+    if (!projects.some(({ id, revision }) => id === review.project.id && revision === review.project.revision)) {
+      throw new Error(t('projectNeeds.changed'))
+    }
+    const affected: LibraryProject[] = []
+    const observedNeeds = new Map<string, ProjectNeeds>()
+    let known = true
+    for (const project of projects) {
+      if (project.deleted || project.id === review.project.id || changed.size === 0) continue
+      if (project.environment == null) { known = false; continue }
+      if (project.environment.id !== environment.id) continue
+      const needs = await review.backend.connection.projectNeeds(project.id, signal)
+      current()
+      observedNeeds.set(project.id, needs)
+      if (needs.unknown.length > 0) known = false
+      if (needs.packs.some(({ pack }) => changed.has(pack)) || needs.extra.some((pack) => changed.has(pack))) {
+        affected.push(project)
+      }
+    }
+    for (const [id, needs] of observedNeeds) {
+      const latest = await review.backend.connection.projectNeeds(id, signal)
+      current()
+      if (JSON.stringify(latest) !== JSON.stringify(needs)) throw new Error(t('projectNeeds.changed'))
+    }
+    if (JSON.stringify(await readProjects()) !== JSON.stringify(projects)) throw new Error(t('projectNeeds.changed'))
+    await recheck()
+    return { installation: plan, affectedProjects: known ? affected : null }
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {

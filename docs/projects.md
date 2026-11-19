@@ -107,6 +107,15 @@ that association and its last-run metadata; they never reassign the project.
 Standalone engines report no managed identity, rather than an engine assignment
 name such as `main`.
 
+The completed review names other projects whose recorded workflow needs or extra
+packs intersect the retained plan's pack changes on this environment. Source
+replacements and dependency changes count even when versions stay the same.
+Projects on another environment are excluded. The project list is read without
+browser caching, including every page, and both the list and the other projects'
+needs are rechecked before presenting the result. Missing impact, unbound projects
+or unreadable workflow needs are reported as unknown, not as an empty affected
+list. This review still cannot apply changes to shared software.
+
 ## Desktop windows
 
 The desktop shell persists every workspace window with its project binding,

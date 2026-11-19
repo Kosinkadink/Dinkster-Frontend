@@ -1,8 +1,8 @@
 import { createSignal, For, onCleanup, Show } from 'solid-js'
-import type { PackInstallPlan, PackPreparationProgress } from '@dinkster/client'
+import type { PackPreparationProgress } from '@dinkster/client'
 import { ProductErrorBanner, ProductNotice } from '@dinkster/ui'
 import { PackPreparationStatus } from './PackPreparationStatus.js'
-import type { AppState, ProjectNeedsReview } from './app-state.js'
+import type { AppState, ProjectNeedsReview, ProjectPackInstallationReview } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductActionFooter } from './ProductForm.js'
@@ -13,7 +13,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
   const message = useAppMessage()
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string>()
-  const [plan, setPlan] = createSignal<PackInstallPlan>()
+  const [plan, setPlan] = createSignal<ProjectPackInstallationReview>()
   const [progress, setProgress] = createSignal<PackPreparationProgress>()
   const [preparing, setPreparing] = createSignal(false)
   let controller: AbortController | undefined
@@ -40,7 +40,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
         expiry = setTimeout(() => {
           setPlan(undefined)
           setError(message('search.installExpired'))
-        }, Math.min(result.expiresInSeconds * 1000, 2_147_483_647))
+        }, Math.min(result.installation.expiresInSeconds * 1000, 2_147_483_647))
       }
     } catch (cause) { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { if (!disposed) { setBusy(false); setPreparing(false) } }
@@ -86,7 +86,12 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
       <Show when={preparing()}><p role="status"><PackPreparationStatus progress={progress()} /></p></Show>
       <Show when={plan()}>{(reviewed) => <>
         <ProductNotice>{message('projectNeeds.reviewOnly')}</ProductNotice>
-        <pre class="node-install-review">{reviewed().review}</pre>
+        <ProductNotice>{message(reviewed().affectedProjects === null ? 'projectNeeds.impactUnknown'
+          : reviewed().affectedProjects?.length === 0 ? 'projectNeeds.impactNone' : 'projectNeeds.impactShared')}</ProductNotice>
+        <Show when={reviewed().affectedProjects}>{(projects) => <ul class="projects-dialog-list">
+          <For each={projects()}>{(project) => <li><ProductListRow primary={project.name} /></li>}</For>
+        </ul>}</Show>
+        <pre class="node-install-review">{reviewed().installation.review}</pre>
       </>}</Show>
       <ProductActionFooter>
         <Show when={props.review.enable.length > 0}><ProductButton variant="primary" loading={busy()} disabled={busy()} onClick={() => { void enable() }}>{message('projectNeeds.enable')}</ProductButton></Show>

@@ -17,7 +17,7 @@ import {
   type DinksterNodesPayload,
   type ExecutionRef,
 } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { buildDinksterRegistry, type LibraryProject } from '@dinkster/client'
 import { historicalSchemas } from './historical-schemas.js'
 import { AppState, type Tab } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -312,7 +312,7 @@ describe('workflow-open requirements', () => {
     })
     vi.spyOn(backend.connection, 'applyPackInstall').mockImplementation(async () => { installed = true; throw new Error('unexpected apply') })
     const progress: string[] = []
-    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage))).toEqual(prepared)
+    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage))).toEqual({ installation: prepared, affectedProjects: null })
     expect(selections).toEqual([{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }])
     expect(progress).toEqual(['retaining-review'])
     expect(enabled).toEqual(['kept'])
@@ -340,6 +340,73 @@ describe('workflow-open requirements', () => {
     await expect(app.reviewProjectPackInstallation(review, cancelled.signal, () => undefined)).rejects.toThrow()
     vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { app.projectNeedsReview.set(undefined); return prepared })
     await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
+  })
+
+  it('finds affected workflow and extra-pack projects across pages without treating unknown ownership as safe', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const environment = { id: 'a'.repeat(32), snapshot: '2' }
+    const base = { created: '2026-11-18T12:00:00Z', revision: 7, deleted: false,
+      environment: { id: environment.id, lastSnapshot: '1', lastRunAt: '2026-11-18T12:00:00Z' } }
+    const project = { ...base, id: 'default', name: 'Film' }
+    const workflow = { ...base, id: 'workflow', name: 'Workflow user' }
+    const extra = { ...base, id: 'extra', name: 'Extra pack user' }
+    const untouched = { ...base, id: 'untouched', name: 'Unaffected' }
+    const other = { ...base, id: 'other', name: 'Other environment', environment: { ...base.environment, id: 'b'.repeat(32) } }
+    let projects: LibraryProject[] = [project, workflow, extra, untouched, other]
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
+    const selectedNeeds = { packs: [{ pack: 'added', version: '2.0' }], extra: [], unknown: [], installed: [] }
+    let unknown = false
+    let mutateNeeds = false
+    let extraReads = 0
+    vi.spyOn(backend.connection, 'projectNeeds').mockImplementation(async (id) => {
+      if (id === project.id) return selectedNeeds
+      if (id === extra.id && mutateNeeds) return { packs: [], extra: extraReads++ === 0 ? ['added'] : ['unchanged'], installed: [], unknown: [] }
+      if (id === other.id) throw new Error('must not inspect a different environment')
+      return { packs: id === workflow.id ? [{ pack: 'replaced', version: '1.0' }] : [],
+        extra: id === extra.id ? ['added'] : ['unchanged'], installed: [],
+        unknown: unknown ? [{ scope: 'local', id: 'unreadable' }] : [] }
+    })
+    let mutateList = false
+    vi.spyOn(backend.connection, 'listProjects').mockImplementation(async (cursor) => {
+      if (mutateList) { projects = projects.map((item) => item.id === extra.id ? { ...item, revision: item.revision + 1 } : item) }
+      return cursor === undefined ? { items: projects.slice(0, 2), cursor: 'second' }
+        : { items: projects.slice(2), cursor: null }
+    })
+    vi.spyOn(backend.connection, 'activeEnvironment').mockResolvedValue(environment)
+    const changes = [
+      { pack: 'added', kind: 'added' as const, sourceChanged: true, dependenciesChanged: false },
+      { pack: 'replaced', kind: 'changed' as const, sourceChanged: false, dependenciesChanged: true },
+    ]
+    let impact: typeof changes | null | undefined = changes
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => ({
+      plan: { format: 'dinkster.project-pack-plan/1', ...(impact === undefined ? {} : { packChanges: impact }) },
+      confirmation: 'opaque', review: 'Reviewed software', expiresInSeconds: 900,
+    }))
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    const prepare = () => app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)
+    expect((await prepare()).affectedProjects?.map(({ id }) => id)).toEqual(['extra', 'workflow'])
+    unknown = true
+    expect((await prepare()).affectedProjects).toBeNull()
+    unknown = false
+    projects = [...projects, { ...base, id: 'legacy', name: 'Unbound', environment: null }]
+    expect((await prepare()).affectedProjects).toBeNull()
+    projects = projects.filter(({ id }) => id !== 'legacy')
+    for (const missing of [undefined, null]) {
+      impact = missing
+      expect((await prepare()).affectedProjects).toBeNull()
+    }
+    impact = []
+    expect((await prepare()).affectedProjects).toEqual([])
+    impact = changes
+    mutateNeeds = true
+    await expect(prepare()).rejects.toThrow('changed')
+    mutateNeeds = false
+    mutateList = true
+    await expect(prepare()).rejects.toThrow('changed')
   })
 
   it('refuses ambiguous or unknown project needs before preparing software', async () => {
