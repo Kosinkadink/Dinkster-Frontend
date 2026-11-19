@@ -229,17 +229,21 @@ test('multiline preview expands with node height while representation, editor, a
         params: { graphId: tab.store.doc.root, nodeId: 'clip', size: { width, height } },
       })
       const calls: Array<{ text: string; y: number }> = []
-      const prototype = CanvasRenderingContext2D.prototype
-      const original = prototype.fillText
-      prototype.fillText = function (text, x, y, maxWidth) {
-        calls.push({ text, y })
-        if (maxWidth === undefined) return original.call(this, text, x, y)
-        return original.call(this, text, x, y, maxWidth)
-      }
+      const restore = [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype].map((prototype) => {
+        const original = prototype.fillText
+        prototype.fillText = function (text, x, y, maxWidth) {
+          calls.push({ text, y })
+          if (maxWidth === undefined) return original.call(this, text, x, y)
+          return original.call(this, text, x, y, maxWidth)
+        }
+        return () => { prototype.fillText = original }
+      })
       try {
-        ;(test.renderer! as unknown as { renderNow(): void }).renderNow()
+        const renderer = test.renderer! as unknown as { invalidate(): void; renderNow(): void }
+        renderer.invalidate()
+        renderer.renderNow()
       } finally {
-        prototype.fillText = original
+        for (const reset of restore) reset()
       }
       const node = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
       const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!

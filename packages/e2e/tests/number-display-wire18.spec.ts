@@ -37,55 +37,75 @@ const catalog = {
 
 async function rangePaint(page: Page) {
   return page.evaluate(({ rangeFill }) => {
-    const renderer = window.__dinksterTest!.renderer! as unknown as { renderNow(): void; getScene(): any }
+    const renderer = window.__dinksterTest!.renderer! as unknown as { invalidate(): void; renderNow(): void; getScene(): any }
     const node = renderer.getScene().nodes.find((candidate: any) => candidate.id === 'numbers')!
     const rows = Object.fromEntries(node.layout.rows
       .filter((row: any) => row.kind === 'widget')
       .map((row: any) => [row.inputId, row]))
     const events: Array<Record<string, unknown>> = []
     let serial = 0
-    let path: Record<string, number> | undefined
-    let clip: Record<string, number> | undefined
-    const prototype = CanvasRenderingContext2D.prototype
-    const original = {
-      beginPath: prototype.beginPath,
-      roundRect: prototype.roundRect,
-      clip: prototype.clip,
-      fillRect: prototype.fillRect,
-      fillText: prototype.fillText,
+    // Observe one complete node paint in its center tile, not duplicate calls
+    // from neighboring tiles. Duplicate fills within that paint still fail.
+    let tileTransform: string | undefined
+    const ownsNode = (context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D) => {
+      if (context.canvas instanceof HTMLCanvasElement) return true
+      const transform = context.getTransform()
+      const point = transform.transformPoint({
+        x: node.x + node.layout.width / 2,
+        y: node.y + node.layout.height / 2,
+      })
+      if (point.x < 0 || point.x >= context.canvas.width || point.y < 0 || point.y >= context.canvas.height) return false
+      const key = transform.toString()
+      tileTransform ??= key
+      return key === tileTransform
     }
-    prototype.beginPath = function () {
-      path = undefined
-      return original.beginPath.call(this)
-    }
-    prototype.roundRect = function (x, y, width, height, radii) {
-      path = { x, y, width, height, radius: typeof radii === 'number' ? radii : -1 }
-      return original.roundRect.call(this, x, y, width, height, radii)
-    }
-    prototype.clip = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
-      clip = path === undefined ? undefined : { ...path }
-      return (original.clip as (...values: unknown[]) => void).apply(this, args)
-    } as CanvasRenderingContext2D['clip']
-    prototype.fillRect = function (x, y, width, height) {
-      if (String(this.fillStyle) === rangeFill) {
-        events.push({ kind: 'fill', serial: serial++, x, y, width, height, clip })
+    const restore = [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype].map((prototype) => {
+      let path: Record<string, number> | undefined
+      let clip: Record<string, number> | undefined
+      const original = {
+        beginPath: prototype.beginPath,
+        roundRect: prototype.roundRect,
+        clip: prototype.clip,
+        fillRect: prototype.fillRect,
+        fillText: prototype.fillText,
       }
-      return original.fillRect.call(this, x, y, width, height)
-    }
-    prototype.fillText = function (text, x, y, maxWidth) {
-      events.push({ kind: 'text', serial: serial++, text, x, y })
-      return maxWidth === undefined
-        ? original.fillText.call(this, text, x, y)
-        : original.fillText.call(this, text, x, y, maxWidth)
-    }
+      prototype.beginPath = function () {
+        path = undefined
+        return original.beginPath.call(this)
+      }
+      prototype.roundRect = function (x, y, width, height, radii) {
+        path = { x, y, width, height, radius: typeof radii === 'number' ? radii : -1 }
+        return original.roundRect.call(this, x, y, width, height, radii)
+      }
+      prototype.clip = function (this: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, ...args: unknown[]) {
+        clip = path === undefined ? undefined : { ...path }
+        return (original.clip as (...values: unknown[]) => void).apply(this, args)
+      } as CanvasRenderingContext2D['clip']
+      prototype.fillRect = function (x, y, width, height) {
+        if (String(this.fillStyle) === rangeFill && ownsNode(this)) {
+          events.push({ kind: 'fill', serial: serial++, x, y, width, height, clip })
+        }
+        return original.fillRect.call(this, x, y, width, height)
+      }
+      prototype.fillText = function (text, x, y, maxWidth) {
+        if (ownsNode(this)) events.push({ kind: 'text', serial: serial++, text, x, y })
+        return maxWidth === undefined
+          ? original.fillText.call(this, text, x, y)
+          : original.fillText.call(this, text, x, y, maxWidth)
+      }
+      return () => {
+        prototype.beginPath = original.beginPath
+        prototype.roundRect = original.roundRect
+        prototype.clip = original.clip
+        prototype.fillRect = original.fillRect
+        prototype.fillText = original.fillText
+      }
+    })
     try {
+      renderer.invalidate()
       renderer.renderNow()
     } finally {
-      prototype.beginPath = original.beginPath
-      prototype.roundRect = original.roundRect
-      prototype.clip = original.clip
-      prototype.fillRect = original.fillRect
-      prototype.fillText = original.fillText
+      for (const reset of restore) reset()
     }
     const row = rows.declared_slider
     return {
