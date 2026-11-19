@@ -1526,6 +1526,7 @@ export class CanvasRenderer {
       return
     }
     if (to.x === target.x && to.y === target.y && to.scale === target.scale) return
+    if (!this.viewportAnimation) this.paintEnded = -Infinity
     // Retarget from the last visible frame without discarding its elapsed time.
     const sampled = this.viewportAnimation?.sampled ?? performance.now()
     this.viewportAnimation = { from: { ...this.viewport }, to, started: sampled, sampled }
@@ -1682,7 +1683,7 @@ export class CanvasRenderer {
     if (this.disposed) return
     this.rafId = undefined
     const animation = this.viewportAnimation
-    if (animation && performance.now() - animation.started < 100 && performance.now() - this.paintEnded < this.paintDuration / 2) {
+    if (animation && !this.dirty && performance.now() - animation.started < 100 && performance.now() - this.paintEnded < this.paintDuration / 2) {
       // Leave input delivery time between expensive animated paints. Publish
       // the unchanged visible camera so host overlays and frame work stay live.
       for (const cb of this.viewportListeners) cb(this.viewport)

@@ -332,6 +332,10 @@ describe('viewport animation', () => {
       tick(1062)
       expect(renderer.getViewport()).toEqual(visible)
       expect(calls).toHaveLength(paintedCalls)
+      renderer.invalidate()
+      tick(1063)
+      expect(calls.length).toBeGreaterThan(paintedCalls)
+      expect(renderer.getViewport().scale).toBeGreaterThan(visible.scale)
       tick(1120)
       expect(renderer.getViewport()).toEqual({ x: -300, y: -150, scale: 4 })
       expect(calls.length).toBeGreaterThan(paintedCalls)
@@ -343,6 +347,10 @@ describe('viewport animation', () => {
       expect(renderer.getViewport()).toEqual({ x: 9, y: -7, scale: 0.75 })
       expect(calls.filter(call => call.method === 'scale').at(-1)?.args).toEqual([0.75, 0.75])
       expect(pending).toBeUndefined()
+      clock = 1202
+      renderer.animateViewport(() => ({ x: 0, y: 0, scale: 2 }))
+      tick(1203)
+      expect(renderer.getViewport().scale).toBeGreaterThan(0.75)
     } finally {
       renderer.dispose()
       vi.restoreAllMocks()
