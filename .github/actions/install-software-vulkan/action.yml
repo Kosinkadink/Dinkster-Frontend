@@ -1,0 +1,46 @@
+name: Install software Vulkan
+description: Cache exact driver downloads while installing and checking them in every job
+runs:
+  using: composite
+  steps:
+    - name: Identify pinned driver packages
+      id: packages
+      shell: bash
+      run: |
+        mesa=26.0.8-1ubuntu0.3
+        display=0.3.0-1
+        . /etc/os-release
+        echo "mesa=$mesa" >> "$GITHUB_OUTPUT"
+        echo "display=$display" >> "$GITHUB_OUTPUT"
+        echo "key=vulkan-$ID-$VERSION_ID-$(dpkg --print-architecture)-mesa-$mesa-display-$display" >> "$GITHUB_OUTPUT"
+    - name: Refresh package metadata
+      shell: bash
+      run: sudo apt-get update
+    - uses: actions/cache@v4
+      id: downloads
+      with:
+        path: |
+          .ci/vulkan-debs/mesa-vulkan-drivers_*.deb
+          .ci/vulkan-debs/libdisplay-info3_*.deb
+        key: ${{ steps.packages.outputs.key }}
+    - name: Download exact driver packages on cache miss
+      if: steps.downloads.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        MESA_VERSION: ${{ steps.packages.outputs.mesa }}
+        DISPLAY_VERSION: ${{ steps.packages.outputs.display }}
+      run: |
+        mkdir -p .ci/vulkan-debs
+        cd .ci/vulkan-debs
+        apt-get download "mesa-vulkan-drivers=$MESA_VERSION" "libdisplay-info3=$DISPLAY_VERSION"
+    - name: Install and verify software Vulkan
+      shell: bash
+      env:
+        MESA_VERSION: ${{ steps.packages.outputs.mesa }}
+        DISPLAY_VERSION: ${{ steps.packages.outputs.display }}
+      run: |
+        sudo apt-get -o Dir::Cache::archives="$GITHUB_WORKSPACE/.ci/vulkan-debs" install \
+          --no-install-recommends --reinstall --yes "mesa-vulkan-drivers=$MESA_VERSION" "libdisplay-info3=$DISPLAY_VERSION"
+        test "$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers)" = "$MESA_VERSION"
+        test "$(dpkg-query -W -f='${Version}' libdisplay-info3)" = "$DISPLAY_VERSION"
+        dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers libdisplay-info3 | grep -Fx 'install ok installed'

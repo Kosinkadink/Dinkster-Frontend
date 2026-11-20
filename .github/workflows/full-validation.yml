@@ -60,8 +60,53 @@ jobs:
             });
             core.setOutput('run-heavy', runs.data.workflow_runs.length === 0 ? 'true' : 'false');
 
-  ci:
+  native-generation:
     needs: validation-plan
+    if: needs.validation-plan.outputs.run-heavy == 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 20
+    outputs:
+      artifact: ${{ steps.archive.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+          repository: Kosinkadink/Dinkster
+          ref: ${{ env.DINKSTER_REF }}
+          path: .ci/Dinkster
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/prepare-native-generation
+      - uses: ./.github/actions/install-software-vulkan
+      - name: Archive the pinned CPU generation
+        id: archive
+        run: |
+          artifact="$GITHUB_WORKSPACE/.ci/native-generation-artifact"
+          mkdir -p "$artifact"
+          test "${DINKSTER_E2E_GENERATION#"$GITHUB_WORKSPACE/"}" != "$DINKSTER_E2E_GENERATION"
+          tar -I 'gzip -1' -cf "$artifact/generation.tar.gz" -C "$GITHUB_WORKSPACE" \
+            "${DINKSTER_E2E_GENERATION#"$GITHUB_WORKSPACE/"}" .ci/native-project/environment.json
+          printf '%s\n' "$GITHUB_WORKSPACE" > "$artifact/workspace"
+          printf 'DINKSTER_E2E_GENERATION=%s\nDINKSTER_E2E_DINKSTER_PYTHON=%s\n' \
+            "$DINKSTER_E2E_GENERATION" "$DINKSTER_E2E_DINKSTER_PYTHON" > "$artifact/generation.env"
+          echo "name=native-cpu-${{ runner.os }}-${{ runner.arch }}-$DINKSTER_REF-${{ hashFiles('.github/actions/prepare-native-generation/action.yml') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.archive.outputs.name }}
+          path: .ci/native-generation-artifact/
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  ci:
+    needs: [validation-plan, native-generation]
     if: needs.validation-plan.outputs.run-heavy == 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
     # A full green run of this job measured 16m11s (run 35955257578: unit
@@ -101,6 +146,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/prepare-native-generation
+        with:
+          artifact: ${{ needs.native-generation.outputs.artifact }}
       - name: Verify generated fixtures are current
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
@@ -129,7 +176,7 @@ jobs:
           DINKSTER_E2E_USE_NATIVE: "1"
 
   e2e-suite:
-    needs: validation-plan
+    needs: [validation-plan, native-generation]
     if: needs.validation-plan.outputs.run-heavy == 'true'
     name: e2e (${{ matrix.name }})
     runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
@@ -180,12 +227,13 @@ jobs:
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
       - uses: ./.github/actions/prepare-native-generation
+        if: matrix.project != 'native-startup'
+        with:
+          artifact: ${{ needs.native-generation.outputs.artifact }}
+      - uses: ./.github/actions/prepare-native-generation
+        if: matrix.project == 'native-startup'
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
-      - name: Install software Vulkan for hosted rendering
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
-      - run: dpkg-query -W -f='${Status}\n' mesa-vulkan-drivers | grep -Fx 'install ok installed'
+      - uses: ./.github/actions/install-software-vulkan
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=${{ matrix.project }} --workers=1 ${{ matrix.shard }}
         env:
           # Match the software Vulkan driver available on CPU-only runners.
