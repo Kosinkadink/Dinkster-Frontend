@@ -347,6 +347,8 @@ const mergeAssetRetentions = (previous: readonly RetainedAssets[], retained: rea
 }
 
 export class ExecutionStore {
+  constructor(private readonly admitRetentions: (retained: readonly RetainedAssets[]) => boolean = () => true) {}
+
   private readonly map = new Map<string, ExecutionState>()
   private readonly provisionallyLost = new Set<string>()
   /** retain() pin counts by execution key; pinned entries are never evicted. */
@@ -1018,6 +1020,7 @@ export class ExecutionStore {
   }
 
   private put(state: ExecutionState): void {
+    if (!this.admitRetentions(state.assetRetentions ?? [])) throw new Error('Result ownership changed before publication')
     this.map.set(state.key, state)
     this.executionsSignal.set(new Map(this.map))
   }
