@@ -94,7 +94,7 @@ const groups: readonly {
       {
         id: 'closed-narrow',
         caption:
-          'A narrow node. The seed keeps its whole mode word; the label and the value share what is left, as they do today.',
+          'A narrow node. The seed drops its mode word whole before anything else gives way; the mode is still in the side part.',
         scale: 1,
         width: MARGIN * 2 + NARROW_NODE_WIDTH,
         node: { x: MARGIN, y: MARGIN },
