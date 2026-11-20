@@ -526,7 +526,10 @@ export class DinksterValuesClient {
     let owner: ValueReadOwner | undefined
     try {
       owner = await this.admitPeek?.(query, descriptor, resultOffer)
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === 'QuotaExceededError') {
+        return localRefusal('storage-full', 'Browser storage is full. Free browser storage, then try again.')
+      }
       return localRefusal('ownership-unconfirmed', 'Value asset ownership could not be confirmed')
     }
     if (signalAborted(options.signal)) return aborted()

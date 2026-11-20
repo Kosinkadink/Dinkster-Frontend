@@ -64,6 +64,272 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it('stays busy until acknowledged workspace candidates finish locked cleanup', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, digests: [], complete: true }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const waiting: (() => void)[] = []
+    Object.defineProperty(globalThis.navigator, 'locks', {
+      configurable: true,
+      value: { request: (_name: string, _options: LockOptions, callback: () => unknown) =>
+        new Promise<unknown>((resolve) => { waiting.push(() => resolve(callback())) }) },
+    })
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(0)
+    waiting.shift()!()
+    await vi.advanceTimersByTimeAsync(0)
+    const candidates = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.startsWith('dinkster.openTabsCandidate.'))
+    expect(candidates().length).toBeGreaterThan(0)
+    expect(app.retentionActivity().admissions).toBe(0)
+    expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(true)
+    while (waiting.length > 0) {
+      waiting.shift()!()
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    expect(candidates()).toEqual([])
+    expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+  })
+
+  it('settles a workspace candidate when an older admission completes after cleanup', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    let acknowledge: (() => void) | undefined
+    let delayed: RetainedAssets | undefined
+    let hold = false
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      if (hold && acknowledge === undefined) {
+        delayed = receipt
+        await new Promise<void>((resolve) => { acknowledge = resolve })
+      }
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, digests: [], complete: true }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    await app.openDocument({ ...document, lineage: 'late-workspace-admission' }, 'New workflow')
+    hold = true
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(acknowledge).toBeDefined()
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(5000)
+    acknowledge!()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(app.retentionActivity().incompleteSlots).toEqual([])
+    expect(Object.values(app.retentionActivity()).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    expect(receipts.get(delayed!.ownerId)?.revision).toBe(delayed!.revision + 1)
+    const saved = JSON.parse(localStorage.getItem(TABS_KEY)!)
+    for (const { retained } of saved.assetRetention.owners) expect(receipts.get(retained.ownerId)).toEqual(retained)
+    expect(saved.tabs.map((tab: { doc: { lineage: string } }) => tab.doc.lineage))
+      .toContain('late-workspace-admission')
+  })
+
+  it.each(['network', 'publication lock', 'workspace removal'] as const)('settles local ownership after a peer supersedes its pending recovery stage during %s', async (boundary) => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0,
+      nodes: { n0: { ...seedBasic.graphs.g0.nodes.n0, type: 'X', values: {} } }, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    let acknowledge: (() => void) | undefined
+    let hold = false
+    const waiting: (() => void)[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      if (hold) await new Promise<void>((resolve) => {
+        waiting.push(resolve)
+        acknowledge = () => { hold = false; for (const release of waiting.splice(0)) release() }
+      })
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, digests: [], complete: true }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }])
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(app.retentionActivity().incompleteSlots).toEqual([])
+    const tab = app.activeTab()!
+    expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Changed document',
+    } })).ok).toBe(true)
+    hold = true
+    const key = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+    let holdPublication = false
+    let releasePublication: (() => void) | undefined
+    if (boundary === 'publication lock') {
+      Object.defineProperty(globalThis.navigator, 'locks', {
+        configurable: true,
+        value: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
+          if (holdPublication) {
+            holdPublication = false
+            return new Promise<unknown>((resolve) => { releasePublication = () => resolve(callback()) })
+          }
+          return Promise.resolve(callback())
+        } },
+      })
+    }
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(acknowledge).toBeDefined()
+    const sharedKey = boundary === 'workspace removal'
+      ? Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+        .find((key) => key.startsWith('dinkster.openTabsCandidate.'))!
+      : key
+    const pending = JSON.parse(localStorage.getItem(sharedKey)!)
+    expect(pending.assetRetention.acknowledged).toBe(false)
+    if (boundary === 'publication lock') {
+      holdPublication = true
+      acknowledge!()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(releasePublication).toBeDefined()
+    }
+    const peer = { ...pending, stageId: 'peer-document-stage',
+      assetRetention: { stageId: 'peer-retention-stage', acknowledged: true, complete: true, owners: [] } }
+    if (boundary === 'workspace removal') localStorage.removeItem(sharedKey)
+    else localStorage.setItem(key, JSON.stringify(peer))
+    if (boundary === 'publication lock') releasePublication!()
+    else acknowledge!()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(app.retentionActivity().incompleteSlots).toEqual([])
+    expect(Object.values(app.retentionActivity())
+      .some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    const saved = JSON.parse(localStorage.getItem(TABS_KEY)!)
+    expect(saved.tabs.find((saved: { doc: { lineage: string } }) => saved.doc.lineage === tab.id)
+      .doc.graphs.g0.nodes.n0.title).toBe('Changed document')
+    if (boundary === 'workspace removal') expect(localStorage.getItem(sharedKey)).toBeNull()
+    else expect(localStorage.getItem(key)).toBe(JSON.stringify(peer))
+  })
+
+  it('keeps unchanged local ownership after a peer replaces the canonical stage', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Empty workflow', doc: document }] }))
+    const receipts = new Map<string, RetainedAssets>()
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(Object.values(app.retentionActivity())
+      .some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    const journals = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.')).sort()
+      .map((key) => [key, localStorage.getItem(key)])
+    const settled = journals()
+    const owners = [...receipts]
+    const peer = JSON.parse(localStorage.getItem(TABS_KEY)!)
+    peer.assetRetention.stageId = 'peer-canonical-stage'
+    peer.assetRetention.owners = peer.assetRetention.owners.map((owner: { retained: RetainedAssets }) => ({
+      ...owner, retained: { ...owner.retained, ownerId: 'workflow-candidate:peer' },
+    }))
+    localStorage.setItem(TABS_KEY, JSON.stringify(peer))
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(journals()).toEqual(settled)
+    expect([...receipts]).toEqual(owners)
+  })
+
+  it('keeps an unchanged sibling receipt while overlapping workspace edits are admitted', async () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0,
+      nodes: { n0: { ...seedBasic.graphs.g0.nodes.n0, type: 'X', values: {} } }, links: {} } } }
+    const sibling = { ...document, lineage: 'unchanged-sibling',
+      graphs: { g0: { ...document.graphs.g0, nodes: {} } } }
+    localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: document.lineage,
+      tabs: [{ title: 'Edited workflow', doc: document }, { title: 'Unchanged workflow', doc: sibling }] }))
+    const app = createEditableApp()
+    vi.spyOn(app.connection.status, 'get').mockReturnValue('connected')
+    const receipts = new Map<string, RetainedAssets>()
+    let hold = false
+    const waiting: (() => void)[] = []
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      receipts.set(owner.ownerId, receipt)
+      if (hold) await new Promise<void>((resolve) => waiting.push(resolve))
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const receipt = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      receipts.set(owner.ownerId, receipt)
+      return receipt
+    })
+    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }])
+    app.flushPersistTabs(true)
+    await vi.advanceTimersByTimeAsync(10000)
+    const siblingJournals = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.'))
+      .map((key) => [key, localStorage.getItem(key)!] as const)
+      .filter(([, raw]) => JSON.parse(raw).documentLineage === sibling.lineage)
+      .sort(([a], [b]) => a.localeCompare(b))
+    const before = siblingJournals()
+    expect(before.length).toBeGreaterThan(0)
+    const tab = app.tabs.get().find((tab) => tab.id === document.lineage)!
+    hold = true
+    for (const title of ['First edit', 'Second edit']) {
+      expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n0', title,
+      } })).ok).toBe(true)
+      app.flushPersistTabs(true)
+      await vi.advanceTimersByTimeAsync(500)
+    }
+    expect(waiting.length).toBeGreaterThan(0)
+    hold = false
+    for (const release of waiting.splice(0)) release()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(Object.values(app.retentionActivity())
+      .some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))).toBe(false)
+    expect(siblingJournals()).toEqual(before)
+    for (const [, raw] of before) {
+      const intent = JSON.parse(raw)
+      expect(receipts.get(intent.owner.ownerId)?.revision).toBe(intent.acknowledgedRevision)
+    }
+    expect(JSON.parse(localStorage.getItem(TABS_KEY)!).tabs.find((tab: { doc: { lineage: string } }) =>
+      tab.doc.lineage === document.lineage).doc.graphs.g0.nodes.n0.title).toBe('Second edit')
+  })
+
   it('persists camera and scroll changes without validating, serializing or checksumming workflows', async () => {
     const first = createEditableApp()
     await vi.advanceTimersByTimeAsync(1000)
@@ -790,6 +1056,32 @@ describe('open-tab persistence', () => {
     expect(reintroduced.store.doc.graphs[reintroduced.store.doc.root]!.name).toBe('later-A')
     seed.dispose()
     restored.dispose()
+  })
+
+  it('reconciles the same workspace stages independently of storage enumeration order', () => {
+    const document = { ...seedBasic, graphs: { g0: { ...seedBasic.graphs.g0, nodes: {}, links: {} } } }
+    const canonical = { v: 1, active: document.lineage, workspaceRevision: 1, workspaceOperationWatermarks: {},
+      tabs: [{ title: 'Empty workflow', doc: document, documentRevision: 0 }] }
+    const key = localStorage.key.bind(localStorage)
+    let reversed = false
+    vi.spyOn(localStorage, 'key').mockImplementation((index) => key(reversed ? localStorage.length - index - 1 : index))
+    const snapshots = []
+    for (const reverse of [false, true]) {
+      localStorage.clear()
+      localStorage.setItem(TABS_KEY, JSON.stringify(canonical))
+      for (const stageId of ['stage-z', 'stage-a']) localStorage.setItem(`dinkster.openTabsCandidate.${stageId}`,
+        JSON.stringify({ ...canonical, assetRetention: { stageId, acknowledged: false },
+          tabs: canonical.tabs.map((tab) => ({ ...tab, documentDirty: true })) }))
+      reversed = reverse
+      const app = createEditableApp()
+      app.flushPersistTabs(true)
+      const { assetRetention: _retention, ...snapshot } = JSON.parse(localStorage.getItem(TABS_KEY)!)
+      expect(snapshot.tabs).toHaveLength(1)
+      expect(new Set(snapshot.incorporatedWorkspaceStages)).toEqual(new Set(['stage-a', 'stage-z']))
+      snapshots.push(snapshot)
+      app.dispose()
+    }
+    expect(snapshots[1]).toEqual(snapshots[0])
   })
 
   it('keeps independently staged edits for different document lineages', () => {

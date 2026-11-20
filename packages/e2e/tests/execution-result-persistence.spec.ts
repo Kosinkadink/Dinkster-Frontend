@@ -78,7 +78,8 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
     ['job-a', 'run-a', 'other'], ['job-b', 'run-b', 'other'],
   ].map(([jobId, jobRef, nodeId], index) => ({
     jobId, token: (index + 1).toString(16).padStart(32, '0'), scope: 'local',
-    jobRef, nodeId, outputId: 'value', attemptId: 1, publication: 1, complete: true, digests: [],
+    jobRef, nodeId, outputId: 'value', attemptId: 1, publication: 1, complete: true,
+    digests: nodeId === 'producer' ? [SOURCE_DIGEST] : [],
   }))
   const owners = new Map<string, unknown>()
   await page.addInitScript(() => localStorage.setItem('dinkster.workspaceClientId', 'issue-347-client'))
@@ -228,6 +229,18 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
   await page.screenshot({ path: `${PROOF_DIR}/01-unrelated-branch-retains-runtime-value.png`, animations: 'disabled' })
 
+  const legacyReceipt = { scope: 'local', ownerKind: 'shown-result', ownerId: 'execution-result:legacy-released',
+    revision: 1, complete: true, digests: [SOURCE_DIGEST] }
+  const legacyOwnerUrl = new URL(`/api/library/retentions/shown-result/${encodeURIComponent(legacyReceipt.ownerId)}?scope=local`, page.url()).href
+  const legacyTombstone = { ...legacyReceipt, revision: 2, digests: [] }
+  owners.set(legacyOwnerUrl, legacyTombstone)
+  await page.evaluate((receipt) => {
+    const envelope = JSON.parse(localStorage.getItem('dinkster.executionResults')!)
+    const result = envelope.results.find((entry: { jobRef: string }) => entry.jobRef === 'run-a')
+    result.assetRetentions = [...(result.assetRetentions ?? []), receipt]
+    localStorage.setItem('dinkster.executionResults', JSON.stringify(envelope))
+  }, legacyReceipt)
+
   holdResultOwnership = true
   const beforeReload = ownershipRequests
   await page.reload()
@@ -244,6 +257,10 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   await page.mouse.move(0, 0)
   await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
   await page.screenshot({ path: `${PROOF_DIR}/02-reload-retains-runtime-value.png`, animations: 'disabled' })
+  expect(owners.get(legacyOwnerUrl)).toEqual(legacyTombstone)
+  expect(await page.evaluate((ownerId) => [...window.__dinksterTest!.app.store.executions.get().values()]
+    .some((state) => (state as unknown as { assetRetentions?: readonly { ownerId: string }[] })
+      .assetRetentions?.some((receipt) => receipt.ownerId === ownerId)), legacyReceipt.ownerId)).toBe(false)
 
   const persisted = await page.evaluate(() => localStorage.getItem('dinkster.executionResults'))
   expect(persisted).not.toBeNull()

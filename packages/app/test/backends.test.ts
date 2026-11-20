@@ -646,6 +646,7 @@ describe('backend protocols', () => {
       })
       backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
       await requesting
+      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
       expect(app.store.get(ref)).toMatchObject({ outputs: live, artifacts: [], artifactsHydrated: false })
       if (scenario === 'removed') app.removeBackend(backend.id)
       if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
@@ -659,8 +660,12 @@ describe('backend protocols', () => {
       if (scenario === 'accepted') {
         const receipts = app.store.get(ref)!.assetRetentions!
         expect(receipts.every((receipt) => receipt.complete)).toBe(true)
+        expect(receipts).toHaveLength(3)
         expect([...new Set(receipts.flatMap((receipt) => receipt.digests))].sort())
           .toEqual([digest('a'), digest('c'), digest('e')])
+        backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(app.store.get(ref)?.assetRetentions).toEqual(receipts)
       }
     },
   )
