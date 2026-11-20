@@ -13,7 +13,7 @@ afterEach(() => {
 
 it.each(['native', 'browser', 'remote', 'other-project'] as const)('keeps %s installation scope explicit and discards a changed review', async (mode) => {
   window.history.replaceState(null, '', '/?dinksterProject=studio')
-  if (mode !== 'browser') Object.assign(window, { dinksterDesktop: { locale: async () => 'en', status: async () => ({ phase: 'running' }) } })
+  if (mode !== 'browser') Object.assign(window, { dinksterDesktop: { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }) } })
   const review = {
     project: { id: mode === 'other-project' ? 'other' : 'studio', name: 'Studio' },
     backend: { baseUrl: mode === 'remote' ? 'https://engine.example' : '' },
