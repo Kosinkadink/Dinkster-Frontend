@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asPromptId,
+  createSignal,
   DINKSTER_SCHEMA_WIRE_VERSION,
   type DinksterNodesPayload,
   type ExecutionRef,
@@ -59,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   app.dispose()
   vi.restoreAllMocks()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -359,19 +361,21 @@ describe('workflow-open requirements', () => {
     await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
   })
 
-  it.each(['shared', 'isolated', 'lost-response', 'refused', 'changed-uid', 'closed-document', 'dismissed',
+  it.each(['shared', 'isolated', 'shared-reconnect', 'isolated-reconnect', 'reconnect-timeout', 'lost-response', 'refused', 'changed-uid', 'closed-document', 'dismissed',
     'wrong-environment', 'wrong-snapshot', 'wrong-version', 'unknown-needs', 'revision-conflict', 'expired', 'stale-before', 'unscoped'] as const)(
     'applies a retained project review once and protects post-activation writes: %s', async (scenario) => {
       app = prepareWorkflowApp(new AppState())
       loadDinksterSchemas()
       const backend = app.backends.get()[0]!
-      vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+      const status = createSignal<'connected' | 'reconnecting'>('connected')
+      vi.spyOn(backend.connection.status, 'get').mockImplementation(status.get)
+      vi.spyOn(backend.connection.status, 'subscribe').mockImplementation(status.subscribe)
       vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
       const sourceId = 'a'.repeat(32)
       let activated = false
       let refreshed = false
       let uid = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
-      const environmentId = () => activated && scenario === 'isolated' ? 'b'.repeat(32) : sourceId
+      const environmentId = () => activated && scenario.startsWith('isolated') ? 'b'.repeat(32) : sourceId
       const project = (): LibraryProject => ({ id: 'default', uid, name: 'Film', created: '2026-11-18T12:00:00Z',
         revision: activated ? 11 : 7, deleted: false,
         environment: { id: activated && scenario === 'wrong-environment' ? 'c'.repeat(32) : environmentId(), lastSnapshot: null, lastRunAt: null } })
@@ -389,13 +393,18 @@ describe('workflow-open requirements', () => {
       await app.checkProjectNeeds(backend)
       const review = app.projectNeedsReview.get()!
       const prepared = await app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined,
-        scenario === 'unscoped' ? undefined : scenario === 'isolated' ? 'only-project' : 'every-project')
+        scenario === 'unscoped' ? undefined : scenario.startsWith('isolated') ? 'only-project' : 'every-project')
       let installations = 0
       vi.spyOn(backend.connection, 'applyPackInstall').mockImplementation(async () => {
         installations++
         if (scenario === 'lost-response') throw new TypeError('connection lost')
         if (scenario === 'refused') throw new PackInstallError(409, { error: 'plan-stale' })
         activated = true
+        if (scenario === 'reconnect-timeout') status.set('reconnecting')
+        if (scenario.endsWith('-reconnect')) {
+          status.set('reconnecting')
+          setTimeout(() => status.set('connected'), 20)
+        }
         loadDinksterSchemas()
         await app.checkProjectNeeds(backend)
         if (scenario === 'changed-uid') uid = '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457'
@@ -416,13 +425,18 @@ describe('workflow-open requirements', () => {
       })
       if (scenario === 'expired') vi.spyOn(performance, 'now').mockReturnValue(prepared.expiresAt + 1)
       if (scenario === 'stale-before') uid = '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457'
-      if (scenario === 'shared' || scenario === 'isolated') {
+      if (scenario === 'shared' || scenario === 'isolated' || scenario.endsWith('-reconnect')) {
         await app.applyReviewedProjectPacks(review, prepared)
         expect(saved).toEqual(['kept', 'newpack', 'other-window'])
         expect(app.projectPackNotification.get()).toBeDefined()
         expect(app.projectNeedsReview.get()?.needs.unknown).toEqual([{ scope: 'local', id: 'unreadable' }])
       } else {
-        await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
+        if (scenario === 'reconnect-timeout') {
+          vi.useFakeTimers()
+          const failed = expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow('connection did not recover')
+          await vi.advanceTimersByTimeAsync(15_000)
+          await failed
+        } else await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
         expect(saved).toEqual(['kept'])
         expect(app.projectPackNotification.get()).toBeUndefined()
       }

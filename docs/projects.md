@@ -144,7 +144,10 @@ do not offer this button. A lost or malformed Apply response blocks further
 installation, including after closing and reopening the prompt; nothing retries
 a possibly completed mutation automatically.
 
-After acknowledged activation, the app rechecks persistent project identity,
+After acknowledged activation, the app waits up to 15 seconds for an expected
+socket reconnection, without resending Apply. If the connection does not recover,
+no packs are enabled and the prompt asks for reconnection and a new needs review.
+The app then rechecks persistent project identity,
 project/environment binding, the activated snapshot and exact selected pack
 versions before enabling packs. Expected registry replacement does not invalidate
 document ownership, but closing, editing or replacing the reviewed document does.

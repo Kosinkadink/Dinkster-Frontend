@@ -8391,6 +8391,20 @@ export class AppState {
     try {
       const result = await backend.connection.applyPackInstall(prepared.installation.confirmation)
       acknowledged = true
+      if (backend.connection.status.get() !== 'connected') {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            unsubscribe()
+            reject(new Error(t('projectNeeds.activationReconnect')))
+          }, 15_000)
+          const unsubscribe = backend.connection.status.subscribe((status) => {
+            if (status !== 'connected') return
+            clearTimeout(timer)
+            unsubscribe()
+            resolve()
+          })
+        })
+      }
       const project = await backend.connection.getProject(review.project.id)
       const environment = await backend.connection.activeEnvironment()
       const needs = await backend.connection.projectNeeds(review.project.id)
