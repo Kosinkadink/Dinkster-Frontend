@@ -83,10 +83,6 @@
 .layout-visibility-row:hover { background: var(--dinkster-interaction-hover); }
 .layout-visibility-row .product-checkbox { margin: -3px; }
 .projects-dialog { box-sizing: border-box; width: min(480px, calc(100vw - 32px)); min-width: 0; max-width: 100%; padding: var(--dinkster-space-12); }
-.modal-surface[data-modal='project-needs'] .projects-dialog { display: flex; flex-direction: column; min-height: 0; }
-.project-needs-content { min-height: 0; overflow: auto; overflow-wrap: anywhere; }
-.modal-surface[data-modal='project-needs'] .product-action-footer { flex-wrap: wrap; }
-.modal-surface[data-modal='project-needs'] .product-action-status { flex-basis: 100%; }
 .projects-dialog-intro { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); }
 .projects-dialog-list { margin: 0; padding: 0; list-style: none; }
 .projects-dialog-current { padding: 1px 6px; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-capsule); }

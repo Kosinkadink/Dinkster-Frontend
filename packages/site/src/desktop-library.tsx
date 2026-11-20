@@ -3,8 +3,6 @@ import { render } from 'solid-js/web'
 import {
   ProductButton,
   ProductEmptyState,
-  ProductErrorBanner,
-  ProductToast,
   ProductList,
   ProductListRow,
   ProductLoading,
@@ -27,7 +25,6 @@ interface LibraryPage {
 }
 
 interface DesktopLibraryBridge {
-  open?(installation: string, project: string): Promise<void>
   installations(): Promise<readonly LibraryEntry[]>
   projects(installation: string, cursor: string | null): Promise<LibraryPage>
   workflows(
@@ -56,37 +53,6 @@ function Library() {
   const [installation, setInstallation] = createSignal<LibraryEntry>()
   const [project, setProject] = createSignal<LibraryEntry>()
   const [notice, setNotice] = createSignal(false)
-  const [opening, setOpening] = createSignal(false)
-  const [error, setError] = createSignal<string>()
-  const [notification, setNotification] = createSignal<{ message: string }>()
-  let active = true
-  onCleanup(() => {
-    active = false
-  })
-  const openProject = async (): Promise<void> => {
-    const selectedInstallation = installation()
-    const selectedProject = project()
-    if (opening() || !selectedInstallation || !selectedProject || !bridge?.open)
-      return
-    setOpening(true)
-    setNotification(undefined)
-    try {
-      await bridge.open(selectedInstallation.id, selectedProject.id)
-      if (active) {
-        setError(undefined)
-        setNotification({ message: 'Project opened.' })
-      }
-    } catch (cause) {
-      if (active)
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : 'The project could not be opened. Try again.',
-        )
-    } finally {
-      if (active) setOpening(false)
-    }
-  }
   const [installations] = createResource(async () => {
     try {
       if (!bridge) throw new Error('Desktop library bridge is unavailable')
@@ -107,17 +73,6 @@ function Library() {
       <ProductPage
         title={project()?.name ?? installation()?.name ?? 'Projects'}
       >
-        <Show when={error()}>
-          {(detail) => (
-            <ProductErrorBanner onDismiss={() => setError(undefined)}>
-              {detail()}
-            </ProductErrorBanner>
-          )}
-        </Show>
-        <ProductToast
-          notification={notification()}
-          onDismiss={() => setNotification(undefined)}
-        />
         <Show when={notice()}>
           <ProductNotice>{unavailable}</ProductNotice>
         </Show>
@@ -164,39 +119,23 @@ function Library() {
             <>
               <div class="dinkster-actions">
                 <ProductButton
-                  disabled={opening()}
                   onClick={() => {
                     setProject(undefined)
                     setInstallation(undefined)
                     setNotice(false)
-                    setError(undefined)
                   }}
                 >
                   Installations
                 </ProductButton>
                 <Show when={project()}>
                   <ProductButton
-                    disabled={opening()}
                     onClick={() => {
                       setProject(undefined)
                       setNotice(false)
-                      setError(undefined)
                     }}
                   >
                     Projects
                   </ProductButton>
-                  <Show when={typeof bridge?.open === 'function'}>
-                    <ProductButton
-                      intent="neutral"
-                      fill="solid"
-                      pending={opening()}
-                      onClick={() => {
-                        void openProject()
-                      }}
-                    >
-                      Open project
-                    </ProductButton>
-                  </Show>
                 </Show>
               </div>
               <Show
