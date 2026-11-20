@@ -30,6 +30,7 @@ import {
   toolboxButton,
   toolboxSeparator,
   updateSceneNodePositions,
+  updateSceneNodeValues,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -1512,6 +1513,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const settingsTick = useSignal(props.app.settings.changed)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
+  const comparisonCompilesChanged = useSignal(props.app.comparisonCompilesChanged)
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
@@ -4184,14 +4186,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
     let sceneKey = ''
-    let availabilityDiags: readonly Diagnostic[] = []
     let sceneBuildContext: {
       readonly document: WorkflowDocument
+      readonly sourceDocument: WorkflowDocument
       readonly graphNodes: ReadonlyMap<string, NonNullable<WorkflowDocument['graphs'][string]>['nodes'][string]>
       readonly key: string
       readonly pathKey: string
       readonly registry: ReturnType<AppState['registryForTab']>
       readonly extensionsGeneration: number
+      readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
     } | undefined
@@ -4243,21 +4246,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         node: asNodeId(path[path.length - 1]!),
       }
       const plannerAvailable = occurrenceOwner !== undefined && occurrencePlanner() !== undefined
+      const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
-      const canReusePositions = previousBuild !== undefined &&
+      const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
         previousBuild.pathKey === pathKey &&
         previousBuild.registry === reg &&
         previousBuild.extensionsGeneration === extensionsGeneration &&
+        previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
-        previousBuild.plannerAvailable === plannerAvailable &&
+        previousBuild.plannerAvailable === plannerAvailable
+      const valuesUpdated = canReuseScene && path.length === 0
+        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type))
+        : undefined
+      const canReusePositions = canReuseScene &&
         previousBuild.graphNodes.size === graphNodes.size &&
         [...previousBuild.graphNodes].every(([id, node]) => graphNodes.get(id) === node)
       const repositioned = canReusePositions
         ? updateSceneNodePositions(scene, previousBuild.document, doc, graphId)
         : undefined
-      const built = repositioned ?? (() => {
+      const built = valuesUpdated ?? repositioned ?? (() => {
         props.app.extensionRevision.get()
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
@@ -4278,6 +4287,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })()
       const graphView = doc.view.graphs[graphId]
       sceneBuildContext = {
+        sourceDocument: doc,
         document: {
           ...doc,
           view: {
@@ -4298,6 +4308,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         pathKey,
         registry: reg,
         extensionsGeneration,
+        extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
       }
@@ -4335,21 +4346,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // specialization, an out-of-range stored value) goes away. Widget
       // validation runs AFTER refreshSceneOverlays so companion-driven rows
       // are excluded against this build's sources, not the previous one's.
-      const widgetDiags = widgetValueDiagnostics()
-      // Position-only updates cannot change process affinity or node admission.
-      if (repositioned === undefined || tab.execution) {
-        const hasResidentMetadata = scene.nodes.some(({ node }) => {
-          const schema = reg?.resolve(node.type)
-          return node.type.startsWith('#') || schema?.residentAffinity !== undefined || schema?.unavailableReason !== undefined
-        })
-        const preflight = tab.execution || !hasResidentMetadata ? undefined : untrack(() => props.app.compileTabCached(tab))
-        availabilityDiags = preflight?.ok === false ? preflight.diagnostics.filter((diagnostic) =>
-          diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable') : []
-      }
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
-      setInstanceDiagnostics(sceneDiags)
-      if (untrack(hostFocused)) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
+      untrack(() => refreshSceneDiagnostics(tab))
       // Undo/redo/delete may have removed selected items - but only a scene
       // replacement can. An unchanged scene invalidates nothing, and pruning
       // republishes the whole interaction overlay, which would drop an
@@ -4541,6 +4538,26 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return { diagnostics: out, marks }
     }
 
+    function refreshSceneDiagnostics(tab: Tab): void {
+      const reg = props.app.registryForTab(tab)
+      const hasResidentMetadata = scene.nodes.some(({ node }) => {
+        const schema = reg?.resolve(node.type)
+        return node.type.startsWith('#') || schema?.residentAffinity !== undefined || schema?.unavailableReason !== undefined
+      })
+      const availabilityDiags = tab.execution || !hasResidentMetadata
+        ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
+      const widgetDiags = widgetValueDiagnostics()
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      setInstanceDiagnostics(sceneDiags)
+      if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
+      renderer.setRowMarks(widgetDiags.marks)
+    }
+
+    createEffect(on(comparisonCompilesChanged, () => {
+      const tab = activeTab()
+      if (tab) untrack(() => refreshSceneDiagnostics(tab))
+    }, { defer: true }))
+
     // Execution state + badges: frozen tabs pin their execution, live tabs
     // track the lineage's latest. Derivation lives in scene-overlays.ts
     // (framework-free); this helper gathers the inputs, derives one model,
@@ -4583,7 +4600,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setInactiveNodes(lazyInactiveSceneNodes({ frozen, closure: wouldRun, instancePath: viewedPath }))
       let exactProducer: ((rid: string) => boolean) | undefined
       const reg = props.app.registryForTab(tab)
-      const live = frozen || boundExec?.artifact === undefined ? undefined : props.app.compileTabCached(tab)
+      const live = frozen || boundExec?.artifact === undefined ? undefined : props.app.previewComparisonCompile(tab)
       const liveArtifact = live?.ok ? live.artifact : undefined
       const retained = !frozen && boundExec && props.app.overlayModeForTab(tab) === 'latest'
         ? retainProvenExecution(boundExec, props.app.executionList(), liveArtifact, viewedPath, reg?.resolve)

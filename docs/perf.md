@@ -2459,3 +2459,89 @@ causal speed improvement, an absolute frame budget or backend execution cost.
 The browser problem-surface cases separately check that moving a refused node
 retains its reason, disconnecting clears a graph-specific refusal and undo
 restores it, while host-declared unavailability survives disconnection.
+
+## Large-graph numeric increment clicks (2026-11-19, X570)
+
+Ordinary production app builds, real local native backend and the same
+1200-node/1140-link workflow at 68% zoom in a 2560x1440 Chromium viewport.
+One warmup increment followed by ten real pointer down/up pairs requested
+100 ms apart on the first Upscale Image By `scale_by` increment arrow.
+Input-to-frame ends at the JavaScript main-canvas copy frame containing the
+new value or a superseding value, not physical display presentation.
+
+| Build | Click-to-frame upper median (ms) | Click-to-frame range (ms) | Distinct incremented values painted |
+| --- | ---: | ---: | ---: |
+| Unchanged production PR 548 head 703fbce597f6 | 702.4 | 239.3-903.4 | 3 of 10 |
+| Deferred comparison compile only | 93.8 | 81.2-101.4 | 10 of 10 |
+| Deferred comparison and static numeric scene reuse | 47.1 | 41.3-65.0 | 10 of 10 |
+| Same repair with static numeric asset-root proof | 51.1 | 42.7-65.0 | 10 of 10 |
+
+All ten increments committed in every run; the last value was 1.11. Each row
+is one ten-click sequence on a shared host, not three trials or a native-display
+latency claim. The final row ran alongside independent CPU browser validation;
+it does not demonstrate a timing win over the scene-reuse-only row. It still
+misses the issue's click target. The static proof was separately exercised on
+the actual fixture/catalog and avoids both admission-comparison censuses.
+A separate instrumented before profile attributed 67-116 ms per edit to
+whole-workflow compilation, 23-46 ms to scene building, 15-24 ms to scene
+installation/comparison and 11-34 ms to asset-root scans. Those profiler costs
+include instrumentation overhead and are not substituted for the timing rows.
+Asset admission, history and save semantics are unchanged. Comparison results
+remain pending during edits; queue validation is still independent and fresh.
+
+## Mirror estimate continuity during authority promotion (2026-11-19)
+
+Controlled browser diagnostic on X570, CPU-only native backend and route-mocked
+2x2 mirror fixture. The real authority promotion starts only after the estimate
+is ready; 30 samples are taken 10 ms apart. This is a development-build
+continuity observation, not production frame-rate or clean latency acceptance.
+
+| Build | Missing estimate samples | Observed absence |
+| --- | ---: | ---: |
+| Main 4ccb133e5584 | 10 of 30 | 111.2 ms |
+| Equivalent-session comparison continuation | 0 of 30 | None observed |
+
+Both sessions were observed, with a different Tab/store and a live shared
+session after promotion. All new-session preview publications before disabling
+estimates retained the 2x2 estimate. Original exact complement pixels, setting-off
+and page-error controls pass. Full artifact snapshots/revisions remain fresh;
+changed documents, assets, schemas, extensions, targets and unrelated replacement
+sessions cannot inherit comparison proof. The originating hosted failure did not
+capture promotion, so attribution of that exact event remains conditional.
+
+## Metadata-only title edits (2026-11-19, X570)
+
+Optimized production test-mode bundles, local pinned native CPU backend,
+RTX 4090 Vulkan Chromium uncapped, 2560x1440/DPR 1. The same synthetic
+1200-node/1140-link workflow and reading camera received three ordinary
+`node.setTitle` session commands, 1.8 seconds apart. Chrome trace, CPU profiler
+and wrappers around validation and compilation were enabled in both runs.
+These are diagnostic observations from one sequence per build on a shared
+host, not clean acceptance timings, a native-display latency measurement or
+a timing gate. The before build already contains deferred comparison work
+from the numeric-edit repair; that earlier improvement is not credited here.
+
+| Metric (ms, three edits in order) | Before title-only reuse | After title-only reuse |
+| --- | --- | --- |
+| Synchronous dispatch | 131.0 / 84.4 / 88.1 | 80.2 / 71.6 / 67.4 |
+| Maximum frame gap through 1.6 s | 132.9 / 97.7 / 95.6 | 82.0 / 81.1 / 72.4 |
+| Retention validation inside dispatch | 30.0 / 12.6 / 13.7 | 0.5 / 0.4 / 0.4 |
+| Deferred comparison compile | 98.4 / 77.5 / 71.1 | No calls |
+| Maximum frame gap, 350-1600 ms after edit | 41.9 / 44.7 / 47.5 | 41.7 / 51.1 / 37.4 |
+
+Before, compilation began 191-241 ms after dispatch started. After, advisory
+resident/unavailable diagnostics reuse their anchors and reasons only when
+structural sharing proves that node titles alone changed. Full artifacts,
+exports and queue validation still use the current snapshot and revision;
+semantic edits, registry or extension changes, target changes and replacement
+sessions invalidate the advisory cache. The same title proof avoids asset-root
+rescans without admitting new asset identities. Title add/remove and undo/redo
+retain their ordinary document history.
+
+Neither sequence had a later long task in the 350-1600 ms window. The remaining
+67-80 ms dispatches and up to 51.1 ms later frame gap still miss a no-missed-frame
+or high-refresh click goal. This change removes the measured redundant work,
+not all document validation, scene reconstruction or reactive update cost.
+The after sequence measured [title-only reuse cd926868713e](https://github.com/Kosinkadink/Dinkster-Frontend/commit/cd926868713e86f169135927e138a74171a684c5). A subsequent cache-hit update
+advances the comparison document to retain reuse across alternating titles and
+position edits; a cache regression covers that case, but it was not retimed.

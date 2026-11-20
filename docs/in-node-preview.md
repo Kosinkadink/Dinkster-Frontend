@@ -287,6 +287,14 @@ cached. An unavailable exactness comparison also leaves runtime-backed imagery
 cached. A cached result can be replaced by a local image labeled estimated, but
 cannot seed another estimate itself. A proven unchanged source can still feed
 the edited mirror.
+
+An identical local-to-shared workspace promotion keeps the current comparison
+proof, so an already visible estimate does not disappear during the session
+swap. Changed documents, schemas, extensions, assets, backend targets and
+unrelated replacement sessions do not inherit that proof. Full compile and
+queue artifacts still use the current session's snapshot and revision; genuine
+edits continue to defer comparison work until after paint.
+
 Frozen views and current backend results remain authoritative. Disabling mirror
 previews suppresses local estimates without discarding recorded images.
 
