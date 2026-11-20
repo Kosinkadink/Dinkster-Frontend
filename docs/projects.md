@@ -142,6 +142,8 @@ applies that exact token once; scope cannot be replaced at confirmation. The
 prompt keeps the reviewed plan and a busy confirmation visible, reports that it
 is waiting for the backend, and blocks dismissal while applying. Review installation
 is hidden while its confirmation is available; changing scope clears that review.
+Long review content scrolls separately from the confirmation controls and pending
+status, which stay visible in the dialog.
 Browser and remote terminal-only reviews do not offer this button. A lost or
 malformed Apply response blocks both installation and project pack enablement,
 including after closing and reopening the prompt; nothing retries

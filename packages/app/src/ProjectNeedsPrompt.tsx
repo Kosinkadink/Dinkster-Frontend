@@ -87,6 +87,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
   }
   return <ModalSurface title={message('projectNeeds.title')} modalId="project-needs" dismissBlocked={busy() && !preparing()} onRequestClose={close}>
     <div class="projects-dialog" data-testid="project-needs">
+      <div class="project-needs-content">
       <Show when={error()}>{(detail) => <ProductErrorBanner onDismiss={() => setError(undefined)}>{detail()}</ProductErrorBanner>}</Show>
       <p>{props.review.project.name}</p>
       <Show when={props.review.enable.length > 0}>
@@ -140,6 +141,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
         </ul>}</Show>
         <pre class="node-install-review">{reviewed().installation.review}</pre>
       </>}</Show>
+      </div>
       <ProductActionFooter status={applying() ? <span role="status">{message('search.installWorking')}</span> : undefined}>
         <Show when={canConfirm()}>
           <ProductButton variant="primary" loading={busy()} disabled={busy() || uncertain()} onClick={() => { void apply() }}>{message('search.installConfirm')}</ProductButton>
