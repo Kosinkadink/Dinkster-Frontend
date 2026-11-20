@@ -56,6 +56,19 @@ test('glsl mirrors paint GPU image estimates gated by execution.mirrorPreviews',
     },
   } }))
 
+  // Delay only this document's authority opening, not tab publication or
+  // product compilation, so the already-visible estimate crosses a real swap.
+  await page.addInitScript(() => {
+    const host = window as unknown as { releaseMirrorPromotion?: () => void }
+    const send = MessagePort.prototype.postMessage
+    MessagePort.prototype.postMessage = function (message: unknown, options?: StructuredSerializeOptions | Transferable[]) {
+      const request = message as { kind?: string; sessionId?: string } | null
+      const forward = () => { Reflect.apply(send, this, [message, options]) }
+      if (request?.kind === 'open' && request.sessionId === 'mirror-image-estimates-proof') {
+        host.releaseMirrorPromotion = forward
+      } else forward()
+    }
+  })
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(2)
@@ -139,6 +152,47 @@ test('glsl mirrors paint GPU image estimates gated by execution.mirrorPreviews',
   // node has never executed, so the estimate is its only preview source.
   await expect.poll(() => previewOf('src')).toEqual({ state: null, width: 2, height: 2 })
   await expect.poll(() => previewOf('adjust')).toEqual({ state: 'estimate', width: 2, height: 2 })
+
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as {
+    releaseMirrorPromotion?: () => void
+  }).releaseMirrorPromotion)).toBe('function')
+  const publications = await page.evaluate(async () => {
+    const { app, renderer } = window.__dinksterTest!
+    const local = app.activeTab()!
+    const publications: { state: unknown; width: unknown; height: unknown }[] = []
+    const publish = renderer!.setNodePreviews.bind(renderer)
+    renderer!.setNodePreviews = (previews) => {
+      const estimate = previews['adjust']
+      publications.push({ state: estimate?.state, width: estimate?.width, height: estimate?.height })
+      return publish(previews)
+    }
+    try {
+      const promoted = new Promise<void>((resolve) => {
+        const tabs = app.tabs as typeof app.tabs & { subscribe(listener: () => void): () => void }
+        const unsubscribe = tabs.subscribe(() => {
+          const current = app.activeTab()
+          if (current?.id === local.id && current.store !== local.store) {
+            unsubscribe()
+            resolve()
+          }
+        })
+      })
+      ;(window as unknown as { releaseMirrorPromotion: () => void }).releaseMirrorPromotion()
+      await promoted
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const current = app.activeTab()!
+      const status = (current.store as { status?: { get(): string } }).status?.get()
+      if (status !== 'live' || JSON.stringify(current.store.doc) !== JSON.stringify(local.store.doc)) {
+        throw new Error('equivalent shared-session promotion did not complete')
+      }
+      return publications
+    } finally {
+      renderer!.setNodePreviews = publish
+    }
+  })
+  await page.screenshot({ path: testInfo.outputPath('image-estimate-promotion.png'), animations: 'disabled' })
+  expect(publications.length).toBeGreaterThan(0)
+  for (const preview of publications) expect(preview).toEqual({ state: 'estimate', width: 2, height: 2 })
 
   // The estimate's pixels are the shader's output: 8-bit inversion of the
   // source is exact, so every texel must match its complement.
