@@ -3619,7 +3619,7 @@ describe('workflow library wire', () => {
     { id: 'stable-environment', lastSnapshot: '17', lastRunAt: '2026-11-19T15:00:00Z' },
     { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
   ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
-    const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
+    const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
       ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })

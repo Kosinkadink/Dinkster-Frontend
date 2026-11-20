@@ -8254,10 +8254,13 @@ export class AppState {
   }
 
   async enableReviewedProjectPacks(review: ProjectNeedsReview): Promise<void> {
-    if (this.projectNeedsReview.get() !== review || !review.current()) throw new Error('Project changed. Review its needs again.')
+    if (this.projectNeedsReview.get() !== review || !review.current() || review.project.uid === undefined) {
+      throw new Error('Project changed. Review its needs again.')
+    }
     const project = await review.backend.connection.getProject(review.project.id)
     const needs = await review.backend.connection.projectNeeds(review.project.id)
-    if (this.projectNeedsReview.get() !== review || !review.current() || project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
+    if (this.projectNeedsReview.get() !== review || !review.current() || project.uid !== review.project.uid ||
+      project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
       throw new Error('Project or installed packs changed. Review its needs again.')
     }
     await review.backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...review.enable])].sort(), project.revision)
@@ -8271,7 +8274,9 @@ export class AppState {
     onProgress: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<ProjectPackInstallationReview> {
     const current = (): void => {
       signal.throwIfAborted()
-      if (this.projectNeedsReview.get() !== review || !review.current()) throw new Error(t('projectNeeds.changed'))
+      if (this.projectNeedsReview.get() !== review || !review.current() || scope !== undefined && review.project.uid === undefined) {
+        throw new Error(t('projectNeeds.changed'))
+      }
     }
     const recheck = async (): Promise<void> => {
       current()
@@ -8279,7 +8284,7 @@ export class AppState {
       const needs = await review.backend.connection.projectNeeds(review.project.id, signal)
       const running = await review.backend.connection.activeEnvironment(signal)
       current()
-      if (project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs) ||
+      if (project.uid !== review.project.uid || project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs) ||
         running?.id !== environment?.id || running?.snapshot !== environment?.snapshot ||
         project.environment != null && project.environment.id !== running?.id) {
         throw new Error(t('projectNeeds.changed'))
@@ -8323,7 +8328,7 @@ export class AppState {
       return [...projects.values()].sort((a, b) => a.id.localeCompare(b.id))
     }
     const projects = await readProjects()
-    if (!projects.some(({ id, revision }) => id === review.project.id && revision === review.project.revision)) {
+    if (!projects.some(({ id, uid, revision }) => id === review.project.id && uid === review.project.uid && revision === review.project.revision)) {
       throw new Error(t('projectNeeds.changed'))
     }
     const affected: LibraryProject[] = []

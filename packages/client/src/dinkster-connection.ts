@@ -1426,6 +1426,7 @@ export interface ProjectNeeds {
 
 export interface LibraryProject {
   readonly id: string
+  readonly uid?: string
   readonly name: string
   readonly created: string
   readonly revision: number
@@ -1445,6 +1446,10 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     !Number.isSafeInteger(row['revision']) || Number(row['revision']) < 1 || typeof row['deleted'] !== 'boolean') {
     throw new Error('Malformed library project')
   }
+  const uid = row['uid']
+  if (uid !== undefined && (typeof uid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uid))) {
+    throw new Error('Malformed library project identity')
+  }
   const environment = row['environment']
   if (environment !== undefined && environment !== null) {
     if (typeof environment !== 'object' || Array.isArray(environment)) {
@@ -1460,6 +1465,7 @@ function decodeLibraryProject(value: unknown): LibraryProject {
   }
   return {
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
+    ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
   }
 }

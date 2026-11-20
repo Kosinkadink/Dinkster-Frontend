@@ -230,7 +230,7 @@ describe('workflow-open requirements', () => {
     const backend = app.backends.get()[0]!
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
-    const project = { id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
+    const project = { id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
     vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
     vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
       packs: [], extra: ['already-enabled'], unknown: [],
@@ -251,9 +251,20 @@ describe('workflow-open requirements', () => {
       return { ...project, revision: 8 }
     })
     vi.spyOn(app, 'refreshBackendSchemas').mockResolvedValue()
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ ...project, uid: '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457' })
+    await expect(app.enableReviewedProjectPacks(review)).rejects.toThrow('changed')
+    expect(savedExtra).toEqual(['already-enabled'])
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
     await app.enableReviewedProjectPacks(review)
     expect(savedExtra).toEqual(['already-enabled', 'vhs.video'])
     expect(app.projectNeedsReview.get()).toBeUndefined()
+
+    savedExtra = ['other-window-choice']
+    const { uid: _uid, ...unidentified } = project
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(unidentified)
+    await app.checkProjectNeeds(backend)
+    await expect(app.enableReviewedProjectPacks(app.projectNeedsReview.get()!)).rejects.toThrow('changed')
+    expect(savedExtra).toEqual(['other-window-choice'])
   })
 
   it('separates missing and version-conflicting packs from project-only enablement', async () => {
@@ -261,7 +272,7 @@ describe('workflow-open requirements', () => {
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
     vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
       packs: [{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }], extra: [],
       unknown: [{ scope: 'local', id: 'unreadable' }], installed: [{ pack: 'different', version: '1.0' }],
@@ -286,7 +297,7 @@ describe('workflow-open requirements', () => {
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    const project = { id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
+    const project = { id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
     vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
     vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
       packs: [{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }], extra: ['kept'], unknown: [],
@@ -329,6 +340,8 @@ describe('workflow-open requirements', () => {
       await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
     }
     running = originalEnvironment
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ ...project, uid: '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457' })
+    await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined, scope)).rejects.toThrow('changed')
     vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ ...project,
       environment: { id: 'b'.repeat(32), lastSnapshot: '2', lastRunAt: '2026-11-19T15:00:00Z' } })
     await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
@@ -431,7 +444,7 @@ describe('workflow-open requirements', () => {
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
     let prepared = false
     vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { prepared = true; throw new Error('unexpected preparation') })
     for (const needs of [
@@ -452,7 +465,7 @@ describe('workflow-open requirements', () => {
     const backend = app.backends.get()[0]!
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
-    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
     let finish!: (needs: { packs: []; extra: string[]; installed: []; unknown: [] }) => void
     vi.spyOn(backend.connection, 'projectNeeds').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     await open(docJson('stale-needs', ['std.a']))

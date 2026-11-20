@@ -74,7 +74,11 @@ It preserves unknown workflow identities, versionless pack needs, and installed
 pack versions separately from workflow requirements. Installed packs can be disabled
 for a project; installed versions are not approval to update a shared environment.
 Malformed responses fail instead of becoming an empty needs list. Project reads reject a
-deleted project or an acknowledgment for a different ID.
+deleted project or an acknowledgment for a different ID. Persistent project UIDs
+are retained separately from library-local IDs. Scoped installation reviews and
+extra-pack enablement require that identity; a changed UID invalidates a retained
+review even when its local ID, timestamp and revision match. Older read-only
+project responses without a UID remain readable but cannot authorize enablement.
 
 Extra-pack changes use the current project revision. A stale revision requires a
 new read and review, not an automatic retry that could overwrite another window's
