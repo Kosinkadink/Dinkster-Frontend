@@ -132,6 +132,7 @@ import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
   EngineNotReadyError,
+  PackInstallError,
   ExecutionStore,
   RetentionClient,
   createScopedClient,
@@ -2464,6 +2465,8 @@ export interface ProjectNeedsReview {
   readonly changes: ProjectNeeds['packs']
   readonly errors: readonly string[]
   readonly current: () => boolean
+  /** Document and project ownership survives an expected registry replacement. */
+  readonly owned: () => boolean
 }
 
 /** A live socket alone does not make the backend's required HTTP metadata usable. */
@@ -2606,6 +2609,12 @@ export class AppState {
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()
+  private readonly projectPackReviews = new WeakMap<ProjectPackInstallationReview, {
+    readonly review: ProjectNeedsReview
+    readonly environment: { readonly id: string; readonly snapshot: string }
+    readonly recheck: () => Promise<void>
+  }>()
+  readonly projectPackInstallations = new Map<Backend, 'applying' | 'uncertain'>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
   readonly templateGalleryOpen = createSignal(false)
@@ -8199,7 +8208,7 @@ export class AppState {
   }
 
   async checkProjectNeeds(backend: Backend): Promise<void> {
-    if (backend.connection.status.get() !== 'connected') return
+    if (backend.connection.status.get() !== 'connected' || this.projectPackInstallations.get(backend) === 'applying') return
     const projectId = activeProjectId()
     const registry = backend.registry.get()
     const generation = this.assetConnectionGenerations.get(backend.connection)
@@ -8207,15 +8216,16 @@ export class AppState {
     this.projectNeedsChecks.set(backend, request)
     const documents = this.tabs.get().filter((tab) => this.backendForTab(tab) === backend)
       .map((tab) => ({ store: tab.store, revision: tab.store.revision, document: tab.store.doc }))
-    const current = (): boolean => !this.disposed && activeProjectId() === projectId &&
-      this.backends.get().includes(backend) && backend.connection.status.get() === 'connected' &&
-      this.assetConnectionGenerations.get(backend.connection) === generation && backend.registry.get() === registry &&
-      this.projectNeedsChecks.get(backend) === request &&
+    const owned = (): boolean => !this.disposed && activeProjectId() === projectId &&
+      this.backends.get().includes(backend) &&
       documents.every(({ store, revision, document }) => {
         const tab = this.liveTabContinuing(store)
         return tab !== undefined && this.backendForTab(tab) === backend && tab.store.revision === revision &&
           (tab.store.doc === document || tab.store !== store && canonicalJson(tab.store.doc) === canonicalJson(document))
       })
+    const current = (): boolean => owned() && backend.connection.status.get() === 'connected' &&
+      this.projectPackInstallations.get(backend) !== 'applying' && this.assetConnectionGenerations.get(backend.connection) === generation && backend.registry.get() === registry &&
+      this.projectNeedsChecks.get(backend) === request
     if (this.projectNeedsReview.get()?.backend === backend) this.projectNeedsReview.set(undefined)
     try {
       const project = await backend.connection.getProject(projectId)
@@ -8245,7 +8255,7 @@ export class AppState {
       const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
         .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
       if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
-      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current })
+      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned })
     } catch (error) {
       if (!current()) return
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
@@ -8274,6 +8284,7 @@ export class AppState {
     onProgress: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<ProjectPackInstallationReview> {
     const current = (): void => {
       signal.throwIfAborted()
+      if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
       if (this.projectNeedsReview.get() !== review || !review.current() || scope !== undefined && review.project.uid === undefined) {
         throw new Error(t('projectNeeds.changed'))
       }
@@ -8307,8 +8318,15 @@ export class AppState {
     await recheck()
     if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
     const prepared = { installation: plan, expiresAt, ...(scope === undefined ? {} : { scope }) }
+    const retain = (affectedProjects: readonly LibraryProject[] | null): ProjectPackInstallationReview => {
+      const result = { ...prepared, affectedProjects }
+      if (scope !== undefined && environment !== null && plan.confirmation !== undefined && plan.plan['format'] === 'dinkster.project-pack-plan/1') {
+        this.projectPackReviews.set(result, { review, environment, recheck })
+      }
+      return result
+    }
     const impact = plan.plan['format'] === 'dinkster.project-pack-plan/1' ? plan.plan.packChanges : undefined
-    if (impact == null || environment === null) return { ...prepared, affectedProjects: null }
+    if (impact == null || environment === null) return retain(null)
     const changed = new Set(impact.map(({ pack }) => pack))
     const readProjects = async (): Promise<readonly LibraryProject[]> => {
       const projects = new Map<string, LibraryProject>()
@@ -8354,7 +8372,59 @@ export class AppState {
     if (JSON.stringify(await readProjects()) !== JSON.stringify(projects)) throw new Error(t('projectNeeds.changed'))
     await recheck()
     if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
-    return { ...prepared, affectedProjects: known ? affected : null }
+    return retain(known ? affected : null)
+  }
+
+  async applyReviewedProjectPacks(review: ProjectNeedsReview, prepared: ProjectPackInstallationReview): Promise<void> {
+    const retained = this.projectPackReviews.get(prepared)
+    this.projectPackReviews.delete(prepared)
+    if (retained?.review !== review || prepared.installation.confirmation === undefined || prepared.scope === undefined ||
+      review.project.uid === undefined) throw new Error(t('projectNeeds.changed'))
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (performance.now() >= prepared.expiresAt) throw new Error(t('search.installExpired'))
+    await retained.recheck()
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (performance.now() >= prepared.expiresAt) throw new Error(t('search.installExpired'))
+    const backend = review.backend
+    let acknowledged = false
+    this.projectPackInstallations.set(backend, 'applying')
+    try {
+      const result = await backend.connection.applyPackInstall(prepared.installation.confirmation)
+      acknowledged = true
+      const project = await backend.connection.getProject(review.project.id)
+      const environment = await backend.connection.activeEnvironment()
+      const needs = await backend.connection.projectNeeds(review.project.id)
+      const latest = await backend.connection.getProject(review.project.id)
+      const running = await backend.connection.activeEnvironment()
+      const expected = new Map(review.needs.installed.map(({ pack, version }) => [pack, version]))
+      for (const { pack, version } of review.changes) expected.set(pack, version!)
+      const selected = [...new Set([...review.enable, ...review.changes.map(({ pack }) => pack)])]
+      const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
+      if (this.projectNeedsReview.get() !== review || !review.owned() || backend.connection.status.get() !== 'connected' || project.deleted ||
+        project.uid !== review.project.uid || latest.uid !== project.uid || latest.revision !== project.revision ||
+        JSON.stringify(latest.environment) !== JSON.stringify(project.environment) ||
+        environment === null || running?.id !== environment.id || running.snapshot !== environment.snapshot ||
+        environment.snapshot !== String(result.generation) || project.environment?.id !== environment.id ||
+        (prepared.scope === 'every-project' ? environment.id !== retained.environment.id : environment.id === retained.environment.id) ||
+        needs.unknown.length > 0 || selected.some((pack) => !expected.has(pack) || installed.get(pack) !== expected.get(pack))) {
+        throw new Error(t('projectNeeds.activationChanged'))
+      }
+      await backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...selected])].sort(), latest.revision)
+      if (!review.owned()) return
+      if (this.projectNeedsReview.get() === review) this.projectNeedsReview.set(undefined)
+      this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+      await this.refreshBackendSchemas(backend)
+    } catch (error) {
+      const rejected = error instanceof PackInstallError && ([400, 401, 403, 404].includes(error.status) ||
+        error.status === 409 && ['invalid-confirmation', 'plan-stale', 'install-in-progress', 'composition-in-progress'].includes(String(error.body?.['error'])))
+      if (!acknowledged && !rejected) {
+        this.projectPackInstallations.set(backend, 'uncertain')
+        throw new Error(t('search.installUnknown'))
+      }
+      throw error
+    } finally {
+      if (this.projectPackInstallations.get(backend) === 'applying') this.projectPackInstallations.delete(backend)
+    }
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {

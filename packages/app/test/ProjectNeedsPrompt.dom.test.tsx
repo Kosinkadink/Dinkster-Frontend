@@ -20,10 +20,18 @@ it.each(['native', 'browser', 'remote', 'other-project'] as const)('keeps %s ins
     changes: [{ pack: 'image-tools', version: '1.2.0' }], enable: [], errors: [],
   } as unknown as ProjectNeedsReview
   const prepare = vi.fn(async (_review, _signal, _progress, scope) => ({
-    installation: { review: 'Retained software review', expiresInSeconds: 900 },
+    installation: { review: 'Retained software review', expiresInSeconds: 900, ...(mode === 'native' ? { confirmation: 'opaque' } : { commands: ['review only'] }) },
     expiresAt: performance.now() + 900_000, affectedProjects: [{ name: 'Other project' }], scope,
   }))
-  const app = { reviewProjectPackInstallation: prepare } as unknown as AppState
+  let finishApply!: () => void
+  const applied = new Promise<void>((resolve) => { finishApply = resolve })
+  let installations = 0
+  const app = { reviewProjectPackInstallation: prepare, applyReviewedProjectPacks: async () => {
+    installations++
+    await applied
+    app.projectPackInstallations.set(review.backend, 'uncertain')
+    throw new Error('Installation outcome unknown')
+  }, projectPackInstallations: new Map(), projectNeedsReview: { get: () => review } } as unknown as AppState
   const root = document.createElement('div')
   document.body.append(root)
   dispose = render(() => <ProjectNeedsPrompt app={app} review={review} />, root)
@@ -48,11 +56,27 @@ it.each(['native', 'browser', 'remote', 'other-project'] as const)('keeps %s ins
     expect(prepare.mock.calls[1]?.[3]).toBe('every-project')
     await vi.waitFor(() => expect(root.textContent).toContain('This plan changes packs used by these other projects'))
     expect([...root.querySelectorAll('li')].map((item) => item.textContent)).toContain('Other project')
+    const confirm = [...root.querySelectorAll('button')].find((item) => item.textContent === 'Confirm installation')!
+    confirm.click()
+    confirm.click()
+    expect(installations).toBe(1)
+    expect(button().disabled).toBe(true)
+    expect(root.querySelector('[data-modal="project-needs"] [data-testid="modal-close"]')?.hasAttribute('disabled')).toBe(true)
+    finishApply()
+    await vi.waitFor(() => expect(root.textContent).toContain('Installation outcome unknown'))
+    expect(button().disabled).toBe(true)
+    dispose()
+    dispose = render(() => <ProjectNeedsPrompt app={app} review={review} />, root)
+    expect(root.textContent).toContain('Do not install again')
+    expect(button().disabled).toBe(true)
+    expect(installations).toBe(1)
   } else {
     expect(select).toBeNull()
     expect(button().disabled).toBe(false)
     button().click()
     await vi.waitFor(() => expect(root.textContent).toContain('Retained software review'))
     expect(prepare.mock.calls[0]?.[3]).toBeUndefined()
+    expect(root.textContent).not.toContain('Confirm installation')
+    expect(installations).toBe(0)
   }
 })

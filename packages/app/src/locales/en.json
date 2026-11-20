@@ -19,6 +19,7 @@
   "projectNeeds.impactUnknown": "Other affected projects could not be determined. Do not treat this review as safe for a shared environment.",
   "projectNeeds.impactNone": "No other project's recorded pack needs are affected by this plan.",
   "projectNeeds.impactShared": "This plan changes packs used by these other projects on the same environment:",
+  "projectNeeds.activationChanged": "Software was activated, but project or installed packs changed. Review project needs again before enabling packs.",
   "projectNeeds.changed": "Project or installed packs changed. Review its needs again.",
   "projectNeeds.exactVersionsRequired": "Installation review needs one recorded version per pack and no unidentified workflow needs.",
   "execution.scopes.checking": "Checking executable selection...",

@@ -17,7 +17,7 @@ import {
   type DinksterNodesPayload,
   type ExecutionRef,
 } from '@dinkster/core'
-import { buildDinksterRegistry, type LibraryProject } from '@dinkster/client'
+import { buildDinksterRegistry, PackInstallError, type LibraryProject } from '@dinkster/client'
 import { historicalSchemas } from './historical-schemas.js'
 import { AppState, type Tab } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -358,6 +358,80 @@ describe('workflow-open requirements', () => {
     vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async () => { app.projectNeedsReview.set(undefined); return prepared })
     await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined)).rejects.toThrow('changed')
   })
+
+  it.each(['shared', 'isolated', 'lost-response', 'refused', 'changed-uid', 'closed-document', 'dismissed',
+    'wrong-environment', 'wrong-snapshot', 'wrong-version', 'unknown-needs', 'revision-conflict', 'expired', 'stale-before', 'unscoped'] as const)(
+    'applies a retained project review once and protects post-activation writes: %s', async (scenario) => {
+      app = prepareWorkflowApp(new AppState())
+      loadDinksterSchemas()
+      const backend = app.backends.get()[0]!
+      vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+      vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+      const sourceId = 'a'.repeat(32)
+      let activated = false
+      let uid = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
+      const environmentId = () => activated && scenario === 'isolated' ? 'b'.repeat(32) : sourceId
+      const project = (): LibraryProject => ({ id: 'default', uid, name: 'Film', created: '2026-11-18T12:00:00Z',
+        revision: activated ? 11 : 7, deleted: false,
+        environment: { id: activated && scenario === 'wrong-environment' ? 'c'.repeat(32) : environmentId(), lastSnapshot: null, lastRunAt: null } })
+      vi.spyOn(backend.connection, 'getProject').mockImplementation(async () => project())
+      vi.spyOn(backend.connection, 'activeEnvironment').mockImplementation(async () => ({ id: environmentId(),
+        snapshot: activated ? scenario === 'wrong-snapshot' ? '5' : '4' : '2' }))
+      vi.spyOn(backend.connection, 'projectNeeds').mockImplementation(async () => ({
+        packs: [{ pack: 'newpack', version: '2.1' }], extra: activated ? ['kept', 'other-window'] : ['kept'],
+        unknown: activated && scenario === 'unknown-needs' ? [{ scope: 'local', id: 'unreadable' }] : [],
+        installed: [{ pack: 'kept', version: '1.0' }, ...(activated ? [{ pack: 'newpack', version: scenario === 'wrong-version' ? '2.0' : '2.1' }] : [])],
+      }))
+      vi.spyOn(backend.connection, 'planPackInstall').mockResolvedValue({ plan: { format: 'dinkster.project-pack-plan/1' },
+        confirmation: 'opaque', review: 'Reviewed software', expiresInSeconds: 900 })
+      const tab = await open(docJson('apply-project', ['std.a']))
+      await app.checkProjectNeeds(backend)
+      const review = app.projectNeedsReview.get()!
+      const prepared = await app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined,
+        scenario === 'unscoped' ? undefined : scenario === 'isolated' ? 'only-project' : 'every-project')
+      let installations = 0
+      vi.spyOn(backend.connection, 'applyPackInstall').mockImplementation(async () => {
+        installations++
+        if (scenario === 'lost-response') throw new TypeError('connection lost')
+        if (scenario === 'refused') throw new PackInstallError(409, { error: 'plan-stale' })
+        activated = true
+        loadDinksterSchemas()
+        await app.checkProjectNeeds(backend)
+        if (scenario === 'changed-uid') uid = '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457'
+        if (scenario === 'closed-document') app.closeTab(tab.id)
+        if (scenario === 'dismissed') app.projectNeedsReview.set(undefined)
+        return { generation: 4, activation: { epoch: 8, added: ['newpack'], removed: [], reloaded: [], unchanged: [] } }
+      })
+      let saved: readonly string[] = ['kept']
+      vi.spyOn(backend.connection, 'setProjectExtraPacks').mockImplementation(async (id, extra, revision) => {
+        if (scenario === 'revision-conflict') throw new Error('revision conflict')
+        if (id !== 'default' || revision !== 11) throw new Error('wrong project revision')
+        saved = extra
+        return { ...project(), revision: 12 }
+      })
+      vi.spyOn(app, 'refreshBackendSchemas').mockResolvedValue()
+      if (scenario === 'expired') vi.spyOn(performance, 'now').mockReturnValue(prepared.expiresAt + 1)
+      if (scenario === 'stale-before') uid = '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457'
+      if (scenario === 'shared' || scenario === 'isolated') {
+        await app.applyReviewedProjectPacks(review, prepared)
+        expect(saved).toEqual(['kept', 'newpack', 'other-window'])
+        expect(app.projectPackNotification.get()).toBeDefined()
+        expect(app.projectNeedsReview.get()).toBeUndefined()
+      } else {
+        await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
+        expect(saved).toEqual(['kept'])
+        expect(app.projectPackNotification.get()).toBeUndefined()
+      }
+      await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
+      expect(installations).toBe(['expired', 'stale-before', 'unscoped'].includes(scenario) ? 0 : 1)
+      if (scenario === 'lost-response') {
+        await app.checkProjectNeeds(backend)
+        const reopened = app.projectNeedsReview.get()!
+        await expect(app.reviewProjectPackInstallation(reopened, new AbortController().signal, () => undefined, 'every-project'))
+          .rejects.toThrow('Do not install again')
+        expect(installations).toBe(1)
+      }
+    })
 
   it('finds affected workflow and extra-pack projects across pages without treating unknown ownership as safe', async () => {
     app = prepareWorkflowApp(new AppState())

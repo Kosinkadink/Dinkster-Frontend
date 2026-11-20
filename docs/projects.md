@@ -135,8 +135,24 @@ browser caching, including every page, and both the list and the other projects'
 needs are rechecked before presenting the result. Missing impact, unbound projects
 or unreadable workflow needs are reported as unknown, not as an empty affected
 list. Time spent collecting impact counts against the prepared review's lifetime;
-a result that expires during those reads is not shown. This review still cannot
-apply changes to shared software.
+a result that expires during those reads is not shown.
+
+For a scoped native review with a retained confirmation, Confirm installation
+applies that exact token once; scope cannot be replaced at confirmation. The
+prompt blocks dismissal while applying. Browser and remote terminal-only reviews
+do not offer this button. A lost or malformed Apply response blocks further
+installation, including after closing and reopening the prompt; nothing retries
+a possibly completed mutation automatically.
+
+After acknowledged activation, the app rechecks persistent project identity,
+project/environment binding, the activated snapshot and exact selected pack
+versions before enabling packs. Expected registry replacement does not invalidate
+document ownership, but closing, editing or replacing the reviewed document does.
+The extra-pack write preserves the latest choices from other windows and uses the
+latest project revision as a compare-and-swap guard. Changed identity, unknown
+needs, version mismatches or revision conflicts leave extra packs untouched and
+require another needs review. Successful enablement refreshes the scoped catalog
+and shows a success toast; no workflow runs automatically.
 
 ## Desktop windows
 
