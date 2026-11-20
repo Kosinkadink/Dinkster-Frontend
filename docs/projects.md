@@ -102,6 +102,10 @@ client can send an explicit `every-project` or `only-project` scope during
 preparation. Omitting scope preserves the non-project host contract; it does not
 choose shared consent. Status and cancellation use only the preparation identity,
 and Apply sends only the host-retained confirmation, never a replacement scope.
+In a Desktop project window, the local engine review requires an explicit
+Every project on it or Only this project choice, with no default. Changing the
+choice discards the completed review and requires preparation again. Browser
+and remote-engine reviews keep their terminal-only, unscoped contract.
 Project needs preparation retains that requested scope alongside the completed
 review and its remaining lifetime. Scope does not bypass the project, installed
 pack, environment identity, snapshot or affected-project rechecks.
