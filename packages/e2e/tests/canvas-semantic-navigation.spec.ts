@@ -55,9 +55,9 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   const total = Number(await navigator.getByRole('option').first().getAttribute('aria-setsize'))
   expect(total).toBeGreaterThan(40)
   await expect(navigator.getByRole('option').first()).toHaveAttribute('aria-posinset', '1')
-  const focusedDerivations = await page.evaluate(() => window.__dinksterTest!.semanticDerivations)
-  expect(focusedDerivations).toBeGreaterThan(unfocusedDerivations)
-  await page.evaluate(() => {
+  // Async diagnostics may refresh semantics; measure camera work in one browser task.
+  const focusedDerivations = await page.evaluate(() => {
+    const before = window.__dinksterTest!.semanticDerivations
     const renderer = window.__dinksterTest!.renderer!
     const initial = renderer.getViewport()
     for (let index = 0; index < 6; index += 1) {
@@ -66,8 +66,10 @@ test('semantic scene navigation stays virtual until focused and pans only on act
       renderer.setViewport({ x: viewport.x - 2, y: viewport.y + 4, scale: viewport.scale * (index % 2 === 0 ? 1.01 : 1 / 1.01) })
     }
     renderer.setViewport(initial)
+    return { before, after: window.__dinksterTest!.semanticDerivations }
   })
-  expect(await page.evaluate(() => window.__dinksterTest!.semanticDerivations)).toBe(focusedDerivations)
+  expect(focusedDerivations.before).toBeGreaterThan(unfocusedDerivations)
+  expect(focusedDerivations.after).toBe(focusedDerivations.before)
 
   await page.keyboard.press('End')
   await expect(navigator.getByRole('option')).toHaveCount(5)
