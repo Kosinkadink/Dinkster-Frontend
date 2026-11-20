@@ -643,18 +643,28 @@ export async function reconcileWorkflowRetentions(
   connection: DinksterConnection,
   signal: AbortSignal,
   storage?: Pick<Storage, 'length' | 'key' | 'getItem'>,
+  recovery?: { readonly keys: ReadonlySet<string> | undefined; readonly unresolved: Set<string>; unreadable: boolean },
 ): Promise<boolean> {
   const prefix = scopedStorageKey('dinkster.workflow-retentions.')
   let resolved = true
   try {
     storage ??= globalThis.localStorage
     const entries: Array<readonly [string, string | null]> = []
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index)
-      if (key?.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+    if (recovery?.keys !== undefined) {
+      for (const key of recovery.keys) {
+        if (key.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+      }
+    } else {
+      recovery?.unresolved.clear()
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index)
+        if (key?.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+      }
     }
     for (const [key, bytes] of entries) {
       signal.throwIfAborted()
+      recovery?.unresolved.delete(key)
+      if (bytes === null && recovery?.keys !== undefined) continue
       try {
         const raw: unknown = JSON.parse(bytes ?? 'null')
         if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Invalid workflow retention intent')
@@ -684,7 +694,7 @@ export async function reconcileWorkflowRetentions(
         if ((sourceToken !== undefined && (owner?.ownerKind !== 'shown-result' ||
             typeof sourceToken !== 'string' || !/^[0-9a-f]{32}$/.test(sourceToken))) ||
           (intent.releaseRevision !== undefined && !releasing) ||
-          (releasing && intent.acknowledgedRevision !== 1 && intent.acknowledgedRevision !== 2) ||
+          (releasing && intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1 && intent.acknowledgedRevision !== 2) ||
           intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1 &&
             !(releasing && intent.acknowledgedRevision === 2)) ||
           intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
@@ -694,23 +704,34 @@ export async function reconcileWorkflowRetentions(
           !intent.digests.every((digest: unknown, index: number, digests: unknown[]) =>
             typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest) &&
             (index === 0 || (digests[index - 1] as string) < digest))) throw new Error('Invalid workflow retention intent')
-        const observed = await connection.fetchRetainedAssets(owner, signal)
+        const observationSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+        const observed = await connection.fetchRetainedAssets(owner, observationSignal)
+        observationSignal.throwIfAborted()
         // Recording the matching acknowledgment does not change the intent's authority.
         // Any other concurrent edit still invalidates this observation.
-        const current = storage.getItem(key)
+        let current: string | null
+        try { current = storage.getItem(key) } catch (error) {
+          if (recovery) recovery.unreadable = true
+          throw error
+        }
         if ((current !== bytes && current !== JSON.stringify({ ...intent, acknowledgedRevision: releasing ? 2 : 1 })) ||
           !retentionMatches(observed, owner,
           releasing ? [] : intent.digests, releasing ? true : intent.complete,
-          releasing ? undefined : sourceToken as string | undefined, releasing ? 2 : 1)) resolved = false
+          releasing ? undefined : sourceToken as string | undefined, releasing ? 2 : 1)) {
+          resolved = false
+          recovery?.unresolved.add(key)
+        }
       } catch {
         resolved = false
+        recovery?.unresolved.add(key)
       }
     }
     signal.throwIfAborted()
   } catch {
+    if (recovery) recovery.unreadable = true
     return false
   }
-  return resolved
+  return resolved && (recovery === undefined || recovery.unresolved.size === 0)
 }
 
 /** Durable owners are never released merely because their caller leaves or fails. */
@@ -809,11 +830,39 @@ export async function readAssetPreview<T>(
   }
 }
 
+/** A durable release fence also refuses late publication after its journal is removed. */
+export function resultReceiptCurrent(retained: RetainedAssets): boolean {
+  if (retained.ownerKind !== 'shown-result' || retained.scope !== 'local') return true
+  try {
+    const intent = JSON.parse(globalThis.localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) ?? 'null')
+    return intent?.acknowledgedRevision === retained.revision && intent.releaseRevision === undefined &&
+      intent.owner?.ownerId === retained.ownerId && intent.owner?.ownerKind === retained.ownerKind &&
+      intent.owner?.scope === retained.scope && intent.complete === retained.complete &&
+      intent.sourceToken === retained.sourceToken && canonicalJson(intent.digests) === canonicalJson(retained.digests)
+  } catch { return false }
+}
+
+const retirementListeners = new WeakMap<DinksterConnection, Set<(key: string) => void>>()
+
+/** Local retirement has no storage event in the renderer that performed it. */
+export function onAssetOwnerRetirement(connection: DinksterConnection, listener: (key: string) => void): () => void {
+  let listeners = retirementListeners.get(connection)
+  if (listeners === undefined) {
+    listeners = new Set()
+    retirementListeners.set(connection, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) retirementListeners.delete(connection)
+  }
+}
+
 /** Only the lifetime that admitted an owner may retire its captured revision. */
 export async function retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
   const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
-  const storage = globalThis.localStorage
   try {
+    const storage = globalThis.localStorage
     const bytes = storage.getItem(key)
     const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
     if (intent === null || intent.acknowledgedRevision !== retained.revision ||
@@ -823,8 +872,14 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
       canonicalJson(intent.digests) !== canonicalJson(retained.digests) || intent.complete !== retained.complete ||
       intent.sourceToken !== retained.sourceToken || intent.releaseRevision !== undefined) return
     const releasing = { ...intent, releaseRevision: retained.revision }
-    const pending = JSON.stringify(releasing)
-    storage.setItem(key, pending)
+    let pending = JSON.stringify(releasing)
+    try { storage.setItem(key, pending) } catch (error) {
+      if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error
+      // The release revision replaces the acknowledgment when storage cannot
+      // grow. Persist the same exact revision without deleting any protection.
+      pending = JSON.stringify({ ...releasing, acknowledgedRevision: undefined })
+      storage.setItem(key, pending)
+    }
     let released: RetainedAssets | undefined
     try {
       released = await connection.releaseRetainedAssets(retained, retained.revision)
@@ -842,6 +897,10 @@ export async function retireAssetOwner(connection: DinksterConnection, retained:
     }
   } catch {
     // Unconfirmed retirement stays journaled; recovery never replays DELETE.
+  } finally {
+    for (const listener of retirementListeners.get(connection) ?? []) {
+      try { listener(key) } catch (error) { console.warn('Asset retirement observer failed', error) }
+    }
   }
 }
 
@@ -852,9 +911,22 @@ export class RetainedAssetReader {
 
   constructor(
     readonly connection: DinksterConnection,
-    readonly retained: RetainedAssets,
+    private protection: RetainedAssets,
     private readonly isCurrent: () => boolean,
   ) {}
+
+  get retained(): RetainedAssets { return this.protection }
+
+  /** An acknowledged complete replacement keeps old descriptors usable while bodies drain. */
+  async replaceProtection(retained: RetainedAssets): Promise<boolean> {
+    if (this.closed || !this.isCurrent() || !retained.complete || !this.protection.complete ||
+      retained.scope !== this.protection.scope || retained.ownerKind !== this.protection.ownerKind ||
+      retained.digests.length !== this.protection.digests.length ||
+      !retained.digests.every((digest, index) => digest === this.protection.digests[index])) return false
+    this.protection = retained
+    await Promise.allSettled([...this.pending])
+    return !this.closed && this.isCurrent()
+  }
 
   async read<T>(consume: () => Promise<T>): Promise<T> {
     if (this.closed || !this.isCurrent()) throw new Error('Retained asset reader is closed')
@@ -957,6 +1029,7 @@ async function retainAssetRoots(
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
+    ...(ownerKind === 'shown-result' ? { resultCensus: 2 } : {}),
     ...(sourceToken === undefined ? {} : { sourceToken }),
     ...('incompleteDiagnostics' in roots && roots.incompleteDiagnostics !== undefined ? { incompleteDiagnostics: roots.incompleteDiagnostics } : {}),
     ...context,

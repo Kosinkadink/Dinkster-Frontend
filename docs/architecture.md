@@ -123,6 +123,19 @@ the source owner. Release intent and acknowledgment remain journaled; lost
 responses reconcile the exact empty complete tombstone at the next revision,
 without repeating DELETE or adopting another generation's revision. A failed
 retirement does not roll back a workflow with independent acknowledged roots.
+At full browser storage, the release revision can replace the redundant
+acknowledgment field in the same journal without growing it. The exact durable
+release intent still precedes DELETE; storage refusal preserves protection.
+
+After a successful saved-client reopen, startup can reclaim that client's
+superseded shown-result journals before restoring results. Each release needs
+a freshly verified complete persisted receipt for the same execution covering
+all old roots. Persisted or live receipt IDs, locally admitted readers, document
+owners and other clients remain protected; matching digests alone do not confer
+release authority. Unknown or refused observations leave protection intact.
+Participating windows fence publication through each candidate's acknowledged
+release. A detected older, unfenced census member blocks the reclamation pass,
+including members using a different project's rendezvous name.
 
 Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
@@ -162,11 +175,29 @@ Application-owned value peeks retain descriptor roots with incomplete
 shown-result ownership before returning the descriptor or announcing rendition
 identity, including opaque descriptors with no known digest. An empty known
 root set does not establish completeness. Refusal keeps the descriptor
-unpublished and permits a later read to retry. Reads stay on the original live
+unpublished and permits a later read to retry. A quota failure while writing the
+ownership intent returns `storage-full` with a browser-storage message instead of
+`ownership-unconfirmed`; a failed initial write makes no owner claim. Reads stay on the original live
 or retired backend; removing a backend
 does not redirect historical results. Application disposal or caller cancellation
 prevents late publication. Each application descriptor captures its acknowledged
-receipt and backend-affine reader. Rendition callers pass that exact descriptor,
+receipt and backend-affine reader. Repeated peeks of the same execution and exact
+root declaration or sealed offer reuse this application's acknowledged receipt
+within its backend, connection generation, project and storage lifetime. Concurrent
+admissions share one request; changed offers, releasing or modified journals and
+stale lifetimes require new admission. Reused readers drain all overlapping bodies
+before retirement, while each descriptor keeps its own publication-validity check.
+A changed offer for the same output still needs a fresh acknowledgment. When its
+complete inventory equals the prior complete inventory, locally admitted readers
+can share the replacement protection. Older admitted descriptors remain usable;
+release waits for their pending bodies and rechecks live and persisted references.
+Independent result receipts and mismatched or incomplete inventories are not
+superseded by this reader handoff.
+Peer receipts never enter this reuse inventory. `AppState.retentionActivity()`
+reports in-flight restoration, hydration, value admission and reads, reader drain,
+owner retirement, delayed recovery scans and persistence work; a persistence flush
+alone is not a quiescence barrier. Consumers require all activity to finish before
+measuring flat storage and owner traffic. Rendition callers pass that exact descriptor,
 including lazy audio/video and image-batch reads. Another client's descriptor,
 a copied descriptor, a mismatched query or missing admission refuses before
 network or cache access. Later peeks cannot substitute their selectors or reader
@@ -178,6 +209,16 @@ again. This does not identify a server restart before an observed transition or
 settle independent native-media and viewer consumers.
 Application disposal closes admission for active value readers; their pending
 bodies remain tracked until settlement, and late publication is refused.
+The closing app remains a live ownership-census participant until admitted
+reads, source previews, restorations, hydrations and retirements settle. It
+refuses census replies while closing, so a cancellation-ignoring body prevents
+historical reclamation rather than appearing to have departed. Membership ends
+after the tracked work drains; disposal does not wait synchronously.
+Participating apps use origin-wide membership. Historical release queries one
+candidate at a time and excludes that receipt's adoption in each answering app
+until its release journal settles. A browser lock excludes new registrations
+through the release. Result publication validates the durable acknowledgment and
+refuses a releasing or removed receipt, including delayed value publication.
 This boundary does not settle model viewers, shared poster queues or durable
 recovery references, and does not release any retained owner. Standalone values
 clients without an admission policy keep their transport behavior and bounded
@@ -348,8 +389,10 @@ or its shared-tab operation; later tab changes cannot skip that admission.
 A live window reconciles newly staged workspace candidates and canonical commits
 from its peers, retaining their captured roots before compaction. An identical
 complete canonical snapshot stays byte-identical while each window admits its own
-owners; peer receipts never replace local admission. The acknowledged snapshot
-then permits retirement of that window's captured closed documents and superseded
+owners; peer receipts never replace local admission. A peer's canonical metadata
+change does not end this window's complete local receipt: unchanged document bytes
+reuse it while its exact journal, backend, catalog and connection lifetime remain
+valid. The acknowledged snapshot then permits retirement of that window's captured closed documents and superseded
 slots without repeated cross-window writes. A disposed window
 only stages recovery data and cannot finish network admission or release owners.
 A local slot replacement retires its previous owners only after
@@ -482,6 +525,15 @@ Recording a matching admission or release acknowledgment during a check does not
 change the intent's authority or produce an ownership warning. Any other journal
 change, or a mismatched backend receipt, remains unconfirmed. These checks never
 replay admission or release commands.
+An acknowledged local canonical receipt remains reusable while an overlapping
+workspace edit leaves its containing slot pending. Reuse still requires exact
+document bytes, backend, registry, connection generation, project and storage,
+plus the unchanged acknowledged journal revision with no release fence. Aggregate
+slot completion does not determine an individual receipt's lifetime. When several
+local slots already hold receipts for the same unchanged document, publication
+keeps each acknowledged receipt in its local inventory, even when only one is
+serialized. A later document change or the final local slot's removal ends those
+lifetimes through the ordinary guarded retirement path.
 Recovered receipts from another window or lifetime never confer release authority.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. View-only changes
@@ -557,9 +609,13 @@ snapshot and current recovery stage inside that lock. Without the lock, recovery
 sources stay protected. Newer, unmerged or different stages survive, as do live,
 undo, frozen, shared, restored and pending-read holders with independent receipts.
 A close does not release recovered historical receipts or grant discard authority.
-Synchronous per-window recovery retains dirty documents if teardown cannot await
-the locked document stage. Canonical snapshots record the exact dirty workspace
-stages already incorporated, so another admission or restart does not replay the
+Explicit flushes prepare recovery synchronously before Close or pagehide can
+capture or end the document lifetime; ordinary debounced saves keep workflow
+preparation off-thread. Pending off-thread preparation counts as retention
+activity until it settles. Synchronous per-window recovery retains dirty
+documents if teardown cannot await the locked document stage. Canonical snapshots
+record the exact dirty workspace stages already incorporated, so another admission
+or restart does not replay the
 same captured edits over the selected document. A new workspace stage still
 contributes even at an equal captured document revision. Incorporation metadata
 covers only currently present dirty snapshots and does not confer receipt-release
@@ -578,7 +634,18 @@ Pack locale labels may arrive during confirmation without invalidating its schem
 snapshot. Real registry replacements still invalidate it, even with the same hash;
 startup does not wait for locale downloads.
 Asset publication still requires its exact acknowledgment; an unavailable
-retention route never implies an empty complete set. Restoration
+retention route never implies an empty complete set. Connection startup scans the
+full journal; subsequent notifications coalesce only their changed owner keys
+without canceling an active read. Unresolved diagnostics for other keys remain
+until those owners are observed again or their journals are removed. Local
+retirement, including source-preview handoff and ImageDocument replacement,
+notifies the same connection-scoped observer because it emits no storage event
+in its own renderer. Backend disposal removes that observer. An unreadable
+inventory requires a full scan on the next notification. These observations grant
+no adoption or release authority. A scan remains busy through its follow-up; its
+ten-second timeout applies separately to each owner read, not to the total number
+of journals. Disconnect and disposal still cancel
+the old connection's scan, and a timed-out owner remains unconfirmed. Restoration
 and crash-safe local writes remain synchronous; newly created durable holders
 are not certified by this startup check.
 
