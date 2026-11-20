@@ -31,14 +31,22 @@ import {
   ProductButton,
   ProductDialog,
   ProductField,
+  ProductPanel,
   ProductSelect,
   ProductSection,
+  ProductTextInput,
 } from '../src/index.js'
 
 export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
   const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
   const [widgetId, setWidgetId] = createSignal('float')
+  const [rowLook, setRowLook] = createSignal<DesignTokens['widgetRowLook']>(
+    defaultTokens.widgetRowLook,
+  )
+  const [collectionLook, setCollectionLook] = createSignal<
+    DesignTokens['widgetRowLook']
+  >('inset-raised-collections')
   const [outline, setOutline] = createSignal('quieter')
   const [typeLook, setTypeLook] = createSignal('current')
   const [titleLook, setTitleLook] = createSignal(defaultTokens.titleOverflow)
@@ -56,6 +64,8 @@ export function CanvasGallery() {
     const currentTheme = theme()
     const currentPage = page()
     const currentWidget = widgetId()
+    const currentRowLook = rowLook()
+    const currentCollectionLook = collectionLook()
     const currentOutline = outline()
     const currentTypeLook = typeLook()
     const currentTitleLook = titleLook()
@@ -86,6 +96,12 @@ export function CanvasGallery() {
       const colors = canvasColorsForTheme(currentTheme)
       const tokens: DesignTokens = {
         ...defaultTokens,
+        widgetRowLook:
+          currentPage === 'collection-rows'
+            ? currentCollectionLook
+            : currentPage === 'core-rows'
+              ? currentRowLook
+              : defaultTokens.widgetRowLook,
         badgeLayout: tabsPage ? currentTabLook : defaultTokens.badgeLayout,
         badgeTab: tabsPage ? currentTabSize : defaultTokens.badgeTab,
         titleOverflow:
@@ -267,6 +283,7 @@ export function CanvasGallery() {
       canvas.dataset.outline = currentOutline
       canvas.dataset.typeLook = currentTypeLook
       canvas.dataset.titleLook = currentTitleLook
+      canvas.dataset.rowLook = tokens.widgetRowLook
       canvas.dataset.boundaryNames = currentBoundaryNames
       canvas.dataset.tabLook = currentTabLook
       canvas.dataset.tabSize = `${currentTabSize.height}-${currentTabSize.fontSize}-${currentTabSize.inset}`
@@ -310,6 +327,63 @@ export function CanvasGallery() {
           )}
         </For>
       </nav>
+      <Show when={page() === 'core-rows'}>
+        <ProductField label="Core row look">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={rowLook()}
+              onChange={(event) =>
+                setRowLook(
+                  event.currentTarget.value as DesignTokens['widgetRowLook'],
+                )
+              }
+            >
+              <option value="inset-raised">
+                Inset fields and raised openers
+              </option>
+              <option value="inset">Previous inset rows</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Direct values use inset fields; color and asset rows have raised
+          faces, kind icons and an opening chevron. Values, swatches, empty
+          states and long names come from the fixture document. Previous inset
+          rows compares the old paint on this page only. Number paint is
+          unchanged, not the number-editing proposal.
+        </p>
+      </Show>
+      <Show when={page() === 'collection-rows'}>
+        <ProductField label="Collection row look">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={collectionLook()}
+              onChange={(event) =>
+                setCollectionLook(
+                  event.currentTarget.value as DesignTokens['widgetRowLook'],
+                )
+              }
+            >
+              <option value="inset-raised-collections">
+                Raised collection openers
+              </option>
+              <option value={defaultTokens.widgetRowLook}>
+                Current collection rows
+              </option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p class="dinkster-description">
+          Gallery-only collection row proposal. Multi-choice, list, palette and
+          curve rows open editors and have raised faces, kind icons and
+          chevrons. Counts, list text, color swatches and curve samples come
+          from document values. A curve requires at least one point; the minimal
+          example is flat. Production defaults and editor appearances are
+          unchanged.
+        </p>
+      </Show>
       <Show when={page() === 'idle-outline'}>
         <ProductField label="Outline look">
           {(attributes) => (
@@ -502,6 +576,70 @@ export function CanvasGallery() {
           />
         </div>
       </ProductSection>
+      <Show when={page() === 'core-rows'}>
+        <ProductSection
+          title="Canvas text input"
+          description="The shared text field at canvas density, not a number-editing proposal. Values remain exact strings; no parsing or editor behavior is added."
+        >
+          <ProductPanel>
+            <ProductField label="Default field">
+              {(attributes) => <ProductTextInput {...attributes} value="42" />}
+            </ProductField>
+            <ProductField label="Canvas seed">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  inputMode="numeric"
+                  value="18446744073709551615"
+                />
+              )}
+            </ProductField>
+            <ProductField label="Canvas decimal">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  inputMode="decimal"
+                  value="-0.125"
+                />
+              )}
+            </ProductField>
+            <ProductField label="Unavailable canvas field">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  disabled
+                  value="24"
+                />
+              )}
+            </ProductField>
+            <ProductField label="Read-only canvas field">
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  readOnly
+                  value="9007199254740993"
+                />
+              )}
+            </ProductField>
+            <ProductField
+              label="Invalid canvas field"
+              error="Enter a numeric value."
+            >
+              {(attributes) => (
+                <ProductTextInput
+                  {...attributes}
+                  density="canvas"
+                  value="not a number"
+                />
+              )}
+            </ProductField>
+          </ProductPanel>
+        </ProductSection>
+      </Show>
       <Show when={badgeDetails()}>
         {(details) => (
           <ProductDialog

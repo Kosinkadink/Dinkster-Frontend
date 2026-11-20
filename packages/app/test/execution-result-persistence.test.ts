@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asNodeId, asPromptId, compile, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
-import { buildDinksterRegistry, type ExecutionState, type RetainedAssets } from '@dinkster/client'
+import { asConnectionId, asNodeId, asPromptId, compile, executionKey, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
+import { buildDinksterRegistry, retainedAssetAcknowledgment, type ExecutionState, type RetainedAssets } from '@dinkster/client'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { scopedStorageKey } from '../src/projects.js'
+import { AppState } from '../src/app-state.js'
 import {
   EXECUTION_RESULTS_STORAGE_KEY,
   MAX_PERSISTED_EXECUTION_BYTES,
@@ -107,10 +108,10 @@ afterEach(() => {
 })
 
 describe('startup result source admission', () => {
-  function setup() {
+  function setup(existing?: AppState) {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
-    const app = createWorkflowApp(null)
+    const app = existing ?? createWorkflowApp(null)
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('Expected native backend')
     const payload = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8')) as DinksterNodesPayload
@@ -157,6 +158,300 @@ describe('startup result source admission', () => {
       descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 } })
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
+
+  it.each(['held', 'released', 'source-bound', 'uncovered', 'newer-owner', 'missing-owner', 'incomplete', 'different-source', 'refused-source'] as const)(
+    're-admits a legacy receipt only through complete original-source replacements: %s', async (mode) => {
+    const test = setup()
+    const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
+      ownerId: 'execution-result:released-legacy', revision: 1,
+      complete: mode !== 'incomplete', digests: [mode === 'uncovered' ? `blake3:${'c'.repeat(64)}` : test.saved.sourceDocument!],
+      ...(mode === 'source-bound' || mode === 'different-source'
+        ? { sourceToken: (mode === 'different-source' ? 'b' : 'a').repeat(32) } : {}) }
+    const released: RetainedAssets = { scope: receipt.scope, ownerKind: receipt.ownerKind, ownerId: receipt.ownerId,
+      revision: mode === 'newer-owner' ? 4 : 2, complete: true, digests: [] }
+    vi.mocked(test.backend.connection.fetchTerminalResultAssets).mockImplementation(async (jobRef) => ({
+      scope: 'local', jobRef, attemptId: 1, state: 'completed', complete: true,
+      offers: [{ token: 'a'.repeat(32), scope: 'local', jobRef, attemptId: 1,
+        nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests: [test.saved.sourceDocument!] }],
+    }))
+    vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+      if (mode === 'refused-source') throw new Error('Source data is unavailable')
+      return { ...owner, sourceToken, revision: 1, complete: true, digests: [test.saved.sourceDocument!] }
+    })
+    saveExecutionResult({ ...test.saved, assetRetentions: [receipt] }, test.backendIdentity)
+    vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockResolvedValue(
+      mode === 'held' ? receipt : mode === 'missing-owner' ? undefined : released)
+    try {
+      await test.app.start()
+      if (mode === 'held' || mode === 'released' || mode === 'source-bound') {
+        expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        const replacements = test.app.store.get(test.ref)?.assetRetentions
+        expect(replacements?.some((owner) => owner.complete && owner.digests.includes(test.saved.sourceDocument!))).toBe(true)
+        expect(replacements?.some((owner) => owner.ownerId === receipt.ownerId)).toBe(false)
+      } else {
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+        expect(loadExecutionResults(test.backendIdentity)[0]?.assetRetentions).toEqual([receipt])
+      }
+    } finally { test.app.dispose() }
+  })
+
+  it.each(['reopened', 'historical', 'peer-replacement', 'unknown-census', 'new-client', 'reopen-refused', 'replacement-refused', 'replacement-retry', 'independent-unreferenced', 'peer-held', 'holder-starts-during-release', 'holder-adopts-during-release', 'late-publication', 'unregistered-holder', 'legacy-project-holder', 'legacy-default-holder', 'closing-reader', 'census-failed', 'census-timeout', 'census-unsupported', 'census-no-uuid', 'uncovered', 'live-pin'] as const)(
+    'reclaims only superseded own-client result journals before restoration at quota: %s', async (mode) => {
+    if (mode === 'census-no-uuid') vi.stubGlobal('crypto', {
+      getRandomValues: crypto.getRandomValues.bind(crypto),
+      subtle: crypto.subtle,
+    })
+    const locks = new Map<string, LockInfo>()
+    if (mode === 'census-timeout') locks.set('dinkster-result-holders:v2:unresponsive', { name: 'dinkster-result-holders:v2:unresponsive', mode: 'exclusive' })
+    if (mode === 'legacy-project-holder') locks.set('dinkster-result-holders--p-other:legacy', { name: 'dinkster-result-holders--p-other:legacy', mode: 'exclusive' })
+    const legacyChannel = mode === 'legacy-default-holder' ? new BroadcastChannel('dinkster-result-holders:') : undefined
+    if (legacyChannel !== undefined) {
+      locks.set('dinkster-result-holders:legacy', { name: 'dinkster-result-holders:legacy', mode: 'exclusive' })
+      legacyChannel.addEventListener('message', (event) => {
+        if (event.data.kind === 'query') legacyChannel.postMessage({ kind: 'holders', nonce: event.data.nonce, member: 'legacy', owners: [] })
+      })
+    }
+    vi.stubGlobal('navigator', { locks: mode === 'census-unsupported' || mode === 'historical' ? undefined : {
+      request: async (name: string, options: LockOptions | ((lock: Lock) => unknown), callback?: (lock: Lock) => unknown) => {
+        const consume = typeof options === 'function' ? options : callback!
+        locks.set(name, { name, mode: 'exclusive' })
+        try { return await consume({ name, mode: 'exclusive' }) } finally { locks.delete(name) }
+      },
+      query: async () => {
+        if (mode === 'census-failed') throw new Error('Census unavailable')
+        return { held: [...locks.values()], pending: [] }
+      },
+    } })
+    const generation = '1'.repeat(32)
+    const rotated = '2'.repeat(32)
+    const session = makeStorage()
+    if (mode !== 'new-client') session.setItem('dinkster.retention-generation.', generation)
+    vi.stubGlobal('sessionStorage', session)
+    const test = setup()
+    const protectedOwner: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
+      ownerId: 'execution-result:protected', holderClasses: [5, 6], revision: 1,
+      complete: true, digests: [test.saved.sourceDocument!] }
+    const controls = [protectedOwner, { ...protectedOwner, ownerId: 'execution-result:protected-source' },
+      { ...protectedOwner, ownerId: 'execution-result:protected-token-a', sourceToken: 'a'.repeat(32) },
+      { ...protectedOwner, ownerId: 'execution-result:protected-token-b', sourceToken: 'a'.repeat(32) }]
+    const stale = Array.from({ length: 24 }, (_, index) => ({ ...controls[index % controls.length]!, ownerId: `execution-result:excess-${index}`,
+      digests: mode === 'uncovered' ? [`blake3:${'c'.repeat(64)}`] : protectedOwner.digests }))
+    const peer = { ...protectedOwner, ownerId: 'execution-result:peer' }
+    const frozen: RetainedAssets = { ...protectedOwner, ownerKind: 'document',
+      ownerId: 'workflow-candidate:frozen', holderClasses: [1, 2, 3] }
+    const owners = new Map([...controls, ...stale, peer, frozen].map((owner) => [owner.ownerId, owner]))
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const retained = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      owners.set(owner.ownerId, retained)
+      return retained
+    })
+    vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+      const retained = { ...owner, sourceToken, revision: 1, complete: true, digests: [] }
+      owners.set(owner.ownerId, retained)
+      return retained
+    })
+    const keyFor = (owner: RetainedAssets) => scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
+    for (const owner of owners.values()) localStorage.setItem(keyFor(owner), JSON.stringify({
+      version: 3, ...(mode === 'historical' || mode === 'unregistered-holder' ? {} : { resultCensus: mode === 'unknown-census' ? 3 : 2 }),
+      connectionId: test.backend.id, assetBaseUrl: test.backend.connection.assetUrl(''), owner: {
+        scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId, holderClasses: owner.holderClasses,
+      }, complete: owner.complete, digests: owner.digests, acknowledgedRevision: 1,
+      ...(owner.sourceToken === undefined ? {} : { sourceToken: owner.sourceToken }),
+      ...(owner.ownerKind === 'document' ? { documentLineage: 'frozen-control', documentRevision: 0 } : { executionKey: executionKey(test.saved.ref) }),
+    }))
+    saveExecutionResult({ ...test.saved, assetRetentions: mode === 'independent-unreferenced' ? controls.slice(1) : controls }, test.backendIdentity)
+    let holder: AppState | undefined
+    if (mode === 'unregistered-holder') {
+      const navigator = globalThis.navigator
+      vi.stubGlobal('navigator', {})
+      try {
+        holder = new AppState()
+        holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+          assetRetentions: [stale[0]!] })
+        expect(holder.store.get(test.ref)?.assetRetentions).toEqual([stale[0]!])
+      } finally { vi.stubGlobal('navigator', navigator) }
+    }
+    if (mode === 'holder-adopts-during-release' || mode === 'late-publication') holder = new AppState()
+    const concurrentHolder = mode === 'holder-starts-during-release' || mode === 'holder-adopts-during-release'
+    let releaseFirst: (() => void) | undefined
+    let firstReleaseStarted: (() => void) | undefined
+    const firstRelease = new Promise<void>((resolve) => { firstReleaseStarted = resolve })
+    const releaseResponse = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let finishBody: (() => void) | undefined
+    let stoppedRead: Promise<void> | undefined
+    if (mode === 'independent-unreferenced' || mode === 'peer-held' || mode === 'closing-reader') {
+      holder = new AppState()
+      holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+        assetRetentions: [mode === 'independent-unreferenced' ? protectedOwner : stale[0]!] })
+      if (mode === 'closing-reader') {
+        vi.spyOn(holder.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+        const reader = holder.executionAssetReader(holder.store.get(test.ref)!, [])
+        expect(reader).toBeDefined()
+        const reading = reader!.read(() => new Promise<number>((resolve) => { finishBody = () => resolve(7) }))
+        stoppedRead = expect(reading).rejects.toThrow().then(() => undefined)
+        await vi.waitFor(() => expect(finishBody).toBeDefined())
+        holder.dispose()
+        expect(holder.retentionActivity()).toMatchObject({ valueReads: 1 })
+      }
+    }
+    let pinned: ReturnType<typeof test.app.activeTab>
+    if (mode === 'live-pin') {
+      test.backend.registry.set(test.registry)
+      test.app.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+        assetRetentions: [...controls, stale[0]!] })
+      expect(await test.app.openExecutionView(test.ref)).toBe(true)
+      pinned = test.app.activeTab()
+    }
+    const heldBytes = [...controls, peer, frozen].map((owner) => localStorage.getItem(keyFor(owner)))
+    const storage = localStorage
+    const units = () => Array.from({ length: storage.length }, (_, index) => {
+      const key = storage.key(index)!
+      return key.length + storage.getItem(key)!.length
+    }).reduce((sum, size) => sum + size, 0)
+    const capacity = units()
+    vi.stubGlobal('localStorage', { ...storage, get length() { return storage.length }, setItem: (key: string, value: string) => {
+      const previous = storage.getItem(key)
+      if (units() - (previous === null ? 0 : key.length + previous.length) + key.length + value.length > capacity) {
+        throw new DOMException('Browser storage quota exceeded', 'QuotaExceededError')
+      }
+      storage.setItem(key, value)
+    } })
+    const own = mode === 'peer-replacement' ? [...stale, frozen] : [...controls, ...stale, frozen]
+    const holders = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [String(index + 1),
+      own.filter((owner) => owner.holderClasses?.some((holder) => holder === index + 1))]))
+    let replacementRefused = mode === 'replacement-refused' || mode === 'replacement-retry'
+    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://test')
+      if (url.pathname === '/api/library/retention-clients') {
+        if (mode === 'reopen-refused' && init?.method === 'POST') return new Response('', { status: 409 })
+        return Response.json({
+          clientId: '3'.repeat(32), generation: init?.method === 'POST' ? rotated : generation,
+          revision: init?.method === 'POST' && mode !== 'new-client' ? 2 : 1, connected: true, pendingRequests: 0,
+          activeStreams: 0, complete: false, holders,
+        })
+      }
+      if (init?.method === 'GET' && url.pathname.includes('/retentions/shown-result/')) {
+        const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        if (replacementRefused && controls.some((owner) => owner.ownerId === id)) return new Response('', { status: 503 })
+        return Response.json(owners.get(id))
+      }
+      if (init?.method === 'DELETE' && url.pathname.includes('/retentions/shown-result/')) {
+        expect(new Headers(init.headers).get('X-Dinkster-Retention-Generation')).toBe(rotated)
+        const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        if ((concurrentHolder || mode === 'late-publication') && id === stale[0]!.ownerId) {
+          firstReleaseStarted!()
+          await releaseResponse
+        }
+        const old = owners.get(id)!
+        const released = { ...old, revision: 2, complete: true, digests: [] }
+        delete released.sourceToken
+        owners.set(id, released)
+        return Response.json(released)
+      }
+      return new Response('', { status: 404 })
+    })
+    try {
+      const pinnedExecution = pinned === undefined ? undefined : test.app.executionForTab(pinned)
+      const starting = test.app.start()
+      const publishReleased = () => holder!.store.restoreCompleted({ ...test.saved,
+        artifact: test.saved.artifact!, endedAt: test.saved.endedAt!, assetRetentions: [stale[0]!] })
+      if (mode === 'late-publication') {
+        await firstRelease
+        expect(publishReleased).toThrow('Result ownership changed before publication')
+        expect(holder!.store.get(test.ref)).toBeUndefined()
+        releaseFirst!()
+      }
+      if (concurrentHolder) {
+        await firstRelease
+        holder ??= new AppState()
+        holder.store.restoreCompleted({ ...test.saved, artifact: test.saved.artifact!, endedAt: test.saved.endedAt!,
+          assetRetentions: [stale[1]!] })
+        expect(holder.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
+        releaseFirst!()
+      }
+      await starting
+      if (mode === 'late-publication') {
+        expect(owners.get(stale[0]!.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+        expect(localStorage.getItem(keyFor(stale[0]!))).toBeNull()
+        expect(publishReleased).toThrow('Result ownership changed before publication')
+        expect(holder!.store.get(test.ref)).toBeUndefined()
+      }
+      if (mode === 'replacement-retry') {
+        expect(owners.get(stale[0]!.ownerId)).toEqual(stale[0])
+        replacementRefused = false
+        await test.app.refreshBackendSchemas(test.backend)
+      }
+      if (concurrentHolder) {
+        expect(owners.get(stale[1]!.ownerId)).toEqual(stale[1])
+        expect(JSON.parse(localStorage.getItem(keyFor(stale[1]!))!)).toMatchObject({ acknowledgedRevision: 1 })
+        expect(holder!.store.get(test.ref)?.assetRetentions).toEqual([stale[1]!])
+      }
+      const reclaim = mode === 'reopened' || mode === 'peer-replacement' || mode === 'historical' || mode === 'unregistered-holder' || mode === 'live-pin' || mode === 'replacement-retry' || mode === 'independent-unreferenced' || mode === 'peer-held' || concurrentHolder || mode === 'late-publication'
+      for (const owner of stale) {
+        if (concurrentHolder && owner !== stale[0]) continue
+        const released = reclaim && !((mode === 'live-pin' || mode === 'peer-held') && owner === stale[0])
+        expect(owners.get(owner.ownerId)).toEqual(released ? { ...owner, sourceToken: undefined, revision: 2, complete: true, digests: [] } : owner)
+        if (released) expect(localStorage.getItem(keyFor(owner))).toBeNull()
+        else expect(JSON.parse(localStorage.getItem(keyFor(owner))!)).toMatchObject({ acknowledgedRevision: 1 })
+      }
+      for (const [index, owner] of [...controls, peer, frozen].entries()) {
+        expect(owners.get(owner.ownerId)).toEqual(owner)
+        expect(localStorage.getItem(keyFor(owner))).toBe(heldBytes[index])
+      }
+      if (reclaim) expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      if (mode === 'unregistered-holder') {
+        expect(holder!.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        const receipt = holder!.store.get(test.ref)!.assetRetentions![0]!
+        holder!.dispose()
+        const resumed = setup(new AppState())
+        holder = resumed.app
+        vi.spyOn(resumed.backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+        saveExecutionResult({ ...resumed.saved, assetRetentions: [receipt] }, resumed.backendIdentity)
+        vi.spyOn(resumed.backend.connection, 'fetchRetainedAssets').mockImplementation(async owner => {
+          const observed = owners.get(owner.ownerId)
+          return observed === undefined ? undefined : retainedAssetAcknowledgment(observed, owner)
+        })
+        vi.mocked(resumed.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) =>
+          ({ ...owner, sourceToken, revision: 1, complete: true, digests: [test.saved.sourceDocument!] }))
+        vi.mocked(resumed.backend.connection.fetchTerminalResultAssets).mockImplementation(async jobRef => ({
+          scope: 'local', jobRef, attemptId: 1, state: 'completed', complete: true,
+          offers: [{ token: 'a'.repeat(32), scope: 'local', jobRef, attemptId: 1,
+            nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests: [test.saved.sourceDocument!] }],
+        }))
+        await holder.start()
+        expect(holder.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        const admitted = holder.store.get(test.ref)?.assetRetentions
+        expect(admitted?.some(owner => owner.complete && owner.digests.includes(receipt.digests[0]!))).toBe(true)
+        expect(admitted?.every(owner => owner.ownerId !== receipt.ownerId)).toBe(true)
+        expect(owners.get(receipt.ownerId)).toEqual({ ...receipt, sourceToken: undefined, revision: 2, complete: true, digests: [] })
+      }
+      if (pinned !== undefined) {
+        expect(test.app.tabs.get()).toContain(pinned)
+        expect(test.app.executionForTab(pinned)).toBe(pinnedExecution)
+      }
+      if (mode === 'independent-unreferenced') {
+        holder!.dispose()
+        await vi.waitFor(() => expect([...locks.keys()].filter((name) => name.startsWith('dinkster-result-holders:'))).toHaveLength(1))
+        await test.app.refreshBackendSchemas(test.backend)
+        expect(owners.get(protectedOwner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+        expect(localStorage.getItem(keyFor(protectedOwner))).toBeNull()
+      }
+      if (mode === 'closing-reader') {
+        expect([...locks.keys()].filter((name) => name.startsWith('dinkster-result-holders:'))).toHaveLength(2)
+        finishBody!()
+        await stoppedRead
+        await vi.waitFor(() => expect([...locks.keys()].filter((name) => name.startsWith('dinkster-result-holders:'))).toHaveLength(1))
+        await test.app.refreshBackendSchemas(test.backend)
+        for (const owner of stale) {
+          expect(owners.get(owner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+          expect(localStorage.getItem(keyFor(owner))).toBeNull()
+        }
+      }
+      expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0 })
+    } finally { releaseFirst?.(); finishBody?.(); await stoppedRead; holder?.dispose(); test.app.dispose(); legacyChannel?.close() }
+  })
 
   it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {
     const test = setup()
@@ -339,6 +634,149 @@ describe('startup result source admission', () => {
         await new Promise((resolve) => setTimeout(resolve, 20))
         expect(test.app.store.get(test.ref)).toBe(before)
       }
+    } finally { test.app.dispose() }
+  })
+
+  it('reports source restoration as pending until its preview retirement acknowledges', async () => {
+    const test = setup()
+    let finish!: (receipt: RetainedAssets) => void
+    let released!: RetainedAssets
+    vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation((owner, revision) => {
+      released = { ...owner, revision: revision + 1, complete: true, digests: [] }
+      return new Promise((resolve) => { finish = resolve })
+    })
+    try {
+      const starting = test.app.start()
+      await vi.waitFor(() => expect(released).toBeDefined())
+      expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      expect(test.app.retentionActivity().restorations).toBeGreaterThan(0)
+      finish(released)
+      await starting
+      expect(test.app.retentionActivity()).toMatchObject({ restorations: 0, retirements: 0, valueAdmissions: 0 })
+    } finally { if (finish) finish(released); test.app.dispose() }
+  })
+
+  it('keeps shown-result ownership flat when an unchanged value is read again', async () => {
+    const test = setup()
+    const owners = new Map<string, RetainedAssets>()
+    let token = 'a'.repeat(32)
+    const digests = [`blake3:${'c'.repeat(64)}`]
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      if (owner.ownerKind === 'shown-result') owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.mocked(test.backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
+      const receipt = { ...owner, sourceToken, revision: 1, complete: true, digests }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.mocked(test.backend.connection.fetchTerminalResultAssets).mockImplementation(async (jobRef) => ({
+      scope: 'local', jobRef, attemptId: 1, state: 'completed', complete: true,
+      offers: [{ token, scope: 'local', jobRef, attemptId: 1, nodeId: test.nodeId,
+        outputId: 'sum', publication: 1, complete: true, digests }],
+    }))
+    vi.mocked(test.backend.connection.values().peek).mockRestore()
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://test')
+      if (url.pathname.includes('/retentions/shown-result/')) {
+        const id = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        const owner = owners.get(id)
+        if (owner === undefined) return new Response('', { status: 404 })
+        if (init?.method === 'DELETE') {
+          const released = { ...owner, revision: owner.revision + 1, complete: true, digests: [] }
+          delete released.sourceToken
+          owners.set(id, released)
+          return Response.json(released)
+        }
+        return Response.json(owner)
+      }
+      if (url.pathname !== '/api/values') return new Response('', { status: 404 })
+      return Response.json({ available: true, descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 },
+        renditions: [], resultOffer: { token, scope: 'local', jobRef: test.saved.jobRef,
+          attemptId: 1, nodeId: test.nodeId, outputId: 'sum', publication: 1, complete: true, digests } })
+    }))
+    const journals = () => Object.fromEntries(Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.')).sort()
+      .map((key) => [key, localStorage.getItem(key)]))
+    try {
+      await test.app.start()
+      expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+      const query = { jobId: test.ref.prompt, nodeId: test.nodeId, outputId: 'sum' }
+      expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
+      const settledJournals = journals()
+      const settledOwners = [...owners.values()]
+      for (let index = 0; index < 12; index++) {
+        const result = await test.backend.connection.values().peek(query)
+        expect(result).toMatchObject({ available: true, descriptor: { value: 7 } })
+        if (result.available) expect(await test.backend.connection.values().read(query, result.descriptor, async () => 7)).toBe(7)
+      }
+      expect(journals()).toEqual(settledJournals)
+      expect([...owners.values()]).toEqual(settledOwners)
+      token = 'd'.repeat(32)
+      const changed = await Promise.all(Array.from({ length: 3 }, () => test.backend.connection.values().peek(query)))
+      expect(changed.every((result) => result.available)).toBe(true)
+      expect(owners.size).toBe(settledOwners.length + 1)
+      expect([...owners.values()].filter((receipt) => receipt.sourceToken === token)).toEqual([
+        expect.objectContaining({ complete: true, digests, sourceToken: token }),
+      ])
+      const independent = test.app.store.get(test.ref)!.assetRetentions!
+      const independentBytes = independent.map((owner) => localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)))
+      for (let index = 1; index <= 12; index++) {
+        const old = [...owners.values()].find((owner) => owner.sourceToken === token &&
+          !independent.some((receipt) => receipt.ownerId === owner.ownerId))!
+        let finishRead!: (value: number) => void
+        let pendingRead: Promise<number> | undefined
+        if (index === 1) {
+          const original = changed[0]!
+          if (!original.available) throw new Error('Expected original admitted descriptor')
+          pendingRead = test.backend.connection.values().read(query, original.descriptor, () =>
+            new Promise<number>((resolve) => { finishRead = resolve }))
+          await vi.waitFor(() => expect(finishRead).toBeDefined())
+        }
+        token = index.toString(16).padStart(32, '0')
+        const next = await test.backend.connection.values().peek(query)
+        expect(next).toMatchObject({ available: true })
+        if (pendingRead !== undefined) {
+          expect(test.app.retentionActivity()).toMatchObject({ valueReads: 1, drainingReaders: 1 })
+          expect(owners.get(old.ownerId)).toEqual(old)
+          expect(JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${old.ownerId}`))!))
+            .toMatchObject({ acknowledgedRevision: 1 })
+          finishRead(7)
+          expect(await pendingRead).toBe(7)
+        }
+        await vi.waitFor(() => expect(test.app.retentionActivity()).toMatchObject({ drainingReaders: 0, retirements: 0 }))
+        expect([...owners.values()].filter((owner) => owner.ownerKind === 'shown-result' && owner.revision === 1 &&
+          !independent.some((receipt) => receipt.ownerId === owner.ownerId))).toHaveLength(1)
+        for (const admitted of changed) {
+          if (!admitted.available) throw new Error('Expected original admitted descriptor')
+          expect(await test.backend.connection.values().read(query, admitted.descriptor, async () => 7)).toBe(7)
+        }
+        for (const [offset, owner] of independent.entries()) {
+          expect(owners.get(owner.ownerId)).toEqual(owner)
+          expect(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`))).toBe(independentBytes[offset])
+        }
+      }
+      const replacementJournals = journals()
+      expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
+      expect(journals()).toEqual(replacementJournals)
+      const replacement = [...owners.values()].find((receipt) => receipt.sourceToken === token)!
+      const replacementKey = scopedStorageKey(`dinkster.workflow-retentions.${replacement.ownerId}`)
+      localStorage.setItem(replacementKey, JSON.stringify({ ...JSON.parse(localStorage.getItem(replacementKey)!), releaseRevision: 1 }))
+      expect(await test.backend.connection.values().peek(query)).toMatchObject({ available: true })
+      expect(owners.size).toBe(settledOwners.length + 14)
+      let finish!: (value: number) => void
+      const body = new Promise<number>((resolve) => { finish = resolve })
+      let entered = 0
+      const reads = changed.map((result) => {
+        if (!result.available) throw new Error('Expected admitted descriptor')
+        return test.backend.connection.values().read(query, result.descriptor, async () => { entered++; return body })
+      })
+      const stopped = Promise.all(reads.map(async (read) => { await expect(read).rejects.toThrow() }))
+      await vi.waitFor(() => expect(entered).toBe(3))
+      test.app.dispose()
+      finish(7)
+      await stopped
     } finally { test.app.dispose() }
   })
 

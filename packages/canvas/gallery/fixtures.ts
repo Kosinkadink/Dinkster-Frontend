@@ -56,6 +56,8 @@ export const canvasGalleryPages = [
   ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
+  ['core-rows', 'Core widget rows'],
+  ['collection-rows', 'Collection widget rows proposal'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -364,7 +366,78 @@ export function createCanvasGalleryFixture(
     fixture.scene.links.push(...scene.links)
     labels.push({ text: id, x, y: y - 24 })
   }
-  if (
+  if (page === 'collection-rows') {
+    const collection = galleryWidgetInputs.filter((item) =>
+      ['multi_choice', 'list', 'colors', 'curve'].includes(item.id),
+    )
+    const definition = schema('Collection widgets', collection)
+    add('Selected values', definition)
+    add('Empty and minimal values', definition, {
+      multi_choice: [],
+      list: [],
+      colors: [],
+      curve: { points: [{ position: 0, value: 0.25 }] },
+    })
+    add('Long and varied values', definition, {
+      multi_choice: ['red', 'green', 'blue', 'alpha'],
+      list: [0.125, 1.5, 12.75, 256.25, 4096.875],
+      colors: [
+        '#32e6c5',
+        '#ff7468',
+        '#ffd166',
+        '#3366cc80',
+        '#cc66ff',
+        '#ffffff',
+      ],
+      curve: {
+        interpolation: 'monotone_cubic',
+        points: [
+          { position: 0, value: 0.8 },
+          { position: 0.2, value: 0.1 },
+          { position: 0.7, value: 0.65 },
+          { position: 1, value: 0.3 },
+        ],
+      },
+    })
+  } else if (page === 'core-rows') {
+    const core = galleryWidgetInputs.filter((item) =>
+      [
+        'integer',
+        'seed',
+        'float',
+        'text',
+        'prompt',
+        'toggle',
+        'choice',
+        'color',
+        'asset',
+      ].includes(item.id),
+    )
+    const definition = schema('Core widgets', core)
+    const empty = {
+      text: '',
+      prompt: '',
+      toggle: false,
+      color: '#00000000',
+      asset: null,
+    }
+    const longAsset = {
+      ...(galleryWidgetInputs.find((item) => item.id === 'asset')!.widget!
+        .default as Record<string, Json>),
+      name: 'a-deliberately-long-reference-image-name-for-review.png',
+    }
+    add('Selected values', definition)
+    add('Empty values', definition, empty)
+    add('Long values', definition, {
+      text: 'A deliberately long single-line value that must stay inside its field',
+      choice: 'dpmpp_2m_sde',
+      asset: longAsset,
+    })
+    fixture.height = Math.max(
+      600,
+      ...fixture.scene.nodes.map((node) => node.y + node.layout.height + 24),
+    )
+  } else if (
     page === 'widgets' ||
     page === 'widget-driven' ||
     page === 'widget-offered' ||

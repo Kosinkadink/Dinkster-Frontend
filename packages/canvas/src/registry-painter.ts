@@ -14,6 +14,7 @@ import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
+import { paintToolboxIcon } from './icons.js'
 
 const paint = canvasPaintTokens.widget
 const TEXT_PAD = paint.textPadding
@@ -77,9 +78,33 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-    const leftControl = numeric ? WIDGET_EDGE_CONTROL_WIDTH : 0
+    const openerIcon = tokens.widgetRowLook !== 'inset'
+      ? row.viewId === 'core.asset' ? 'image'
+        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+        : tokens.widgetRowLook === 'inset-raised-collections'
+          ? row.viewId === 'core.multiSelect' ? 'list-checks'
+            : row.viewId === 'core.list' ? 'list'
+            : row.viewId === 'core.colors' ? 'palette'
+            : row.viewId === 'core.curve' ? 'spline' : undefined
+          : undefined
+      : undefined
+    if (openerIcon !== undefined) {
+      ctx.fillStyle = tokens.colors.nodeHeader
+      ctx.strokeStyle = tokens.colors.nodeIdleOutline
+      ctx.lineWidth = paint.opener.stroke
+      ctx.beginPath()
+      ctx.roundRect(chrome.x + paint.opener.strokeInset, chrome.y + paint.opener.strokeInset,
+        chrome.width - paint.opener.stroke, chrome.height - paint.opener.stroke, chrome.radius)
+      ctx.fill()
+      ctx.stroke()
+      paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
+        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
+      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingReserve,
+        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
+    }
+    const leftControl = openerIcon !== undefined ? paint.opener.iconReserve : numeric ? WIDGET_EDGE_CONTROL_WIDTH : 0
     const combo = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO'
-    const rightControl = numeric || combo ? WIDGET_EDGE_CONTROL_WIDTH : 0
+    const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? WIDGET_EDGE_CONTROL_WIDTH : 0
     const usableWidth = Math.max(0, width - leftControl - rightControl)
     const naturalLabelWidth = measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
@@ -111,9 +136,19 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multiline = row.viewId === 'core.text'
     const multilineLabelHeight = tokens.multilineText.labelHeight
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
-    const labelWidth = multiline
+    let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth, naturalLabelWidth, naturalValueWidth, true)
+    if (row.viewId === 'core.asset' && valuePreview === 'no asset') {
+      // The empty-state message takes priority even when opener controls leave
+      // less than the ordinary label floor. Round up for fitText's pixel floor.
+      const font = ctx.font
+      ctx.font = `italic ${font}`
+      const italicWidth = measureWidth(ctx, valuePreview)
+      ctx.font = font
+      const placeholderWidth = Math.ceil(Math.max(italicWidth, measureWidth(ctx, valuePreview))) + TEXT_PAD * 2
+      labelWidth = Math.min(labelWidth, Math.max(0, fieldWidth - placeholderWidth))
+    }
     const paintLabel = () => {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
@@ -195,6 +230,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           if (style['role'] === 'curveSample') {
             ctx.fillStyle = tokens.colors.widgetAffordanceActive
+            if (tokens.widgetRowLook === 'inset-raised-collections') {
+              // Keep the trace below the summary; field padding erases thin samples.
+              const plotHeight = rowHeight - paint.curve.inset * 2
+              ctx.fillRect(contentStart + rx * contentWidth,
+                y + rowHeight + paint.curve.inset + ry / paint.curve.sourceRows * plotHeight,
+                Math.min(rw, 1 - rx) * contentWidth,
+                Math.max(paint.curve.minSampleHeight, rh / paint.curve.sourceRows * plotHeight))
+              return
+            }
           }
           const unitHeight = multiline ? multilineHeight : rowHeight
           const rectTop = multiline

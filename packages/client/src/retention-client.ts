@@ -44,6 +44,8 @@ export class RetentionClient {
   private readonly streams = new Set<() => () => void>()
   private readonly endpoint: string
   private reconnecting: Promise<void> | undefined
+  private reopened: RetentionClientStatus | undefined
+  private firstEnrollment = true
 
   constructor(
     private readonly baseUrl: string,
@@ -107,6 +109,8 @@ export class RetentionClient {
       if (!current.connected || current.complete || current.pendingRequests !== 0 || current.activeStreams !== 0 ||
         (previous !== undefined && (current.clientId !== previous.clientId || current.generation === previous.generation ||
           current.revision !== previous.revision + 1))) throw new Error('Retention client reopen acknowledgment differs')
+      if (this.firstEnrollment) this.reopened = previous
+      this.firstEnrollment = false
       this.generation = current.generation
       try { this.storage?.setItem(this.storageKey, current.generation) } catch { /* Session-only identity. */ }
       return current.generation
@@ -115,6 +119,12 @@ export class RetentionClient {
       this.opening = undefined
       throw error
     }
+  }
+
+  /** Only a successful bootstrap reopen transfers the previous window's own census. */
+  async reopenedHolders(): Promise<RetentionClientStatus | undefined> {
+    await this.enroll()
+    return this.reopened
   }
 
   private belongsToBackend(url: string): boolean {

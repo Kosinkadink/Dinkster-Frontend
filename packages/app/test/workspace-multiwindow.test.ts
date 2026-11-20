@@ -24,6 +24,7 @@ import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
 import { IMAGE_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
+import { preparePersistenceValue } from '../src/workflow-persistence-value.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -155,6 +156,87 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it.each(['unchanged', 'edited', 'asset', 'registry', 'extensions', 'target', 'remote', 'replacement'] as const)(
+    'keeps comparison proof only for an equivalent authority continuation: %s', async (scenario) => {
+      vi.stubGlobal('requestAnimationFrame', () => 1)
+      vi.stubGlobal('cancelAnimationFrame', () => undefined)
+      const app = createEditableApp()
+      app.registerSchemas([primitive('X', 'FLOAT')])
+      expect(await app.openDocument(workflow(), 'Comparison continuity')).toEqual([])
+      const local = app.activeTab()!
+      expect((await app.dispatchTo(local, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 7,
+      } })).ok).toBe(true)
+      const ready = app.compileTabCached(local)
+      expect(ready?.ok).toBe(true)
+      if (scenario === 'edited') {
+        expect((await app.dispatchTo(local, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 13,
+        } })).ok).toBe(true)
+      }
+      if (scenario === 'asset') {
+        expect((await app.dispatchTo(local, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'held', value: {
+            digest: `blake3:${'c'.repeat(64)}`, name: 'changed.bin', size: 11,
+            mediaType: 'application/octet-stream', virtualPath: '',
+          },
+        } })).ok).toBe(true)
+      }
+      if (scenario === 'registry') app.registerSchemas([primitive('X', 'BOOLEAN')])
+      if (scenario === 'extensions') app.extensionRevision.update((revision) => revision + 1)
+      if (scenario === 'target') {
+        const other = app.addBackend('http://continuation.test', 'Other target', false, 'dinkster')!
+        other.registry.set(app.registry.get())
+        app.setTabTarget(local.id, other.id)
+      }
+      const factory = authorityFactories()
+      const remote = scenario === 'remote' ? await connectSharedWorkerSession(local.id, local.store.doc,
+        coreCommandRegistry(), { actorId: 'established-peer' }, factory.document) : undefined
+      if (remote) {
+        expect(remote.dispatch({ command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n1', title: 'Different shared document',
+        } }).ok).toBe(true)
+        await remote.settle()
+      }
+      const observed: unknown[] = []
+      const unsubscribe = app.tabs.subscribe(() => {
+        const current = app.activeTab()
+        if (current?.id === local.id && current.store !== local.store) observed.push(app.previewComparisonCompile(current))
+      })
+      await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+      remote?.close()
+      unsubscribe()
+      const current = app.activeTab()!
+      expect(current.store).not.toBe(local.store)
+      if (scenario === 'remote') expect(current.store.doc.graphs.g0!.nodes.n1!.title).toBe('Different shared document')
+      else expect(current.store.doc).toEqual(local.store.doc)
+      expect(observed.length).toBeGreaterThan(0)
+      if (scenario === 'unchanged' || scenario === 'replacement') {
+        expect(observed.every((result) => result === ready)).toBe(true)
+        expect(app.previewComparisonCompile(current)).toBe(ready)
+        const full = app.compileTabCached(current)
+        expect(full).not.toBe(ready)
+        expect(full).toEqual(app.compileTab(current))
+        if (!full?.ok) throw new Error('promoted workflow did not compile')
+        expect(full.artifact.snapshot).toStrictEqual(current.store.doc)
+        expect(full.artifact.revision).toBe(current.store.revision)
+        if (scenario === 'replacement') {
+          expect(await app.openDocument(workflow(), 'Unrelated replacement')).toEqual([])
+          expect(app.activeTab()).not.toBe(current)
+          expect(app.previewComparisonCompile(app.activeTab()!)).toBeUndefined()
+        } else {
+          expect((await app.dispatchTo(current, { command: 'node.setValue', params: {
+            graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 29,
+          } })).ok).toBe(true)
+          expect(app.previewComparisonCompile(current)).toBeUndefined()
+        }
+      } else {
+        expect(observed.every((result) => result === undefined)).toBe(true)
+        expect(app.previewComparisonCompile(current)).toBeUndefined()
+      }
+    },
+  )
+
   it('keeps a reused source receipt live when an older canonical admission publishes first', async () => {
     let commits = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {
@@ -1028,22 +1110,25 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
-  it.each(['ordinary', 'canonical-first', 'notification-burst'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
+  it.each(['ordinary', 'canonical-first', 'notification-burst', 'worker-preparation', 'worker-in-flight'] as const)('confirmed Close retires its own recovery without waiting to remove the tab: %s', async (timing) => {
     const events = new EventTarget()
     vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
     vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
-    let commits = Promise.resolve<unknown>(undefined)
+    const commits = new Map<string, Promise<unknown>>()
     const pending: LockInfo[] = []
-    vi.stubGlobal('navigator', { locks: { query: async () => ({ pending: [...pending], held: [] }), request: (
-      name: string, _options: LockOptions, callback: () => unknown,
+    const held: LockInfo[] = []
+    vi.stubGlobal('navigator', { locks: { query: async () => ({ pending: [...pending], held: [...held] }), request: (
+      name: string, options: LockOptions | (() => unknown), callback?: () => unknown,
     ) => {
-      const lock: LockInfo = { name, mode: 'exclusive', clientId: 'test-renderer' }
+      const consume = typeof options === 'function' ? options : callback!
+      const lock: LockInfo = { name, mode: typeof options === 'function' ? 'exclusive' : options.mode ?? 'exclusive', clientId: 'test-renderer' }
       pending.push(lock)
-      const next = commits.then(() => {
+      const next = (commits.get(name) ?? Promise.resolve()).then(async () => {
         pending.splice(pending.indexOf(lock), 1)
-        return callback()
+        held.push(lock)
+        try { return await consume() } finally { held.splice(held.indexOf(lock), 1) }
       })
-      commits = next.catch(() => undefined)
+      commits.set(name, next.catch(() => undefined))
       return next
     } } })
     const app = createEditableApp()
@@ -1072,7 +1157,7 @@ describe('AppState multi-window workspace', () => {
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
     let releaseCommit = () => {}
-    if (timing !== 'ordinary') {
+    if (timing === 'canonical-first' || timing === 'notification-burst') {
       void navigator.locks.request('dinkster.openTabs.commit', {}, () => new Promise<void>((resolve) => { releaseCommit = resolve }))
       await drainTasks()
       const notify = () => events.dispatchEvent(Object.assign(new Event('storage'), {
@@ -1088,10 +1173,33 @@ describe('AppState multi-window workspace', () => {
         expect((await navigator.locks.query()).pending).toHaveLength(1)
       }
     }
+    const workerResponses: (() => void)[] = []
+    let holdWorker = timing === 'worker-in-flight'
+    if (timing === 'worker-preparation' || holdWorker) vi.stubGlobal('Worker', class {
+      onmessage: ((event: MessageEvent) => void) | undefined
+      postMessage(message: { id: number; value?: unknown; json?: string }): void {
+        const data = structuredClone(message)
+        const respond = () => {
+          const value: unknown = data.json === undefined ? data.value : JSON.parse(data.json)
+          this.onmessage?.({ data: { id: data.id, value, prepared: preparePersistenceValue(value),
+            ...(data.json === undefined ? {} : { json: data.json }) } } as MessageEvent)
+        }
+        if (holdWorker && workerResponses.length === 0) workerResponses.push(respond)
+        else queueMicrotask(respond)
+      }
+      terminate(): void {}
+    })
+    if (holdWorker) {
+      await vi.waitFor(() => expect(workerResponses.length).toBeGreaterThan(0))
+      expect(app.retentionActivity().preparations).toBeGreaterThan(0)
+      expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n1', title: 'Newer edit at Close',
+      } })).ok).toBe(true)
+    }
     expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
     expect(app.tabs.get().some((open) => open.id === tab.id)).toBe(false)
     await drainTasks()
-    if (timing !== 'ordinary') {
+    if (timing === 'canonical-first' || timing === 'notification-burst') {
       app.flushPersistTabs(true)
       await drainTasks()
       releaseCommit()
@@ -1107,6 +1215,11 @@ describe('AppState multi-window workspace', () => {
     await drainTasks()
     app.flushPersistTabs(true)
     await drainTasks()
+    expect(localStorage.getItem(key)).toBeNull()
+    holdWorker = false
+    for (const respond of workerResponses.splice(0)) respond()
+    await drainTasks()
+    expect(app.retentionActivity().preparations).toBe(0)
     expect(localStorage.getItem(key)).toBeNull()
     expect(JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs.some(
       (saved: { doc: WorkflowDocument }) => saved.doc.lineage === tab.id)).toBe(false)

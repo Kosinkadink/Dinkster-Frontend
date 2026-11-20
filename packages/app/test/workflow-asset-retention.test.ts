@@ -8,7 +8,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, readAssetPreview, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsUnchanged } from '../src/workflow-asset-retention.js'
 import { imageDocumentDigest } from '../src/image-document-local.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -44,6 +44,70 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it.each(['acknowledged', 'lost', 'refused', 'cleanup-refused'] as const)(
+    'retires an admitted owner at full storage without removing another holder: %s', async (scenario) => {
+      const f = recoveryFixture()
+      vi.stubGlobal('localStorage', f.storage)
+      const initial = JSON.stringify({ ...f.intent, acknowledgedRevision: f.acknowledgment.revision })
+      const independentKey = `${f.key}-independent`
+      f.entries.set(f.key, initial)
+      f.entries.set(independentKey, initial)
+      const capacity = [...f.entries.values()].reduce((sum, value) => sum + value.length, 0)
+      vi.spyOn(f.storage, 'setItem').mockImplementation((key, value) => {
+        const size = [...f.entries].reduce((sum, [storedKey, storedValue]) =>
+          sum + (storedKey === key ? 0 : storedValue.length), value.length)
+        if (size > capacity) throw new DOMException('Browser storage quota exceeded', 'QuotaExceededError')
+        f.entries.set(key, value)
+      })
+      if (scenario === 'cleanup-refused') {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        vi.spyOn(f.storage, 'removeItem').mockImplementation(() => { throw new DOMException('Storage access refused', 'SecurityError') })
+      }
+      let retained = f.acknowledgment
+      const connection = { ...f.connection,
+        releaseRetainedAssets: async () => {
+          if (scenario === 'refused') throw new Error('Release refused')
+          retained = { ...retained, revision: 2, complete: true, digests: [] }
+          if (scenario === 'lost') throw new Error('Release response lost')
+          return retained
+        },
+        fetchRetainedAssets: async () => retained,
+      } as unknown as DinksterConnection
+      await retireAssetOwner(connection, f.acknowledgment)
+      expect(await connection.fetchRetainedAssets(f.acknowledgment)).toEqual(scenario === 'refused'
+        ? f.acknowledgment : { ...f.acknowledgment, revision: 2, complete: true, digests: [] })
+      expect(f.storage.getItem(independentKey)).toBe(initial)
+      if (scenario === 'refused' || scenario === 'cleanup-refused') {
+        expect(JSON.parse(f.storage.getItem(f.key)!)).toMatchObject({ releaseRevision: 1 })
+        const pendingStorage = { length: 1, key: () => f.key, getItem: f.storage.getItem }
+        expect(await reconcileWorkflowRetentions(connection, new AbortController().signal, pendingStorage))
+          .toBe(scenario === 'cleanup-refused')
+      } else expect(f.storage.getItem(f.key)).toBeNull()
+    },
+  )
+
+  it('isolates retirement observers and stops delivering after unsubscription', async () => {
+    const f = recoveryFixture()
+    vi.stubGlobal('localStorage', f.storage)
+    f.entries.set(f.key, JSON.stringify({ ...f.intent, acknowledgedRevision: 1 }))
+    const released = { ...f.acknowledgment, revision: 2, complete: true, digests: [] }
+    const connection = { ...f.connection, releaseRetainedAssets: async () => released } as unknown as DinksterConnection
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failure = new Error('Observer refused')
+    const stopThrowing = onAssetOwnerRetirement(connection, () => { throw failure })
+    const delivered: string[] = []
+    const stopReceiving = onAssetOwnerRetirement(connection, (key) => delivered.push(key))
+    try {
+      await expect(retireAssetOwner(connection, f.acknowledgment)).resolves.toBeUndefined()
+      expect(f.storage.getItem(f.key)).toBeNull()
+      expect(delivered).toEqual([f.key])
+      expect(warning).toHaveBeenCalledWith('Asset retirement observer failed', failure)
+      stopReceiving()
+      await expect(retireAssetOwner(connection, f.acknowledgment)).resolves.toBeUndefined()
+      expect(delivered).toEqual([f.key])
+    } finally { stopThrowing(); stopReceiving() }
+  })
+
   it('reports failed terminal cleanup and preserves the journal and independent holder', async () => {
     const f = recoveryFixture()
     vi.stubGlobal('localStorage', f.storage)
@@ -246,7 +310,7 @@ describe('workflow retention recovery', () => {
     return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
   }
 
-  it('does not warn about ownership retired by an acknowledged workflow edit', async () => {
+  it.each(['workflow edit', 'preview replacement', 'source preview handoff'] as const)('does not warn about ownership retired by an acknowledged %s', async (operation) => {
     const f = recoveryFixture()
     f.entries.clear()
     vi.stubGlobal('localStorage', f.storage)
@@ -268,6 +332,10 @@ describe('workflow retention recovery', () => {
     vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
     const saved = new Map<string, RetainedAssets>()
     const pending = deferred<RetainedAssets>()
+    const retirement = deferred<void>()
+    const retiring = deferred<void>()
+    const handoff = deferred<void>()
+    let sourceRead: Promise<unknown> | undefined
     let observed: RetainedAssets | undefined
     const app = prepareWorkflowApp(new AppState())
     try {
@@ -281,6 +349,7 @@ describe('workflow retention recovery', () => {
         return receipt
       })
       vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
+        if (owner.ownerId === observed?.ownerId) { retiring.resolve(); await retirement.promise }
         const receipt = { ...owner, revision: 2, complete: true, digests: [] }
         saved.set(owner.ownerId, receipt)
         return receipt
@@ -304,22 +373,51 @@ describe('workflow retention recovery', () => {
       expect(await app.openDocument(session().doc, 'Ordinary edit')).toEqual([])
       app.setTabTarget(app.activeTab()!.id, backend.id)
       expect((await app.dispatchTo(app.activeTab()!, replace('b'))).ok).toBe(true)
-      observed = [...saved.values()].reverse().find((receipt) => receipt.ownerKind === 'document' && receipt.digests.includes(asset('b').digest))!
+      if (operation === 'preview replacement') {
+        backend.connection.ingest({ type: 'run_started', jobId: 'recovery-preview' })
+        backend.connection.ingest({ type: 'node_event', event: 'dinkster.curve.histogram', jobId: 'recovery-preview',
+          nodeId: 'image', data: { histogram: Array.from({ length: 256 }, () => 1) } })
+        await vi.waitFor(() => expect([...saved.values()].some((receipt) => receipt.ownerKind === 'preview')).toBe(true))
+        await new Promise<void>((done) => setImmediate(done))
+      }
+      if (operation === 'source preview handoff') {
+        sourceRead = readAssetPreview(backend.connection, { complete: true, digests: [asset('b').digest] },
+          () => handoff.promise, () => true, async () => true)
+        await vi.waitFor(() => expect([...saved.values()].some((receipt) => receipt.ownerKind === 'preview')).toBe(true))
+      }
+      observed = [...saved.values()].reverse().find((receipt) => operation !== 'workflow edit'
+        ? receipt.ownerKind === 'preview' : receipt.ownerKind === 'document' && receipt.digests.includes(asset('b').digest))!
       expect(observed.complete).toBe(true)
       const key = scopedStorageKey(`dinkster.workflow-retentions.${observed.ownerId}`)
       events.dispatchEvent(Object.assign(new Event('storage'), { key, newValue: f.entries.get(key) }))
       await vi.waitFor(() => expect(reads).toHaveLength(1))
-      expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
-      await vi.waitFor(() => expect(saved.get(observed!.ownerId)?.revision).toBe(2))
+      if (operation === 'preview replacement') {
+        backend.connection.ingest({ type: 'node_event', event: 'dinkster.curve.histogram', jobId: 'recovery-preview',
+          nodeId: 'image', data: { histogram: Array.from({ length: 256 }, () => 2) } })
+      } else if (operation === 'source preview handoff') handoff.resolve()
+      else expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
+      await retiring.promise
+      if (operation !== 'source preview handoff') expect(app.retentionActivity().retirements).toBeGreaterThan(0)
+      expect(saved.get(observed.ownerId)?.revision).toBe(1)
+      retirement.resolve()
+      await vi.waitFor(() => {
+        expect(saved.get(observed!.ownerId)?.revision).toBe(2)
+        expect(app.retentionActivity().retirements).toBe(0)
+      })
+      await sourceRead
       pending.resolve(observed)
-      await new Promise<void>((done) => setImmediate(done))
+      await vi.waitFor(() => {
+        expect(app.retentionActivity().recoveries).toBe(0)
+        expect(app.retentionActivity().recoveryTimers).toBe(0)
+      })
+      expect(f.entries.has(key)).toBe(false)
       expect(app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')).toEqual([])
-      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('c')])
-    } finally { app.dispose() }
+      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(operation === 'workflow edit' ? 'c' : 'b')])
+    } finally { handoff.resolve(); retirement.resolve(); await sourceRead; app.dispose() }
   })
 
-  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending',
-    'acknowledgment', 'release-acknowledgment', 'changed-roots', 'removed-intent', 'mismatched-receipt'] as const)(
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose', 'journal-change', 'journal-change-pending', 'journal-change-draining',
+    'acknowledgment', 'release-acknowledgment', 'changed-roots', 'removed-intent', 'mismatched-receipt', 'slow-scan', 'slow-request', 'targeted-journal-change', 'targeted-journal-change-pending', 'storage-reread-failure'] as const)(
     'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -340,14 +438,27 @@ describe('workflow retention recovery', () => {
       const events = new EventTarget()
       vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
       vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
-      const requests: Array<{ signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
+      const timed = scenario === 'slow-scan' || scenario === 'slow-request' || scenario === 'journal-change-draining'
+      if (timed) {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+        vi.spyOn(AbortSignal, 'timeout').mockImplementation((delay) => {
+          const controller = new AbortController()
+          setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), delay)
+          return controller.signal
+        })
+      }
+      const requests: Array<{ url: string; signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
       vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
         if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
         if (url.includes('/api/library/retentions/') && url.includes(encodeURIComponent(f.intent.owner.ownerId))) {
           expect(init?.method).toBe('GET')
           expect(init?.cache).toBe('no-store')
           const result = deferred<Response>()
-          requests.push({ signal: init!.signal!, result })
+          requests.push({ url, signal: init!.signal!, result })
+          if (scenario === 'slow-request') return new Promise<Response>((resolve, reject) => {
+            init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true })
+            void result.promise.then(resolve)
+          })
           return result.promise
         }
         return new Response('{}', { status: 503 })
@@ -359,11 +470,94 @@ describe('workflow retention recovery', () => {
           ...(scenario === 'release-acknowledgment' ? { acknowledgedRevision: 1, releaseRevision: 1 } : {}) }
         const bytes = JSON.stringify(intent)
         f.entries.set(f.key, bytes)
+        const secondOwner = { ...intent.owner, ownerId: `${intent.owner.ownerId}-second` }
+        if (scenario === 'slow-scan' || scenario === 'targeted-journal-change' || scenario === 'targeted-journal-change-pending') {
+          f.entries.set(`${f.key}-second`, JSON.stringify({ ...intent, owner: secondOwner }))
+        }
         const notices = () => app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')
         backend.connection.connect()
         await vi.waitFor(() => expect(sockets).toHaveLength(1))
         sockets.at(-1)!.onopen?.({})
         await vi.waitFor(() => expect(requests).toHaveLength(1))
+        if (scenario === 'storage-reread-failure') {
+          const read = vi.spyOn(f.storage, 'getItem').mockImplementation((key) => {
+            if (key === f.key) throw new DOMException('Storage unavailable', 'SecurityError')
+            return f.entries.get(key) ?? null
+          })
+          requests[0]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(notices()).toHaveLength(1))
+          read.mockRestore()
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: `${f.key}-other`, newValue: null }))
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(notices()).toHaveLength(0))
+          expect(app.retentionActivity().recoveries).toBe(0)
+          return
+        }
+        if (scenario === 'targeted-journal-change-pending') {
+          const changed = JSON.stringify({ ...intent, owner: secondOwner, acknowledgedRevision: 1 })
+          f.entries.set(`${f.key}-second`, changed)
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: `${f.key}-second`, newValue: changed }))
+          requests[0]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response(JSON.stringify({ ...f.acknowledgment, ownerId: secondOwner.ownerId })))
+          await vi.waitFor(() => expect(requests).toHaveLength(3))
+          expect(requests[0]!.signal.aborted).toBe(false)
+          expect(requests[2]!.url).toContain(encodeURIComponent(secondOwner.ownerId))
+          requests[2]!.result.resolve(new Response(JSON.stringify({ ...f.acknowledgment, ownerId: secondOwner.ownerId })))
+          await vi.waitFor(() => expect(app.retentionActivity().recoveries).toBe(0))
+          expect(requests).toHaveLength(3)
+          expect(notices()).toHaveLength(0)
+          expect(app.retentionActivity().recoveryTimers).toBe(0)
+          return
+        }
+        if (scenario === 'targeted-journal-change') {
+          requests[0]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(requests).toHaveLength(2))
+          requests[1]!.result.resolve(new Response('{}', { status: 404 }))
+          await vi.waitFor(() => expect(notices()).toHaveLength(1))
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          await vi.waitFor(() => expect(requests).toHaveLength(3))
+          requests[2]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(app.retentionActivity().recoveries).toBe(0))
+          expect(requests).toHaveLength(3)
+          expect(notices()).toHaveLength(1)
+          f.entries.delete(`${f.key}-second`)
+          events.dispatchEvent(Object.assign(new Event('storage'), { key: `${f.key}-second`, newValue: null }))
+          await vi.waitFor(() => expect(notices()).toHaveLength(0))
+          expect(requests).toHaveLength(3)
+          backend.connection.disconnect()
+          backend.connection.connect()
+          await vi.waitFor(() => expect(sockets).toHaveLength(2))
+          sockets.at(-1)!.onopen?.({})
+          await vi.waitFor(() => expect(requests).toHaveLength(4))
+          requests[3]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(app.retentionActivity().recoveries).toBe(0))
+          expect(notices()).toHaveLength(0)
+          return
+        }
+        if (scenario === 'slow-request') {
+          await vi.advanceTimersByTimeAsync(10_001)
+          expect(requests[0]!.signal.aborted).toBe(true)
+          await new Promise<void>((done) => setImmediate(done))
+          expect(notices()).toHaveLength(1)
+          expect(app.retentionActivity().recoveries).toBe(0)
+          return
+        }
+        if (scenario === 'slow-scan') {
+          await vi.advanceTimersByTimeAsync(6000)
+          requests[0]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(requests).toHaveLength(2)
+          await vi.advanceTimersByTimeAsync(6000)
+          expect(requests[1]!.signal.aborted).toBe(false)
+          expect(app.retentionActivity().recoveries).toBe(1)
+          requests[1]!.result.resolve(new Response(JSON.stringify({ ...f.acknowledgment, ownerId: secondOwner.ownerId })))
+          await new Promise<void>((done) => setImmediate(done))
+          expect(app.retentionActivity().recoveries).toBe(0)
+          expect(notices()).toHaveLength(0)
+          return
+        }
         if (scenario === 'acknowledgment' || scenario === 'release-acknowledgment' || scenario === 'changed-roots' ||
           scenario === 'removed-intent' || scenario === 'mismatched-receipt') {
           const current = JSON.stringify({ ...intent, acknowledgedRevision: scenario === 'release-acknowledgment' ? 2 : 1,
@@ -378,8 +572,15 @@ describe('workflow retention recovery', () => {
           expect(f.entries.get(f.key)).toBe(scenario === 'removed-intent' ? undefined : current)
           return
         }
-        if (scenario === 'journal-change-pending') {
+        if (scenario === 'journal-change-pending' || scenario === 'journal-change-draining') {
           events.dispatchEvent(Object.assign(new Event('storage'), { key: f.key, newValue: bytes }))
+          if (scenario === 'journal-change-draining') {
+            await vi.advanceTimersByTimeAsync(450)
+            expect(requests).toHaveLength(1)
+            expect(app.retentionActivity().recoveryTimers).toBe(1)
+          }
+          expect(requests[0]!.signal.aborted).toBe(false)
+          expect(app.retentionActivity().recoveries).toBe(1)
           requests[0]!.result.resolve(new Response('{}', { status: 404 }))
           await new Promise<void>((done) => setImmediate(done))
           expect(notices()).toHaveLength(0)
@@ -387,6 +588,8 @@ describe('workflow retention recovery', () => {
           requests[1]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
           await new Promise<void>((done) => setImmediate(done))
           expect(notices()).toHaveLength(0)
+          expect(app.retentionActivity().recoveries).toBe(0)
+          expect(app.retentionActivity().recoveryTimers).toBe(0)
           return
         }
         requests[0]!.result.resolve(new Response('{}', { status: 404 }))
@@ -425,6 +628,7 @@ describe('workflow retention recovery', () => {
         expect(f.entries.get(f.key)).toBe(bytes)
       } finally {
         app.dispose()
+        if (timed) vi.useRealTimers()
       }
     },
   )
@@ -526,6 +730,10 @@ describe('retained app dispatch', () => {
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
         expect(receipts.every((receipt) => receipt.complete)).toBe(true)
+        for (const receipt of receipts) {
+          const journal = localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${receipt.ownerId}`))
+          expect(JSON.parse(journal!)).toMatchObject({ resultCensus: 2, acknowledgedRevision: receipt.revision })
+        }
         expect(receipts.find((receipt) => receipt.sourceToken === undefined)?.digests).toEqual([asset('a').digest])
         for (const receipt of saved.values()) expect(receipts).toContainEqual(receipt)
         expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set(sources.map((source) => source.token)))
@@ -538,7 +746,7 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it.each(['acknowledged', 'lost', 'rejected', 'foreign-job'] as const)(
+  it.each(['acknowledged', 'lost', 'rejected', 'foreign-job', 'quota'] as const)(
     'admits a value through its original full parent source before publication: %s', async (scenario) => {
       const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,
         nodeId: 'n0', outputId: 'images', publication: 3, digests: [asset('a').digest, asset('b').digest], complete: true }
@@ -570,6 +778,15 @@ describe('retained app dispatch', () => {
         return response.promise
       })
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async () => scenario === 'lost' ? saved : undefined)
+      if (scenario === 'quota') {
+        const write = localStorage.setItem.bind(localStorage)
+        vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+          if (key.includes('dinkster.workflow-retentions.execution-result:')) {
+            throw new DOMException('Browser storage quota exceeded', 'QuotaExceededError')
+          }
+          write(key, value)
+        })
+      }
       let published = false
       const pending = backend.connection.values().peek({ jobId: ref.prompt, nodeId: 'n0', outputId: 'images', element: [1] })
         .then((result) => { published = result.available; return result })
@@ -581,7 +798,10 @@ describe('retained app dispatch', () => {
       const result = await pending
       expect(result.available).toBe(scenario === 'acknowledged' || scenario === 'lost')
       if (result.available) expect(result.resultOffer?.digests).toEqual([asset('a').digest, asset('b').digest])
-      else expect(result.reason).toBe('ownership-unconfirmed')
+      else if (scenario === 'quota') {
+        expect(result).toMatchObject({ reason: 'storage-full', error: expect.stringContaining('Browser storage is full') })
+        expect(saved).toBeUndefined()
+      } else expect(result.reason).toBe('ownership-unconfirmed')
     },
   )
 
@@ -1630,6 +1850,35 @@ describe('retained app dispatch', () => {
     expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
   })
 
+  it('keeps numeric increments synchronous and individually undoable beside an asset', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const numericSchema: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+      widget: { widgetType: 'ASSET', options: {} },
+    }, {
+      kind: 'input', id: 'scale', optional: false, type: { kind: 'concrete', name: 'FLOAT' },
+      widget: { widgetType: 'FLOAT', options: {}, default: 1 },
+    }] }
+    const base = session().doc
+    const document = { ...base, graphs: { g0: { ...base.graphs.g0!, nodes: {
+      n0: { ...base.graphs.g0!.nodes.n0!, values: { files: asset('a'), scale: 1 } },
+    } } } }
+    app = createWorkflowApp([numericSchema], document)
+    const tab = app.activeTab()!
+    for (const value of [1.01, 1.02, 1.03]) {
+      const outcome = app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'scale', value,
+      } })
+      expect(outcome).not.toBeInstanceOf(Promise)
+      expect(outcome).toMatchObject({ ok: true })
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ files: asset('a'), scale: value })
+    }
+    for (const value of [1.02, 1.01, 1]) {
+      expect(tab.store.undo()).toBe(true)
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ files: asset('a'), scale: value })
+    }
+  })
+
   it.each(['valid', 'malformed'] as const)('keeps asset-neutral commands synchronous with %s existing identities', async (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const document = session().doc
@@ -1955,6 +2204,48 @@ describe('retained workflow opens', () => {
 })
 
 describe('workflow candidate admission', () => {
+  it('reuses ownership for existing static numeric literals but checks identities and contextual defaults', () => {
+    const numericSchema: NodeSchema = { ...schema, items: [
+      { kind: 'input', id: 'scale', optional: false, type: { kind: 'concrete', name: 'FLOAT' },
+        widget: { widgetType: 'FLOAT', options: {}, default: 1 } },
+      { kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+        widget: { widgetType: 'ASSET', options: {} } },
+    ] }
+    const base = session().doc
+    const document = { ...base, graphs: { g0: { ...base.graphs.g0!, nodes: {
+      n0: { ...base.graphs.g0!.nodes.n0!, values: { scale: 1.25, file: asset('a') } },
+    } } } }
+    const local = createLocalSession(document, coreCommandRegistry([], () => numericSchema))
+    const prepare = (inputId: string, value: core.Json) => {
+      const result = local.prepareDispatch!({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId, value } })
+      if (!result.ok) throw new Error('candidate rejected')
+      return result
+    }
+    const numeric = prepare('scale', 2.75)
+    expect(workflowAssetRootsUnchanged(numeric, () => numericSchema)).toBe(true)
+    const history = { revision: 0, undo: [], redo: [] }
+    expect(workflowAssetRoots(numeric.document, history, () => numericSchema)).toEqual({ complete: true, digests: [asset('a').digest] })
+    expect(workflowAssetRootsUnchanged(prepare('file', asset('b')), () => numericSchema)).toBe(false)
+    expect(workflowAssetRootsUnchanged(prepare('file', 7), () => numericSchema)).toBe(false)
+    const contextual: NodeSchema = { ...numericSchema, items: [...numericSchema.items, {
+      kind: 'output', id: 'entries', type: { kind: 'concrete', name: 'IMAGE' },
+      dynamic: { kind: 'autogrow', count: { input: 'scale', suffix: 'index' }, template: [],
+        naming: { kind: 'prefix', prefix: 'entry', min: 0, max: 5 } },
+    }] }
+    expect(workflowAssetRootsUnchanged(numeric, () => contextual)).toBe(false)
+    expect(workflowAssetRootsUnchanged(numeric, () => undefined)).toBe(false)
+    expect(numeric.commit().ok).toBe(true)
+    expect(local.undo()).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values).toEqual({ scale: 1.25, file: asset('a') })
+    const renamed = local.prepareDispatch!({ command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Renamed asset owner',
+    } })
+    if (!renamed.ok) throw new Error('title candidate rejected')
+    expect(workflowAssetRootsUnchanged(renamed, () => numericSchema)).toBe(true)
+    expect(workflowAssetRoots(renamed.document, history, () => numericSchema))
+      .toEqual({ complete: true, digests: [asset('a').digest] })
+  })
+
   const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const
 
   it('accepts parsed scalar schema metadata without treating it as asset storage', () => {

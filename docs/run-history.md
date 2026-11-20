@@ -73,7 +73,11 @@ Terminal-output hydration claims every sealed output and artifact source before
 installing fetched descriptors. It separately retains the typed producing
 snapshot and source-document digest under an independent shown-result owner.
 The terminal job, attempt, source document and artifact identities must agree;
-missing seals or uncovered outputs withhold publication. A known snapshot can
+missing seals or uncovered outputs withhold publication. Overlapping completion
+notifications share one local admission for the exact terminal record. Repeated
+notifications reuse it only while its complete receipts remain held and their
+journals, backend, registries, project, storage and connection generation remain
+current; a failed admission remains retryable. A known snapshot can
 be complete without reinterpreting an opaque runtime descriptor or an incomplete
 source offer. Compositor resources use the same verified inventory as workflow
 admission. Runs without a producing snapshot and non-terminal reads remain
@@ -92,8 +96,13 @@ refused admission or changed backend lifetime does not authorize retirement.
 Startup restoration uses the same independent sealed-source and snapshot
 acknowledgments after validating history, job, source document, compile proof
 and output descriptors. Every saved receipt is reconciled before publication.
-Saved roots not covered by the new inventories receive separate incomplete
-protection; restoring a result never releases the source window's owners.
+An exact release tombstone permits replacing a complete historical receipt only
+when fresh complete original-source and snapshot inventories cover it. A saved
+source token must match the sealed source; byte presence alone is not authority.
+Unconfirmed, incomplete or changed ownership remains unavailable for retry.
+Saved roots from still-held receipts not covered by the new inventories receive
+separate incomplete protection; restoring a result never releases the source
+window's owners.
 Pending or refused ownership does not publish a restored execution. Backend,
 connection or registry changes and application disposal discard late startup
 results without deleting their saved retry records. A later successful restore

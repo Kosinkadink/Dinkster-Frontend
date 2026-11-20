@@ -50,6 +50,7 @@ function interactionHarness(
     getViewport: () => ({ x: -viewportOffset.x * viewportScale, y: -viewportOffset.y * viewportScale, scale: viewportScale }),
     getDetailLevel: () => viewportScale < 0.5 ? 'overview' : viewportScale < 0.75 ? 'content' : 'controls',
     setViewport: vi.fn(),
+    cancelViewportAnimation: () => undefined,
     setScene: (next: Scene) => {
       currentScene = next
       for (const listener of sceneReplacedListeners) listener(next)

@@ -6,13 +6,18 @@
  * to give up more), clamped to readability floors so neither zone vanishes.
  */
 import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
 import { defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
 
-function fakeCtx() {
+beforeAll(() => {
+  vi.stubGlobal('Path2D', class Path2D { constructor(readonly d: string) {} })
+})
+afterAll(() => vi.unstubAllGlobals())
+
+function fakeCtx(charWidth = 6) {
   const texts: string[] = []
   const textCalls: Array<{ text: string; x: number; y: number; align: CanvasTextAlign; fill: string; font: string }> = []
   const clips: Array<{ x: number; y: number; width: number; height: number }> = []
@@ -31,6 +36,9 @@ function fakeCtx() {
     beginPath: () => { pendingPoints = []; pendingRect = undefined },
     save: () => {},
     restore: () => {},
+    translate: () => {},
+    scale: () => {},
+    arc: () => {},
     moveTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     lineTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     stroke() { strokes.push({ points: [...pendingPoints], strokeStyle: String(this.strokeStyle) }) },
@@ -43,7 +51,7 @@ function fakeCtx() {
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
-    measureText: (t: string) => ({ width: t.length * 6 }),
+    measureText: (t: string) => ({ width: t.length * charWidth }),
     fillText(text: string, x: number, y: number) {
       texts.push(text)
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
@@ -373,7 +381,12 @@ describe('registry painter label/value split', () => {
     expect(texts).toContain('20') // value survives at its minimum reserve
   })
 
-  it('keeps a short ASSET placeholder whole while truncating its long label', () => {
+  it.each([
+    { look: 'inset' as const, width: 112 },
+    { look: 'inset-raised' as const, width: 121 },
+    { look: 'inset-raised' as const, width: 160 },
+  ])('keeps a short ASSET placeholder whole with $look controls and a long label', ({ look, width }) => {
+    const tokens = { ...defaultTokens, widgetRowLook: look }
     const assetKind: WidgetKind = {
       ...stubKind, type: 'ASSET', defaultValue: () => null, defaultView: () => 'core.asset',
     }
@@ -388,17 +401,17 @@ describe('registry painter label/value split', () => {
       kind: (type) => type === 'ASSET' ? assetKind : undefined,
       viewsFor: (type) => type === 'ASSET' ? [assetView] : [],
     }
-    const painted = fakeCtx()
+    const painted = fakeCtx(width === 121 ? 6.05 : 6)
     createRegistryPainter(assetRegistry)({
       ctx: painted.ctx,
       row: {
         ...rowWith(null), label: 'checkpoint model name', viewId: 'core.asset',
         spec: { widgetType: 'ASSET', options: {}, default: null },
       },
-      value: null, x: 0, y: 0, width: 112, rowHeight: 24, connected: false, tokens: defaultTokens,
+      value: null, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
     })
     expect(painted.texts).toContain('no asset')
-    expect(painted.texts[0]).toMatch(/\.\.\.$/)
+    if (width !== 121) expect(painted.texts[0]).toMatch(/\.\.\.$/)
     const placeholder = painted.textCalls.find((call) => call.text === 'no asset')!
     expect(placeholder.fill).toBe(defaultTokens.colors.label)
     expect(placeholder.font).toContain('italic')
@@ -410,7 +423,7 @@ describe('registry painter label/value split', () => {
         ...rowWith(null), label: 'checkpoint model name', viewId: 'core.asset',
         spec: { widgetType: 'ASSET', options: {}, default: null },
       },
-      value: { bad: true }, x: 0, y: 0, width: 112, rowHeight: 24, connected: false, tokens: defaultTokens,
+      value: { bad: true }, x: 0, y: 0, width, rowHeight: 24, connected: false, tokens,
     })
     expect(malformed.texts).toContain('no asset')
   })

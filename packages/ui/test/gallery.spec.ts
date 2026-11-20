@@ -18,6 +18,64 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+test('portable site geometry follows the site scale without changing app density', async ({
+  page,
+}) => {
+  await page.goto('/#controls')
+  for (const width of [1280, 1440, 1920, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    const values = await page.evaluate(() => {
+      const root = document.documentElement
+      root.dataset.density = 'site'
+      const style = getComputedStyle(root)
+      const site = Object.fromEntries(
+        [
+          'navigation-width',
+          'row-button-height',
+          'row-button-mobile-height',
+          'field-height',
+          'main-button-height',
+          'panel-radius',
+          'control-radius',
+          'mobile-top-bar-padding',
+          'status-tint-opacity',
+        ].map((name) => [
+          name,
+          name === 'status-tint-opacity'
+            ? Number(style.getPropertyValue(`--dinkster-site-${name}`))
+            : style.getPropertyValue(`--dinkster-site-${name}`).trim(),
+        ]),
+      )
+      root.dataset.density = 'app'
+      const app = {
+        siteField: getComputedStyle(root)
+          .getPropertyValue('--dinkster-site-field-height')
+          .trim(),
+        input: getComputedStyle(root)
+          .getPropertyValue('--dinkster-input-primary-height')
+          .trim(),
+        body: getComputedStyle(document.body).fontSize,
+      }
+      root.dataset.density = 'site'
+      return { site, app }
+    })
+    expect(values).toEqual({
+      site: {
+        'navigation-width': '220px',
+        'row-button-height': '28px',
+        'row-button-mobile-height': '32px',
+        'field-height': '36px',
+        'main-button-height': '36px',
+        'panel-radius': '8px',
+        'control-radius': '6px',
+        'mobile-top-bar-padding': '8px',
+        'status-tint-opacity': 0.14,
+      },
+      app: { siteField: '', input: '40px', body: '13px' },
+    })
+  }
+})
+
 const background = (locator: Locator) =>
   locator.evaluate((element) => getComputedStyle(element).backgroundColor)
 const token = (page: Page, name: string) =>
@@ -101,7 +159,10 @@ test('account values copy exactly, history expands by keyboard and signed-out sh
   await expect(
     page.getByRole('button', { name: 'Toggle navigation' }),
   ).toHaveCount(0)
-  expect((await page.getByRole('main').boundingBox())!.x).toBe(0)
+  const frame = (await page.locator('.dinkster-shell-body').boundingBox())!
+  const content = (await page.getByRole('main').boundingBox())!
+  expect(content.x).toBe(frame.x)
+  expect(content.width).toBe(frame.width)
   await page.getByRole('link', { name: 'Return to the gallery' }).click()
   await expect(page.getByRole('navigation')).toHaveCount(1)
 })
@@ -578,7 +639,8 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   await page.getByRole('button', { name: 'Review removal' }).click()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click()
   await page.getByRole('link', { name: 'Forms', exact: true }).click()
   await expect(
     page.getByText('Loading selected page', { exact: true }),

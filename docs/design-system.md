@@ -43,6 +43,15 @@ padding. Below the standard breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
 CSS does not implement keyboard interaction or confirmation policy.
 
+The site geometry scale is `siteLayout` in `dinkster-components.json`, projected
+as `--dinkster-site-*` variables only under `data-density="site"`. It defines the
+1040px centered shell, 220px navigation, 36px fields and main buttons, 28px row
+buttons (32px on mobile), 8px panels and 6px controls, along with the site menu,
+authentication card and provider-logo dimensions. `siteInteraction` supplies the
+unitless 0.14 status tint. These variables do not override app geometry or type.
+Site components consume the scale through the shared stylesheet; a token
+addition alone does not change a rendered component.
+
 ## Shared SolidJS components and gallery
 
 `branding/tokens/design-rules.json` owns button roles/fills, message behavior,
@@ -73,9 +82,12 @@ The page lets height, text size and inset vary independently, including a
 continues to use chips. Candidate tab icons and labels choose a light or dark
 foreground against their actual fill, including the hovered fill.
 
-- `ProductShell` owns the full-width frame and responsive navigation. The top
-  bar and sidebar stay in place while the page scrolls; below the breakpoint
-  the top bar stays and the opened navigation scrolls with the page. Its caller
+- `ProductShell` owns the frame and responsive navigation. With site density,
+  its 1040px centered frame contains 220px navigation and a 32px content gap.
+  Its wordmark, Account product label and 32px account circle share that frame.
+  On phones the navigation is a 240px overlay aligned 8px from the window edge;
+  it closes on an outside press, Escape or a choice without moving the page.
+  App density retains the full-width frame. The top bar stays while scrolling. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
   `ProductLoading` until data arrives. Selecting from open mobile navigation
   moves focus into the persistent main region, so loading and loaded content
@@ -166,6 +178,38 @@ navigation contracts, and runs axe on every page at rest and with a menu,
 toast, refused form and dialog showing. `pnpm test:visual` includes these
 checks. Keyboard focus, hover and pressed states are real browser states, not
 simulated CSS classes.
+
+### Centered site patterns
+
+Use these inside `data-density="site"` with the shipped stylesheet:
+
+- `ProductAuthCard` takes `title`, `children` and optional `footer`. It owns a
+  centered 440px card with 28px padding and a 40px wordmark, without top bar or
+  navigation. It does not own submission, OAuth or session logic.
+- `ProductProviderButton` takes `provider` (`github` or `google`), translated
+  children and ordinary button attributes. Its bundled SVG logo is 20px; the
+  button is 220px wide and 36px high. Put providers after the form and "or".
+- `ProductPanel` groups fields or facts inside one bordered 8px panel.
+  `ProductField` children become label/control rows; controls are at most
+  360px wide, and stack below labels on phones. Keep Save outside the panel
+  in `dinkster-actions`, 16px below it and at the right.
+- `ProductStatusPill` takes `tone` (`good`, `warning`, `problem`, `neutral`) and
+  translated children. It is for value/item statuses, not row descriptions.
+  Semantic status colors have a 14% tint; neutral uses the shared hover gray.
+- `ProductAccountMenu.pictureSrc` accepts an optional same-origin HTTP(S)
+  picture. Null, disallowed origins and load failures keep the name initial.
+  No upload or avatar-setting behavior is provided. The site trigger has no
+  visible name or caret, and its menu aligns right edges with a 4px gap.
+- Site selects and disclosures retain native keyboard behavior and draw
+  Lucide chevrons rather than browser triangles.
+
+Gallery routes `#site-security` (alice and the reference Security rows),
+`#site-profile` (grouped fields/Save/facts), `#site-keys` (status/disclosure),
+and `#site-card` (centered sign-in/providers) exercise the shared patterns.
+The Security route has computed-geometry and interaction checks at 1280,
+1440, 1920 and 390px; screenshots are captures, not an approved baseline.
+The canvas gallery uses app density and its full-width shell rather than the
+centered account frame; its fixed-size renderer fixtures retain their space.
 
 ## Shared design build checks
 
@@ -312,6 +356,14 @@ wrapping footer that stacks at narrow widths. These primitives own structure
 and semantic-token styling only; callers retain value, validation, command,
 and request lifecycle ownership.
 
+`ProductTextInput` accepts `density="canvas"` for an opt-in 24px field with
+12px text from the shared tokens. The default app field remains 40px and the
+site field remains 36px. The canvas variant retains native string values,
+`inputMode`, field associations, validation, focus, disabled and read-only
+behavior; it does not parse numbers. Core widget rows in the gallery shows
+the actual primitive beside the default field, with exact integer strings,
+decimal input and unavailable/invalid states. Canvas editors do not adopt it.
+
 ## Product primitive catalog
 
 Every host control uses one of these primitives. A native control or styling
@@ -426,13 +478,13 @@ not grow. This inventory is a migration queue, not a second component system.
 | Family      | Roles                                                                                           |
 | ----------- | ----------------------------------------------------------------------------------------------- |
 | Space       | 4, 8, 12, 16, 24, 32 px                                                                         |
-| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
+| Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, strong, focus, selected                                                                 |
 | Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
-| Interaction | 32 px compact control, 40 px primary input, 2 px focus ring, hover, pressed, selected, disabled |
+| Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
 | Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
 | Elevation   | low and high only                                                                               |
 
@@ -663,6 +715,23 @@ not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
+Core widget rows compares selected, empty and long values for the core kinds.
+The default `widgetRowLook: 'inset-raised'` keeps direct values in inset fields
+and gives color and asset openers raised faces, kind icons and an opening
+chevron. Their real swatches and value summaries are preserved. Core row look
+compares these current rows with previous all-inset paint on the same fixture;
+that comparison does not change other pages. Number paint is unchanged; this
+is not a proposed number editor or approval of its appearance.
+
+Collection widget rows proposal compares the current inset collection rows with
+raised multi-choice, list, palette and curve openers. Only that gallery page
+selects `widgetRowLook: 'inset-raised-collections'`. It uses selected, empty or
+minimal, and long or varied document values: selection counts, literal list
+values, palette swatches and counts, and sampled curves with point counts and
+interpolation. Curves require at least one point, so the minimal fixture is a
+flat one-point curve. Production defaults, other pages and editors do not use
+the proposal. Collection row look switches both paints on the same document.
+
 The Idle outline page compares Previous outline with Quieter outline (current)
 on idle, hovered and selected nodes. The app and gallery default to the shared
 subtle idle border; the Previous outline selector overrides only that page's
@@ -889,6 +958,44 @@ frontend wheel, covered by its version and wheel hash. Template configuration
 placeholders must be HTML-attribute escaped by the service. No Node tooling is
 required by the Python consumer. The renderer reports only fixed route/timing
 events through the shared no-send reporting function.
+
+### One-response callback page
+
+`callback.html` is a static rendering of `ProductAuthCard` and `ProductLink`.
+It embeds the shared stylesheet, bundled Noto faces and color wordmark, with no
+scripts or follow-up asset requests. A loopback listener may close immediately
+after its response. The page always includes a return-to-Dinkster link.
+
+The `dinkster.site/1` manifest hashes the unbound template in `files` and provides
+`callback.template`, `callback.csp`, `callback.textSlots` and
+`callback.destinationSlot`. The existing frontend wheel version and SHA-256
+identify the distribution. The wheel packager requires the callback template and
+checks its manifest slots, digest and exact embedded-style CSP before producing
+a release. Consumers also verify the template hash before binding values.
+
+Replace all slots simultaneously in one pass (not repeated replacements):
+
+- `__CALLBACK_HEADING__`: heading, accessible card label and document title.
+- `__CALLBACK_MESSAGE__`: terminal outcome, as plain text.
+- `__CALLBACK_RETURN_LABEL__`: link label, normally "Return to Dinkster".
+- `__CALLBACK_RETURN_URL__`: destination in a double-quoted `href` attribute.
+
+HTML-escape every value, including both quote characters, `&`, `<` and `>`.
+Text slots never accept markup or a URL. Slot-like text inside a supplied value
+stays literal. The engine must validate and capture the originating HTTP(S) app
+root before starting authorization, without credentials, query or fragment, then
+attribute-escape it for the destination slot. The provider's `flow.redirect` is
+the callback endpoint, not the app return destination. Escaping alone does not
+validate a destination; do not bind untrusted provider URLs to this slot.
+
+Serve as UTF-8 HTML with `Cache-Control: no-store`, `X-Content-Type-Options:
+nosniff` and `Referrer-Policy: no-referrer`. Use the manifest's exact CSP as a
+response header, optionally adding `frame-ancestors 'none'` there (not supported
+in a meta policy). The same CSP is embedded before content: deny by default,
+only the exact stylesheet SHA-256 allowed, `data:` images/fonts, no base URL or
+form submission. It permits no scripts, connections, external assets or inline
+style attributes. Binding the slots does not change the stylesheet hash. Do not
+add a service policy that permits extra sources or substitute style content.
 
 ## Replacement rule
 
