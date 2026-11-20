@@ -295,21 +295,22 @@ it('bounds install planning and forwards cancellation without retrying apply', a
 
 it('cancels a late preparation acknowledgement after the caller stops waiting', async () => {
   let acknowledge!: (response: Response) => void
-  const calls: string[] = []
-  const fetchFn: FetchLike = async (url) => {
-    calls.push(url)
+  const calls: { url: string; body: unknown }[] = []
+  const fetchFn: FetchLike = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init!.body as string) })
     if (url.endsWith('/prepare')) return new Promise((resolve) => { acknowledge = resolve })
     return jsonResponse(200, { state: 'cancelled' })
   }
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
     webSocketFactory: () => ({}) as WebSocketLike })
   const controller = new AbortController()
-  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal)).rejects.toThrow('Aborted')
+  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal, undefined, 'only-project')).rejects.toThrow('Aborted')
   controller.abort(new Error('Aborted'))
   await stopped
   acknowledge(jsonResponse(202, { preparation: 'late-preparation', state: 'preparing' }))
   await vi.waitFor(() => expect(calls).toEqual([
-    '/selected/api/packs/install/prepare', '/selected/api/packs/install/preparation/cancel',
+    { url: '/selected/api/packs/install/prepare', body: { packs: [{ pack: 'image', version: '1' }], scope: 'only-project' } },
+    { url: '/selected/api/packs/install/preparation/cancel', body: { preparation: 'late-preparation' } },
   ]))
 })
 
