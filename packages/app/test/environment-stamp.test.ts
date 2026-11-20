@@ -281,7 +281,7 @@ describe('workflow-open requirements', () => {
     expect(savedExtra).toEqual(['other-window-choice'])
   })
 
-  it('prepares one exact project software review without enabling or installing packs', async () => {
+  it.each([undefined, 'every-project', 'only-project'] as const)('prepares one exact project software review with scope %s without enabling or installing packs', async (scope) => {
     app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
@@ -299,10 +299,12 @@ describe('workflow-open requirements', () => {
     let running = originalEnvironment
     vi.spyOn(backend.connection, 'activeEnvironment').mockImplementation(async () => running)
     let selections: readonly { pack: string; version: string }[] = []
+    let preparedScope: string | undefined
     let enabled: readonly string[] = ['kept']
     let installed = false
-    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async (packs, _signal, progress) => {
+    vi.spyOn(backend.connection, 'planPackInstall').mockImplementation(async (packs, _signal, progress, requestedScope) => {
       selections = packs
+      preparedScope = requestedScope
       progress?.({ stage: 'retaining-review', sequence: 1, completed: 1, total: 1 })
       return prepared
     })
@@ -312,7 +314,9 @@ describe('workflow-open requirements', () => {
     })
     vi.spyOn(backend.connection, 'applyPackInstall').mockImplementation(async () => { installed = true; throw new Error('unexpected apply') })
     const progress: string[] = []
-    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage))).toMatchObject({ installation: prepared, affectedProjects: null })
+    expect(await app.reviewProjectPackInstallation(review, new AbortController().signal, (value) => progress.push(value.stage), scope))
+      .toMatchObject({ installation: prepared, affectedProjects: null, ...(scope === undefined ? {} : { scope }) })
+    expect(preparedScope).toBe(scope)
     expect(selections).toEqual([{ pack: 'different', version: '2.0' }, { pack: 'absent', version: '3.0' }])
     expect(progress).toEqual(['retaining-review'])
     expect(enabled).toEqual(['kept'])

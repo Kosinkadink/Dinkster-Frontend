@@ -2453,6 +2453,7 @@ export interface ProjectPackInstallationReview {
   readonly installation: PackInstallPlan
   readonly expiresAt: number
   readonly affectedProjects: readonly LibraryProject[] | null
+  readonly scope?: 'every-project' | 'only-project'
 }
 
 export interface ProjectNeedsReview {
@@ -8267,7 +8268,7 @@ export class AppState {
   }
 
   async reviewProjectPackInstallation(review: ProjectNeedsReview, signal: AbortSignal,
-    onProgress: (progress: PackPreparationProgress) => void): Promise<ProjectPackInstallationReview> {
+    onProgress: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<ProjectPackInstallationReview> {
     const current = (): void => {
       signal.throwIfAborted()
       if (this.projectNeedsReview.get() !== review || !review.current()) throw new Error(t('projectNeeds.changed'))
@@ -8296,12 +8297,13 @@ export class AppState {
     const plan = await review.backend.connection.planPackInstall(packs, signal, (progress) => {
       current()
       onProgress(progress)
-    })
+    }, scope)
     const expiresAt = performance.now() + plan.expiresInSeconds * 1000
     await recheck()
     if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
+    const prepared = { installation: plan, expiresAt, ...(scope === undefined ? {} : { scope }) }
     const impact = plan.plan['format'] === 'dinkster.project-pack-plan/1' ? plan.plan.packChanges : undefined
-    if (impact == null || environment === null) return { installation: plan, expiresAt, affectedProjects: null }
+    if (impact == null || environment === null) return { ...prepared, affectedProjects: null }
     const changed = new Set(impact.map(({ pack }) => pack))
     const readProjects = async (): Promise<readonly LibraryProject[]> => {
       const projects = new Map<string, LibraryProject>()
@@ -8347,7 +8349,7 @@ export class AppState {
     if (JSON.stringify(await readProjects()) !== JSON.stringify(projects)) throw new Error(t('projectNeeds.changed'))
     await recheck()
     if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
-    return { installation: plan, expiresAt, affectedProjects: known ? affected : null }
+    return { ...prepared, affectedProjects: known ? affected : null }
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
