@@ -93,7 +93,11 @@ or document replacements invalidate it. Successful enablement shows a dismissibl
 success toast and refreshes the scoped node catalog.
 
 Review installation prepares an exact-version software review through the existing
-host installation API. It does not apply the plan, enable packs, or run a workflow.
+host installation API. It does not apply the plan, enable packs, or run a workflow. The installation
+client can send an explicit `every-project` or `only-project` scope during
+preparation. Omitting scope preserves the non-project host contract; it does not
+choose shared consent. Status and cancellation use only the preparation identity,
+and Apply sends only the host-retained confirmation, never a replacement scope.
 Unknown needs, unrecorded versions and conflicting versions require correction
 before preparation. Project revision and installed facts are checked before and
 after preparation; changed or dismissed reviews cannot publish a stale plan.

@@ -179,6 +179,32 @@ it.each([
   expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
 })
 
+it.each(['every-project', 'only-project'] as const)('retains explicit %s consent in preparation, not status or Apply', async (scope) => {
+  const packs = [{ pack: 'image', version: '3.2' }]
+  const plan = { confirmation: 'retained-scope-token', plan: { format: 'dinkster.project-pack-plan/1' },
+    review: 'Reviewed project scope', expiresInSeconds: 900 }
+  const calls: { action: string; body: unknown }[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async (url, init) => {
+      const action = url.split('/install/')[1]!
+      calls.push({ action, body: JSON.parse(init!.body as string) })
+      if (action === 'prepare') return jsonResponse(202, { preparation: 'preparation-1', state: 'preparing',
+        progress: { sequence: 1, stage: 'resolving', completed: 0, total: 1 } })
+      if (action === 'preparation/status') return jsonResponse(200, preparedReview(plan))
+      return jsonResponse(200, { generation: 3, activation: { generation: 3, epoch: 7, added: ['image'],
+        removed: [], reloaded: [], unchanged: [], failed: {}, rolledBack: false } })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const reviewed = await connection.planPackInstall(packs, undefined, undefined, scope)
+  expect(reviewed).toEqual(plan)
+  if (reviewed.commands !== undefined) throw new Error('Expected a gateway confirmation')
+  expect((await connection.applyPackInstall(reviewed.confirmation)).activation.added).toEqual(['image'])
+  expect(calls).toEqual([
+    { action: 'prepare', body: { packs, scope } },
+    { action: 'preparation/status', body: { preparation: 'preparation-1' } },
+    { action: 'apply', body: { confirmation: 'retained-scope-token' } },
+  ])
+})
+
 it.each([
   {}, 'unknown', [null],
   [{ pack: '', kind: 'added', sourceChanged: true, dependenciesChanged: false }],

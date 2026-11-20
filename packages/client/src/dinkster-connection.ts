@@ -3360,7 +3360,7 @@ export class DinksterConnection {
 
   /** Request a review with terminal commands or a gateway confirmation; never apply. */
   async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[], signal?: AbortSignal,
-    onProgress?: (progress: PackPreparationProgress) => void): Promise<PackInstallPlan> {
+    onProgress?: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<PackInstallPlan> {
     let preparation: string | undefined
     let abandoned = false
     let cancelSent = false
@@ -3373,7 +3373,7 @@ export class DinksterConnection {
     let body: Record<string, unknown>
     try {
       let snapshot = await requestWithDeadline(async (deadline) => {
-        const started = await this.packInstallRequest('prepare', { packs: packs.map(({ pack, version }) => ({ pack, version })) }, deadline)
+        const started = await this.packInstallRequest('prepare', { packs: packs.map(({ pack, version }) => ({ pack, version })), ...(scope === undefined ? {} : { scope }) }, deadline)
         if (typeof started['preparation'] === 'string') preparation = started['preparation']
         if (abandoned || signal?.aborted) cancel()
         return started
