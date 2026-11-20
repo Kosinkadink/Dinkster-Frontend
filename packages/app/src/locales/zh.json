@@ -15,6 +15,7 @@
   "projectNeeds.everyProject": "使用此环境的所有项目",
   "projectNeeds.onlyProject": "仅此项目",
   "projectNeeds.reviewOnly": "这只是软件方案检查，并非安装。环境和项目启用的节点包均未改变。",
+  "projectNeeds.impactIsolated": "此方案为当前项目创建独立环境，其他项目仍使用原来的环境。",
   "projectNeeds.impactUnknown": "无法确定其他受影响的项目。请勿将此方案视为对共享环境安全。",
   "projectNeeds.impactNone": "此方案不会影响其他项目已记录的节点包需求。",
   "projectNeeds.impactShared": "此方案会更改同一环境中以下其他项目使用的节点包：",

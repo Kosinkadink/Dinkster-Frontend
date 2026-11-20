@@ -104,7 +104,9 @@ choose shared consent. Status and cancellation use only the preparation identity
 and Apply sends only the host-retained confirmation, never a replacement scope.
 In a Desktop project window, the local engine review requires an explicit
 Every project on it or Only this project choice, with no default. Changing the
-choice discards the completed review and requires preparation again. Browser
+choice discards the completed review and requires preparation again. An isolated
+review describes a separate environment and does not list other projects as
+changed; the shared review lists affected projects. Browser
 and remote-engine reviews keep their terminal-only, unscoped contract.
 Project needs preparation retains that requested scope alongside the completed
 review and its remaining lifetime. Scope does not bypass the project, installed

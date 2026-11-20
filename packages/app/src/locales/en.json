@@ -15,6 +15,7 @@
   "projectNeeds.everyProject": "Every project on it",
   "projectNeeds.onlyProject": "Only this project",
   "projectNeeds.reviewOnly": "This is a software review, not an installation. No environment or project pack selection has changed.",
+  "projectNeeds.impactIsolated": "This plan builds a separate environment for this project. Other projects stay on their current environment.",
   "projectNeeds.impactUnknown": "Other affected projects could not be determined. Do not treat this review as safe for a shared environment.",
   "projectNeeds.impactNone": "No other project's recorded pack needs are affected by this plan.",
   "projectNeeds.impactShared": "This plan changes packs used by these other projects on the same environment:",

@@ -113,9 +113,10 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
       <Show when={preparing()}><p role="status"><PackPreparationStatus progress={progress()} /></p></Show>
       <Show when={plan()}>{(reviewed) => <>
         <ProductNotice>{message('projectNeeds.reviewOnly')}</ProductNotice>
-        <ProductNotice>{message(reviewed().affectedProjects === null ? 'projectNeeds.impactUnknown'
-          : reviewed().affectedProjects?.length === 0 ? 'projectNeeds.impactNone' : 'projectNeeds.impactShared')}</ProductNotice>
-        <Show when={reviewed().affectedProjects}>{(projects) => <ul class="projects-dialog-list">
+        <ProductNotice>{message(reviewed().scope === 'only-project' ? 'projectNeeds.impactIsolated'
+          : reviewed().affectedProjects === null ? 'projectNeeds.impactUnknown'
+            : reviewed().affectedProjects?.length === 0 ? 'projectNeeds.impactNone' : 'projectNeeds.impactShared')}</ProductNotice>
+        <Show when={reviewed().scope !== 'only-project' && reviewed().affectedProjects}>{(projects) => <ul class="projects-dialog-list">
           <For each={projects()}>{(project) => <li><ProductListRow primary={project.name} /></li>}</For>
         </ul>}</Show>
         <pre class="node-install-review">{reviewed().installation.review}</pre>
