@@ -459,6 +459,9 @@ export const canvasPaintTokens = {
     connectedControllerOpacity: 0.5,
     connectedGlyphOpacity: 0.35,
     stepperStroke: 1.5,
+    rangeFillAccentOpacity: 0.2,
+    dragLineStroke: 2,
+    modeWordGap: canvasSemanticTokens.space[8],
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
@@ -520,6 +523,13 @@ export interface DesignTokens {
   readonly fontSize: number
   readonly titleFontSize: number
   readonly widgetRowLook: 'inset' | 'inset-raised' | 'inset-raised-collections'
+  /**
+   * How number, single-line text and seed rows are edited: in a card under
+   * the row, or in the row itself. In-row editing tints a slider's fill with
+   * the accent at rest and names a seed's mode before its value instead of
+   * drawing the mode chip.
+   */
+  readonly widgetEditing: 'card' | 'in-row'
   readonly badgeLayout: 'chips' | 'tabs'
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
@@ -556,6 +566,8 @@ export interface DesignTokens {
     readonly widgetAffordanceActive: string
     /** Low-contrast bounded-numeric value-zone fill. */
     readonly widgetRangeFill: string
+    /** Slider fill under in-row editing: the accent, tinted into the field. */
+    readonly widgetRangeFillAccent: string
     readonly linkDefault: string
     readonly selection: string
     /**
@@ -658,6 +670,7 @@ export const defaultTokens: DesignTokens = {
   fontSize: 12,
   titleFontSize: 13,
   widgetRowLook: 'inset-raised',
+  widgetEditing: 'card',
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
@@ -704,6 +717,13 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
   }
 }
 
+/** `#rrggbb` at an opacity, as an rgba() paint value. */
+function accentTint(color: string, opacity: number): string {
+  const hex = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color)
+  if (!hex) return color
+  return `rgba(${Number.parseInt(hex[1]!, 16)}, ${Number.parseInt(hex[2]!, 16)}, ${Number.parseInt(hex[3]!, 16)}, ${opacity})`
+}
+
 export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
   const tokens = semanticTokensForTheme(theme)
   return {
@@ -723,6 +743,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
+    widgetRangeFillAccent: accentTint(tokens.border.focus, canvasPaintTokens.widget.rangeFillAccentOpacity),
     // Link and execution-mode semantics do not change with shell themes.
     linkDefault: '#8d9aa5',
     mutedBadge: '#4a4a5e',

@@ -489,7 +489,16 @@ export interface WidgetPaintArgs {
   readonly connected: boolean
   /** True only while the pointer is over this complete widget row. */
   readonly hovered?: boolean
+  /** The row is being dragged; `value` is the value under the pointer, not yet stored. */
+  readonly dragging?: boolean
   readonly tokens: DesignTokens
+}
+
+/** A row the pointer is dragging, painted with the value under the pointer until release stores it. */
+export interface RowDrag {
+  readonly nodeId: string
+  readonly valueKey: string
+  readonly value: Json
 }
 
 export type WidgetPainter = (args: WidgetPaintArgs) => void
@@ -1068,6 +1077,13 @@ export class CanvasRenderer {
    */
   setRowMarks(marks: RowMarkMap): void {
     this.updateNodePaint(this.rowMarks, marks, () => { this.rowMarks = marks })
+  }
+
+  private rowDrags: Readonly<Record<string, RowDrag>> = {}
+
+  setRowDrag(drag: RowDrag | undefined): void {
+    const next = drag === undefined ? {} : { [drag.nodeId]: drag }
+    this.updateNodePaint(this.rowDrags, next, () => { this.rowDrags = next })
   }
 
   private lensCapabilities: RendererLensCapabilities = {}
@@ -3404,12 +3420,14 @@ export class CanvasRenderer {
           if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
           const hovered = this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
             this.overlay.hoveredWidget.valueKey === row.valueKey
+          const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
           this.paintWidget({
             ctx,
             row,
             // Selector rows (DynamicCombo) carry their value on the row itself;
             // everything else persists under the row's value key.
-            value: row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
+            value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
+            ...(drag !== undefined ? { dragging: true } : {}),
             ...(companion !== undefined ? { companion } : {}),
             ...(companion !== undefined ? { companionAlpha } : {}),
             x: node.x + row.inset,
@@ -3444,7 +3462,9 @@ export class CanvasRenderer {
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.stroke()
           }
-          if (row.controllerMode !== undefined) {
+          const numericRow = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+          // In-row editing names a number's mode before its value instead of drawing the chip.
+          if (row.controllerMode !== undefined && !(numericRow && t.widgetEditing === 'in-row')) {
             const chip = controllerChipRect(widgetWidth, t.rowHeight)
             const x = node.x + row.inset + chip.x
             const y = rowY + chip.y

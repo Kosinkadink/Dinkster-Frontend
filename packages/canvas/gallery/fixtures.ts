@@ -57,6 +57,7 @@ export const canvasGalleryPages = [
   ['types', 'Pins and links'],
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
+  ['row-editing', 'Editing in the row proposal'],
   ['collection-rows', 'Collection widget rows proposal'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
@@ -1050,4 +1051,101 @@ export function createCanvasGalleryFixture(
     return node ? { ...label, x: node.x, y: node.y - 24 } : label
   })
   return fixture
+}
+
+/** The node the row-editing page opens fields on: a number, a slider, a seed and a single-line text. */
+export const rowEditingSchema: NodeSchema = schema('Sample image', [
+  { kind: 'input', id: 'model', type: concrete('MODEL'), optional: false },
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    ...widget('seed', 'INT', 123456789, { min: 0, max: 4294967295 }),
+    tooltip: 'Starting point of the noise.',
+    widget: {
+      widgetType: 'INT',
+      options: { min: 0, max: 4294967295 },
+      default: 0,
+      controller: 'after_generate',
+    },
+  },
+  {
+    ...widget('steps', 'INT', 20, { min: 1, max: 10000 }),
+    tooltip: 'Number of denoising steps.',
+  },
+  {
+    ...widget('cfg', 'FLOAT', 7, { min: 0, max: 100, step: 0.01 }),
+    tooltip: 'How closely the image follows the prompt.',
+  },
+  {
+    ...widget('denoise', 'FLOAT', 1, {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      display: 'slider',
+    }),
+    tooltip: 'How much of the input image is replaced.',
+  },
+  {
+    ...widget('filename_prefix', 'STRING', 'Dinkster'),
+    tooltip: 'Start of every saved file name.',
+  },
+])
+
+/** One node of the row-editing page, laid out by the production scene builder. */
+export function createRowEditingScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  values: Record<string, Json> = {},
+): Scene {
+  const id = 'Sample image'
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery',
+    root: 'gallery',
+    graphs: {
+      gallery: {
+        id: 'gallery',
+        name: 'Gallery',
+        nextOrdinal: 2,
+        nodes: {
+          [id]: {
+            id,
+            type: rowEditingSchema.type,
+            values: {
+              ...defaultValuesOf(rowEditingSchema),
+              seed: 123456789,
+              denoise: 0.65,
+              ...values,
+            },
+          },
+        },
+        links: {},
+        nets: {},
+        reroutes: {},
+      },
+    },
+    view: {
+      graphs: {
+        gallery: {
+          nodes: {
+            [id]: { position, size: { width: 280, height: 0 } },
+          },
+        },
+      },
+    },
+  })
+  if (!loaded.document)
+    throw new Error(`Invalid row editing document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document: loaded.document,
+    graphId: 'gallery',
+    resolve: (type) =>
+      type === rowEditingSchema.type ? rowEditingSchema : undefined,
+    tokens,
+    measure,
+    widgetMeasure,
+    seedControllerEnabled: true,
+  })
 }

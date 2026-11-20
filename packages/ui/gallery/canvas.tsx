@@ -36,6 +36,7 @@ import {
   ProductSection,
   ProductTextInput,
 } from '../src/index.js'
+import { RowEditingGallery } from './row-editing.js'
 
 export function CanvasGallery() {
   const [theme, setTheme] = createSignal<'dark' | 'light'>('dark')
@@ -78,6 +79,7 @@ export function CanvasGallery() {
       currentPage === 'run-editable' ||
       currentPage === 'run-frozen'
     document.documentElement.dataset.theme = currentTheme
+    if (currentPage === 'row-editing') return
     let disposed = false
     let renderer: CanvasRenderer | undefined
     let removeBadgeListeners: (() => void) | undefined
@@ -561,21 +563,36 @@ export function CanvasGallery() {
           )}
         </ProductField>
       </Show>
-      <ProductSection
-        title={canvasGalleryPages.find(([id]) => id === page())![1]}
+      <Show
+        when={page() !== 'row-editing'}
+        fallback={
+          <>
+            <p class="dinkster-description">
+              Number, single-line text and seed rows become their own field
+              when clicked, with their limits beside the node. Painted by the
+              production CanvasRenderer with the in-row field over it; the
+              product still edits these rows in a card.
+            </p>
+            <RowEditingGallery theme={theme()} />
+          </>
+        }
       >
-        <p class="dinkster-description">
-          Fixed examples painted by the production CanvasRenderer and registered
-          widget views, without a backend.
-        </p>
-        <div class="dinkster-table-scroll">
-          <canvas
-            ref={canvas}
-            role="img"
-            aria-label={`${page()} in ${theme()} theme`}
-          />
-        </div>
-      </ProductSection>
+        <ProductSection
+          title={canvasGalleryPages.find(([id]) => id === page())![1]}
+        >
+          <p class="dinkster-description">
+            Fixed examples painted by the production CanvasRenderer and
+            registered widget views, without a backend.
+          </p>
+          <div class="dinkster-table-scroll">
+            <canvas
+              ref={canvas}
+              role="img"
+              aria-label={`${page()} in ${theme()} theme`}
+            />
+          </div>
+        </ProductSection>
+      </Show>
       <Show when={page() === 'core-rows'}>
         <ProductSection
           title="Canvas text input"

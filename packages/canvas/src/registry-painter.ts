@@ -78,6 +78,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const inRow = tokens.widgetEditing === 'in-row'
+    // In-row editing names a number's after-run mode before its value instead of drawing the chip.
+    const modeWord = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
     const openerIcon = tokens.widgetRowLook !== 'inset'
       ? row.viewId === 'core.asset' ? 'image'
         : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
@@ -128,7 +131,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
-    const controller = row.controllerMode !== undefined
+        + (modeWord === undefined ? 0 : measureWidth(ctx, modeWord) + paint.modeWordGap)
+    const controller = row.controllerMode !== undefined && modeWord === undefined
       ? controllerChipRect(width, rowHeight)
       : undefined
     const valueRight = controller === undefined ? width - rightControl : controllerChipTextRight(width, rowHeight)
@@ -187,8 +191,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.beginPath()
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.clip()
-            ctx.fillStyle = tokens.colors.widgetRangeFill
+            ctx.fillStyle = inRow ? tokens.colors.widgetRangeFillAccent : tokens.colors.widgetRangeFill
             ctx.fillRect(chrome.x, chrome.y, chrome.width * fraction, chrome.height)
+            if (inRow && args.dragging === true) {
+              // A bright edge marks the fill while the pointer holds it.
+              ctx.fillStyle = tokens.colors.widgetAffordanceActive
+              ctx.fillRect(chrome.x + chrome.width * fraction - paint.dragLineStroke, chrome.y, paint.dragLineStroke, chrome.height)
+            }
             ctx.restore()
             return
           }
@@ -280,7 +289,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             if (clipBottom > clipTop) {
               ctx.save()
               const placeholder = style['placeholder'] === true
-              ctx.fillStyle = placeholder ? tokens.colors.label : tokens.colors.value
+              const role = style['role']
+              // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
+              const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
+              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
@@ -288,7 +300,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
-              const role = style['role']
+              if (modeWord !== undefined && role === 'widgetValue' && alignRight) {
+                // Words about a value come before it, so values line up at the right.
+                ctx.fillStyle = tokens.colors.label
+                ctx.fillText(modeWord, textX - measureWidth(ctx, text) - paint.modeWordGap, textY)
+              }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)
               }
@@ -342,6 +358,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       { focused: false, connected: args.connected, readonly: true },
     )
     if (declaredSlider) paintLabel()
+    if (inRow && args.dragging === true && numeric && !declaredSlider) {
+      ctx.fillStyle = tokens.colors.widgetAffordanceActive
+      ctx.fillRect(chrome.x, chrome.y + chrome.height - paint.dragLineStroke, chrome.width, paint.dragLineStroke)
+    }
     const visibleHeight = Math.max(0, multilineBottom - multilineTop - multilinePadding * 2)
     const contentHeight = multilineVisualRows * multilineHeight
     if (multiline && args.hovered && contentHeight > visibleHeight) {
