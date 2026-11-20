@@ -50,6 +50,99 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
 })
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`Canvas text input preserves shared behavior at compact density, ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto('/#canvas')
+    await page
+      .getByRole('button', {
+        name: `${theme === 'dark' ? 'Dark' : 'Light'} theme`,
+        exact: true,
+      })
+      .click()
+    await page
+      .getByRole('button', { name: 'Core widget rows', exact: true })
+      .click()
+    const sample = page.getByRole('region', {
+      name: 'Canvas text input',
+      exact: true,
+    })
+    const seed = sample.getByRole('textbox', {
+      name: 'Canvas seed',
+      exact: true,
+    })
+    const ordinary = sample.getByRole('textbox', {
+      name: 'Default field',
+      exact: true,
+    })
+    for (const density of ['app', 'site']) {
+      await page.evaluate((density) => {
+        document.documentElement.dataset.density = density
+      }, density)
+      expect(
+        await ordinary.evaluate(
+          (element) => element.getBoundingClientRect().height,
+        ),
+      ).toBe(density === 'app' ? 40 : 36)
+      expect(
+        await seed.evaluate((element) => ({
+          height: element.getBoundingClientRect().height,
+          fontSize: getComputedStyle(element).fontSize,
+        })),
+      ).toEqual({ height: 24, fontSize: '12px' })
+    }
+    await expect(seed).toHaveValue('18446744073709551615')
+    await expect(seed).toHaveAttribute('inputmode', 'numeric')
+    await seed.fill('9007199254740993')
+    await expect(seed).toHaveValue('9007199254740993')
+    const decimal = sample.getByRole('textbox', {
+      name: 'Canvas decimal',
+      exact: true,
+    })
+    await expect(decimal).toHaveAttribute('inputmode', 'decimal')
+    await decimal.fill('-0.000125')
+    await expect(decimal).toHaveValue('-0.000125')
+    await expect(
+      sample.getByRole('textbox', {
+        name: 'Unavailable canvas field',
+        exact: true,
+      }),
+    ).toBeDisabled()
+    await expect(
+      sample.getByRole('textbox', {
+        name: 'Read-only canvas field',
+        exact: true,
+      }),
+    ).not.toBeEditable()
+    const invalid = sample.getByRole('textbox', {
+      name: 'Invalid canvas field',
+      exact: true,
+    })
+    await expect(invalid).toHaveAttribute('aria-invalid', 'true')
+    await expect(invalid).toHaveAccessibleDescription('Enter a numeric value.')
+    await seed.focus()
+    await page.keyboard.press('End')
+    await expect(seed).toBeFocused()
+    expect(
+      await seed.evaluate((element) => getComputedStyle(element).outlineStyle),
+    ).toBe('solid')
+    await expect(sample).toHaveScreenshot(`canvas-text-input-${theme}.png`)
+    await page.setViewportSize({ width: 390, height: 1000 })
+    expect(
+      await sample.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        return [...element.querySelectorAll('input')].every((input) => {
+          const field = input.getBoundingClientRect()
+          return field.left >= bounds.left && field.right <= bounds.right
+        })
+      }),
+    ).toBe(true)
+    await expect(sample).toHaveScreenshot(
+      `canvas-text-input-narrow-${theme}.png`,
+    )
+  })
+
   test(`Tab dimensions are adjustable only in the proposal, ${theme}`, async ({
     page,
   }) => {
