@@ -19,6 +19,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
   const [plan, setPlan] = createSignal<ProjectPackInstallationReview>()
   const [progress, setProgress] = createSignal<PackPreparationProgress>()
   const [preparing, setPreparing] = createSignal(false)
+  const [applying, setApplying] = createSignal(false)
   const [scope, setScope] = createSignal<'every-project' | 'only-project'>()
   const projectScope = desktopFileBridge() !== undefined &&
     new URL(window.location.href).searchParams.get('dinksterProject') === props.review.project.id &&
@@ -58,9 +59,9 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
     const approved = plan()
     if (busy() || uncertain() || !projectScope || approved?.scope !== scope() || approved?.installation.confirmation === undefined) return
     clearTimeout(expiry)
-    setPlan(undefined)
-    if (performance.now() >= approved.expiresAt) { setError(message('search.installExpired')); return }
+    if (performance.now() >= approved.expiresAt) { setPlan(undefined); setError(message('search.installExpired')); return }
     setBusy(true)
+    setApplying(true)
     setError(undefined)
     try { await props.app.applyReviewedProjectPacks(props.review, approved) }
     catch (cause) {
@@ -68,10 +69,10 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
         setUncertain(props.app.projectPackInstallations.has(props.review.backend))
         setError(cause instanceof Error ? cause.message : String(cause))
       }
-    } finally { if (!disposed) setBusy(false) }
+    } finally { if (!disposed) { setPlan(undefined); setApplying(false); setBusy(false) } }
   }
   const enable = async (): Promise<void> => {
-    if (busy()) return
+    if (busy() || uncertain()) return
     setBusy(true)
     setError(undefined)
     try { await props.app.enableReviewedProjectPacks(props.review) }
@@ -130,7 +131,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
       </Show>
       <Show when={preparing()}><p role="status"><PackPreparationStatus progress={progress()} /></p></Show>
       <Show when={plan()}>{(reviewed) => <>
-        <ProductNotice>{message('projectNeeds.reviewOnly')}</ProductNotice>
+        <Show when={!applying()}><ProductNotice>{message('projectNeeds.reviewOnly')}</ProductNotice></Show>
         <ProductNotice>{message(reviewed().scope === 'only-project' ? 'projectNeeds.impactIsolated'
           : reviewed().affectedProjects === null ? 'projectNeeds.impactUnknown'
             : reviewed().affectedProjects?.length === 0 ? 'projectNeeds.impactNone' : 'projectNeeds.impactShared')}</ProductNotice>
@@ -139,12 +140,12 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
         </ul>}</Show>
         <pre class="node-install-review">{reviewed().installation.review}</pre>
       </>}</Show>
-      <ProductActionFooter>
+      <ProductActionFooter status={applying() ? <span role="status">{message('search.installWorking')}</span> : undefined}>
         <Show when={canConfirm()}>
           <ProductButton variant="primary" loading={busy()} disabled={busy() || uncertain()} onClick={() => { void apply() }}>{message('search.installConfirm')}</ProductButton>
         </Show>
-        <Show when={props.review.enable.length > 0 && !canConfirm()}><ProductButton variant="primary" loading={busy()} disabled={busy()} onClick={() => { void enable() }}>{message('projectNeeds.enable')}</ProductButton></Show>
-        <Show when={props.review.changes.length > 0}><ProductButton disabled={busy() || uncertain() || projectScope && scope() === undefined} onClick={() => { void reviewInstallation() }}>{message('projectNeeds.reviewInstallation')}</ProductButton></Show>
+        <Show when={props.review.enable.length > 0 && !canConfirm()}><ProductButton variant="primary" loading={busy()} disabled={busy() || uncertain()} onClick={() => { void enable() }}>{message('projectNeeds.enable')}</ProductButton></Show>
+        <Show when={props.review.changes.length > 0 && !canConfirm()}><ProductButton disabled={busy() || uncertain() || projectScope && scope() === undefined} onClick={() => { void reviewInstallation() }}>{message('projectNeeds.reviewInstallation')}</ProductButton></Show>
         <ProductButton disabled={busy()} onClick={() => { void reviewAgain() }}>{message('projectNeeds.reviewAgain')}</ProductButton>
         <ProductButton disabled={busy() && !preparing()} onClick={close}>{message('common.close')}</ProductButton>
       </ProductActionFooter>

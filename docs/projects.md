@@ -139,9 +139,12 @@ a result that expires during those reads is not shown.
 
 For a scoped native review with a retained confirmation, Confirm installation
 applies that exact token once; scope cannot be replaced at confirmation. The
-prompt blocks dismissal while applying. Browser and remote terminal-only reviews
-do not offer this button. A lost or malformed Apply response blocks further
-installation, including after closing and reopening the prompt; nothing retries
+prompt keeps the reviewed plan and a busy confirmation visible, reports that it
+is waiting for the backend, and blocks dismissal while applying. Review installation
+is hidden while its confirmation is available; changing scope clears that review.
+Browser and remote terminal-only reviews do not offer this button. A lost or
+malformed Apply response blocks both installation and project pack enablement,
+including after closing and reopening the prompt; nothing retries
 a possibly completed mutation automatically.
 
 After acknowledged activation, the app waits up to 15 seconds for an expected

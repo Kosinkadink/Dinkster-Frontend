@@ -1907,7 +1907,7 @@ describe('AppState multi-window workspace', () => {
   it('keeps an unchanged needs review usable after document authority promotion', async () => {
     const app = createEditableApp()
     const backend = app.backends.get()[0]!
-    const project = { id: 'default', name: 'Film', created: '2026-11-19T00:00:00Z', revision: 1, deleted: false }
+    const project = { id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-19T00:00:00Z', revision: 1, deleted: false }
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
     vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({ packs: [], extra: [], unknown: [], installed: [{ pack: 'film-tools', version: '2.1' }] })

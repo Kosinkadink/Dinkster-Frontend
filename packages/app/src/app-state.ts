@@ -8264,12 +8264,13 @@ export class AppState {
   }
 
   async enableReviewedProjectPacks(review: ProjectNeedsReview): Promise<void> {
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
     if (this.projectNeedsReview.get() !== review || !review.current() || review.project.uid === undefined) {
       throw new Error('Project changed. Review its needs again.')
     }
     const project = await review.backend.connection.getProject(review.project.id)
     const needs = await review.backend.connection.projectNeeds(review.project.id)
-    if (this.projectNeedsReview.get() !== review || !review.current() || project.uid !== review.project.uid ||
+    if (this.projectPackInstallations.has(review.backend) || this.projectNeedsReview.get() !== review || !review.current() || project.uid !== review.project.uid ||
       project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
       throw new Error('Project or installed packs changed. Review its needs again.')
     }

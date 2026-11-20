@@ -17,7 +17,7 @@ it.each(['native', 'browser', 'remote', 'other-project'] as const)('keeps %s ins
   const review = {
     project: { id: mode === 'other-project' ? 'other' : 'studio', name: 'Studio' },
     backend: { baseUrl: mode === 'remote' ? 'https://engine.example' : '' },
-    changes: [{ pack: 'image-tools', version: '1.2.0' }], enable: [], errors: [],
+    changes: [{ pack: 'image-tools', version: '1.2.0' }], enable: ['color-grade'], errors: [], needs: { installed: [{ pack: 'color-grade', version: '1.0' }] },
   } as unknown as ProjectNeedsReview
   const prepare = vi.fn(async (_review, _signal, _progress, scope) => ({
     installation: { review: 'Retained software review', expiresInSeconds: 900, ...(mode === 'native' ? { confirmation: 'opaque' } : { commands: ['review only'] }) },
@@ -60,7 +60,12 @@ it.each(['native', 'browser', 'remote', 'other-project'] as const)('keeps %s ins
     confirm.click()
     confirm.click()
     expect(installations).toBe(1)
-    expect(button().disabled).toBe(true)
+    expect(confirm.disabled).toBe(true)
+    expect(confirm.getAttribute('aria-busy')).toBe('true')
+    expect(root.querySelector('[role="status"]')?.textContent).toBe('Waiting for the backend...')
+    expect(root.textContent).toContain('Retained software review')
+    expect(button()).toBeUndefined()
+    expect(root.textContent).not.toContain('Enable packs in this project')
     expect(root.querySelector('[data-modal="project-needs"] [data-testid="modal-close"]')?.hasAttribute('disabled')).toBe(true)
     finishApply()
     await vi.waitFor(() => expect(root.textContent).toContain('Installation outcome unknown'))
@@ -68,6 +73,7 @@ it.each(['native', 'browser', 'remote', 'other-project'] as const)('keeps %s ins
     dispose()
     dispose = render(() => <ProjectNeedsPrompt app={app} review={review} />, root)
     expect(root.textContent).toContain('Do not install again')
+    expect([...root.querySelectorAll('button')].find((item) => item.textContent === 'Enable packs in this project')?.disabled).toBe(true)
     expect(button().disabled).toBe(true)
     expect(installations).toBe(1)
   } else {

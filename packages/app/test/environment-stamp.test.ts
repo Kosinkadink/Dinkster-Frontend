@@ -445,6 +445,8 @@ describe('workflow-open requirements', () => {
       if (scenario === 'lost-response') {
         await app.checkProjectNeeds(backend)
         const reopened = app.projectNeedsReview.get()!
+        await expect(app.enableReviewedProjectPacks(reopened)).rejects.toThrow('Do not install again')
+        expect(saved).toEqual(['kept'])
         await expect(app.reviewProjectPackInstallation(reopened, new AbortController().signal, () => undefined, 'every-project'))
           .rejects.toThrow('Do not install again')
         expect(installations).toBe(1)
