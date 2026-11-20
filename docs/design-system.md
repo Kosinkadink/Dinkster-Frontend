@@ -930,8 +930,28 @@ fields and token-history membership update with the service model.
 Dismissing a toast or error updates the service-owned message state.
 The service calls the view's `clear()` on pagehide alongside clearing its secret
 variables; this removes secret DOM before a restored page is rendered.
-Authorization retains a native POST form
-with the signed consent token and explicit approve/deny submitter values.
+The service model selects `layout: 'card'` for standalone sign-in, create-account
+and reset flows. These render `ProductAuthCard` with no top bar. Blocks stay in
+service-provided order: the sign-in form, separator, GitHub, then Google.
+Provider blocks use `ProductProviderButton` with bundled logos and remain hidden
+when that provider is not configured. Optional `screen.footer: { text, action }`
+places the sign-in create-account prompt and outline action below the card.
+
+Account pages use the shared Account shell. A `{ t: 'section', text, blocks }`
+block maps to `ProductSection`; `{ t: 'panel', blocks }` groups facts or fields
+inside one `ProductPanel`. The service declares these groups rather than the
+renderer guessing them from headings. Nested fields retain `data-account-field`,
+changed-field Save disabling, conditional visibility and same-screen focus.
+Fact chips use `ProductStatusPill`; optional `tone` is `good`, `warning`,
+`problem` or `neutral` (the default), independent of translated status text.
+
+Optional `AccountModel.pictureSrc: string | null` passes the service-owned avatar
+URL to `ProductAccountMenu`. Its existing same-origin HTTP(S) check and absent
+or failed-picture initial fallback remain authoritative; no avatar setter or
+upload control is supplied. The service owns any approved image proxy.
+
+Authorization uses the same centered `ProductAuthCard`, retaining a native POST
+form with the signed consent token and explicit approve/deny submitter values.
 
 `pnpm --filter @dinkster/site build` creates the account, authorization and
 portable Desktop About templates, renderer modules, one shared stylesheet,
