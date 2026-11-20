@@ -8413,7 +8413,6 @@ export class AppState {
       if (!review.owned()) return
       if (this.projectNeedsReview.get() === review) this.projectNeedsReview.set(undefined)
       this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
-      await this.refreshBackendSchemas(backend)
     } catch (error) {
       const rejected = error instanceof PackInstallError && ([400, 401, 403, 404].includes(error.status) ||
         error.status === 409 && ['invalid-confirmation', 'plan-stale', 'install-in-progress', 'composition-in-progress'].includes(String(error.body?.['error'])))
@@ -8425,6 +8424,7 @@ export class AppState {
     } finally {
       if (this.projectPackInstallations.get(backend) === 'applying') this.projectPackInstallations.delete(backend)
     }
+    await this.refreshBackendSchemas(backend)
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {

@@ -369,6 +369,7 @@ describe('workflow-open requirements', () => {
       vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
       const sourceId = 'a'.repeat(32)
       let activated = false
+      let refreshed = false
       let uid = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
       const environmentId = () => activated && scenario === 'isolated' ? 'b'.repeat(32) : sourceId
       const project = (): LibraryProject => ({ id: 'default', uid, name: 'Film', created: '2026-11-18T12:00:00Z',
@@ -379,7 +380,7 @@ describe('workflow-open requirements', () => {
         snapshot: activated ? scenario === 'wrong-snapshot' ? '5' : '4' : '2' }))
       vi.spyOn(backend.connection, 'projectNeeds').mockImplementation(async () => ({
         packs: [{ pack: 'newpack', version: '2.1' }], extra: activated ? ['kept', 'other-window'] : ['kept'],
-        unknown: activated && scenario === 'unknown-needs' ? [{ scope: 'local', id: 'unreadable' }] : [],
+        unknown: refreshed || activated && scenario === 'unknown-needs' ? [{ scope: 'local', id: 'unreadable' }] : [],
         installed: [{ pack: 'kept', version: '1.0' }, ...(activated ? [{ pack: 'newpack', version: scenario === 'wrong-version' ? '2.0' : '2.1' }] : [])],
       }))
       vi.spyOn(backend.connection, 'planPackInstall').mockResolvedValue({ plan: { format: 'dinkster.project-pack-plan/1' },
@@ -409,14 +410,17 @@ describe('workflow-open requirements', () => {
         saved = extra
         return { ...project(), revision: 12 }
       })
-      vi.spyOn(app, 'refreshBackendSchemas').mockResolvedValue()
+      vi.spyOn(app, 'refreshBackendSchemas').mockImplementation(async () => {
+        refreshed = true
+        await app.checkProjectNeeds(backend)
+      })
       if (scenario === 'expired') vi.spyOn(performance, 'now').mockReturnValue(prepared.expiresAt + 1)
       if (scenario === 'stale-before') uid = '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457'
       if (scenario === 'shared' || scenario === 'isolated') {
         await app.applyReviewedProjectPacks(review, prepared)
         expect(saved).toEqual(['kept', 'newpack', 'other-window'])
         expect(app.projectPackNotification.get()).toBeDefined()
-        expect(app.projectNeedsReview.get()).toBeUndefined()
+        expect(app.projectNeedsReview.get()?.needs.unknown).toEqual([{ scope: 'local', id: 'unreadable' }])
       } else {
         await expect(app.applyReviewedProjectPacks(review, prepared)).rejects.toThrow()
         expect(saved).toEqual(['kept'])
