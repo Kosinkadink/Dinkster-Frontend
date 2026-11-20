@@ -156,6 +156,87 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it.each(['unchanged', 'edited', 'asset', 'registry', 'extensions', 'target', 'remote', 'replacement'] as const)(
+    'keeps comparison proof only for an equivalent authority continuation: %s', async (scenario) => {
+      vi.stubGlobal('requestAnimationFrame', () => 1)
+      vi.stubGlobal('cancelAnimationFrame', () => undefined)
+      const app = createEditableApp()
+      app.registerSchemas([primitive('X', 'FLOAT')])
+      expect(await app.openDocument(workflow(), 'Comparison continuity')).toEqual([])
+      const local = app.activeTab()!
+      expect((await app.dispatchTo(local, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 7,
+      } })).ok).toBe(true)
+      const ready = app.compileTabCached(local)
+      expect(ready?.ok).toBe(true)
+      if (scenario === 'edited') {
+        expect((await app.dispatchTo(local, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 13,
+        } })).ok).toBe(true)
+      }
+      if (scenario === 'asset') {
+        expect((await app.dispatchTo(local, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'held', value: {
+            digest: `blake3:${'c'.repeat(64)}`, name: 'changed.bin', size: 11,
+            mediaType: 'application/octet-stream', virtualPath: '',
+          },
+        } })).ok).toBe(true)
+      }
+      if (scenario === 'registry') app.registerSchemas([primitive('X', 'BOOLEAN')])
+      if (scenario === 'extensions') app.extensionRevision.update((revision) => revision + 1)
+      if (scenario === 'target') {
+        const other = app.addBackend('http://continuation.test', 'Other target', false, 'dinkster')!
+        other.registry.set(app.registry.get())
+        app.setTabTarget(local.id, other.id)
+      }
+      const factory = authorityFactories()
+      const remote = scenario === 'remote' ? await connectSharedWorkerSession(local.id, local.store.doc,
+        coreCommandRegistry(), { actorId: 'established-peer' }, factory.document) : undefined
+      if (remote) {
+        expect(remote.dispatch({ command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n1', title: 'Different shared document',
+        } }).ok).toBe(true)
+        await remote.settle()
+      }
+      const observed: unknown[] = []
+      const unsubscribe = app.tabs.subscribe(() => {
+        const current = app.activeTab()
+        if (current?.id === local.id && current.store !== local.store) observed.push(app.previewComparisonCompile(current))
+      })
+      await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+      remote?.close()
+      unsubscribe()
+      const current = app.activeTab()!
+      expect(current.store).not.toBe(local.store)
+      if (scenario === 'remote') expect(current.store.doc.graphs.g0!.nodes.n1!.title).toBe('Different shared document')
+      else expect(current.store.doc).toEqual(local.store.doc)
+      expect(observed.length).toBeGreaterThan(0)
+      if (scenario === 'unchanged' || scenario === 'replacement') {
+        expect(observed.every((result) => result === ready)).toBe(true)
+        expect(app.previewComparisonCompile(current)).toBe(ready)
+        const full = app.compileTabCached(current)
+        expect(full).not.toBe(ready)
+        expect(full).toEqual(app.compileTab(current))
+        if (!full?.ok) throw new Error('promoted workflow did not compile')
+        expect(full.artifact.snapshot).toStrictEqual(current.store.doc)
+        expect(full.artifact.revision).toBe(current.store.revision)
+        if (scenario === 'replacement') {
+          expect(await app.openDocument(workflow(), 'Unrelated replacement')).toEqual([])
+          expect(app.activeTab()).not.toBe(current)
+          expect(app.previewComparisonCompile(app.activeTab()!)).toBeUndefined()
+        } else {
+          expect((await app.dispatchTo(current, { command: 'node.setValue', params: {
+            graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 29,
+          } })).ok).toBe(true)
+          expect(app.previewComparisonCompile(current)).toBeUndefined()
+        }
+      } else {
+        expect(observed.every((result) => result === undefined)).toBe(true)
+        expect(app.previewComparisonCompile(current)).toBeUndefined()
+      }
+    },
+  )
+
   it('keeps a reused source receipt live when an older canonical admission publishes first', async () => {
     let commits = Promise.resolve<unknown>(undefined)
     vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: LockOptions, callback: () => unknown) => {

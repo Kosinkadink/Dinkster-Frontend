@@ -2489,6 +2489,26 @@ include instrumentation overhead and are not substituted for the timing rows.
 Asset admission, history and save semantics are unchanged. Comparison results
 remain pending during edits; queue validation is still independent and fresh.
 
+## Mirror estimate continuity during authority promotion (2026-11-19)
+
+Controlled browser diagnostic on X570, CPU-only native backend and route-mocked
+2x2 mirror fixture. The real authority promotion starts only after the estimate
+is ready; 30 samples are taken 10 ms apart. This is a development-build
+continuity observation, not production frame-rate or clean latency acceptance.
+
+| Build | Missing estimate samples | Observed absence |
+| --- | ---: | ---: |
+| Main 4ccb133e5584 | 10 of 30 | 111.2 ms |
+| Equivalent-session comparison continuation | 0 of 30 | None observed |
+
+Both sessions were observed, with a different Tab/store and a live shared
+session after promotion. All new-session preview publications before disabling
+estimates retained the 2x2 estimate. Original exact complement pixels, setting-off
+and page-error controls pass. Full artifact snapshots/revisions remain fresh;
+changed documents, assets, schemas, extensions, targets and unrelated replacement
+sessions cannot inherit comparison proof. The originating hosted failure did not
+capture promotion, so attribution of that exact event remains conditional.
+
 ## Metadata-only title edits (2026-11-19, X570)
 
 Optimized production test-mode bundles, local pinned native CPU backend,
