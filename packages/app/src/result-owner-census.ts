@@ -1,6 +1,6 @@
 /** Origin-wide locks enumerate live members; channel silence never means no holder. */
 export class ResultOwnerCensus {
-  private readonly id = crypto.randomUUID()
+  private readonly id = globalThis.crypto?.randomUUID?.() ?? ''
   private readonly prefix = 'dinkster-result-holders:v2:'
   private readonly gate = 'dinkster-result-reclamation'
   private readonly locks = globalThis.navigator?.locks
@@ -12,7 +12,7 @@ export class ResultOwnerCensus {
   private closed = false
 
   constructor(private readonly holders: () => ReadonlySet<string> | undefined) {
-    if (typeof this.locks?.query !== 'function' || typeof globalThis.BroadcastChannel !== 'function') {
+    if (!this.id || typeof this.locks?.query !== 'function' || typeof globalThis.BroadcastChannel !== 'function') {
       this.ready = Promise.resolve(false)
       return
     }
