@@ -1058,11 +1058,11 @@ export const rowEditingSchema: NodeSchema = schema('Sample image', [
   { kind: 'input', id: 'model', type: concrete('MODEL'), optional: false },
   { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
   {
-    ...widget('seed', 'INT', 123456789, { min: 0, max: 4294967295 }),
+    ...widget('seed', 'INT', 123456789, { min: 0, max: '18446744073709551615' }),
     tooltip: 'Starting point of the noise.',
     widget: {
       widgetType: 'INT',
-      options: { min: 0, max: 4294967295 },
+      options: { min: 0, max: '18446744073709551615' },
       default: 0,
       controller: 'after_generate',
     },
@@ -1096,7 +1096,7 @@ export function createRowEditingScene(
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
-  values: Record<string, Json> = {},
+  width = 280,
 ): Scene {
   const id = 'Sample image'
   const loaded = loadDocument({
@@ -1117,7 +1117,6 @@ export function createRowEditingScene(
               ...defaultValuesOf(rowEditingSchema),
               seed: 123456789,
               denoise: 0.65,
-              ...values,
             },
           },
         },
@@ -1130,7 +1129,7 @@ export function createRowEditingScene(
       graphs: {
         gallery: {
           nodes: {
-            [id]: { position, size: { width: 280, height: 0 } },
+            [id]: { position, size: { width, height: 0 } },
           },
         },
       },

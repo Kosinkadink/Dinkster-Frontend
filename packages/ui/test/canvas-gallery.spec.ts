@@ -293,6 +293,26 @@ for (const theme of ['dark', 'light'] as const) {
           })
           .click()
         await page.getByRole('button', { name: label, exact: true }).click()
+        if (id === 'row-editing') {
+          // Each example is its own small canvas with the open field over it.
+          const examples = page.locator('figure.dinkster-canvas-example')
+          await expect(examples).toHaveCount(14)
+          for (const example of await examples.all()) {
+            const sample = example.locator('canvas')
+            const exampleId = (await sample.getAttribute('data-testid'))!.slice(
+              'row-editing-'.length,
+            )
+            await expect(sample).toHaveAttribute(
+              'data-ready',
+              `${exampleId}-${theme}`,
+            )
+            await expect(example).toHaveScreenshot(
+              `row-editing-${exampleId}-${theme}.png`,
+            )
+          }
+          expect(errors).toEqual([])
+          return
+        }
         const canvas = page.getByRole('img', {
           name: `${id} in ${theme} theme`,
           exact: true,

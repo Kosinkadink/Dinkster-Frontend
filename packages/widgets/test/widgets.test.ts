@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createHostUiProviderContextV1, decodeHostUiContributionV1, effectiveWidgetDefault, formatWidgetValue, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
-import { createWidgetRegistry, formatCompactFloat, hexToHsv, hsvToHex, hsvToRgb, registerCoreWidgets, rgbToHsv, widgetRegistrationDoors } from '../src/index.js'
+import { createWidgetRegistry, formatCompactFloat, hexToHsv, hsvToHex, hsvToRgb, registerCoreWidgets, rgbToHsv, numberFieldFacts, widgetRegistrationDoors } from '../src/index.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}, dflt?: unknown): WidgetSpec => ({
   widgetType,
@@ -163,6 +163,27 @@ function expectCompactLayout(
     }
   }
 }
+
+describe('open row side part facts', () => {
+  const range = (widgetType: string, options: Record<string, unknown>) =>
+    numberFieldFacts(spec(widgetType, options)).find((fact) => fact.key === 'range')?.text
+
+  it('names one limit, both, or none', () => {
+    expect(range('INT', { min: 0 })).toBe('0 or more')
+    expect(range('INT', { max: 100 })).toBe('100 or less')
+    expect(range('FLOAT', { min: -1.5, max: 2.5 })).toBe('-1.5 to 2.5')
+    expect(range('INT', {})).toBeUndefined()
+    expect(range('INT', { min: 10, max: 1 })).toBeUndefined()
+  })
+
+  it('treats the whole-number type limits as no limit, exact or rounded from JSON', () => {
+    expect(range('INT', { min: 0, max: '18446744073709551615' })).toBe('0 or more')
+    expect(range('INT', { min: 0, max: JSON.parse('18446744073709551615') })).toBe('0 or more')
+    expect(range('INT', { min: '-9223372036854775808', max: '9223372036854775807' })).toBeUndefined()
+    expect(range('INT', { min: 0, max: '18446744073709551614' })).toBe('0 to 18446744073709551614')
+    expect(range('INT', { min: 0, max: 4294967295 })).toBe('0 to 4294967295')
+  })
+})
 
 describe('registry', () => {
   it('CL10 validates numeric, combo, and asset defaults', () => {

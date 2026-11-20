@@ -131,7 +131,6 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
-        + (modeWord === undefined ? 0 : measureWidth(ctx, modeWord) + paint.modeWordGap)
     const controller = row.controllerMode !== undefined && modeWord === undefined
       ? controllerChipRect(width, rowHeight)
       : undefined
@@ -140,9 +139,17 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multiline = row.viewId === 'core.text'
     const multilineLabelHeight = tokens.multilineText.labelHeight
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
+    // A word about the value is never cut short: its room comes off the row
+    // first, and the label and value share the rest as they would without it.
+    const modeWordReserve = modeWord === undefined ? 0 : measureWidth(ctx, modeWord) + paint.modeWordGap
     let labelWidth = multiline
       ? 0
-      : shareRowWidth(fieldWidth, naturalLabelWidth, naturalValueWidth, true)
+      : modeWord === undefined
+        ? shareRowWidth(fieldWidth, naturalLabelWidth, naturalValueWidth, true)
+        : Math.max(0, Math.min(
+          shareRowWidth(fieldWidth - modeWordReserve, naturalLabelWidth, naturalValueWidth, true),
+          fieldWidth - modeWordReserve - TEXT_PAD * 2,
+        ))
     if (row.viewId === 'core.asset' && valuePreview === 'no asset') {
       // The empty-state message takes priority even when opener controls leave
       // less than the ordinary label floor. Round up for fitText's pixel floor.
@@ -281,7 +288,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const zoneRight = alignRight ? px - reserveRight : px + reserveLeft + zoneWidth
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
-            const text = ellipsize(ctx, run.split('\n')[0] ?? '', availableWidth)
+            const wordReserve = modeWord !== undefined && style['role'] === 'widgetValue' && alignRight ? modeWordReserve : 0
+            const text = ellipsize(ctx, run.split('\n')[0] ?? '', Math.max(0, availableWidth - wordReserve))
             const lineTop = y + ty * rowHeight + paint.verticalInset
             const lineBottom = y + (ty + 1) * rowHeight - paint.verticalInset
             const clipTop = Math.max(y, lineTop)

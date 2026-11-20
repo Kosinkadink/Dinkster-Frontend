@@ -3462,9 +3462,9 @@ export class CanvasRenderer {
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.stroke()
           }
-          const numericRow = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+          const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
           // In-row editing names a number's mode before its value instead of drawing the chip.
-          if (row.controllerMode !== undefined && !(numericRow && t.widgetEditing === 'in-row')) {
+          if (row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
             const chip = controllerChipRect(widgetWidth, t.rowHeight)
             const x = node.x + row.inset + chip.x
             const y = rowY + chip.y

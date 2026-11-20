@@ -7,7 +7,7 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { Minus, Plus } from 'lucide-solid'
+import { Check, Minus, Plus } from 'lucide-solid'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -294,10 +294,14 @@ export function CanvasRowField(props: {
   )
 }
 
-/** The side part's lines: arithmetic result, a problem, then labelled facts and help. */
+/**
+ * The side part's lines: arithmetic result, a problem, the row's own
+ * controls (such as a seed's modes), then labelled facts and help.
+ */
 export function CanvasSidePart(props: {
   result?: string
   problem?: string
+  children?: JSX.Element
   facts?: readonly CanvasSideFact[]
   help?: string
 }) {
@@ -311,6 +315,7 @@ export function CanvasSidePart(props: {
           {props.problem}
         </p>
       </Show>
+      {props.children}
       <Show when={props.facts?.length}>
         <dl class="dinkster-canvas-side-facts">
           <For each={props.facts}>
@@ -344,5 +349,42 @@ export function CanvasSideLink(props: {
     >
       {props.children}
     </button>
+  )
+}
+
+/**
+ * A seed's modes under "after each run", one per line: the current one
+ * marked, the others links that switch to them, then "new seed".
+ */
+export function CanvasSideModes(props: {
+  modes: readonly string[]
+  current: string
+  onMode: (mode: string) => void
+  onNewSeed: () => void
+}) {
+  return (
+    <div class="dinkster-canvas-side-modes">
+      <p class="dinkster-canvas-side-modes-title">after each run</p>
+      <ul class="dinkster-canvas-side-modes-list">
+        <For each={props.modes}>
+          {(mode) => (
+            <li class="dinkster-canvas-side-mode">
+              <Show
+                when={mode === props.current}
+                fallback={
+                  <CanvasSideLink onClick={() => props.onMode(mode)}>
+                    {mode}
+                  </CanvasSideLink>
+                }
+              >
+                <Check class="dinkster-canvas-side-mode-mark" aria-hidden="true" />
+                <span aria-current="true">{mode}</span>
+              </Show>
+            </li>
+          )}
+        </For>
+      </ul>
+      <CanvasSideLink onClick={() => props.onNewSeed()}>new seed</CanvasSideLink>
+    </div>
   )
 }

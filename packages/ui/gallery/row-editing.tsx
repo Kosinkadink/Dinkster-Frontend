@@ -16,7 +16,7 @@ import {
 import {
   createWidgetRegistry,
   registerCoreWidgets,
-  rowFieldFacts,
+  numberFieldFacts,
   widgetRegistrationDoors,
 } from '@dinkster/widgets'
 import {
@@ -26,6 +26,7 @@ import {
 import {
   CanvasRowField,
   CanvasSideLink,
+  CanvasSideModes,
   CanvasSidePart,
   ProductSection,
   canvasSidePlace,
@@ -39,6 +40,7 @@ interface RowExample {
   readonly scale: number
   readonly width: number
   readonly node: { readonly x: number; readonly y: number }
+  readonly nodeWidth?: number
   readonly open?: string
   readonly drag?: { readonly valueKey: string; readonly value: Json }
 }
@@ -46,6 +48,8 @@ interface RowExample {
 const NODE_WIDTH = 280
 const MARGIN = 16
 const SIDE_ROOM = 272
+const NARROW_NODE_WIDTH = 180
+const SEED_MODES = ['fixed', 'increment', 'decrement', 'randomize'] as const
 
 const besideRight = (id: string, caption: string, open: string): RowExample => ({
   id,
@@ -86,6 +90,15 @@ const groups: readonly {
         scale: 1,
         width: MARGIN * 2 + NODE_WIDTH,
         node: { x: MARGIN, y: MARGIN },
+      },
+      {
+        id: 'closed-narrow',
+        caption:
+          'A narrow node. The seed keeps its whole mode word; the label and the value share what is left, as they do today.',
+        scale: 1,
+        width: MARGIN * 2 + NARROW_NODE_WIDTH,
+        node: { x: MARGIN, y: MARGIN },
+        nodeWidth: NARROW_NODE_WIDTH,
       },
     ],
   },
@@ -134,7 +147,7 @@ const groups: readonly {
     examples: [
       besideRight(
         'seed-right',
-        'Clicked seed. Its mode stays before the value while the field is open.',
+        'Clicked seed. Its mode stays before the value while the field is open; the side part lists the four modes, with a link to each, and new seed.',
         'seed',
       ),
       besideLeft(
@@ -250,6 +263,7 @@ function RowEditingExample(props: {
           measure,
           widgetMeasure,
           example.node,
+          example.nodeWidth ?? NODE_WIDTH,
         )
         const node = built.nodes[0]!
         const height = (example.node.y + node.layout.height + MARGIN) * example.scale
@@ -307,10 +321,13 @@ function RowEditingExample(props: {
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
     const help = item?.kind === 'input' ? item.tooltip : undefined
-    const facts = rowFieldFacts(row.spec)
+    const numeric =
+      row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const facts = numeric ? numberFieldFacts(row.spec) : []
     const nodeBottom = (node.y + node.layout.height) * scale
     return {
       row,
+      numeric,
       screen,
       place,
       width,
@@ -352,8 +369,7 @@ function RowEditingExample(props: {
               value={fieldText(current().value)}
               onInput={() => undefined}
               inputLabel={current().row.label}
-              {...(current().row.spec.widgetType === 'INT' ||
-              current().row.spec.widgetType === 'FLOAT'
+              {...(current().numeric
                 ? { onStep: () => undefined }
                 : {})}
               {...(sliderFill(current().row.spec, current().value) !==
@@ -373,6 +389,18 @@ function RowEditingExample(props: {
                 ? {
                     side: (
                       <CanvasSidePart
+                        {...(current().row.controllerMode !== undefined
+                          ? {
+                              children: (
+                                <CanvasSideModes
+                                  modes={SEED_MODES}
+                                  current={current().row.controllerMode!}
+                                  onMode={() => undefined}
+                                  onNewSeed={() => undefined}
+                                />
+                              ),
+                            }
+                          : {})}
                         facts={current().facts.map((fact) => ({
                           key: fact.key,
                           value:
