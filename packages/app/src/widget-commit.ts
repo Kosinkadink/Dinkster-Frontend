@@ -138,6 +138,18 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
 }
 
 /**
+ * The side part's first line while an open field still holds its stored
+ * value and that value is past a limit, or off a whole-number step, that
+ * moved after it was stored. Such a value is kept: an unchanged field
+ * stores nothing, so this is a plain note, not a problem.
+ */
+export function storedNumberNote(spec: WidgetSpec, stored: IntegerWidgetValue): string | undefined {
+  const resolved = resolveTypedNumber(String(stored), spec, stored)
+  if (resolved.kind !== 'store' || resolved.problem === undefined) return undefined
+  return `${resolved.problem.slice(0, resolved.problem.indexOf(' Enter uses'))} Kept until you change it.`
+}
+
+/**
  * A stepper on an open field steps from what Enter would store at that
  * moment, ten steps with Shift, and gives the text that replaces what was
  * typed. Nothing is stored.

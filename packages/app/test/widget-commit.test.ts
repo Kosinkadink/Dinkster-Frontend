@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Json, WidgetKind, WidgetSpec } from '@dinkster/core'
 import { assetKind, intKind, listKind } from '@dinkster/widgets'
-import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, resolveTypedNumber, stepTypedNumber, widgetCommitError } from '../src/widget-commit.js'
+import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../src/widget-commit.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}): WidgetSpec => ({ widgetType, options })
 
@@ -166,6 +166,16 @@ describe('resolveTypedNumber', () => {
     expect(resolveTypedNumber('', steps, 20)).toEqual({ kind: 'keep', problem: 'Not a number. Enter keeps 20.' })
     expect(resolveTypedNumber('steps/2', steps, 20)).toEqual({ kind: 'keep', problem: 'Not a number. Enter keeps 20.' })
     expect(resolveTypedNumber('2^3', steps, 20)).toEqual({ kind: 'keep', problem: 'Use ** for a power. Enter keeps 20.' })
+  })
+
+  it('notes a stored value past a limit or step that moved later, and steps from the limit', () => {
+    expect(storedNumberNote(steps, 12000)).toBe('Above 10000. Kept until you change it.')
+    expect(storedNumberNote(steps, 0)).toBe('Below 1. Kept until you change it.')
+    expect(storedNumberNote(width, 300)).toBe('Not a multiple of 64. Kept until you change it.')
+    expect(storedNumberNote(steps, 20)).toBeUndefined()
+    expect(storedNumberNote(cfg, 7.555)).toBeUndefined()
+    expect(stepTypedNumber('12000', steps, 12000, -1, false)).toBe('9999')
+    expect(stepTypedNumber('12000', steps, 12000, 1, false)).toBe('10000')
   })
 
   it('steps an open field from what Enter would store', () => {
