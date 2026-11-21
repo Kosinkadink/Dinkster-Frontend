@@ -4949,6 +4949,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueNodeId = hit.row.familyOwner?.nodeId ?? nodeId
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
+      if (spec.widgetType === 'COMPOSITOR') return
       const curveTarget = spec.widgetType === 'CURVE'
         ? props.app.curveTargetForInput(
             tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],

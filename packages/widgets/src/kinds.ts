@@ -885,10 +885,9 @@ export const compositorView: WidgetView<Json> = {
   kind: 'COMPOSITOR',
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
-  drawCompact(ctx, value, spec, state) {
+  drawCompact(ctx, value, spec) {
     const recipe = isCompositorRecipe(value) ? value : undefined
     const label = (spec.options['display_name'] as string | undefined) ?? 'Compositor'
-    ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     ctx.text(0, 0, label, { role: 'widgetLabel', width: 1 })
     ctx.text(1, 1, recipe?.documentDigest
       ? `${recipe.commands.length} document edit${recipe.commands.length === 1 ? '' : 's'}`

@@ -465,7 +465,7 @@ describe('compact views', () => {
       const { builder, ops } = recordingBuilder()
       view.drawCompact(builder, value, spec('COMPOSITOR'), { focused: false, connected: false, readonly: false })
       expect(ops).toContainEqual(expect.objectContaining({ op: 'text', args: expect.arrayContaining([label]) }))
-      expect(ops.filter((op) => op.op === 'hitRegion')).toEqual([])
+      expect(ops.filter((op) => op.op === 'hitRegion' || op.op === 'rect')).toEqual([])
     }
   })
 

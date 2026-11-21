@@ -379,7 +379,7 @@ stale entries and lower ceilings. Write mode never permits count increases.
 `packages/app/src/styles.css` is the ordered entrypoint for the surface files
 in `styles/`. Keep imports in cascade order: base and product controls, search
 and modals, canvas and widget surfaces, panels and library, shell and execution
-log, widget assets and App view, then collaboration and boot.
+log, widget assets and App view, then collaboration, boot and shared editors.
 Keep each surface's responsive and reduced-motion rules beside its rules;
 do not regroup selectors across files if that changes override order.
 The `cssLiteral` entry for `styles.css` aggregates the entrypoint and every
