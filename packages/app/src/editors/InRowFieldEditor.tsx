@@ -30,41 +30,70 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const note = (): string | undefined =>
     numeric && draft() === initialText ? storedNumberNote(spec, ed.initial as IntegerWidgetValue) : undefined
 
-  const commitText = (value: string): void => {
+  const commitText = (value: string): Promise<boolean> => {
     if (ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
       const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
       const resolution = resolveTextCommit(ed.initial, value, current)
-      if (resolution.kind === 'none') { props.close(); return }
+      if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
       if (resolution.kind === 'splice') {
-        void props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
-        return
+        return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
       }
     }
-    void props.commitValue(value)
+    return props.commitValue(value)
   }
 
-  /** Store what Enter would store, or close when that is the stored value. */
-  const commit = (): void => {
-    if (!live || props.commitPending()) return
-    if (draft() === initialText) { props.close(); return }
-    if (!numeric) { commitText(draft()); return }
+  /**
+   * Store what Enter would store, or close when that is the stored value.
+   * Resolves true once the field is closed, false when it stays open (a
+   * store in flight or refused). A stored value rebuilds the scene, which
+   * can unmount the field before the store reports back, so an unmounted
+   * field counts as closed.
+   */
+  const commit = (): Promise<boolean> => {
+    if (!live || props.commitPending()) return Promise.resolve(false)
+    if (draft() === initialText) { props.close(); return Promise.resolve(true) }
     const result = typed()
-    if (result === undefined || result.kind === 'keep' || jsonSameValue(result.value as Json, ed.initial ?? null)) {
-      props.close()
-      return
-    }
-    void props.commitValue(result.value as Json)
+    const store = !numeric
+      ? commitText(draft())
+      : result === undefined || result.kind === 'keep' || jsonSameValue(result.value as Json, ed.initial ?? null)
+        ? (props.close(), Promise.resolve(true))
+        : props.commitValue(result.value as Json)
+    return store.then((closed) => closed || !live)
   }
-  host.bindClickAway?.(commit)
+  host.bindClickAway?.(() => { void commit() })
   onCleanup(() => host.bindClickAway?.(undefined))
 
+  // Tab and Shift+Tab store the field and open the next or previous row of
+  // the same node; Ctrl+Enter stores it and then runs the workflow. Both
+  // wait for the store, so the next row opens on the updated document.
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing) return
-    if (event.key === 'Enter') { event.preventDefault(); commit() }
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      const queue = host.app.commands.get('workflow.queue')
+      void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })
+    } else if (event.key === 'Enter') { event.preventDefault(); void commit() }
     else if (event.key === 'Escape') { event.preventDefault(); props.close() }
+    else if (event.key === 'Tab') {
+      event.preventDefault()
+      const direction = event.shiftKey ? -1 : 1
+      const target = ed.target
+      if (target.kind !== 'input') return
+      void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
+    }
+  }
+
+  // A number is selected. Text opened by a click has its cursor where it was
+  // clicked; text opened by Tab is selected.
+  const placeCursor = (element: HTMLInputElement): void => {
+    element.focus()
+    const at = inRow.caret === undefined ? null : document.caretPositionFromPoint?.(inRow.caret.x, inRow.caret.y)
+    if (at !== null && at !== undefined && at.offsetNode === element) element.setSelectionRange(at.offset, at.offset)
+    else if (inRow.caret !== undefined && !numeric) element.setSelectionRange(element.value.length, element.value.length)
+    else element.select()
   }
 
   // The open field is the row's field box grown by one pixel on every side in
@@ -126,7 +155,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         value={draft()}
         onInput={setDraft}
         onKeyDown={onKeyDown}
-        inputRef={(element) => { input = element; queueMicrotask(() => { element.focus(); element.select() }) }}
+        inputRef={(element) => { input = element; queueMicrotask(() => placeCursor(element)) }}
         inputLabel={`Edit ${ed.label}`}
         {...(typeof spec.options['placeholder'] === 'string' ? { placeholder: spec.options['placeholder'] } : {})}
         {...(numeric ? {

@@ -26,8 +26,8 @@ function widgetRow(overrides: Partial<Extract<LayoutRow, { kind: 'widget' }>> = 
   } as LayoutRow
 }
 
-function node(rows: LayoutRow[], id = 'n0'): WidgetEditorAnchorNode {
-  return { id, layout: { rows } }
+function node(rows: LayoutRow[], id = 'n0', at = { x: 0, y: 0 }): WidgetEditorAnchorNode {
+  return { id, ...at, layout: { width: 108, rows } }
 }
 
 function editorState(overrides: Partial<WidgetEditorState> = {}): WidgetEditorState {
@@ -119,6 +119,17 @@ describe('widgetEditorAnchorAlive', () => {
     const nodes = [node([widgetRow({ spec, type } as never)])]
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, true)).toBe(true)
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(false)
+  })
+
+  it('keeps a field open in its row across document changes while its row stays in place', () => {
+    const spec: WidgetSpec = { widgetType: 'INT', options: { min: 1, max: 10000 } }
+    const type = { kind: 'concrete', name: 'INT' } as unknown as TypeExpr
+    // The field box: the row's 100 px box at inset 4, 2 px in from its top and bottom.
+    const ed = editorState({ spec, declaredType: type, rect: { x: 54, y: 82, width: 100, height: 20 }, inRow: { look: 'flat-title', nodeBottom: 200 } })
+    const row = widgetRow({ spec, type, y: 30 } as never)
+    expect(widgetEditorAnchorAlive(ed, [node([row], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(true)
+    expect(widgetEditorAnchorAlive(ed, [node([row], 'n0', { x: 60, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
+    expect(widgetEditorAnchorAlive(ed, [node([widgetRow({ spec, type, y: 56 } as never)], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
   })
 
   it('keeps a multiline STRING draft across document changes while its row contract survives', () => {

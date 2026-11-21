@@ -11,6 +11,12 @@
   pointer-events: auto;
 }
 
+/* A field open in its row takes the pointer, so a click inside it moves the
+   cursor instead of reaching the canvas underneath. */
+.widget-in-row-field {
+  pointer-events: auto;
+}
+
 .widget-editor-in-node-surface {
   position: relative;
   display: flex;

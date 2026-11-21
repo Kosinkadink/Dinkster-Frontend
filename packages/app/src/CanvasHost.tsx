@@ -1778,6 +1778,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   onCleanup(retractWidgetFocus)
   let editorClickAway: (() => void) | undefined
   let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
+  let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   interface ControllerMenuState {
     readonly x: number
     readonly y: number
@@ -3137,7 +3138,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         linkOrigin = origin
         publishPresence()
       },
-      onWidgetActivate: (hit, _screenX, _screenY) => openWidgetEditor(hit),
+      onWidgetActivate: (hit, screenX, screenY) => openWidgetEditor(hit, undefined, { x: screenX, y: screenY }),
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
         if (!tab || tab.execution) return
@@ -5031,7 +5032,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     // -- widget editor overlay ----------------------------------------------
 
-    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string): void {
+    /**
+     * Opens a row's editor. `caret` is the click that opened it, in client
+     * coordinates; a text row opened by a click puts its cursor there, and
+     * one opened without it (by Tab) selects its text.
+     */
+    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab || tab.execution) return // frozen views are read-only
       const graphId = currentGraphId(tab)
@@ -5146,12 +5152,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return
       }
 
-      // Number, slider, seed and single-line text rows are edited in their own
-      // row when the canvas edits in the row; every other kind keeps its card.
       const tokens = renderer.getDesignTokens()
-      const inRowView = hit.row.viewId === 'core.number' || hit.row.viewId === 'core.slider' || hit.row.viewId === 'core.line'
-      const inRow = tokens.widgetEditing === 'in-row' && widgetKind !== undefined && inRowView &&
-        widgetView?.editorUi === undefined && descriptors === undefined
+      const inRow = editsInRow(tab, hit.node, hit.row)
       const fieldInsetY = tokens.rowGeometry.fieldInsetY
       const inputItem = schema?.items.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
       const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
@@ -5193,6 +5195,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           look: tokens.nodeLook,
           nodeBottom: hit.node.y + hit.node.layout.height,
           ...(help === undefined ? {} : { help }),
+          ...(caret === undefined || spec.widgetType !== 'STRING' ? {} : { caret }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
@@ -5218,6 +5221,40 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ...(widgetEditorSize === undefined ? {} : { sizing: widgetEditorSize }),
           },
         }),
+      })
+    }
+
+    /**
+     * Number, slider, seed and single-line text rows are edited in their own
+     * row when the canvas edits in the row; every other kind keeps its card.
+     */
+    function editsInRow(tab: Tab, node: SceneNode, row: Extract<Hit, { kind: 'widget' }>['row']): boolean {
+      if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
+      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line') return false
+      if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
+      if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
+      const reg = registry()
+      const schema = reg ? documentResolver(tab.store.doc, reg.resolve)(node.node.type) : undefined
+      return !(schema?.items.some((item) => item.kind !== 'section' && item.outputDescriptors?.input === row.valueKey) ?? false)
+    }
+
+    // Tab never leaves the node: past its last stop it goes to the first. A
+    // row that a wire drives is skipped, and a closed section's rows are not
+    // laid out.
+    moveEditorRow = (from, direction) => {
+      const tab = activeTab()
+      const node = renderer.getScene().nodes.find((item) => item.id === from.nodeId)
+      if (tab === undefined || node === undefined) return
+      const stops = node.layout.rows.filter((row): row is Extract<Hit, { kind: 'widget' }>['row'] =>
+        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && editsInRow(tab, node, row))
+      const index = stops.findIndex((row) => row.valueKey === from.valueKey)
+      if (index < 0) return
+      const row = stops[(index + direction + stops.length) % stops.length]!
+      const width = row.width ?? node.layout.width - row.inset * 2
+      openWidgetEditor({
+        kind: 'widget', node, row,
+        x: node.x + row.inset, y: node.y + row.y, width, height: row.height,
+        localX: width / 2, localY: row.height / 2,
       })
     }
 
@@ -7154,6 +7191,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             boundary={canvasEl.parentElement!}
             viewport={editorViewport}
             bindClickAway={(handler) => { editorClickAway = handler }}
+            moveRow={(from, direction) => moveEditorRow(from, direction)}
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
             onClose={() => {
               setEditor(undefined)
