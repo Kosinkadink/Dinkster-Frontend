@@ -144,6 +144,15 @@ describe('formula vector file', () => {
     )
   })
 
+  it('names a refused character by code point and character position', () => {
+    const scope = { names: new Map() }
+    // A no-break space looks like a space to the author.
+    expect(() => Formula.parse('1 +\u00a02', scope)).toThrow(/U\+00A0 at position 4/)
+    // Positions count characters, so a character outside the Basic Multilingual Plane is one.
+    expect(() => Formula.parse("'\u{1f600}' +\r1", scope)).toThrow(/U\+000D at position 6/)
+    expect(() => Formula.parse("'\u{1f600}' +\u00e91", scope)).toThrow(/U\+00E9 at position 6/)
+  })
+
   it('gives every answer the engine gives', () => {
     const cases = (JSON.parse(vectorBytes.toString('ascii')) as { cases: VectorCase[] }).cases
     expect(cases.length).toBeGreaterThan(5000)

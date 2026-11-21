@@ -1282,13 +1282,17 @@ export class Formula {
         refuse(`row id ${name} cannot be named in a formula`)
       }
     }
-    if (/[\0]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)) {
-      refuse('a formula cannot hold NUL or a lone surrogate')
-    }
-    if (/\r(?!\n)/.test(text)) refuse('a carriage return must be followed by a line feed')
-    if (/[^\x20-\x7e\t\n\r\f]/.test(blankTextLiterals(text))) {
-      refuse('outside text literals a formula holds printable ASCII only')
-    }
+    refuseCharacter(
+      text,
+      /[\0]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.exec(text),
+      'a formula cannot hold NUL or a lone surrogate',
+    )
+    refuseCharacter(text, /\r(?!\n)/.exec(text), 'a carriage return must be followed by a line feed')
+    refuseCharacter(
+      text,
+      /[^\x20-\x7e\t\n\r\f]/.exec(blankTextLiterals(text)),
+      'outside text literals a formula holds printable ASCII only',
+    )
     const tree = new Parser(tokenize(source)).parseFormula()
     const checker = new Checker(scope, stack)
     checker.visit(tree)
@@ -1316,6 +1320,14 @@ export class Formula {
 }
 
 const TEXT_LITERAL = /'(?:[^'\\\n]|\\[^\n])*'|"(?:[^"\\\n]|\\[^\n])*"/g
+
+/** Refuse at the first character `match` found, named by code point and 1-based character position. */
+function refuseCharacter(text: string, match: RegExpExecArray | null, rule: string): void {
+  if (match === null) return
+  const point = text.codePointAt(match.index)!
+  const position = textLength(text.slice(0, match.index)) + 1
+  refuse(`U+${point.toString(16).toUpperCase().padStart(4, '0')} at position ${position}: ${rule}`)
+}
 
 function blankTextLiterals(source: string): string {
   return source.replace(TEXT_LITERAL, (match) => ' '.repeat(match.length))
