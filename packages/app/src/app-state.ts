@@ -1183,7 +1183,6 @@ export interface CanvasBridge {
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
-  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean | Promise<boolean>
   /** Extracts the captured selection and group contents with the default name. */
   readonly extractSubgraph?: () => boolean | Promise<boolean>
   /** Flattens the sole selected subgraph occurrence by one level. */
@@ -3336,13 +3335,6 @@ export class AppState {
       run: () => this.canvasBridge.get()?.createEmptySubgraph?.(),
       enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createEmptySubgraph !== undefined,
     })
-    for (const kind of ['map', 'fold', 'while'] as const) {
-      this.frontendDoors.command(`region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`, {
-        get label() { return t(`command.region.create.${kind}`) },
-        run: () => this.canvasBridge.get()?.createRegion?.(kind),
-        enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createRegion !== undefined,
-      })
-    }
     register(
       'subgraph.extract',
       'command.subgraph.extract',

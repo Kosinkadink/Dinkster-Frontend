@@ -38,8 +38,9 @@
 ## Regions rework
 
 - User direction: regions have never worked for the user and will need a rework. This is future design work, not another starting-body repair.
-- Current behavior stays: Map, Fold and While starting bodies use served nodes; this entry does not redesign or remove them.
-- Return condition: agree on the intended authoring and execution experience, then validate it through real workflows, nested bodies, errors and save/reopen. No region rework is ordered here.
+- Why parked: the palette, canvas menu and commands no longer offer creation of a fresh Map, Fold or While region. Saved regions still load, show, edit, copy and run; their contracts, header explanations, body navigation and engine behavior stay.
+- Kept code: [draft-image-editors-before-parking-1112](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-image-editors-before-parking-1112), commit `650b053a0ece3ab9cb352394ff3333f613a3ca73`. Paths: creation entries and bridge in `packages/app/src/{CanvasHost.tsx,app-state.ts}`, `packages/core/src/menus/{core-items.ts,contract.ts}`, creation labels in `packages/app/src/locales/{en,zh}.json`, creation-action cases in `packages/app/test/regions-authoring.test.ts`, and `docs/region-authoring.md`.
+- Return condition: agree on the intended authoring and execution experience, then validate it through real workflows, nested bodies, errors and save/reopen. Restore the creation entries and their tests together.
 
 ## Node-defined text-input autocomplete
 
