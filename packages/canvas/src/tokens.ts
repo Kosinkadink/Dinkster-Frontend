@@ -528,6 +528,16 @@ export interface RowGeometry {
   readonly textEndInset: number
   /** A pin's name, from the node's edge. */
   readonly portLabelInset: number
+  /** Space from the title line to a first row that is boxed (a field, section or growth row). */
+  readonly boxedTopInset: number
+  /** Space from the title line to a first row of pins, whose text carries its own space. */
+  readonly pinTopInset: number
+  /**
+   * Space from a last row of pins to the node's bottom edge; after a boxed row
+   * it is padBottom. Both bottom insets include the 1px border, which is drawn
+   * inside the node's box.
+   */
+  readonly pinBottomInset: number
 }
 
 export interface DesignTokens {
@@ -702,7 +712,7 @@ export const defaultTokens: DesignTokens = {
   rowHeight: 26,
   headerHeight: 26,
   padX: 10,
-  padBottom: 5,
+  padBottom: 6,
   previewDefaultHeight: 180,
   previewMinHeight: 40,
   previewCaptionHeight: 22,
@@ -721,7 +731,7 @@ export const defaultTokens: DesignTokens = {
   nodeLook: 'flat-title',
   crispEdges: true,
   rowGeometry: {
-    portRowHeight: 24,
+    portRowHeight: 26,
     fieldInsetY: 1,
     fieldInsetX: 8,
     stepperZone: 22,
@@ -730,6 +740,9 @@ export const defaultTokens: DesignTokens = {
     stepperLabelInset: 2,
     textEndInset: 4,
     portLabelInset: 10,
+    boxedTopInset: 5,
+    pinTopInset: 1,
+    pinBottomInset: 2,
   },
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
@@ -986,6 +999,9 @@ export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial
       stepperLabelInset: 6,
       textEndInset: 0,
       portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
+      boxedTopInset: 0,
+      pinTopInset: 0,
+      pinBottomInset: 8,
     },
     colors: {
       ...colors,

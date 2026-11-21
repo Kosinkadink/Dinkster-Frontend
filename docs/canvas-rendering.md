@@ -53,7 +53,14 @@ timings are reports, not CI assertions.
 ## Node look
 
 Nodes use the flat-title look. A row is 26px: a 24px field and a 2px gap.
-Fields sit 7px inside the node's 1px border, and pin rows are 24px. In the
+Fields sit 7px inside the node's 1px border, and pin rows are also 26px, with
+their 16px line of text centered. The space under the title rule and above the
+bottom edge depends on the row at that end: 5px next to a boxed row (a field,
+section header, growth row or stored value) and 1px next to a pin row, so 6px
+stays clear between the rule or border and the first or last thing seen. At
+the bottom the 1px border, drawn inside the node's box, comes on top of that
+space. A preview or text output after the rows ends the node as a boxed row
+does. In the
 dark theme the body and the 26px title bar share the darker surface
 (`#1c1f23`), a 1px `#2a2f35` rule closes the title bar, and fields use
 `#121417`. Raised opener rows take the lighter surface. The light theme takes
