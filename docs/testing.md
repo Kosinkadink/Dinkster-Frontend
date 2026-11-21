@@ -135,6 +135,10 @@ synthetic schema or opening its document. Catalog availability alone does not
 mean startup admission has finished; changing its captured registry or tabs
 can reject admission before shared workspace promotion starts.
 
+The live latent contract fixture also waits after creating its new workflow.
+The initial startup wait does not cover that tab's shared ownership; promotion
+during an upload invalidates the drop's captured owner before node insertion.
+
 The Activity, Extensions and Media locale proofs flush fixture persistence and
 wait for a committed version-1 snapshot with no pending workspace candidates
 before recording request baselines. Document recovery slots remain available
