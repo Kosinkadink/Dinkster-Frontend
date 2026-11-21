@@ -272,7 +272,8 @@ test('multiline preview expands with node height while representation, editor, a
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     // Two visible lines under the floating label, inside the field's inset.
-    const tokens = window.__dinksterTest!.renderer!.getDesignTokens()
+    const renderer = window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): any }
+    const tokens = renderer.getDesignTokens()
     const expectedRowHeight = tokens.rowGeometry.fieldInsetY * 2 + tokens.multilineText.labelHeight +
       2 * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
     return { width: node.layout.width, height: node.layout.height, rowHeight: row.height, expectedRowHeight }
