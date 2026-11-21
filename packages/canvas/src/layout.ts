@@ -316,7 +316,7 @@ export interface NodeLayout {
 }
 
 /** Shared visible bounds for registry widget chrome and its overlay states. */
-export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number): {
+export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
   readonly x: number
   readonly y: number
   readonly width: number
@@ -324,13 +324,13 @@ export function widgetChromeRect(x: number, rowY: number, width: number, rowHeig
   readonly radius: number
 } {
   const paint = canvasPaintTokens.widget
-  return { x, y: rowY + paint.verticalInset, width, height: rowHeight - paint.verticalInset * 2, radius: paint.radius }
+  return { x, y: rowY + insetY, width, height: rowHeight - insetY * 2, radius: paint.radius }
 }
 
 /** Floating label band plus padded multiline content rows. */
 export function multilineWidgetHeight(rows: number, tokens: DesignTokens): number {
   // The content budget lives inside widgetChromeRect's top/bottom inset.
-  return canvasPaintTokens.widget.verticalInset * 2 + tokens.multilineText.labelHeight +
+  return tokens.rowGeometry.fieldInsetY * 2 + tokens.multilineText.labelHeight +
     rows * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
 }
 
@@ -357,7 +357,7 @@ const flexibleLineHeight = (layout: NodeLayout, row: LayoutRow, tokens: DesignTo
 /** Reflow physical lines without separating widgets that share one line. */
 function reflowRows(layout: NodeLayout, heightOf: (row: LayoutRow, index: number) => number): LayoutRow[] {
   let sourceY = -1
-  let lineY = layout.headerHeight
+  let lineY = layout.rows[0]?.y ?? layout.headerHeight
   let bottom = lineY
   return layout.rows.map((row, index) => {
     if (sourceY !== row.y) {
@@ -415,13 +415,14 @@ export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignToken
   const compactHeight = tokens.rowHeight
   const defaultHeight = previewPanelDefaultHeight(tokens)
   const panelFloor = flexibleIndexes.length > 0 ? defaultHeight : previewPanelMinHeight(tokens)
-  const defaultActiveHeight = layout.minHeight + tokens.previewGap + defaultHeight
+  const baseHeight = boxedMinHeight(layout, tokens)
+  const defaultActiveHeight = baseHeight + tokens.previewGap + defaultHeight
   const activeHeight = layout.height > layout.minHeight
-    ? Math.max(layout.minHeight + tokens.previewGap + panelFloor, layout.height)
+    ? Math.max(baseHeight + tokens.previewGap + panelFloor, layout.height)
     : defaultActiveHeight
   const bodyExtra = Math.max(0, activeHeight - defaultActiveHeight)
-  const activePanelHeight = activeHeight - layout.minHeight - tokens.previewGap - bodyExtra
-  const minHeight = layout.minHeight + tokens.previewGap + compactHeight
+  const activePanelHeight = activeHeight - baseHeight - tokens.previewGap - bodyExtra
+  const minHeight = baseHeight + tokens.previewGap + compactHeight
   const height = minHeight + bodyExtra
   const share = flexibleIndexes.length === 0 ? 0 : Math.floor(bodyExtra / flexibleIndexes.length)
   const remainder = flexibleIndexes.length === 0 ? 0 : bodyExtra - share * flexibleIndexes.length
@@ -492,12 +493,12 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
   const panelMinHeight = flexibleIndexes.length === 0
     ? previewPanelMinHeight(tokens)
     : previewPanelDefaultHeight(tokens)
-  const minHeight = layout.minHeight + tokens.previewGap + panelMinHeight
+  const minHeight = boxedMinHeight(layout, tokens) + tokens.previewGap + panelMinHeight
   // A layout without manual-resize surplus carries no size request for the
   // panel: open it at the default height rather than the shrink floor.
   const height = layout.height > layout.minHeight
     ? Math.max(minHeight, layout.height)
-    : layout.minHeight + tokens.previewGap + previewPanelDefaultHeight(tokens)
+    : boxedMinHeight(layout, tokens) + tokens.previewGap + previewPanelDefaultHeight(tokens)
   const extra = Math.max(0, height - minHeight)
   const share = flexibleIndexes.length === 0 ? 0 : Math.floor(extra / flexibleIndexes.length)
   const remainder = flexibleIndexes.length === 0 ? 0 : extra - share * flexibleIndexes.length
@@ -570,7 +571,7 @@ export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, l
       },
     }
   }
-  const minHeight = layout.minHeight + tokens.previewGap + regionHeight
+  const minHeight = boxedMinHeight(layout, tokens) + tokens.previewGap + regionHeight
   const height = Math.max(minHeight, layout.height)
   const flexibleIndexes = flexibleTextRowIndexes(layout)
   const extra = Math.max(0, height - minHeight)
@@ -1071,7 +1072,9 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
-  const rowBaseHeight = (row: PendingRow): number => row.kind !== 'widget'
+  const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
+    ? tokens.rowGeometry.portRowHeight
+    : row.kind !== 'widget'
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
@@ -1082,7 +1085,8 @@ export function layoutNode(
   )
   const naturalRowsHeight = [...new Set(lines.values())].reduce((height, line) =>
     height + lineBaseHeight(line), 0)
-  const naturalHeight = tokens.headerHeight + naturalRowsHeight + tokens.padBottom
+  const stackInsets = rowStackInsets(pending[0]?.kind, pending.at(-1)?.kind, tokens)
+  const naturalHeight = tokens.headerHeight + stackInsets.top + naturalRowsHeight + stackInsets.bottom
   const requestedExtra = options.size === undefined
     ? 0
     : Math.max(0, options.size.height - naturalHeight)
@@ -1102,7 +1106,7 @@ export function layoutNode(
   const sectionRowY = new Map<string, number>() // header CENTER y by section id
   let advancedBounds: { y: number; bottom: number } | undefined
   const lineBottoms = new Map<PendingRow[], number>()
-  let y = tokens.headerHeight
+  let y = tokens.headerHeight + stackInsets.top
   for (const row of pending) {
     if (row.kind === 'section') {
       const s = row.section!
@@ -1130,7 +1134,7 @@ export function layoutNode(
       }
       y += height
     } else if (row.kind === 'ports') {
-      const height = tokens.rowHeight
+      const height = tokens.rowGeometry.portRowHeight
       rows.push({
         kind: 'ports',
         y,
@@ -1154,7 +1158,7 @@ export function layoutNode(
       if (flexible) flexibleIndex += 1
       // Keep the capsule and its edge controls clear of sockets on either
       // border. The symmetric side also reserves space for output widgets.
-      const inset = tokens.pinRadius + WIDGET_PIN_GAP
+      const inset = tokens.rowGeometry.fieldInsetX
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
       if (!w.socketless) pins.push({
@@ -1299,6 +1303,45 @@ export const MINIMIZED_NODE_MIN_WIDTH = canvasPaintTokens.node.minimizedMinWidth
 /** Visual gap between a pin circle and widget chrome. */
 export const WIDGET_PIN_GAP = canvasPaintTokens.node.widgetPinGap
 
+/**
+ * Space above the first row and below the last. A pin row's text has space
+ * of its own inside the row, while a boxed row's edge is the first thing
+ * seen, so the node's inset depends on the kind of row at each end.
+ */
+export function rowStackInsets(
+  first: LayoutRow['kind'] | undefined,
+  last: LayoutRow['kind'] | undefined,
+  tokens: DesignTokens,
+): { readonly top: number; readonly bottom: number } {
+  const geometry = tokens.rowGeometry
+  return {
+    top: first === undefined ? 0 : first === 'ports' ? geometry.pinTopInset : geometry.boxedTopInset,
+    bottom: last === 'ports' ? geometry.pinBottomInset : tokens.padBottom,
+  }
+}
+
+/** Shift rows and pins below the header by the top inset of the row stack. */
+export function insetRowStack(
+  rows: LayoutRow[],
+  pins: PinLayout[],
+  tokens: DesignTokens,
+): { readonly top: number; readonly bottom: number } {
+  const insets = rowStackInsets(rows[0]?.kind, rows.at(-1)?.kind, tokens)
+  if (insets.top !== 0) {
+    rows.splice(0, rows.length, ...rows.map((row) => ({ ...row, y: row.y + insets.top })))
+    pins.splice(0, pins.length, ...pins.map((pin) => ({ ...pin, y: pin.y + insets.top })))
+  }
+  return insets
+}
+
+/**
+ * Minimum height of a layout as if its rows ended in a boxed region, so a
+ * preview or text output placed after the rows keeps the boxed bottom inset.
+ */
+function boxedMinHeight(layout: NodeLayout, tokens: DesignTokens): number {
+  return layout.minHeight - rowStackInsets(undefined, layout.rows.at(-1)?.kind, tokens).bottom + tokens.padBottom
+}
+
 /** One boundary item rendered as a pseudo-node row (scene supplies these). */
 export interface BoundarySlotInfo {
   /** Boundary item id (pin portId; NEVER split - boundary ids may contain dots). */
@@ -1395,7 +1438,8 @@ export function layoutBoundaryNode(
   }
   width = Math.min(width, tokens.nodeMaxAutoWidth)
 
-  const height = y + tokens.padBottom
+  const stackInsets = insetRowStack(rows, pins, tokens)
+  const height = y + stackInsets.top + stackInsets.bottom
   return {
     width,
     height,

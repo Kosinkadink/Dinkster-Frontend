@@ -52,6 +52,8 @@ export interface SemanticDesignTokens {
     readonly inset: string
     readonly raised: string
     readonly selected: string
+    /** A canvas row's field while it is open for editing. */
+    readonly fieldOpen: string
   }
   readonly text: {
     readonly primary: string
@@ -66,6 +68,10 @@ export interface SemanticDesignTokens {
     readonly strong: string
     readonly focus: string
     readonly selected: string
+    /** A quiet line between two parts of one shape, such as a title bar and its body. */
+    readonly divider: string
+    /** The edge around a group of controls picked from as one. */
+    readonly group: string
   }
   readonly meaning: {
     readonly accent: MeaningToken
@@ -125,6 +131,7 @@ export const semanticTokensForTheme = (
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
       selected: colors.bg.hover,
+      fieldOpen: theme === 'dark' ? '#0D0F11' : colors.bg.canvas,
     },
     text: {
       primary: colors.text.primary,
@@ -139,6 +146,9 @@ export const semanticTokensForTheme = (
       strong: colors.text.muted,
       focus: colors.status.info,
       selected: colors.text.primary,
+      // Looks are decided in the dark theme; the light theme keeps its border.
+      divider: theme === 'dark' ? '#2A2F35' : colors.border.default,
+      group: theme === 'dark' ? '#4A5058' : colors.border.default,
     },
     meaning: {
       accent: meaning(colors.status.info),
@@ -271,6 +281,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
+    '--dinkster-surface-field-open': semanticDesignTokens.surface.fieldOpen,
     '--dinkster-text-primary': semanticDesignTokens.text.primary,
     '--dinkster-text-secondary': semanticDesignTokens.text.secondary,
     '--dinkster-text-muted': semanticDesignTokens.text.muted,
@@ -281,6 +292,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-strong': semanticDesignTokens.border.strong,
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
+    '--dinkster-border-divider': semanticDesignTokens.border.divider,
+    '--dinkster-border-group': semanticDesignTokens.border.group,
     '--dinkster-accent-foreground':
       semanticDesignTokens.meaning.accent.foreground,
     '--dinkster-accent-background':

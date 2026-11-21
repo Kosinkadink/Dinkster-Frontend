@@ -60,7 +60,7 @@ function paint(scene: Scene, overlay: Parameters<CanvasRenderer['setOverlay']>[0
 }
 
 function tapFill(calls: readonly PaintCall[]): PaintCall | undefined {
-  const arc = calls.findIndex((c) => c.method === 'arc' && c.args[0] === 110 && c.args[1] === 42 && c.args[2] === defaultTokens.pinRadius)
+  const arc = calls.findIndex((c) => c.method === 'arc' && c.args[0] === 109.5 && c.args[1] === 42.5 && c.args[2] === defaultTokens.pinRadius)
   return arc < 0 ? undefined : calls.slice(arc + 1).find((c) => c.method === 'fill')
 }
 

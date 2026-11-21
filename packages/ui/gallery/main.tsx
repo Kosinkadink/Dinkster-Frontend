@@ -141,7 +141,11 @@ function Gallery() {
             : (navigation.find((item) => item.href === route())?.label ??
               'Buttons and fields')
         }
-        description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
+        description={
+          route() === '#canvas'
+            ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
+            : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
+        }
         table={route() === '#lists' || route() === '#canvas'}
       >
         <Show
@@ -823,9 +827,11 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <p class="dinkster-metadata" role="status">
-          {activity()}
-        </p>
+        <Show when={route() !== '#canvas'}>
+          <p class="dinkster-metadata" role="status">
+            {activity()}
+          </p>
+        </Show>
       </ProductPage>
       <ProductToast
         notification={toast()}

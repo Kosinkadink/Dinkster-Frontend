@@ -9,12 +9,12 @@
  */
 
 import { formatWidgetValue, type Json, type WidgetRegistry } from '@dinkster/core'
-import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, WIDGET_EDGE_CONTROL_WIDTH, widgetFieldBounds } from './controller-chip.js'
+import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
-import { paintToolboxIcon } from './icons.js'
+import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 
 const paint = canvasPaintTokens.widget
 const TEXT_PAD = paint.textPadding
@@ -53,7 +53,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       // Companion (propagated) display bypasses the kind view entirely: one
       // shared read-only style for every widget kind, drawn over the shared
       // row chrome - never the view's interactive presentation.
-      const chrome = widgetChromeRect(x, y, width, row.height)
+      const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
       ctx.fillStyle = tokens.colors.widgetBackground
       ctx.beginPath()
       ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
@@ -62,15 +62,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.textAlign = 'left'
       const formatted = formatWidgetValue(args.companion.value, row.spec)
       const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-      const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined)
+      const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
       const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
-      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + paint.labelInset, y + rowHeight / 2)
+      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
       paintCompanionValue(args)
       return
     }
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
     // Draw the shared row chrome (label) then let the view draw its content.
-    const chrome = widgetChromeRect(x, y, width, row.height)
+    const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
     ctx.fillStyle = tokens.colors.widgetBackground
     ctx.beginPath()
     ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
@@ -78,6 +78,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const inRow = tokens.widgetEditing === 'in-row'
+    // In-row editing draws a number's after-run mode as an icon before its value instead of the chip.
+    const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
     const openerIcon = tokens.widgetRowLook !== 'inset'
       ? row.viewId === 'core.asset' ? 'image'
         : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
@@ -89,7 +92,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           : undefined
       : undefined
     if (openerIcon !== undefined) {
-      ctx.fillStyle = tokens.colors.nodeHeader
+      ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
       ctx.lineWidth = paint.opener.stroke
       ctx.beginPath()
@@ -102,9 +105,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingReserve,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
     }
-    const leftControl = openerIcon !== undefined ? paint.opener.iconReserve : numeric ? WIDGET_EDGE_CONTROL_WIDTH : 0
+    const geometry = tokens.rowGeometry
+    const leftControl = openerIcon !== undefined ? paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
     const combo = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO'
-    const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? WIDGET_EDGE_CONTROL_WIDTH : 0
+    const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
     const usableWidth = Math.max(0, width - leftControl - rightControl)
     const naturalLabelWidth = measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
@@ -128,17 +132,20 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
-    const controller = row.controllerMode !== undefined
-      ? controllerChipRect(width, rowHeight)
+    const controller = row.controllerMode !== undefined && modeIcon === undefined
+      ? controllerChipRect(width, rowHeight, geometry)
       : undefined
-    const valueRight = controller === undefined ? width - rightControl : controllerChipTextRight(width, rowHeight)
+    const valueRight = controller === undefined ? width - rightControl : controllerChipTextRight(width, rowHeight, geometry)
     const fieldWidth = Math.max(0, valueRight - leftControl)
     const multiline = row.viewId === 'core.text'
     const multilineLabelHeight = tokens.multilineText.labelHeight
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
+    // The mode icon always shows; the label and value share the rest of the row.
+    const modeIconSize = paint.modeIconSize
+    const modeIconReserve = modeIcon === undefined ? 0 : modeIconSize + paint.modeIconGap
     let labelWidth = multiline
       ? 0
-      : shareRowWidth(fieldWidth, naturalLabelWidth, naturalValueWidth, true)
+      : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
     if (row.viewId === 'core.asset' && valuePreview === 'no asset') {
       // The empty-state message takes priority even when opener controls leave
       // less than the ordinary label floor. Round up for fitText's pixel floor.
@@ -154,7 +161,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.textAlign = 'left'
       ctx.fillText(
         ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - paint.labelClipPadding)),
-        x + (multiline ? 0 : leftControl) + paint.labelInset,
+        x + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
       )
     }
@@ -187,8 +194,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.beginPath()
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.clip()
-            ctx.fillStyle = tokens.colors.widgetRangeFill
+            ctx.fillStyle = inRow ? tokens.colors.widgetRangeFillAccent : tokens.colors.widgetRangeFill
             ctx.fillRect(chrome.x, chrome.y, chrome.width * fraction, chrome.height)
+            if (inRow && args.dragging === true) {
+              // A bright edge marks the fill while the pointer holds it.
+              ctx.fillStyle = tokens.colors.widgetAffordanceActive
+              ctx.fillRect(chrome.x + chrome.width * fraction - paint.dragLineStroke, chrome.y, paint.dragLineStroke, chrome.height)
+            }
             ctx.restore()
             return
           }
@@ -215,7 +227,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             return
           }
           if (style['role'] === 'comboChevron') {
-            const center = x + edgeActionCenterX(width, 'trailing')
+            const center = x + edgeActionCenterX(width, 'trailing', geometry)
             const middle = y + rowHeight / 2
             ctx.save()
             ctx.strokeStyle = tokens.colors.widgetAffordance
@@ -243,15 +255,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const unitHeight = multiline ? multilineHeight : rowHeight
           const rectTop = multiline
             ? multilineTop + multilinePadding + ry * unitHeight
-            : y + ry * unitHeight + paint.verticalInset
-          const rectBottom = rectTop + rh * unitHeight - (multiline ? 0 : paint.verticalInset * 2)
+            : y + ry * unitHeight + geometry.fieldInsetY
+          const rectBottom = rectTop + rh * unitHeight - (multiline ? 0 : geometry.fieldInsetY * 2)
           const clipTop = Math.max(multiline ? multilineTop : y, rectTop)
           const clipBottom = Math.min(multiline ? multilineBottom - multilinePadding : y + row.height, rectBottom)
           if (clipBottom <= clipTop) return
           if (style['role'] !== 'curveSample') {
             ctx.fillStyle = String(style['fill'] ?? tokens.colors.widgetBackground)
           }
-          const rectHeight = rh * unitHeight - (multiline ? 0 : paint.verticalInset * 2)
+          const rectHeight = rh * unitHeight - (multiline ? 0 : geometry.fieldInsetY * 2)
           const rectWidth = style['fixedAspect'] === 'square' ? rectHeight : rw * contentWidth
           ctx.save()
           ctx.beginPath()
@@ -272,15 +284,19 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const zoneRight = alignRight ? px - reserveRight : px + reserveLeft + zoneWidth
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
-            const text = ellipsize(ctx, run.split('\n')[0] ?? '', availableWidth)
-            const lineTop = y + ty * rowHeight + paint.verticalInset
-            const lineBottom = y + (ty + 1) * rowHeight - paint.verticalInset
+            const iconReserve = modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0
+            const text = ellipsize(ctx, run.split('\n')[0] ?? '', Math.max(0, availableWidth - iconReserve))
+            const lineTop = y + ty * rowHeight + geometry.fieldInsetY
+            const lineBottom = y + (ty + 1) * rowHeight - geometry.fieldInsetY
             const clipTop = Math.max(y, lineTop)
             const clipBottom = Math.min(y + row.height, lineBottom)
             if (clipBottom > clipTop) {
               ctx.save()
               const placeholder = style['placeholder'] === true
-              ctx.fillStyle = placeholder ? tokens.colors.label : tokens.colors.value
+              const role = style['role']
+              // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
+              const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
+              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
@@ -288,7 +304,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
-              const role = style['role']
+              if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
+                // Marks about a value come before it, so values line up at the right.
+                paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,
+                  textY - modeIconSize / 2, modeIconSize, tokens.colors.valueMark)
+              }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)
               }

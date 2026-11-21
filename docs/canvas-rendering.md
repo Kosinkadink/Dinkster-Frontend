@@ -50,6 +50,33 @@ This affects comparison setup only, not production rendering. Frame-time tools
 and measured results are documented in [Performance baselines](perf.md);
 timings are reports, not CI assertions.
 
+## Node look
+
+Nodes use the flat-title look. A row is 26px: a 24px field and a 2px gap.
+Fields sit 7px inside the node's 1px border, and pin rows are also 26px, with
+their 16px line of text centered. The space under the title rule and above the
+bottom edge depends on the row at that end: 5px next to a boxed row (a field,
+section header, growth row or stored value) and 1px next to a pin row, so 6px
+stays clear between the rule or border and the first or last thing seen. At
+the bottom the 1px border, drawn inside the node's box, comes on top of that
+space. A preview or text output after the rows ends the node as a boxed row
+does. In the
+dark theme the body and the 26px title bar share the darker surface
+(`#1c1f23`), a 1px `#2a2f35` rule closes the title bar, and fields use
+`#121417`. Raised opener rows take the lighter surface. The light theme takes
+the same sizes and keeps its original colors.
+
+At 100 percent zoom, with a node at whole-number coordinates, every edge falls
+on whole pixels. The idle outline is 1px wide and drawn inside the node's box.
+The title rule and every field's box fill whole pixel rows. Stepper glyphs are
+1px lines centered on pixel rows and columns, 9px inside the field's ends.
+A pin on a node's or boundary panel's side is 11px across and centered on the
+1px border line: 5px outside it and 5px inside, and half a pixel below its
+row's center so it covers whole pixel rows. Wires and hit targets keep the
+box's edge and the row's center, which the pin covers. The `crispEdges` token
+holds this behavior. `nodeLookTokens('original', theme)` restores the earlier
+look for the gallery's side-by-side page.
+
 ## Numeric edits and comparison diagnostics
 
 Static numeric widget edits reuse scene geometry when the effective interface

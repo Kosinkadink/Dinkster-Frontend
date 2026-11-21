@@ -52,7 +52,7 @@ const registry: WidgetRegistry = {
 }
 
 const args = (ctx: CanvasRenderingContext2D): WidgetPaintArgs => ({
-  ctx, row, value: 123456789, x: 0, y: 0, width: 160, rowHeight: 24,
+  ctx, row, value: 123456789, x: 0, y: 0, width: 180, rowHeight: 24,
   connected: false, tokens: defaultTokens,
 })
 
