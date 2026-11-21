@@ -19,6 +19,10 @@ import Minus from 'lucide/dist/esm/icons/minus.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Dice5 from 'lucide/dist/esm/icons/dice-5.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ArrowDown from 'lucide/dist/esm/icons/arrow-down.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Boxes from 'lucide/dist/esm/icons/boxes.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import FolderOpen from 'lucide/dist/esm/icons/folder-open.mjs'
@@ -67,6 +71,17 @@ const CONTROLLER_ICONS: Record<SeedControllerMode, IconNode> = {
   fixed: Lock,
   increment: Plus,
   decrement: Minus,
+  randomize: Dice5,
+}
+
+/**
+ * In-row editing draws the mode beside the row's own minus and plus buttons,
+ * so increment and decrement are arrows there rather than a third plus or minus.
+ */
+const SEED_MODE_ICONS: Record<SeedControllerMode, IconNode> = {
+  fixed: Lock,
+  increment: ArrowUp,
+  decrement: ArrowDown,
   randomize: Dice5,
 }
 
@@ -142,6 +157,18 @@ export function paintSeedControllerIcon(
   color: string,
 ): void {
   paintIcon(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
+}
+
+/** Paint a seed's after-run mode as drawn before the value of an in-row number. */
+export function paintSeedModeIcon(
+  ctx: CanvasRenderingContext2D,
+  mode: SeedControllerMode,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): void {
+  paintIcon(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
 }
 
 function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {

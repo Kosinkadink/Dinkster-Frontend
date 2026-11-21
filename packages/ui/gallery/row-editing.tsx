@@ -1,5 +1,17 @@
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import type { Json, WidgetRegistry, WidgetSpec } from '@dinkster/core'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+} from 'solid-js'
+import {
+  numericStepConstraints,
+  type Json,
+  type WidgetRegistry,
+  type WidgetSpec,
+} from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -25,6 +37,7 @@ import {
 } from '../../canvas/gallery/fixtures.js'
 import {
   CanvasRowField,
+  CanvasSeedModeIcon,
   CanvasSideLink,
   CanvasSideModes,
   CanvasSidePart,
@@ -49,9 +62,12 @@ const NODE_WIDTH = 280
 const MARGIN = 16
 const SIDE_ROOM = 272
 const NARROW_NODE_WIDTH = 180
-const SEED_MODES = ['fixed', 'increment', 'decrement', 'randomize'] as const
 
-const besideRight = (id: string, caption: string, open: string): RowExample => ({
+const besideRight = (
+  id: string,
+  caption: string,
+  open: string,
+): RowExample => ({
   id,
   caption,
   scale: 1,
@@ -86,7 +102,7 @@ const groups: readonly {
       {
         id: 'closed',
         caption:
-          'Nothing is open. The seed names its mode before its value; the slider is tinted up to its value.',
+          'Nothing is open. The seed shows its mode as an icon before its value; the slider is tinted up to its value.',
         scale: 1,
         width: MARGIN * 2 + NODE_WIDTH,
         node: { x: MARGIN, y: MARGIN },
@@ -94,7 +110,7 @@ const groups: readonly {
       {
         id: 'closed-narrow',
         caption:
-          'A narrow node. The seed drops its mode word whole before anything else gives way; the mode is still in the side part.',
+          'A narrow node. The seed keeps its mode icon; the label and the value share what is left.',
         scale: 1,
         width: MARGIN * 2 + NARROW_NODE_WIDTH,
         node: { x: MARGIN, y: MARGIN },
@@ -147,7 +163,7 @@ const groups: readonly {
     examples: [
       besideRight(
         'seed-right',
-        'Clicked seed. Its mode stays before the value while the field is open; the side part lists the four modes, with a link to each, and new seed.',
+        'Clicked seed. Its mode icon stays before the value while the field is open. The side part shows the four modes as icons, the meaning of the current one under them, then new seed.',
         'seed',
       ),
       besideLeft(
@@ -187,7 +203,7 @@ const groups: readonly {
       {
         id: 'number-dragged',
         caption:
-          'Pressed on cfg (7.00, step 0.01) and moved 40 pixels right: 10 steps. The value turns the accent color with a line under the row, and nothing opens.',
+          'Pressed on cfg (7.00, step 0.01) and moved 40 pixels right: 10 steps. The value turns the accent color, and nothing opens.',
         scale: 1,
         width: MARGIN * 2 + NODE_WIDTH,
         node: { x: MARGIN, y: MARGIN },
@@ -201,7 +217,10 @@ function fieldText(value: Json | undefined): string {
   return value === undefined || value === null ? '' : String(value)
 }
 
-function sliderFill(spec: WidgetSpec, value: Json | undefined): number | undefined {
+function sliderFill(
+  spec: WidgetSpec,
+  value: Json | undefined,
+): number | undefined {
   const min = spec.options['min']
   const max = spec.options['max']
   if (
@@ -266,7 +285,8 @@ function RowEditingExample(props: {
           example.nodeWidth ?? NODE_WIDTH,
         )
         const node = built.nodes[0]!
-        const height = (example.node.y + node.layout.height + MARGIN) * example.scale
+        const height =
+          (example.node.y + node.layout.height + MARGIN) * example.scale
         figure.style.width = `${example.width}px`
         canvas.style.width = `${example.width}px`
         canvas.style.height = `${height}px`
@@ -292,7 +312,7 @@ function RowEditingExample(props: {
       delete canvas.dataset.ready
     })
   })
-  const open = () => {
+  const openRow = createMemo(() => {
     const current = scene()
     const key = props.example.open
     if (!current || key === undefined) return undefined
@@ -301,6 +321,55 @@ function RowEditingExample(props: {
       (row): row is WidgetRow => row.kind === 'widget' && row.valueKey === key,
     )
     if (!row) return undefined
+    const item = rowEditingSchema.items.find(
+      (item) => item.kind === 'input' && item.id === row.inputId,
+    )
+    const help = item?.kind === 'input' ? item.tooltip : undefined
+    const numeric =
+      row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const facts = numeric ? numberFieldFacts(row.spec) : []
+    return { node, row, help, numeric, facts }
+  })
+  // The side part is built once per open row, so measuring and placing it
+  // never replaces its content.
+  const side = createMemo(() => {
+    const target = openRow()
+    if (!target) return undefined
+    const { row, help, facts } = target
+    if (facts.length === 0 && help === undefined) return undefined
+    return (
+      <CanvasSidePart
+        {...(row.controllerMode !== undefined
+          ? {
+              children: (
+                <CanvasSideModes
+                  current={row.controllerMode!}
+                  step={String(numericStepConstraints(row.spec).step)}
+                  onMode={() => undefined}
+                  onNewSeed={() => undefined}
+                />
+              ),
+            }
+          : {})}
+        facts={facts.map((fact) => ({
+          key: fact.key,
+          value:
+            fact.key === 'default' ? (
+              <CanvasSideLink onClick={() => undefined}>
+                {fact.text}
+              </CanvasSideLink>
+            ) : (
+              fact.text
+            ),
+        }))}
+        {...(help !== undefined ? { help: help! } : {})}
+      />
+    )
+  })
+  const open = () => {
+    const target = openRow()
+    if (!target) return undefined
+    const { node, row, help, numeric, facts } = target
     const scale = props.example.scale
     const width = row.width ?? node.layout.width - row.inset * 2
     const screen = {
@@ -317,13 +386,6 @@ function RowEditingExample(props: {
     }
     const place = canvasSidePlace(screen, bounds, sideWidth(), scale)
     const value = node.node.values[row.valueKey]
-    const item = rowEditingSchema.items.find(
-      (item) => item.kind === 'input' && item.id === row.inputId,
-    )
-    const help = item?.kind === 'input' ? item.tooltip : undefined
-    const numeric =
-      row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-    const facts = numeric ? numberFieldFacts(row.spec) : []
     const nodeBottom = (node.y + node.layout.height) * scale
     return {
       row,
@@ -369,15 +431,18 @@ function RowEditingExample(props: {
               value={fieldText(current().value)}
               onInput={() => undefined}
               inputLabel={current().row.label}
-              {...(current().numeric
-                ? { onStep: () => undefined }
-                : {})}
-              {...(sliderFill(current().row.spec, current().value) !==
-              undefined
+              {...(current().numeric ? { onStep: () => undefined } : {})}
+              {...(sliderFill(current().row.spec, current().value) !== undefined
                 ? { fill: sliderFill(current().row.spec, current().value)! }
                 : {})}
               {...(current().row.controllerMode !== undefined
-                ? { word: current().row.controllerMode! }
+                ? {
+                    mark: (
+                      <CanvasSeedModeIcon
+                        mode={current().row.controllerMode!}
+                      />
+                    ),
+                  }
                 : {})}
               place={current().place}
               sideTop={current().sideTop}
@@ -385,40 +450,7 @@ function RowEditingExample(props: {
                 setSideWidth(size.width)
                 setSideHeight(size.height)
               }}
-              {...(current().facts.length > 0 || current().help !== undefined
-                ? {
-                    side: (
-                      <CanvasSidePart
-                        {...(current().row.controllerMode !== undefined
-                          ? {
-                              children: (
-                                <CanvasSideModes
-                                  modes={SEED_MODES}
-                                  current={current().row.controllerMode!}
-                                  onMode={() => undefined}
-                                  onNewSeed={() => undefined}
-                                />
-                              ),
-                            }
-                          : {})}
-                        facts={current().facts.map((fact) => ({
-                          key: fact.key,
-                          value:
-                            fact.key === 'default' ? (
-                              <CanvasSideLink onClick={() => undefined}>
-                                {fact.text}
-                              </CanvasSideLink>
-                            ) : (
-                              fact.text
-                            ),
-                        }))}
-                        {...(current().help !== undefined
-                          ? { help: current().help! }
-                          : {})}
-                      />
-                    ),
-                  }
-                : {})}
+              {...(side() !== undefined ? { side: side()! } : {})}
             />
           )}
         </Show>

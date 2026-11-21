@@ -3463,7 +3463,7 @@ export class CanvasRenderer {
             ctx.stroke()
           }
           const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
-          // In-row editing names a number's mode before its value instead of drawing the chip.
+          // In-row editing draws a number's mode as an icon before its value instead of the chip.
           if (row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
             const chip = controllerChipRect(widgetWidth, t.rowHeight)
             const x = node.x + row.inset + chip.x
