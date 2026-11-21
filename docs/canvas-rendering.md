@@ -75,7 +75,7 @@ A pin on a node's or boundary panel's side is 11px across and centered on the
 row's center so it covers whole pixel rows. Wires and hit targets keep the
 box's edge and the row's center, which the pin covers. The `crispEdges` token
 holds this behavior. `nodeLookTokens('original', theme)` restores the earlier
-10px pins and the earlier look for the gallery's side-by-side page.
+look for the gallery's side-by-side page.
 
 ## Numeric edits and comparison diagnostics
 

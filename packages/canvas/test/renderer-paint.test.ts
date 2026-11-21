@@ -1035,7 +1035,7 @@ describe('viewport culling regressions', () => {
   it('keeps nodes within the 12px PIN_OVERHANG and culls nodes beyond it', () => {
     const original = fixtureScene('clean').nodes[0]!
     const near = { ...original, id: 'near', x: 100 - original.layout.width - 6, y: 100 }
-    const far = { ...original, id: 'far', x: 100 - original.layout.width - 14, y: 300 }
+    const far = { ...original, id: 'far', x: 100 - original.layout.width - 13, y: 300 }
     const { ctx, calls } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     renderer.setGridVisible(false)
