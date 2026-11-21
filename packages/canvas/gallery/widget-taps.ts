@@ -117,9 +117,6 @@ const rowKinds = schema('Row kinds', [
       controller: 'after_generate',
     },
   },
-  field('size', 'automatic', 'COMBO', 'auto', {
-    options: ['auto', '512', '768', '1024'],
-  }),
 ])
 const foldedSampler = schema('Sampler with a folded section', [
   socket('model', 'MODEL'),
@@ -296,11 +293,11 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      'The pin beside each kind of row, with the node pointed at. "automatic" is a choice whose value is auto.',
+      'The pin beside each kind of row, with the node pointed at. An automatic value is not built yet; it gets its row here when it is.',
       [{ id: 'kinds', schema: rowKinds, x: 0 }],
     ),
     card(
-      'A field driven by a wire passes its source on.',
+      "The cfg field is driven by a wire, and its pin is live: it passes the field's source on to the next node.",
       [
         { id: 'source float', schema: float, x: 0, ...small },
         { id: 'passing', schema: sampler, x: SMALL_WIDTH + WIRE_GAP },
