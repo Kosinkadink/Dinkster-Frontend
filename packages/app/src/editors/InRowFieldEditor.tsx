@@ -1,5 +1,5 @@
 import { createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { jsonSameValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
+import { formatWidgetValue, jsonSameValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
 import { CanvasRowField, CanvasSidePart, canvasSidePlace } from '@dinkster/ui'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
@@ -18,7 +18,13 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const spec = ed.spec!
   const inRow = ed.inRow!
   const numeric = spec.widgetType === 'INT' || spec.widgetType === 'FLOAT'
-  const initialText = ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
+  // The field opens with the text the closed row shows, so the value keeps
+  // its look; a float the row rounds opens with every digit instead.
+  const initialText = ((): string => {
+    if (ed.initial === undefined || ed.initial === null) return ''
+    const shown = formatWidgetValue(ed.initial, spec)
+    return typeof ed.initial === 'number' && Number(shown) === ed.initial ? shown : String(ed.initial)
+  })()
   const [draft, setDraft] = createSignal(initialText)
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   let live = true
@@ -29,6 +35,25 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     numeric && draft() !== initialText ? resolveTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue) : undefined)
   const note = (): string | undefined =>
     numeric && draft() === initialText ? storedNumberNote(spec, ed.initial as IntegerWidgetValue) : undefined
+
+  // A slider keeps its fill while typing. The fill follows what Enter would
+  // store while that lies inside the range, and stays where it was while the
+  // text is not a number or is past a limit.
+  const range = (() => {
+    const min = spec.options['min']
+    const max = spec.options['max']
+    return ed.viewId === 'core.slider' && typeof min === 'number' && typeof max === 'number' && max > min ? { min, max } : undefined
+  })()
+  const fill = createMemo<number | undefined>((previous) => {
+    if (range === undefined) return undefined
+    const at = (value: number): number => (value - range.min) / (range.max - range.min)
+    if (draft() === initialText) return at(Number(ed.initial))
+    const result = typed()
+    if (result?.kind !== 'store') return previous
+    const value = Number(result.value)
+    if (result.problem !== undefined && (value === range.min || value === range.max)) return previous
+    return at(value)
+  })
 
   const commitText = (value: string): Promise<boolean> => {
     if (ed.target.kind === 'input') {
@@ -164,6 +189,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
             input?.focus()
           },
         } : {})}
+        {...(fill() === undefined ? {} : { fill: fill()! })}
         place={placement().place}
         sideTop={placement().sideTop}
         onSideSize={setSideSize}
