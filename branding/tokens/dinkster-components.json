@@ -44,7 +44,8 @@
     "macWindowControlsY": 16,
     "iconSize": 16,
     "railIconSize": 20,
-    "menuRowHeight": 28
+    "menuRowHeight": 28,
+    "scrollbarSize": 8
   },
   "siteLayout": {
     "shellMaxWidth": 1040,
