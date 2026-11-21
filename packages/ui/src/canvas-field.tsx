@@ -7,7 +7,8 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { Check, Minus, Plus } from 'lucide-solid'
+import { Dynamic } from 'solid-js/web'
+import { ArrowDown, ArrowUp, Dice5, Lock, Minus, Plus } from 'lucide-solid'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -160,8 +161,8 @@ export function CanvasRowField(props: {
   onStep?: (direction: -1 | 1, fast: boolean) => void
   /** A slider's fill, from 0 to 1. */
   fill?: number
-  /** A word about the value, shown before it. */
-  word?: string
+  /** A mark about the value, such as a seed's mode icon, shown before it. */
+  mark?: JSX.Element
   place: CanvasSidePlace
   /** Distance from the row's top to the side part, under the node. */
   sideTop?: number
@@ -181,12 +182,14 @@ export function CanvasRowField(props: {
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
-    if (fill) fill.style.width = `${Math.max(0, Math.min(1, props.fill ?? 0)) * 100}%`
+    if (fill)
+      fill.style.width = `${Math.max(0, Math.min(1, props.fill ?? 0)) * 100}%`
     if (!side) {
       setSideSize(undefined)
       return
     }
-    side.style.top = props.place === 'below-node' ? `${props.sideTop ?? 0}px` : ''
+    side.style.top =
+      props.place === 'below-node' ? `${props.sideTop ?? 0}px` : ''
     const size = { width: side.offsetWidth, height: side.offsetHeight }
     const previous = sideSize()
     if (previous?.width !== size.width || previous.height !== size.height) {
@@ -220,6 +223,7 @@ export function CanvasRowField(props: {
       }}
       class="dinkster-canvas-field"
       data-place={props.place}
+      data-side={props.side !== undefined}
       data-testid="canvas-row-field"
     >
       <div
@@ -248,8 +252,8 @@ export function CanvasRowField(props: {
           )}
         </Show>
         <span class="dinkster-canvas-field-label">{props.label}</span>
-        <Show when={props.word}>
-          <span class="dinkster-canvas-field-word">{props.word}</span>
+        <Show when={props.mark}>
+          <span class="dinkster-canvas-field-mark">{props.mark}</span>
         </Show>
         <input
           ref={props.inputRef}
@@ -352,39 +356,91 @@ export function CanvasSideLink(props: {
   )
 }
 
+export type CanvasSeedMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
+
+/** A seed's after-run mode as the icon drawn before its value. */
+export function CanvasSeedModeIcon(props: { mode: CanvasSeedMode }) {
+  return (
+    <Dynamic
+      component={SEED_MODE_ICONS[props.mode]}
+      class="dinkster-canvas-field-glyph"
+      aria-label={props.mode}
+      role="img"
+    />
+  )
+}
+
+const SEED_MODES: readonly CanvasSeedMode[] = [
+  'fixed',
+  'increment',
+  'decrement',
+  'randomize',
+]
+
+const SEED_MODE_ICONS = {
+  fixed: Lock,
+  increment: ArrowUp,
+  decrement: ArrowDown,
+  randomize: Dice5,
+} as const
+
 /**
- * A seed's modes under "after each run", one per line: the current one
- * marked, the others links that switch to them, then "new seed".
+ * A seed's four after-run modes as one line of icons, the current one marked,
+ * with the meaning of the current mode, or of the icon under the pointer or
+ * keyboard focus, on the line below. Then "new seed".
  */
 export function CanvasSideModes(props: {
-  modes: readonly string[]
-  current: string
-  onMode: (mode: string) => void
+  current: CanvasSeedMode
+  /** The field's step, as shown in "1 more after each run". */
+  step: string
+  onMode: (mode: CanvasSeedMode) => void
   onNewSeed: () => void
 }) {
+  const [pointed, setPointed] = createSignal<CanvasSeedMode>()
+  const meaning = (mode: CanvasSeedMode) =>
+    mode === 'randomize'
+      ? 'randomize: a new seed after each run'
+      : mode === 'fixed'
+        ? 'fixed: the seed stays as it is'
+        : `${mode}: ${props.step} ${mode === 'increment' ? 'more' : 'less'} after each run`
   return (
     <div class="dinkster-canvas-side-modes">
-      <p class="dinkster-canvas-side-modes-title">after each run</p>
-      <ul class="dinkster-canvas-side-modes-list">
-        <For each={props.modes}>
-          {(mode) => (
-            <li class="dinkster-canvas-side-mode">
-              <Show
-                when={mode === props.current}
-                fallback={
-                  <CanvasSideLink onClick={() => props.onMode(mode)}>
-                    {mode}
-                  </CanvasSideLink>
-                }
+      <div
+        class="dinkster-canvas-side-mode-icons"
+        role="group"
+        aria-label="After each run"
+      >
+        <For each={SEED_MODES}>
+          {(mode) => {
+            const Icon = SEED_MODE_ICONS[mode]
+            return (
+              <button
+                type="button"
+                class="dinkster-canvas-side-mode"
+                aria-label={mode}
+                aria-pressed={mode === props.current}
+                onPointerDown={(event) => event.preventDefault()}
+                onPointerEnter={() => setPointed(mode)}
+                onPointerLeave={() => setPointed(undefined)}
+                onFocus={() => setPointed(mode)}
+                onBlur={() => setPointed(undefined)}
+                onClick={() => props.onMode(mode)}
               >
-                <Check class="dinkster-canvas-side-mode-mark" aria-hidden="true" />
-                <span aria-current="true">{mode}</span>
-              </Show>
-            </li>
-          )}
+                <Icon
+                  class="dinkster-canvas-side-mode-glyph"
+                  aria-hidden="true"
+                />
+              </button>
+            )
+          }}
         </For>
-      </ul>
-      <CanvasSideLink onClick={() => props.onNewSeed()}>new seed</CanvasSideLink>
+      </div>
+      <p class="dinkster-canvas-side-mode-meaning">
+        {meaning(pointed() ?? props.current)}
+      </p>
+      <CanvasSideLink onClick={() => props.onNewSeed()}>
+        new seed
+      </CanvasSideLink>
     </div>
   )
 }
