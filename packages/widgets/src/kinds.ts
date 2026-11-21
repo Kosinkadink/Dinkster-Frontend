@@ -893,7 +893,6 @@ export const compositorView: WidgetView<Json> = {
     ctx.text(1, 1, recipe?.documentDigest
       ? `${recipe.commands.length} document edit${recipe.commands.length === 1 ? '' : 's'}`
       : 'Run to load layers', { role: 'widgetValue', align: 'right', width: 1 })
-    if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }
 export const assetView: WidgetView<Json> = {
