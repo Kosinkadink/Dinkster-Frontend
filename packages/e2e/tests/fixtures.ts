@@ -80,8 +80,26 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean }>({
+export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean; seedWorkflows: boolean }>({
   appView: [false, { option: true }],
+  seedWorkflows: [false, { option: true }],
+  page: async ({ page, seedWorkflows }, use) => {
+    if (seedWorkflows) {
+      const basic = structuredClone(seedBasic)
+      basic.graphs.g0.links.l2.from.port = 'IMAGE'
+      const subgraph = structuredClone(seedSubgraph)
+      subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+      await page.addInitScript(({ basic, subgraph }) => {
+        if (localStorage.getItem('dinkster.openTabs') !== null) return
+        localStorage.setItem('dinkster.openTabs', JSON.stringify({
+          v: 1,
+          active: basic.lineage,
+          tabs: [{ title: 'Basic', doc: basic, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
+        }))
+      }, { basic, subgraph })
+    }
+    await use(page)
+  },
   // Live retention proofs opt out; ordinary browser fixtures model document
   // declarations while source-bound result claims use the live backend.
   retentionApi: [true, { option: true }],
@@ -142,23 +160,7 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean 
 
 // Editing and execution tests start with explicit documents, while nativeTest
 // exercises the product's schema-independent blank startup.
-export const test = nativeTest.extend({
-  page: async ({ page }, use) => {
-    const basic = structuredClone(seedBasic)
-    basic.graphs.g0.links.l2.from.port = 'IMAGE'
-    const subgraph = structuredClone(seedSubgraph)
-    subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
-    await page.addInitScript(({ basic, subgraph }) => {
-      if (localStorage.getItem('dinkster.openTabs') !== null) return
-      localStorage.setItem('dinkster.openTabs', JSON.stringify({
-        v: 1,
-        active: basic.lineage,
-        tabs: [{ title: 'Basic', doc: basic, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
-      }))
-    }, { basic, subgraph })
-    await use(page)
-  },
-})
+export const test = nativeTest.extend({ seedWorkflows: true })
 
 export const appViewTest = test.extend({ appView: true })
 export const nativeAppViewTest = nativeTest.extend({ appView: true })

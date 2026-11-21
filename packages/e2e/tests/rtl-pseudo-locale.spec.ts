@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 

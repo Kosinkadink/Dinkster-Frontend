@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const capture = async (page: Page, name: string): Promise<void> => {

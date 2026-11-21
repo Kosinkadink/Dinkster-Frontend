@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, type Page, type Request } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page, type Request } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 interface AssetValue {

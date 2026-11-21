@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const catalog = {

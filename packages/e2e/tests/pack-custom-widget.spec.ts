@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, openRailPanel, test as base, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as base, type Page } from './fixtures.js'
 import { widgetDiagnostics } from './widget-diagnostics.js'
 
 const proofDir = process.env['DINKSTER_CUSTOM_WIDGET_PROOF_DIR']

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 test('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
