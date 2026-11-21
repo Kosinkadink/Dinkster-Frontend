@@ -755,6 +755,17 @@ interpolation. Curves require at least one point, so the minimal fixture is a
 flat one-point curve. Production defaults, other pages and editors do not use
 the proposal. Before and After draw both paints from the same document.
 
+Widget output pins shows a field's output pin (the widget tap of
+`docs/architecture.md` section 5c), painted from real documents: a number row
+at rest, pointed at, with a fitting wire dragged toward it from an input, and
+wired; the pin beside each kind of row with the node pointed at; a field driven
+by a wire passing its source on; a folded section whose wire leaves from its
+header; and a receiving row showing the value it will get. Two cards say what
+does not work today: a field in a group's member has no pin, and the wire from a
+field under a choice's option is lost on copy and paste and on replacing the
+node, and a subgraph's face cannot offer it. A card may carry its own pointer
+state, the same overlay the interaction controller sets for that gesture.
+
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and
 gallery default to the shared subtle idle border; Before overrides only that
