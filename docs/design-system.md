@@ -712,7 +712,9 @@ not add DOM roots.
 The shared component gallery includes `/#canvas`. Its theme buttons and its
 Page list, grouped under Nodes, Tabs and states, Rows, Wires, Subgraphs and
 Zoom, select fixed examples painted by the production `CanvasRenderer`,
-registry widget painter, layout and scene builder, without a backend. Each page
+registry widget painter, layout and scene builder, without a backend. Previous
+page and Next page step through the list in order, and the selected page is
+kept in the address as `?page=<id>` so a page can be linked. Each page
 has one sentence on what to look at. Each example is its own card: a canvas
 sized to the example's nodes, links, tabs and toolbar, with its name as the
 caption, in rows that wrap. Whole graphs (structural parts, subgraph pages and

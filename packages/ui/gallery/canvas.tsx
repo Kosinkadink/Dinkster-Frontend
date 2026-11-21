@@ -80,6 +80,8 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
+const pageOrder = pageGroups.flatMap(([, pages]) => pages)
+
 /** One plain sentence per page on what to look at. */
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
@@ -499,7 +501,18 @@ function ExampleCard(props: {
 
 export function CanvasGallery() {
   const [theme, setTheme] = createSignal<Theme>('dark')
-  const [page, setPage] = createSignal<CanvasGalleryPage>('anatomy')
+  // The selected page is kept in the address, so a page can be linked.
+  const linked = new URLSearchParams(window.location.search).get('page')
+  const [page, setPageSignal] = createSignal<CanvasGalleryPage>(
+    pageOrder.find((id) => id === linked) ?? 'anatomy',
+  )
+  const setPage = (id: CanvasGalleryPage) => {
+    setPageSignal(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', id)
+    window.history.replaceState(window.history.state, '', url)
+  }
+  const step = (by: number) => pageOrder[pageOrder.indexOf(page()) + by]
   const [widgetId, setWidgetId] = createSignal('float')
   const [prepared, setPrepared] = createSignal<readonly Prepared[]>([])
   const [badgeDetails, setBadgeDetails] = createSignal<BadgeHit>()
@@ -570,6 +583,9 @@ export function CanvasGallery() {
   })
   onCleanup(() => {
     document.documentElement.dataset.theme = 'dark'
+    const url = new URL(window.location.href)
+    url.searchParams.delete('page')
+    window.history.replaceState(window.history.state, '', url)
   })
   const label = (id: CanvasGalleryPage) =>
     canvasGalleryPages.find(([page]) => page === id)![1]
@@ -612,6 +628,12 @@ export function CanvasGallery() {
             </ProductSelect>
           )}
         </ProductField>
+        <ProductButton disabled={!step(-1)} onClick={() => setPage(step(-1)!)}>
+          Previous page
+        </ProductButton>
+        <ProductButton disabled={!step(1)} onClick={() => setPage(step(1)!)}>
+          Next page
+        </ProductButton>
         <Show when={page() === 'widget-states'}>
           <ProductField label="Widget kind">
             {(attributes) => (

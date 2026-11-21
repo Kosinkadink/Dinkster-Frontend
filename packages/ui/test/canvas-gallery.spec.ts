@@ -95,6 +95,37 @@ test('Canvas pages are grouped in one list that names the selected page', async 
   await expect(page.getByText('No action yet')).toHaveCount(0)
 })
 
+test('The selected page is linkable and steps in list order', async ({
+  page,
+}) => {
+  await page.goto('/?page=types#canvas')
+  const list = page.getByRole('combobox', { name: 'Page', exact: true })
+  await expect(list).toHaveValue('types')
+  const order = await list
+    .locator('option')
+    .evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    )
+  const at = order.indexOf('types')
+  const previous = page.getByRole('button', { name: 'Previous page' })
+  const next = page.getByRole('button', { name: 'Next page' })
+  await next.click()
+  await expect(list).toHaveValue(order[at + 1]!)
+  expect(new URL(page.url()).searchParams.get('page')).toBe(order[at + 1])
+  await previous.click()
+  await previous.click()
+  await expect(list).toHaveValue(order[at - 1]!)
+  await page.reload()
+  await expect(list).toHaveValue(order[at - 1]!)
+  await choosePage(page, order[0]!)
+  await expect(previous).toBeDisabled()
+  await choosePage(page, order.at(-1)!)
+  await expect(next).toBeDisabled()
+  // An unknown page falls back to the first page instead of a blank view.
+  await page.goto('/?page=nope#canvas')
+  await expect(list).toHaveValue('anatomy')
+})
+
 test('The content column is centered beside the sidebar', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/#canvas')
