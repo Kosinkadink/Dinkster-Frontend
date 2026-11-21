@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
 import { effectiveWidgetDefault, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
-import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, canvasSidePlace, type CanvasSeedMode } from '@dinkster/ui'
+import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, type CanvasSeedMode } from '@dinkster/ui'
+import { rowPlacement, rowPlacementStyle } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
@@ -156,7 +157,14 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
       void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })
-    } else if (event.key === 'Enter') { event.preventDefault(); void commit() }
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      // Stored with Enter, the keyboard stays on the row.
+      const target = ed.target
+      void commit().then((closed) => {
+        if (closed && target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+      })
+    }
     else if (event.key === 'Escape') { event.preventDefault(); props.close() }
     else if (event.key === 'Tab') {
       event.preventDefault()
@@ -177,29 +185,12 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     else element.select()
   }
 
-  // The open field is the row's field box grown by one pixel on every side in
-  // the flat-title look, so its outline sits half in the gap between rows. It
-  // keeps its normal size when zoomed out and scales with the canvas when
-  // zoomed in.
-  const grow = inRow.look === 'flat-title' ? 1 : 0
-  const rowWidth = ed.rect.width + grow * 2
-  const placement = createMemo(() => {
-    const viewport = host.viewport()
-    const scale = viewport.scale
-    const screen = {
-      x: ed.rect.x * scale + viewport.x - grow,
-      y: ed.rect.y * scale + viewport.y - grow,
-      width: rowWidth * Math.max(1, scale),
-      height: (ed.rect.height + grow * 2) * Math.max(1, scale),
-    }
-    const bounds = { x: 0, y: 0, width: host.boundary?.clientWidth ?? Infinity, height: host.boundary?.clientHeight ?? Infinity }
-    return {
-      screen,
-      scale,
-      place: canvasSidePlace(screen, bounds, sideSize().width * Math.max(1, scale), scale),
-      sideTop: (inRow.nodeBottom - ed.rect.y) * scale + grow,
-    }
-  })
+  const placement = createMemo(() => rowPlacement(
+    { rect: ed.rect, look: inRow.look, nodeBottom: inRow.nodeBottom },
+    host.viewport(),
+    { width: host.boundary?.clientWidth ?? Infinity, height: host.boundary?.clientHeight ?? Infinity },
+    sideSize().width,
+  ))
 
   // The side part's first line is a refusal or a failed check when there is
   // one; otherwise what Enter would store. The "default" line is a link that
@@ -250,17 +241,11 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     <div
       class="widget-in-row-field"
       data-testid="widget-in-row-field"
-      style={{
-        position: 'absolute',
-        left: `${placement().screen.x}px`,
-        top: `${placement().screen.y}px`,
-        'transform-origin': '0 0',
-        transform: placement().scale > 1 ? `scale(${placement().scale})` : undefined,
-      }}
+      style={rowPlacementStyle(placement())}
     >
       <CanvasRowField
         look={inRow.look}
-        rowWidth={rowWidth}
+        rowWidth={placement().rowWidth}
         label={ed.label}
         value={draft()}
         onInput={(value) => {

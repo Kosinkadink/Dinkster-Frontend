@@ -164,6 +164,8 @@ export interface WidgetEditorProps {
   ed: WidgetEditorState
   /** Main canvas viewport, sampled once to place a newly opened popover. */
   viewport: () => { x: number; y: number; scale: number }
+  /** Puts the keyboard on a row of the node with nothing open, as after Enter. */
+  focusRow?: (from: { readonly nodeId: string; readonly valueKey: string }) => void
   /** Opens the next (1) or previous (-1) row of the same node that Tab stops on. */
   moveRow?: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => void
   /**

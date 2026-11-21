@@ -5,6 +5,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type JSX,
 } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
@@ -149,27 +150,9 @@ export interface CanvasSideFact {
   readonly value: JSX.Element
 }
 
-/**
- * A number, text or seed row edited in place on the canvas, drawn at the
- * row's own size with its side part. The caller positions the element at
- * the row's top left and scales it with the canvas when zoomed in.
- */
-export function CanvasRowField(props: {
+interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
-  label: string
-  value: string
-  onInput: (text: string) => void
-  onKeyDown?: (event: KeyboardEvent) => void
-  inputRef?: (element: HTMLInputElement) => void
-  inputLabel: string
-  placeholder?: string
-  /** A number gets the minus and plus steppers. */
-  onStep?: (direction: -1 | 1, fast: boolean) => void
-  /** A slider's fill, from 0 to 1. */
-  fill?: number
-  /** A mark about the value, such as a seed's mode icon, shown before it. */
-  mark?: JSX.Element
   place: CanvasSidePlace
   /** Distance from the row's top to the side part, under the node. */
   sideTop?: number
@@ -178,26 +161,33 @@ export function CanvasRowField(props: {
   ref?: (element: HTMLDivElement) => void
   /** The flat-title node look moves the steppers inward, as the canvas does. */
   look?: 'original' | 'flat-title'
-}) {
+}
+
+/**
+ * What an open field and a row the keyboard is on share: the outline around
+ * the row's box and its side part, and the side part's place.
+ */
+function CanvasRowFrame(
+  props: CanvasRowFrameProps & {
+    focus?: boolean
+    steppers?: boolean
+    children?: JSX.Element
+  },
+) {
+  // Made once: the row's content keeps its own bindings, and an input made
+  // again on every change would lose its cursor.
+  const content = untrack(() => props.children)
   let root!: HTMLDivElement
   let row!: HTMLDivElement
-  let fill: HTMLDivElement | undefined
   let side: HTMLDivElement | undefined
   const [rowHeight, setRowHeight] = createSignal(0)
   const [sideSize, setSideSize] = createSignal<{
     width: number
     height: number
   }>()
-  const flat = () => props.look === 'flat-title'
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
-    // In the flat-title look the open field is its row's field grown by one
-    // pixel on every side, so the fill spans the row's field inside that.
-    if (fill)
-      fill.style.width = flat()
-        ? `${Math.max(0, Math.min(1, props.fill ?? 0)) * (props.rowWidth - 2)}px`
-        : `${Math.max(0, Math.min(1, props.fill ?? 0)) * 100}%`
     if (!side) {
       setSideSize(undefined)
       return
@@ -212,7 +202,7 @@ export function CanvasRowField(props: {
     }
   }
   createEffect(() => {
-    void [props.rowWidth, props.fill, props.place, props.sideTop, props.side]
+    void [props.rowWidth, props.place, props.sideTop, props.side]
     measure()
   })
   onMount(() => {
@@ -239,83 +229,15 @@ export function CanvasRowField(props: {
       data-place={props.place}
       data-side={props.side !== undefined}
       data-look={props.look ?? 'original'}
-      data-testid="canvas-row-field"
+      data-focus={props.focus === true}
+      data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
       <div
         ref={(element) => (row = element)}
         class="dinkster-canvas-field-row"
-        data-steppers={props.onStep !== undefined}
+        data-steppers={props.steppers === true}
       >
-        <Show when={props.fill !== undefined}>
-          <div
-            ref={(element) => (fill = element)}
-            class="dinkster-canvas-field-fill"
-          />
-        </Show>
-        <Show when={props.onStep}>
-          {(step) => (
-            <button
-              type="button"
-              class="dinkster-canvas-field-step"
-              tabindex="-1"
-              aria-label="Decrease"
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={(event) => step()(-1, event.shiftKey)}
-            >
-              <Show
-                when={flat()}
-                fallback={
-                  <Minus
-                    class="dinkster-canvas-field-glyph"
-                    aria-hidden="true"
-                  />
-                }
-              >
-                <StepGlyph path={MINUS_PATH} />
-              </Show>
-            </button>
-          )}
-        </Show>
-        <span class="dinkster-canvas-field-label">{props.label}</span>
-        <Show when={props.mark}>
-          <span class="dinkster-canvas-field-mark">{props.mark}</span>
-        </Show>
-        <input
-          ref={props.inputRef}
-          class="dinkster-canvas-field-input"
-          type="text"
-          value={props.value}
-          aria-label={props.inputLabel}
-          placeholder={props.placeholder}
-          autocomplete="off"
-          spellcheck={false}
-          onInput={(event) => props.onInput(event.currentTarget.value)}
-          onKeyDown={(event) => props.onKeyDown?.(event)}
-        />
-        <Show when={props.onStep}>
-          {(step) => (
-            <button
-              type="button"
-              class="dinkster-canvas-field-step"
-              tabindex="-1"
-              aria-label="Increase"
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={(event) => step()(1, event.shiftKey)}
-            >
-              <Show
-                when={flat()}
-                fallback={
-                  <Plus
-                    class="dinkster-canvas-field-glyph"
-                    aria-hidden="true"
-                  />
-                }
-              >
-                <StepGlyph path={PLUS_PATH} />
-              </Show>
-            </button>
-          )}
-        </Show>
+        {content}
       </div>
       <Show when={props.side}>
         <div
@@ -331,6 +253,132 @@ export function CanvasRowField(props: {
       </svg>
     </div>
   )
+}
+
+/**
+ * A number, text or seed row edited in place on the canvas, drawn at the
+ * row's own size with its side part. The caller positions the element at
+ * the row's top left and scales it with the canvas when zoomed in.
+ */
+export function CanvasRowField(
+  props: CanvasRowFrameProps & {
+    label: string
+    value: string
+    onInput: (text: string) => void
+    onKeyDown?: (event: KeyboardEvent) => void
+    inputRef?: (element: HTMLInputElement) => void
+    inputLabel: string
+    placeholder?: string
+    /** A number gets the minus and plus steppers. */
+    onStep?: (direction: -1 | 1, fast: boolean) => void
+    /** A slider's fill, from 0 to 1. */
+    fill?: number
+    /** A mark about the value, such as a seed's mode icon, shown before it. */
+    mark?: JSX.Element
+  },
+) {
+  let fill: HTMLDivElement | undefined
+  const flat = () => props.look === 'flat-title'
+  // In the flat-title look the open field is its row's field grown by one
+  // pixel on every side, so the fill spans the row's field inside that.
+  createEffect(() => {
+    if (fill)
+      fill.style.width = flat()
+        ? `${Math.max(0, Math.min(1, props.fill ?? 0)) * (props.rowWidth - 2)}px`
+        : `${Math.max(0, Math.min(1, props.fill ?? 0)) * 100}%`
+  })
+  return (
+    <CanvasRowFrame
+      rowWidth={props.rowWidth}
+      place={props.place}
+      {...(props.sideTop === undefined ? {} : { sideTop: props.sideTop })}
+      {...(props.side === undefined ? {} : { side: props.side })}
+      {...(props.onSideSize === undefined ? {} : { onSideSize: props.onSideSize })}
+      {...(props.ref === undefined ? {} : { ref: props.ref })}
+      {...(props.look === undefined ? {} : { look: props.look })}
+      steppers={props.onStep !== undefined}
+    >
+      <Show when={props.fill !== undefined}>
+        <div
+          ref={(element) => (fill = element)}
+          class="dinkster-canvas-field-fill"
+        />
+      </Show>
+      <Show when={props.onStep}>
+        {(step) => (
+          <button
+            type="button"
+            class="dinkster-canvas-field-step"
+            tabindex="-1"
+            aria-label="Decrease"
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={(event) => step()(-1, event.shiftKey)}
+          >
+            <Show
+              when={flat()}
+              fallback={
+                <Minus
+                  class="dinkster-canvas-field-glyph"
+                  aria-hidden="true"
+                />
+              }
+            >
+              <StepGlyph path={MINUS_PATH} />
+            </Show>
+          </button>
+        )}
+      </Show>
+      <span class="dinkster-canvas-field-label">{props.label}</span>
+      <Show when={props.mark}>
+        <span class="dinkster-canvas-field-mark">{props.mark}</span>
+      </Show>
+      <input
+        ref={props.inputRef}
+        class="dinkster-canvas-field-input"
+        type="text"
+        value={props.value}
+        aria-label={props.inputLabel}
+        placeholder={props.placeholder}
+        autocomplete="off"
+        spellcheck={false}
+        onInput={(event) => props.onInput(event.currentTarget.value)}
+        onKeyDown={(event) => props.onKeyDown?.(event)}
+      />
+      <Show when={props.onStep}>
+        {(step) => (
+          <button
+            type="button"
+            class="dinkster-canvas-field-step"
+            tabindex="-1"
+            aria-label="Increase"
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={(event) => step()(1, event.shiftKey)}
+          >
+            <Show
+              when={flat()}
+              fallback={
+                <Plus
+                  class="dinkster-canvas-field-glyph"
+                  aria-hidden="true"
+                />
+              }
+            >
+              <StepGlyph path={PLUS_PATH} />
+            </Show>
+          </button>
+        )}
+      </Show>
+    </CanvasRowFrame>
+  )
+}
+
+/**
+ * The keyboard is on a row and nothing is open: the open field's outline on
+ * the row's box, with the row's side part. The canvas still draws the row,
+ * so the frame is clear over it and leaves the pointer to the canvas.
+ */
+export function CanvasRowFocus(props: CanvasRowFrameProps) {
+  return <CanvasRowFrame {...props} focus />
 }
 
 /*
