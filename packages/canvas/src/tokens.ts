@@ -82,7 +82,6 @@ export const canvasPaintTokens = {
         return luminance > 0.179 ? '#000000' : '#ffffff'
       },
     },
-    roomierTab: { height: 20, fontSize: 12, inset: 16 },
     colors: {
       subgraph: '#4a4a5e',
       executionError: '#b3402f',

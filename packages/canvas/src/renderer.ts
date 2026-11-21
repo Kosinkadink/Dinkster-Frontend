@@ -995,6 +995,17 @@ export class CanvasRenderer {
     return this.scene
   }
 
+  /** Measure a tab's text in the font drawBadgeTabs paints it with. */
+  private measureBadgeTabText(text: string): number {
+    const ctx = this.canvas.getContext('2d')
+    if (!ctx) return text.length * this.tokens.badgeTab.fontSize
+    const font = ctx.font
+    ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${this.tokens.badgeTab.fontSize}px ${this.tokens.fontFamily}`
+    const width = measureWidth(ctx, text)
+    ctx.font = font
+    return width
+  }
+
   /** Measure widget-row text in the same font used by render(). */
   measureWidgetText(text: string): number {
     const ctx = this.canvas.getContext('2d')
@@ -1182,6 +1193,7 @@ export class CanvasRenderer {
     return {
       tokens, outset,
       ...(hovered?.nodeId === node.id ? { hoveredId: hovered.badgeId } : {}),
+      measureLabel: (text: string) => this.measureBadgeTabText(text),
     }
   }
 

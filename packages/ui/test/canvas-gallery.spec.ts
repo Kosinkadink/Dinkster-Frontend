@@ -243,19 +243,19 @@ for (const theme of ['dark', 'light'] as const) {
     await chooseTheme(page, theme)
     await choosePage(page, 'tabs')
     await cardsReady(page, 'tabs', theme)
-    // The minimized example with 16 px tabs: its first strip and its +8.
-    const canvas = page.getByTestId('canvas-tabs-13-tabs-16')
+    // The minimized example's first strip and its +7: measured text leaves room for two strips.
+    const canvas = page.getByTestId('canvas-tabs-13-tabs')
     await canvas.hover({ position: { x: 25, y: 75 } })
     await expect(canvas).toHaveAttribute('title', 'Detail 1')
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
-    await canvas.click({ position: { x: 48, y: 75 } })
+    await canvas.click({ position: { x: 64, y: 75 } })
     const dialog = page.getByRole('dialog', { name: 'Node details' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Detail 2', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Detail 3', { exact: true })).toBeVisible()
     await expect(dialog.getByText('Detail 9', { exact: true })).toBeVisible()
-    await expect(dialog.getByText('Detail 1', { exact: true })).toHaveCount(0)
+    await expect(dialog.getByText('Detail 2', { exact: true })).toHaveCount(0)
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
@@ -312,25 +312,19 @@ for (const theme of ['dark', 'light'] as const) {
             'tabs-content',
           ].includes(id)
         ) {
-          const looks = id === 'tabs' || id === 'tabs-content' ? 3 : 2
-          await expect(cards).toHaveCount((await comparisons.count()) * looks)
+          await expect(cards).toHaveCount((await comparisons.count()) * 2)
           for (const comparison of await comparisons.all())
-            await expect(comparison.locator('figcaption')).toHaveText(
-              looks === 3
-                ? [
-                    'Before',
-                    'After: 16 px tabs, 11 px text',
-                    'After: 20 px tabs, 12 px text',
-                  ]
-                : ['Before', 'After'],
-            )
+            await expect(comparison.locator('figcaption')).toHaveText([
+              'Before',
+              'After',
+            ])
         } else await expect(comparisons).toHaveCount(0)
         const section = page.getByRole('region', { name: label, exact: true })
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )
         if (id === 'run-editable' || id === 'run-frozen') {
-          const running = page.getByTestId(`canvas-${id}-1-tabs-16`)
+          const running = page.getByTestId(`canvas-${id}-1-tabs`)
           await running.hover({ position: { x: 60, y: 175 } })
           await expect(running).toHaveAttribute('title', 'Running')
         }
