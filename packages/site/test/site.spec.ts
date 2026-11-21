@@ -58,7 +58,7 @@ async function open(
     import { accountView } from '/account-view.js';
     window.model = ${JSON.stringify(model)};
     window.actions = [];
-    window.view = accountView({root:document.getElementById('root'), config:{providers:['google']},
+    window.view = accountView({root:document.getElementById('root'), config:{providers:['github','google']},
       onAction: async control => { window.actions.push(control.text); await new Promise(resolve => { window.finish = resolve }); },
       onNavigate: id => { window.navigated = id; window.model.state.loading = true; window.model.screen.id = id; window.model.screen.nav = 'api-keys'; window.view.render(window.model); },
       onChange: (id, value) => { window.changed = {id, value}; }
@@ -118,12 +118,20 @@ test('templates fetch renderer dependencies before service controllers run', asy
   }
 })
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 1440, 1920, 390]) {
   test(`profile shared shell and keyboard labels at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 })
-    await open(page)
+    const grouped = structuredClone(profile)
+    const [title, facts, field, save] = grouped.screen.blocks
+    grouped.screen.blocks = [
+      title!,
+      { t: 'panel', blocks: [field!] },
+      save!,
+      { t: 'panel', blocks: [facts!] },
+    ]
+    await open(page, grouped)
     await expect(page.getByLabel('Display name')).toHaveValue('Alice')
     await expect(
       page.getByRole('button', { name: 'Save', exact: true }),
@@ -151,6 +159,292 @@ for (const width of [1280, 390]) {
     })
   })
 }
+
+for (const width of [1280, 1440, 1920, 390]) {
+  test(`service card adopts the approved sign-in layout at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await open(page, {
+      ...structuredClone(profile),
+      screen: {
+        id: 'sign-in',
+        layout: 'card',
+        blocks: [
+          { t: 'h1', text: 'Sign in' },
+          { t: 'field', id: 'username', label: 'Username or email' },
+          { t: 'field', id: 'password', kind: 'password', label: 'Password' },
+          { t: 'button', text: 'Sign in', press: 'commits' },
+          { t: 'or', text: 'or' },
+          {
+            t: 'provider',
+            text: 'Continue with GitHub',
+            provider: 'github',
+            press: 'opens',
+          },
+          {
+            t: 'provider',
+            text: 'Continue with Google',
+            provider: 'google',
+            press: 'opens',
+          },
+        ],
+        footer: {
+          text: 'New to Dinkster?',
+          action: { text: 'Create an account', go: 'sign-up', press: 'opens' },
+        },
+      },
+    })
+    await page.screenshot({
+      path: `test-results/captures/sign-in-${width}.png`,
+      fullPage: true,
+    })
+    await expect(page.locator('.dinkster-topbar')).toHaveCount(0)
+    const card = page.locator('.dinkster-auth-card')
+    await expect(card).toBeVisible()
+    expect(
+      await card.evaluate((element) => element.getBoundingClientRect().width),
+    ).toBe(Math.min(440, width - 32))
+    await expect(page.locator('.dinkster-auth-footer')).toContainText(
+      'New to Dinkster?',
+    )
+    await expect(card.getByRole('button')).toHaveText([
+      'Sign in',
+      'Continue with GitHub',
+      'Continue with Google',
+    ])
+    for (const button of await card
+      .locator('.dinkster-provider button')
+      .all()) {
+      expect(
+        await button
+          .locator('img')
+          .evaluate(
+            (image: HTMLImageElement) =>
+              image.complete && image.naturalWidth > 0,
+          ),
+      ).toBe(true)
+      expect(
+        await button.evaluate(
+          (element) => element.getBoundingClientRect().width,
+        ),
+      ).toBe(220)
+    }
+    await page
+      .getByLabel('Password', { exact: true })
+      .fill('test-only-password')
+    await page.getByLabel('Password', { exact: true }).press('Enter')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { actions: string[] }).actions,
+        ),
+      )
+      .toEqual(['Sign in'])
+    await expect(
+      page.getByRole('button', { name: 'Sign in', exact: true }),
+    ).toBeDisabled()
+  })
+}
+
+for (const width of [1280, 1440, 1920, 390]) {
+  test(`service Security adopts approved sections and row geometry at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const security = structuredClone(profile)
+    security.username = 'alice'
+    security.screen = {
+      id: 'account.security',
+      layout: 'account',
+      nav: 'security',
+      blocks: [
+        { t: 'h1', text: 'Security' },
+        {
+          t: 'section',
+          text: 'Sign-in methods',
+          blocks: [
+            {
+              t: 'rows',
+              items: ['Password', 'Google', 'GitHub'].map((label) => ({
+                label,
+                detail: label === 'Password' ? 'Not set' : 'Not linked',
+                actions: [
+                  {
+                    text: label === 'Password' ? 'Set by email' : 'Link',
+                    role:
+                      label === 'Password'
+                        ? ('neutral' as const)
+                        : ('add' as const),
+                    press: 'opens' as const,
+                  },
+                ],
+              })),
+            },
+          ],
+        },
+        {
+          t: 'section',
+          text: 'Two-step sign-in',
+          blocks: [
+            {
+              t: 'rows',
+              items: [
+                {
+                  label: 'Authenticator app',
+                  detail: 'Off',
+                  actions: [{ text: 'Turn on', role: 'add', press: 'opens' }],
+                },
+              ],
+            },
+            {
+              t: 'p',
+              text: 'Asks for a code from an app on your phone each time you sign in.',
+              muted: true,
+            },
+          ],
+        },
+      ],
+    }
+    await open(page, security)
+    const geometry = await page.evaluate(() => {
+      const rect = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect()
+      const style = (selector: string) =>
+        getComputedStyle(document.querySelector(selector)!)
+      return {
+        titleToHeading:
+          rect('section .dinkster-heading').top -
+          rect('.dinkster-title').bottom,
+        headingToPanel:
+          rect('.dinkster-list').top - rect('section .dinkster-heading').bottom,
+        rowButton: rect('.dinkster-row .dinkster-button').height,
+        rowButtonInset:
+          rect('.dinkster-row .dinkster-button').top -
+          rect('.dinkster-row').top,
+        panelRadius: style('.dinkster-list').borderRadius,
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      }
+    })
+    expect(geometry).toEqual({
+      titleToHeading: 32,
+      headingToPanel: 12,
+      rowButton: width < 768 ? 32 : 28,
+      rowButtonInset: 16,
+      panelRadius: '8px',
+      overflow: false,
+    })
+    await page.screenshot({
+      path: `test-results/captures/security-${width}.png`,
+      fullPage: true,
+    })
+  })
+}
+
+test('nested fields keep their baseline and focus; submitting ignores a hidden parent group', async ({
+  page,
+}) => {
+  const grouped = structuredClone(profile)
+  grouped.screen.blocks = [
+    { t: 'h1', text: 'Profile' },
+    {
+      t: 'section',
+      text: 'Hidden section',
+      when: 'hidden',
+      blocks: [{ t: 'button', text: 'Wrong action', press: 'commits' }],
+    },
+    {
+      t: 'panel',
+      blocks: [
+        {
+          t: 'field',
+          id: 'display-name',
+          label: 'Display name',
+          value: 'Alice',
+        },
+      ],
+    },
+    {
+      t: 'button',
+      text: 'Save',
+      press: 'commits',
+      disabled: true,
+      changed_fields: ['display-name'],
+    },
+  ]
+  await open(page, grouped)
+  const field = page.getByLabel('Display name')
+  const save = page.getByRole('button', { name: 'Save', exact: true })
+  await expect(save).toBeDisabled()
+  await field.fill('Changed name')
+  await save.focus()
+  await page
+    .locator('form')
+    .evaluate((form: HTMLFormElement) => form.requestSubmit())
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { actions: string[] }).actions),
+    )
+    .toEqual(['Save'])
+  await page.evaluate(() => {
+    const current = window as unknown as {
+      model: AccountModel
+      view: { render(model: AccountModel): void }
+      finish(): void
+    }
+    Object.assign(current.model.screen.blocks[2]!.blocks![0]!, {
+      value: 'Changed name',
+      error: 'Try another name.',
+    })
+    current.model.screen.blocks[3]!.disabled = false
+    current.view.render(current.model)
+    current.finish()
+  })
+  await expect(save).toBeFocused()
+  await expect(field).toHaveValue('Changed name')
+  await expect(page.getByRole('alert')).toContainText('Try another name.')
+  await field.fill('Alice')
+  await expect(save).toBeDisabled()
+})
+
+test('account caller forwards guarded pictures and resets to the initial on failed or absent images', async ({
+  page,
+}) => {
+  await page.route('**/avatar.svg', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="blue"/></svg>',
+    }),
+  )
+  await page.route('**/missing-avatar', (route) =>
+    route.fulfill({ status: 404, body: '' }),
+  )
+  await open(page, { ...structuredClone(profile), pictureSrc: '/avatar.svg' })
+  const avatar = page.locator('.dinkster-avatar')
+  await expect(avatar.locator('img')).toBeVisible()
+  await expect(avatar).toHaveAttribute('data-picture', 'true')
+  await page.screenshot({
+    path: 'test-results/captures/profile-picture.png',
+    fullPage: true,
+  })
+  for (const pictureSrc of [
+    '/missing-avatar',
+    null,
+    'https://untrusted.invalid/avatar.svg',
+  ]) {
+    await page.evaluate((pictureSrc) => {
+      const current = window as unknown as {
+        model: AccountModel
+        view: { render(model: AccountModel): void }
+      }
+      current.model.pictureSrc = pictureSrc
+      current.view.render(current.model)
+    }, pictureSrc)
+    await expect(avatar.locator('img')).toHaveCount(0)
+    await expect(avatar).toHaveAttribute('data-picture', 'false')
+    await expect(avatar).toHaveAttribute('data-initial', 'A')
+  }
+})
 
 test('pending actions keep focus and cannot repeat; service refusal keeps entered text', async ({
   page,
@@ -400,36 +694,45 @@ test('clearing a show-once page removes secret DOM and permits a clean restored 
   )
 })
 
-for (const choice of ['Allow', 'Deny'])
-  test(`authorization preserves POST form fields and escapes client labels for ${choice}`, async ({
-    page,
-  }) => {
-    await page.route('**/fixture', (route) =>
-      route.fulfill({
-        contentType: 'text/html',
-        body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Authorization test</title><link rel="stylesheet" href="/assets/style.css"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="root"></div><script type="module">import {authorizationView} from '/authorization.js'; authorizationView(document.getElementById('root'), {clientName:'Example <script> app',scopes:['api:read','api:execute'],consentToken:'test-consent-only'});</script></body></html>`,
-      }),
-    )
-    await page.goto('/fixture')
-    await expect(
-      page.getByRole('heading', { name: 'Authorize Example <script> app' }),
-    ).toBeVisible()
-    await expect(page.locator('form')).toHaveAttribute('method', 'post')
-    await expect(page.locator('input[name="consent_token"]')).toHaveValue(
-      'test-consent-only',
-    )
-    const requests: string[] = []
-    await page.route('**/authorize', async (route) => {
-      requests.push(route.request().postData() ?? '')
-      await route.fulfill({ body: 'Authorized' })
+for (const width of [1280, 1440, 1920, 390])
+  for (const choice of ['Allow', 'Deny'])
+    test(`authorization preserves POST form fields and escapes client labels for ${choice} at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.route('**/fixture', (route) =>
+        route.fulfill({
+          contentType: 'text/html',
+          body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Authorization test</title><link rel="stylesheet" href="/assets/style.css"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="root"></div><script type="module">import {authorizationView} from '/authorization.js'; authorizationView(document.getElementById('root'), {clientName:'Example <script> app',scopes:['api:read','api:execute'],consentToken:'test-consent-only'});</script></body></html>`,
+        }),
+      )
+      await page.goto('/fixture')
+      await expect(
+        page.getByRole('heading', { name: 'Authorize Example <script> app' }),
+      ).toBeVisible()
+      await expect(page.locator('.dinkster-topbar')).toHaveCount(0)
+      await expect(page.locator('.dinkster-auth-card')).toBeVisible()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await expect(page.locator('form')).toHaveAttribute('method', 'post')
+      await expect(page.locator('input[name="consent_token"]')).toHaveValue(
+        'test-consent-only',
+      )
+      const requests: string[] = []
+      await page.route('**/authorize', async (route) => {
+        requests.push(route.request().postData() ?? '')
+        await route.fulfill({ body: 'Authorized' })
+      })
+      await page.screenshot({
+        path: `test-results/captures/authorization-${width}.png`,
+        fullPage: true,
+      })
+      await page.getByRole('button', { name: choice, exact: true }).click()
+      await expect.poll(() => requests.length).toBe(1)
+      expect(requests[0]).toBe(
+        `consent_token=test-consent-only&action=${choice === 'Allow' ? 'approve' : 'deny'}`,
+      )
     })
-    await page.screenshot({
-      path: 'test-results/captures/authorization-1280.png',
-      fullPage: true,
-    })
-    await page.getByRole('button', { name: choice, exact: true }).click()
-    await expect.poll(() => requests.length).toBe(1)
-    expect(requests[0]).toBe(
-      `consent_token=test-consent-only&action=${choice === 'Allow' ? 'approve' : 'deny'}`,
-    )
-  })

@@ -35,10 +35,12 @@ import {
   ProductButton,
   ProductDialog,
   ProductField,
+  ProductLink,
   ProductPanel,
   ProductSelect,
   ProductSection,
   ProductTextInput,
+  type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { RowEditingGallery } from './row-editing.js'
@@ -83,6 +85,47 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
   ]
 
 const pageOrder = pageGroups.flatMap(([, pages]) => pages)
+
+const pageLabel = (id: CanvasGalleryPage) =>
+  canvasGalleryPages.find(([page]) => page === id)![1]
+
+/** A page's own link; the gallery reads it back when the page opens. */
+export const canvasPageHref = (id: CanvasGalleryPage) => `?page=${id}#canvas`
+
+/** The Canvas pages under their headings, for the gallery's side list. */
+export const canvasNavigationGroups: readonly ProductNavigationGroup[] =
+  pageGroups.map(([label, pages]) => ({
+    label,
+    items: pages.map((id) => ({
+      label: pageLabel(id),
+      href: canvasPageHref(id),
+    })),
+  }))
+
+const parsePage = (search: string) => {
+  const id = new URLSearchParams(search).get('page')
+  return pageOrder.find((page) => page === id)
+}
+
+// The selected page is kept in the address, so a page can be linked.
+const [canvasPage, setCanvasPageSignal] = createSignal<CanvasGalleryPage>(
+  parsePage(window.location.search) ?? 'anatomy',
+)
+export { canvasPage }
+
+const writePageToAddress = (id: CanvasGalleryPage) => {
+  const url = new URL(window.location.href)
+  url.searchParams.set('page', id)
+  window.history.replaceState(window.history.state, '', url)
+}
+
+/** Opens a page from its link (`?page=<id>#canvas`); unknown ids are ignored. */
+export function selectCanvasPage(href: string) {
+  const id = parsePage(href.slice(0, href.indexOf('#') >>> 0))
+  if (id === undefined) return
+  setCanvasPageSignal(id)
+  writePageToAddress(id)
+}
 
 /** One plain sentence per page on what to look at. */
 const pageNotes: Record<CanvasGalleryPage, string> = {
@@ -492,20 +535,32 @@ function ExampleCard(props: {
   )
 }
 
+// Every face the canvas paints with, loaded as the editor does before its
+// first paint.
+const canvasFontsLoaded = () => {
+  const { fontSize, titleFontSize, fontFamily } = defaultTokens
+  const semibold = canvasPaintTokens.type.semiboldWeight
+  return Promise.all([
+    document.fonts.load(`${fontSize}px ${fontFamily}`),
+    document.fonts.load(`${semibold} ${titleFontSize}px ${fontFamily}`),
+    document.fonts.load(`italic ${semibold} ${titleFontSize}px ${fontFamily}`),
+  ])
+}
+
 export function CanvasGallery() {
-  const [theme, setTheme] = createSignal<Theme>('dark')
-  // The selected page is kept in the address, so a page can be linked.
-  const linked = new URLSearchParams(window.location.search).get('page')
-  const [page, setPageSignal] = createSignal<CanvasGalleryPage>(
-    pageOrder.find((id) => id === linked) ?? 'anatomy',
-  )
-  const setPage = (id: CanvasGalleryPage) => {
-    setPageSignal(id)
-    const url = new URL(window.location.href)
-    url.searchParams.set('page', id)
-    window.history.replaceState(window.history.state, '', url)
-  }
+  // Only the dark theme is designed; `?theme=light` keeps the light theme
+  // reachable for checks without a control on the page.
+  const theme = (): Theme =>
+    new URLSearchParams(window.location.search).get('theme') === 'light'
+      ? 'light'
+      : 'dark'
+  const page = canvasPage
+  writePageToAddress(page())
   const step = (by: number) => pageOrder[pageOrder.indexOf(page()) + by]
+  // A page opened by its own link paints before any other page has loaded
+  // the canvas faces, so every canvas here waits for all of them.
+  const [fontsReady, setFontsReady] = createSignal(false)
+  void canvasFontsLoaded().then(() => setFontsReady(true))
   const [widgetId, setWidgetId] = createSignal('float')
   const [prepared, setPrepared] = createSignal<readonly Prepared[]>([])
   const [badgeDetails, setBadgeDetails] = createSignal<BadgeHit>()
@@ -520,17 +575,7 @@ export function CanvasGallery() {
     setPrepared([])
     if (currentPage === 'row-editing' || currentPage === 'node-look') return
     let disposed = false
-    void Promise.all([
-      document.fonts.load(
-        `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`,
-      ),
-      document.fonts.load(
-        `${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
-      ),
-      document.fonts.load(
-        `italic ${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`,
-      ),
-    ]).then(() => {
+    void canvasFontsLoaded().then(() => {
       if (disposed) return
       const base: DesignTokens = {
         ...defaultTokens,
@@ -581,8 +626,6 @@ export function CanvasGallery() {
     url.searchParams.delete('page')
     window.history.replaceState(window.history.state, '', url)
   })
-  const label = (id: CanvasGalleryPage) =>
-    canvasGalleryPages.find(([page]) => page === id)![1]
   const card = (
     example: CanvasGalleryFixture['examples'][number],
     index: number,
@@ -599,35 +642,8 @@ export function CanvasGallery() {
   )
   return (
     <>
-      <div class="dinkster-actions">
-        <ProductField label="Page">
-          {(attributes) => (
-            <ProductSelect
-              {...attributes}
-              value={page()}
-              onChange={(event) =>
-                setPage(event.currentTarget.value as CanvasGalleryPage)
-              }
-            >
-              <For each={pageGroups}>
-                {([heading, pages]) => (
-                  <optgroup label={heading}>
-                    <For each={pages}>
-                      {(id) => <option value={id}>{label(id)}</option>}
-                    </For>
-                  </optgroup>
-                )}
-              </For>
-            </ProductSelect>
-          )}
-        </ProductField>
-        <ProductButton disabled={!step(-1)} onClick={() => setPage(step(-1)!)}>
-          Previous page
-        </ProductButton>
-        <ProductButton disabled={!step(1)} onClick={() => setPage(step(1)!)}>
-          Next page
-        </ProductButton>
-        <Show when={page() === 'widget-states'}>
+      <Show when={page() === 'widget-states'}>
+        <div class="dinkster-actions">
           <ProductField label="Widget kind">
             {(attributes) => (
               <ProductSelect
@@ -641,27 +657,13 @@ export function CanvasGallery() {
               </ProductSelect>
             )}
           </ProductField>
-        </Show>
-        <div class="dinkster-actions" aria-label="Canvas theme" role="group">
-          <ProductButton
-            aria-pressed={theme() === 'dark'}
-            onClick={() => setTheme('dark')}
-          >
-            Dark theme
-          </ProductButton>
-          <ProductButton
-            aria-pressed={theme() === 'light'}
-            onClick={() => setTheme('light')}
-          >
-            Light theme
-          </ProductButton>
         </div>
-      </div>
-      <ProductSection title={label(page())} description={pageNotes[page()]}>
-        <Show when={page() === 'node-look'}>
+      </Show>
+      <ProductSection title={pageLabel(page())} description={pageNotes[page()]}>
+        <Show when={fontsReady() && page() === 'node-look'}>
           <NodeLookGallery theme={theme()} />
         </Show>
-        <Show when={page() === 'row-editing'}>
+        <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
@@ -773,6 +775,39 @@ export function CanvasGallery() {
           </ProductDialog>
         )}
       </Show>
+      <nav class="dinkster-canvas-steps" aria-label="Canvas pages">
+        <For each={[-1, 1] as const}>
+          {(by) => (
+            <Show when={step(by)} fallback={<span />}>
+              {(target) => (
+                <ProductLink
+                  href={canvasPageHref(target())}
+                  rel={by < 0 ? 'prev' : 'next'}
+                  data-step={by < 0 ? 'previous' : 'next'}
+                  onClick={(event) => {
+                    if (
+                      event.button !== 0 ||
+                      event.ctrlKey ||
+                      event.metaKey ||
+                      event.altKey ||
+                      event.shiftKey
+                    )
+                      return
+                    event.preventDefault()
+                    selectCanvasPage(canvasPageHref(target()))
+                    window.scrollTo(0, 0)
+                  }}
+                >
+                  <span class="dinkster-metadata">
+                    {by < 0 ? 'Previous page' : 'Next page'}
+                  </span>
+                  <span>{pageLabel(target())}</span>
+                </ProductLink>
+              )}
+            </Show>
+          )}
+        </For>
+      </nav>
     </>
   )
 }

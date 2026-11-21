@@ -460,6 +460,8 @@ export const canvasPaintTokens = {
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
     diagnosticStroke: 1.5,
+    /** Outline of the field a held wire would take. */
+    dropStroke: 2,
     connectedControllerOpacity: 0.5,
     connectedGlyphOpacity: 0.35,
     stepperStroke: 1.5,

@@ -13,7 +13,7 @@
  * happily clicks sliver-width and overlapping controls. Every new editor or
  * overlay surface should gain an audited, screenshotted state here.
  */
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 
 const MOCK = 'http://ui-audit.test'

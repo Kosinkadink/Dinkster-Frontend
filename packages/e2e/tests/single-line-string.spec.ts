@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})

@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,

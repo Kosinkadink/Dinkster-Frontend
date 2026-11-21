@@ -6,7 +6,7 @@
  * Asserted through the live renderer's scene - the same objects the paint
  * pass consumes; color mapping itself is pinned by canvas unit tests.
  */
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, type Page } from './fixtures.js'
 
 async function pinPoint(page: Page, nodeId: string, portId: string): Promise<{ x: number; y: number }> {
   return page.evaluate(({ nodeId, portId }) => {

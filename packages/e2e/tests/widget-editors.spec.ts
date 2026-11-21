@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as base, waitForStartupOwnership, type Page } from './fixtures.js'
 
-test('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
+const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, { option: true }] })
+
+const catalogTest = test.extend({ widgetDocument: false })
+
+catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 1 },
     nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, interface: [
@@ -34,7 +38,7 @@ test('mixed scalar COMBO keeps typed native choices through dropdown edits', asy
   }
 })
 
-test('native integer RGB color edits retain numeric values without catalog warnings', async ({ page }, testInfo) => {
+catalogTest('native integer RGB color edits retain numeric values without catalog warnings', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'integer-color-fixture', schemaWire: 1 },
     nodes: { IntegerColor: { displayName: 'Integer RGB color', outputNode: true, interface: [
@@ -67,7 +71,7 @@ test('native integer RGB color edits retain numeric values without catalog warni
   await expect(page.getByTestId('color-text')).toHaveValue('#ab1203')
 })
 
-test('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
+catalogTest('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 1 },
     nodes: { SocketlessFixture: { displayName: 'Socketless color fixture', outputNode: true, interface: [
@@ -185,7 +189,8 @@ async function stepperPoint(page: Page, inputId: string, side: 'left' | 'right')
   }, { inputId, side })
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, widgetDocument }) => {
+  if (!widgetDocument) return
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
@@ -644,14 +649,14 @@ test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Com
   }
 })
 
-test('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
+catalogTest('numeric union uses FLOAT editing in canvas and exposed AppView without changing its socket', async ({ page }, testInfo) => {
   const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
     dinkster: { version: 'numeric-union-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
     nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
   } }))
-  await page.reload()
+  await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

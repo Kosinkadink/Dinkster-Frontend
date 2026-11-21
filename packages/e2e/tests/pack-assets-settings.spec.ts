@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PACK_ASSETS_SETTINGS_PROOF_DIR']
 
