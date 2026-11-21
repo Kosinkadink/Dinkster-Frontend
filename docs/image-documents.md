@@ -8,7 +8,9 @@ and first-class image workspace are implemented.
 Use **Image documents** in the top bar to switch the center region from workflow
 tabs to durable images. **New from image** creates a document from PNG, JPEG, or
 WebP. The workspace restores every valid draft in the current project and keeps
-workflow tabs unchanged when you switch back.
+workflow tabs unchanged when you switch back. Document tabs follow the workflow
+tab width rule: as wide as the image name up to 220 px, with the full name in a
+tooltip, and about three letters wide when crowded.
 
 Local image imports stay with their original project and workspace. A decode
 that settles after project change or disposal cannot start another resource or
