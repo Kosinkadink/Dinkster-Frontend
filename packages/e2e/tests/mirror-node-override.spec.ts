@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 /**
  * Per-node mirror-estimate override: the node context menu's "Mirror

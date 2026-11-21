@@ -165,6 +165,12 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { sessions: [] } })
   } else if (path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
+  } else if (path.endsWith('/api/projects/default')) {
+    await route.fulfill({ json: { project: {
+      id: 'default', name: 'Default', created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    } } })
+  } else if (path.endsWith('/api/projects/default/needs')) {
+    await route.fulfill({ json: { packs: [], installed: [], extra: [], unknown: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
   } else if (path.includes('/api/library/retentions/document/') || path.includes('/api/library/retentions/preview/')) {

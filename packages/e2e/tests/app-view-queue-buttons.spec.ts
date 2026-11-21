@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test } from './fixtures.js'
+import { expect, nativeAppViewTest as test } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-queue-buttons'
 

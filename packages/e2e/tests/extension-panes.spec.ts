@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, waitForStartupOwnership, type Page, type Locator } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page, type Locator } from './fixtures.js'
 
 const hash = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`
 const proofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']

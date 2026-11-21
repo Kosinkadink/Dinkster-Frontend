@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const adjustWire = JSON.parse(

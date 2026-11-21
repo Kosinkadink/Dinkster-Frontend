@@ -9,7 +9,7 @@ const catalog = {
   schemaVersion: 1,
   epoch: 1,
   dinkster: { version: 'window-test', schemaWire: 1 },
-  nodes: {},
+  nodes: { TestNode: { displayName: 'Test node', category: 'test', interface: [] } },
 }
 
 test.beforeEach(async ({ context }) => {

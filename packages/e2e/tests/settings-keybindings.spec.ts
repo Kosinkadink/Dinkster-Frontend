@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_I18N_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })

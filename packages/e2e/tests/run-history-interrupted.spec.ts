@@ -11,7 +11,7 @@
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 

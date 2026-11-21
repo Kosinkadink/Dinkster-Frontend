@@ -9,7 +9,7 @@
  */
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 const editorProofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
