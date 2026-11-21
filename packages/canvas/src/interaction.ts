@@ -781,6 +781,9 @@ type Gesture =
       moved: boolean
     }
 
+const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
+  row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+
 export class InteractionController {
   private selection = new Set<string>()
   private linkSelection = new Set<string>()
@@ -3002,8 +3005,7 @@ export class InteractionController {
     const { row } = hit
     // In-row editing draws a number's mode as an icon before its value and no
     // chip, so the whole row opens the field and its side part sets the mode.
-    if (this.renderer.getDesignTokens().widgetEditing === 'in-row' &&
-      (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT')) return false
+    if (this.renderer.getDesignTokens().widgetEditing === 'in-row' && isNumberRow(row)) return false
     return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
   }
 
@@ -3467,7 +3469,7 @@ export class InteractionController {
             this.host.onControllerActivate?.(g.hit, clientX, clientY)
             return
           }
-          const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+          const numeric = isNumberRow(row)
           const stepperZone = this.renderer.getDesignTokens().rowGeometry.stepperZone
           const direction = g.hit.localX <= stepperZone
             ? -1

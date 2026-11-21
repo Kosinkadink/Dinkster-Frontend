@@ -7,6 +7,7 @@ import type {
   TextWidgetEditorContext,
   TextWidgetEditorExtension,
 } from '@dinkster/widgets'
+import { stringKind } from '@dinkster/widgets'
 import {
   createSuggestionInteraction,
   SuggestionSurface,
@@ -43,7 +44,7 @@ export type TextControl = HTMLInputElement | HTMLTextAreaElement
  */
 export function createTextCompletions(host: WidgetEditorProps, isLive: () => boolean, onAccepted?: (control: TextControl) => void) {
   const ed = host.ed
-  const text = ed.spec?.widgetType === 'STRING'
+  const text = ed.spec?.widgetType === stringKind.type
   const [session, setSession] = createSignal<CompletionSession>({ status: 'idle' })
   const entries = createMemo(() => session().status === 'ready' ? (session() as Extract<CompletionSession, { status: 'ready' }>).entries : [])
   const open = () => session().status !== 'idle'

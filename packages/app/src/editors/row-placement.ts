@@ -1,4 +1,3 @@
-import type { JSX } from 'solid-js'
 import { canvasSidePlace, type CanvasBox, type CanvasSidePlace } from '@dinkster/ui'
 
 /** A row's field box on the canvas, in world coordinates. */
@@ -51,13 +50,9 @@ export function rowPlacement(
   }
 }
 
-/** The style that puts an element at a placement's top left, scaled when zoomed in. */
-export function rowPlacementStyle(placement: RowPlacement): JSX.CSSProperties {
-  return {
-    position: 'absolute',
-    left: `${placement.screen.x}px`,
-    top: `${placement.screen.y}px`,
-    'transform-origin': '0 0',
-    ...(placement.scale > 1 ? { transform: `scale(${placement.scale})` } : {}),
-  }
+/** Puts an element at a placement's top left, scaled when zoomed in. */
+export function placeRow(element: HTMLElement, placement: RowPlacement): void {
+  element.style.left = `${placement.screen.x}px`
+  element.style.top = `${placement.screen.y}px`
+  element.style.transform = placement.scale > 1 ? `scale(${placement.scale})` : ''
 }

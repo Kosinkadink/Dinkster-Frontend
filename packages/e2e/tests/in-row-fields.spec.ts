@@ -100,9 +100,10 @@ test('past a limit the side part says what Enter stores; the field follows the c
     const row = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!
       const node = renderer.getScene().nodes.find((item) => item.id === 'n1')!
-      const steps = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === 'steps')! as
+      const steps = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'steps')! as
         { y: number; height: number; inset: number; width?: number }
-      const inset = renderer.getDesignTokens().rowGeometry.fieldInsetY
+      const inset = (renderer as unknown as { getDesignTokens(): { rowGeometry: { fieldInsetY: number } } })
+        .getDesignTokens().rowGeometry.fieldInsetY
       const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
       const { x, y, scale } = renderer.getViewport()
       const width = steps.width ?? node.layout.width - steps.inset * 2
@@ -222,7 +223,7 @@ test('slider: a drag puts the value under the pointer; Escape in the open field 
   // The row spans the node minus its insets; aim inside it.
   const left = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
-    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === 'denoise')! as { inset: number; width?: number }
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'denoise')! as { inset: number; width?: number }
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = window.__dinksterTest!.renderer!.getViewport()
     const width = row.width ?? node.layout.width - row.inset * 2
@@ -328,7 +329,7 @@ test('line break, default link, and Tab brings a hidden row into view', async ({
   await expect.poll(() => openLabel(page)).toBe('seed')
   const seedBottom = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
-    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === 'seed')!
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'seed')!
     const viewport = window.__dinksterTest!.renderer!.getViewport()
     return (node.y + row.y + row.height) * viewport.scale + viewport.y
   })

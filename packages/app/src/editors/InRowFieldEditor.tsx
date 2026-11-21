@@ -1,8 +1,8 @@
 import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, type Component } from 'solid-js'
 import { effectiveWidgetDefault, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
-import { numberFieldFacts } from '@dinkster/widgets'
+import { floatKind, intKind, numberFieldFacts } from '@dinkster/widgets'
 import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, type CanvasSeedMode } from '@dinkster/ui'
-import { rowPlacement, rowPlacementStyle } from './row-placement.js'
+import { placeRow, rowPlacement } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
@@ -19,7 +19,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const ed = host.ed
   const spec = ed.spec!
   const inRow = ed.inRow!
-  const numeric = spec.widgetType === 'INT' || spec.widgetType === 'FLOAT'
+  const numeric = spec.widgetType === intKind.type || spec.widgetType === floatKind.type
   // The field holds the full stored value, not the row's formatted text.
   const initialText = ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
   const [draft, setDraft] = createSignal(initialText)
@@ -252,14 +252,17 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     }
   })
 
+  let frame!: HTMLDivElement
+  createEffect(() => placeRow(frame, placement()))
+
   return (
     <div
+      ref={frame}
       class="widget-in-row-field"
       data-testid="widget-editor"
       data-editor-target={ed.target.kind}
       data-editor-mode={spec.widgetType}
       data-editor-surface="in-row"
-      style={rowPlacementStyle(placement())}
     >
       <CanvasRowField
         look={inRow.look}

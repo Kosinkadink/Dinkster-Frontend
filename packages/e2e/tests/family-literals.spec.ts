@@ -60,7 +60,7 @@ for (const named of [false, true]) {
     for (const [index, value] of [[1, 33], [2, 44]] as const) {
       const point = await nodePoint(page, 'n', { kind: 'widget', inputId: `weights.${names[index]}` })
       await page.mouse.click(point.x, point.y)
-      const editor = page.locator('#widget-editor-value')
+      const editor = page.locator('[data-editor-surface="in-row"] input')
       await expect(editor).toBeVisible()
       await editor.fill(String(value))
       await editor.press('Enter')
@@ -213,7 +213,7 @@ test('legacy named family literal editing advances the ghost through compaction'
 
   const ghostWidget = await nodePoint(page, 'math', { kind: 'widget', inputId: 'values.b' })
   await page.mouse.click(ghostWidget.x, ghostWidget.y)
-  const editor = page.locator('#widget-editor-value')
+  const editor = page.locator('[data-editor-surface="in-row"] input')
   await expect(editor).toBeVisible()
   await editor.fill('2.5')
   await editor.press('Enter')

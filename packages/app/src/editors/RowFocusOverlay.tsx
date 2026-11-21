@@ -1,6 +1,6 @@
-import { createMemo, createSignal } from 'solid-js'
+import { createEffect, createMemo, createSignal } from 'solid-js'
 import { CanvasRowFocus, CanvasSidePart } from '@dinkster/ui'
-import { rowPlacement, rowPlacementStyle, type RowBox } from './row-placement.js'
+import { placeRow, rowPlacement, type RowBox } from './row-placement.js'
 
 /** A row the keyboard is on while nothing is open. */
 export interface RowFocusState extends RowBox {
@@ -40,9 +40,11 @@ export function RowFocusOverlay(props: {
       />
     )
   })
+  let frame!: HTMLDivElement
+  createEffect(() => placeRow(frame, placement()))
   return (
     <div class="palette-layer widget-popover-layer" data-testid="row-focus">
-      <div style={rowPlacementStyle(placement())}>
+      <div ref={frame} class="widget-row-focus">
         <CanvasRowFocus
           rowWidth={placement().rowWidth}
           look={props.focus.look}

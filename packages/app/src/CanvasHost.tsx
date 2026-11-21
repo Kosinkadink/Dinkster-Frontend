@@ -5224,7 +5224,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodeBottom: hit.node.y + hit.node.layout.height,
           storedAtOpen: stored ?? null,
           ...(help === undefined ? {} : { help }),
-          ...(caret === undefined || spec.widgetType !== 'STRING' ? {} : { caret }),
+          ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
@@ -5286,7 +5286,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Every row is a stop. A field or text edited in place opens; any other
       // row (a toggle, or a row that opens an editor) only takes the focus.
       const opensInPlace = (row: WidgetLayoutRow): boolean =>
-        row.spec.widgetType === 'STRING' && (row.viewId === 'core.text' || row.viewId === 'core.line') &&
+        (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow =>
         row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port))
@@ -5372,7 +5372,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = renderer.getScene().nodes.find((item) => item.id === focus.nodeId)
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
-        if (row.spec.widgetType !== 'BOOLEAN') setRowFocus(undefined)
+        if (row.viewId !== 'core.toggle') setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
       }
     }

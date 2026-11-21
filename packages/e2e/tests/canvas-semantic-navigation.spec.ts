@@ -122,11 +122,11 @@ test('semantic scene navigation stays virtual until focused and pans only on act
     const centerX = (canvas.width / 2 - viewport.x) / viewport.scale
     const centerY = (canvas.height / 2 - viewport.y) / viewport.scale
     const node = renderer.getScene().nodes
-      .filter((candidate) => candidate.node.values['width'] === 64)
+      .filter((candidate) => candidate.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'width'))
       .sort((a, b) =>
         Math.hypot(a.x + a.layout.width / 2 - centerX, a.y + a.layout.height / 2 - centerY) -
         Math.hypot(b.x + b.layout.width / 2 - centerX, b.y + b.layout.height / 2 - centerY))[0]!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'width')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'width')!
     return {
       x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
       y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,

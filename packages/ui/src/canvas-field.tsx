@@ -461,7 +461,7 @@ export function CanvasSideLink(props: {
       onPointerDown={(event) => event.preventDefault()}
       onClick={() => props.onClick()}
     >
-      {props.children}
+      <span>{props.children}</span>
     </button>
   )
 }

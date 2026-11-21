@@ -85,19 +85,19 @@ test.describe('plain widget editors', () => {
 
   test('INT editor passes the layout audit', async ({ page }) => {
     await openEditor(page, 'count')
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
+    await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
     await auditSurface(page, 'editor-int', '[data-testid=widget-editor]')
   })
 
   test('FLOAT editor passes the layout audit', async ({ page }) => {
     await openEditor(page, 'amount')
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
+    await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
     await auditSurface(page, 'editor-float', '[data-testid=widget-editor]')
   })
 
   test('STRING editor passes the layout audit', async ({ page }) => {
     await openEditor(page, 'title')
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
+    await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
     await auditSurface(page, 'editor-string', '[data-testid=widget-editor]')
   })
 
