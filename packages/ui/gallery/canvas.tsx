@@ -148,7 +148,10 @@ const chipsBefore: Variant = {
   caption: 'Before',
   tokens: (t) => ({ ...t, badgeLayout: 'chips' }),
 }
-const tabsAfter = (size: DesignTokens['badgeTab'], caption: string): Variant => ({
+const tabsAfter = (
+  size: DesignTokens['badgeTab'],
+  caption: string,
+): Variant => ({
   id: `tabs-${size.height}`,
   caption,
   tokens: (t) => ({ ...t, badgeLayout: 'tabs', badgeTab: size }),
@@ -193,7 +196,12 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
       ]
     case 'boundary-names':
       return [
-        { ...current, id: 'current', caption: 'Before', boundaryNames: 'current' },
+        {
+          ...current,
+          id: 'current',
+          caption: 'Before',
+          boundaryNames: 'current',
+        },
         { ...current, id: 'ids', caption: 'After', boundaryNames: 'ids' },
       ]
     case 'core-rows':
@@ -218,7 +226,10 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
     case 'tabs-content':
       return [
         chipsBefore,
-        tabsAfter(defaultTokens.badgeTab, tabSizeCaption(defaultTokens.badgeTab)),
+        tabsAfter(
+          defaultTokens.badgeTab,
+          tabSizeCaption(defaultTokens.badgeTab),
+        ),
         tabsAfter(
           canvasPaintTokens.badge.roomierTab,
           tabSizeCaption(canvasPaintTokens.badge.roomierTab),
@@ -258,19 +269,20 @@ function ExampleCard(props: {
     const { tokens, fixture, variant } = props.prepared
     const nodes = example.nodes?.map((index) => fixture.scene.nodes[index]!)
     const names = nodes && new Set(nodes.map((node) => node.id))
-    const scene = nodes && names
-      ? {
-          ...fixture.scene,
-          nodes,
-          links: fixture.scene.links.filter(
-            (link) =>
-              link.from.kind === 'port' &&
-              link.to.kind === 'port' &&
-              names.has(link.from.node) &&
-              names.has(link.to.node),
-          ),
-        }
-      : fixture.scene
+    const scene =
+      nodes && names
+        ? {
+            ...fixture.scene,
+            nodes,
+            links: fixture.scene.links.filter(
+              (link) =>
+                link.from.kind === 'port' &&
+                link.to.kind === 'port' &&
+                names.has(link.from.node) &&
+                names.has(link.to.node),
+            ),
+          }
+        : fixture.scene
     const scale = fixture.scale
     const renderer = new CanvasRenderer(
       canvas,
@@ -314,7 +326,8 @@ function ExampleCard(props: {
       page === 'minimap'
         ? { minX: 0, minY: 0, maxX: fixture.width, maxY: fixture.height }
         : sceneVisualBounds(
-            { ...scene, links: [] },
+            // The painted scene: previews and minimized badges widen nodes.
+            { ...renderer.getScene(), links: [] },
             fixture.previews,
             fixture.badges,
             (node) => renderer.getNodeBadgeBounds(node),
@@ -466,8 +479,7 @@ function ExampleCard(props: {
     })
   })
   // A comparison names its example above the cards, so a card names its look.
-  const caption = () =>
-    props.prepared.variant.caption || props.example.caption
+  const caption = () => props.prepared.variant.caption || props.example.caption
   return (
     <figure class="dinkster-canvas-example">
       <div class="dinkster-canvas-example-stage">
