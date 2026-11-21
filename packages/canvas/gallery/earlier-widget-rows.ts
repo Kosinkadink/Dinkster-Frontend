@@ -41,8 +41,15 @@ function earlierView(view: WidgetView): WidgetView {
             placeholder,
             ...plain
           } = style
-          if (typeof swatch === 'string') {
-            ctx.rect(0, 0.2, 0.12, 0.6, { fill: swatch, fixedAspect: 'square' })
+          // The earlier square showed whatever text the color held.
+          const square =
+            typeof swatch === 'string'
+              ? swatch
+              : view.id === 'core.color'
+                ? run
+                : undefined
+          if (square !== undefined) {
+            ctx.rect(0, 0.2, 0.12, 0.6, { fill: square, fixedAspect: 'square' })
             return ctx.text(x, y, run, { ...plain, reserveLeft: 16 })
           }
           if (view.id === 'core.colors') {

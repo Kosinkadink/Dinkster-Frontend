@@ -833,8 +833,10 @@ export const colorView: WidgetView<string> = {
   ...makeCompactView<string>('core.color', 'COLOR'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    // `swatch` asks the painter for a square of the color directly before its code.
-    compactRow(ctx, label, value, state, 'widget.edit', false, { swatch: value })
+    // `swatch` asks the painter for a square of the color directly before its
+    // code; text that is not a color code gets no square.
+    compactRow(ctx, label, value, state, 'widget.edit', false,
+      /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(value) ? { swatch: value } : {})
   },
 }
 export function integerColorHex(value: unknown): string | undefined {

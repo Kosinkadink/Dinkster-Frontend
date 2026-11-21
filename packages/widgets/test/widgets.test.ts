@@ -539,6 +539,9 @@ describe('compact views', () => {
     })
     const value = ops.find((op) => op.op === 'text' && op.args[2] === '#00ff3380')
     expect(value?.args[3]).toMatchObject({ role: 'widgetValue', align: 'right', swatch: '#00ff3380' })
+    const notAColor = recordingBuilder()
+    view.drawCompact(notAColor.builder, 'teal', spec('COLOR'), { focused: false, connected: false, readonly: false })
+    expect(notAColor.ops.find((op) => op.op === 'text')?.args[3]).not.toHaveProperty('swatch')
     expect(ops.some((op) => op.op === 'hitRegion')).toBe(true)
   })
 
