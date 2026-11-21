@@ -472,6 +472,32 @@ describe('sizing', () => {
     )
   })
 
+  it('keeps 6 px clear above the first and below the last thing seen, a field edge or pin text', () => {
+    // A field's box starts at its edge; a pin's 16 px line of text is centered in its row.
+    const fieldTop = (row: { y: number }) => row.y + defaultTokens.rowGeometry.fieldInsetY
+    const fieldBottom = (row: { y: number; height: number }) => row.y + row.height - defaultTokens.rowGeometry.fieldInsetY
+    const textTop = (row: { y: number; height: number }) => row.y + row.height / 2 - 8
+    const textBottom = (row: { y: number; height: number }) => row.y + row.height / 2 + 8
+
+    const fields = doLayout([widget('a'), widget('b')])
+    expect(fieldTop(fields.rows[0]!) - fields.headerHeight).toBe(6)
+    expect(fields.height - fieldBottom(fields.rows.at(-1)!)).toBe(6)
+
+    const pins = doLayout([input('a'), input('b'), output('c')])
+    expect(textTop(pins.rows[0]!) - pins.headerHeight).toBe(6)
+    expect(pins.height - textBottom(pins.rows.at(-1)!)).toBe(6)
+
+    const pinThenField = doLayout([input('a'), widget('b')])
+    expect(textTop(pinThenField.rows[0]!) - pinThenField.headerHeight).toBe(6)
+    expect(pinThenField.height - fieldBottom(pinThenField.rows.at(-1)!)).toBe(6)
+
+    // A preview after a last row of pins ends the node like any boxed region.
+    const withPanel = withPreviewRegion(pins, defaultTokens)
+    const preview = withPanel.preview!
+    expect(preview.y - (pins.rows.at(-1)!.y + pins.rows.at(-1)!.height)).toBe(defaultTokens.previewGap)
+    expect(withPanel.height - (preview.y + preview.height)).toBe(defaultTokens.padBottom)
+  })
+
   it('FR7 malformed widget row counts normalize to whole positive rows', () => {
     for (const [rows, expected] of [[Number.NaN, 1], [0, 1], [-3, 1], [2.5, 2]] as const) {
       const layout = layoutNode(

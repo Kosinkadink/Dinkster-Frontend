@@ -75,6 +75,7 @@ import {
 } from '@dinkster/core'
 import {
   connectedPortKey,
+  insetRowStack,
   layoutBoundaryNode,
   REGION_INDEX_SLOT,
   layoutNode,
@@ -2405,7 +2406,8 @@ function missingLayout(
   }
 
   // Rows never compress: manual sizes clamp to the natural row stack.
-  const minHeight = Math.max(tokens.headerHeight + tokens.rowHeight + tokens.padBottom, y + tokens.padBottom)
+  const stackInsets = insetRowStack(rows, pins, tokens)
+  const minHeight = Math.max(tokens.headerHeight + tokens.rowHeight + tokens.padBottom, y + stackInsets.top + stackInsets.bottom)
   const naturalWidth = Math.min(tokens.nodeMaxAutoWidth, Math.max(tokens.nodeMinWidth, contentWidth))
   if (minimized) {
     const height = tokens.headerHeight + tokens.padBottom
