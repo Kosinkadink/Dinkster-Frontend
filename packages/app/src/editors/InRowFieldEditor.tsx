@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, type Component } from 'solid-js'
 import { effectiveWidgetDefault, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
 import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, type CanvasSeedMode } from '@dinkster/ui'
@@ -50,6 +50,10 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     numeric && draft() !== initialText ? resolveTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue) : undefined)
   const note = (): string | undefined =>
     numeric && draft() === initialText ? storedNumberNote(spec, ed.initial as IntegerWidgetValue) : undefined
+  const problemId = createUniqueId()
+  // A kept stored number's note is not a problem, so it does not mark the field invalid.
+  const problem = (): string | undefined => props.commitError() ?? invalid() ?? typed()?.problem
+  const shownProblem = (): string | undefined => problem() ?? note()
 
   // A slider keeps its fill while typing. The fill follows what Enter would
   // store while that lies inside the range, and stays where it was while the
@@ -211,9 +215,9 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       : []
     const resolved = typed()
     const blocked = props.commitError() ?? invalid()
-    const problem = blocked ?? resolved?.problem ?? note()
+    const line = shownProblem()
     const result = blocked === undefined && resolved?.kind === 'store' ? resolved.result : undefined
-    if (facts.length === 0 && problem === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined) return undefined
+    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined) return undefined
     return (
       <CanvasSidePart
         {...(inRow.controllerMode === undefined ? {} : {
@@ -228,7 +232,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         })}
         facts={facts}
         {...(result === undefined ? {} : { result })}
-        {...(problem === undefined ? {} : { problem })}
+        {...(line === undefined ? {} : { problem: line, problemId })}
         {...(inRow.help === undefined ? {} : { help: inRow.help })}
       />
     )
@@ -236,6 +240,17 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
 
   // The field cannot be typed into while a store is in flight.
   createEffect(() => { if (input !== undefined) input.readOnly = props.commitPending() })
+  // The problem line is the field's error message.
+  createEffect(() => {
+    if (input === undefined) return
+    if (problem() === undefined) {
+      input.removeAttribute('aria-invalid')
+      input.removeAttribute('aria-errormessage')
+    } else {
+      input.setAttribute('aria-invalid', 'true')
+      input.setAttribute('aria-errormessage', problemId)
+    }
+  })
 
   return (
     <div

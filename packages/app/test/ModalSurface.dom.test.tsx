@@ -94,10 +94,12 @@ function mountWidget(ed: WidgetEditorState) {
   document.body.append(root)
   const close = vi.fn()
   const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+  const queue = { run: vi.fn() }
   let clickAway: (() => void) | undefined
   const [open, setOpen] = createSignal(true)
   const [viewport, setViewport] = createSignal({ x: 0, y: 0, scale: 1 })
   const app = {
+    commands: { get: (id: string) => id === 'workflow.queue' ? queue : undefined },
     backendForTab: () => ({
       protocol: 'v1',
       scopedClient: {
@@ -121,7 +123,7 @@ function mountWidget(ed: WidgetEditorState) {
       />
     </Show>
   ), root)
-  return { root, close, dispatchTo, setViewport, clickAway: () => clickAway?.(), unmount }
+  return { root, close, dispatchTo, queue, setViewport, clickAway: () => clickAway?.(), unmount }
 }
 
 describe('ModalSurface', () => {
@@ -1465,6 +1467,8 @@ describe('registered interactive widget expanded-editor integration', () => {
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'string', offset: 0, deleteCount: 3, insert: 'entered\nvalue' },
     })
+    // Ctrl+Enter stores, then runs the workflow once.
+    await vi.waitFor(() => expect(entered.queue.run).toHaveBeenCalledOnce())
 
     const cancelled = mountWidget(widgetState('STRING', { multiline: true }, 'old', true))
     const cancelField = cancelled.root.querySelector<HTMLTextAreaElement>('textarea')!

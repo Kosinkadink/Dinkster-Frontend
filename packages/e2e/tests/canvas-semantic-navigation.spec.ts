@@ -93,6 +93,51 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(before.revision)
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
 
+  // Rows join the list, each with its value; Enter selects and centers the
+  // row's node and changes nothing.
+  const active = navigator.locator('[data-active="true"]')
+  for (let step = 0; step < 12 && await active.getAttribute('data-kind') !== 'widget'; step += 1) {
+    await page.keyboard.press('ArrowDown')
+  }
+  await expect(active).toHaveAttribute('data-kind', 'widget')
+  await expect(active).toHaveText(/^Row: width of .+, 64$/)
+  await page.keyboard.press('Enter')
+  await expect(active).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
+
+  // The list stays while a row is open in place. The row is on the node
+  // Enter centered, once the camera has stopped.
+  const viewportNow = () => page.evaluate(() => JSON.stringify(window.__dinksterTest!.renderer!.getViewport()))
+  let settled = ''
+  await expect.poll(async () => {
+    const previous = settled
+    settled = await viewportNow()
+    return settled === previous
+  }).toBe(true)
+  const widthRow = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const viewport = renderer.getViewport()
+    const centerX = (canvas.width / 2 - viewport.x) / viewport.scale
+    const centerY = (canvas.height / 2 - viewport.y) / viewport.scale
+    const node = renderer.getScene().nodes
+      .filter((candidate) => candidate.node.values['width'] === 64)
+      .sort((a, b) =>
+        Math.hypot(a.x + a.layout.width / 2 - centerX, a.y + a.layout.height / 2 - centerY) -
+        Math.hypot(b.x + b.layout.width / 2 - centerX, b.y + b.layout.height / 2 - centerY))[0]!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'width')!
+    return {
+      x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(widthRow.x, widthRow.y)
+  await expect(page.locator('.widget-in-row-field input')).toBeFocused()
+  await expect(navigator).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
+
   await page.setViewportSize({ width: 390, height: 844 })
   const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
   if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()

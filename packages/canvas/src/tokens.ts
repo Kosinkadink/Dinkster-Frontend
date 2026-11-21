@@ -729,7 +729,7 @@ export const defaultTokens: DesignTokens = {
   fontSize: 12,
   titleFontSize: 13,
   widgetRowLook: 'inset-raised',
-  widgetEditing: 'card',
+  widgetEditing: 'in-row',
   nodeLook: 'flat-title',
   crispEdges: true,
   rowGeometry: {

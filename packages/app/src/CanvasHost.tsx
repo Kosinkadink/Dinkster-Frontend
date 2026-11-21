@@ -3597,7 +3597,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     )
     semanticTargetSelected = (target): boolean => {
       if (target.kind === 'node' || target.kind === 'boundary') return controller.getSelection().has(target.id)
-      if (target.kind === 'port') return controller.getSelection().has(target.nodeId)
+      if (target.kind === 'port' || target.kind === 'widget') return controller.getSelection().has(target.nodeId)
       if (target.kind === 'link') return controller.getLinkSelection().has(target.id)
       if (target.kind === 'reroute') return controller.getRerouteSelection().has(target.id)
       if (target.kind === 'valueSource') return controller.getValueSourceSelection().has(target.id)
@@ -3608,7 +3608,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     activateSemanticTarget = (target): void => {
       const source = renderer.getScene()
       let rect: EditorWorldRect | undefined
-      if (target.kind === 'node' || target.kind === 'port') {
+      if (target.kind === 'node' || target.kind === 'port' || target.kind === 'widget') {
         const nodeId = target.kind === 'node' ? target.id : target.nodeId
         const node = source.nodes.find((candidate) => candidate.id === nodeId)
         const boundary = source.boundaryNodes.find((candidate) => boundarySceneId(candidate.side) === nodeId)
@@ -6547,6 +6547,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (editor() || controllerMenu() || linkDoubleClickMenu() || menu() || modalPanel()) props.tooltips?.hide()
   })
 
+  // The canvas keyboard list and the buttons for wired rows go while a menu,
+  // a panel or an editor card is open, and stay while a row is edited in place.
+  const canvasListsShown = (): boolean =>
+    (editor() === undefined || editor()!.inRow !== undefined) &&
+    !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()
+
   return (
     <>
       <canvas
@@ -6563,7 +6569,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         data-selector-selection={selectorSelectionSize()}
         data-group-selection={groupSelectionSize()}
       />
-      <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
+      <Show when={canvasListsShown()}>
         <CanvasSemanticNavigator
           owner={semanticScene().owner}
           items={semanticScene().items}
@@ -6767,7 +6773,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           />}
         </Show>}
       </Show>
-      <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
+      <Show when={canvasListsShown()}>
         <div class="canvas-widget-a11y" role="group" aria-label="Canvas widget controls">
           <For each={widgetA11yTargets().map((item) => item.id)}>{(id) => {
             let retainedItem = widgetA11yById().get(id)!
