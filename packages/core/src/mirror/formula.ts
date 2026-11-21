@@ -689,7 +689,7 @@ function readText(source: string, start: number): { value: string; end: number }
     if (char === '\n' || char === '\r') refuse('a text literal is one line')
     if (char === '\\') {
       const escaped = source[index + 1] ?? ''
-      const map: Record<string, string> = { '\\': '\\', '"': '"', "'": "'", n: '\n', t: '\t' }
+      const map: Record<string, string> = { '\\': '\\', '"': '"', "'": "'", n: '\n', t: '\t', r: '\r' }
       if (!(escaped in map)) refuse(`escape \\${escaped} is not allowed`)
       value += map[escaped]
       index += 2

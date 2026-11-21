@@ -16,7 +16,7 @@ import {
 
 // The engine checks the same file (Dinkster tests/fixtures/formula_v1.json),
 // so a formula gives the same answer in the editor and when a run is submitted.
-const VECTORS_SHA256 = 'a50e41758bc77c607b6e01c30511264d325fb8e2a5a6a2536dd288b4a8a69ca6'
+const VECTORS_SHA256 = '94d2c9539ba409e3708fc18e7c40310d57df6fdc5e02cf12f6258f799fc7020e'
 const vectorBytes = readFileSync(new URL('./fixtures/formula_v1.json', import.meta.url))
 
 type Encoded = Readonly<Record<string, unknown>>
