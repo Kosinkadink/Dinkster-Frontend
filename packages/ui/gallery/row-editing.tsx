@@ -269,7 +269,7 @@ export function RowEditingExample(props: {
         }
         // Today's open field covers the whole row; in a proposed look the
         // closed field is already as tall as the open one and stays put.
-        setProposal(tokens.nodeLook !== 'current')
+        setProposal(tokens.nodeLook !== 'original')
         setFieldInsetY(proposal() ? tokens.rowGeometry.fieldInsetY : 0)
         const measureContext = document
           .createElement('canvas')
@@ -438,7 +438,7 @@ export function RowEditingExample(props: {
           {(current) => (
             <CanvasRowField
               ref={(element) => (field = element)}
-              {...(proposal() ? { look: 'proposal' as const } : {})}
+              {...(proposal() ? { look: 'flat-title' as const } : {})}
               rowWidth={current().width}
               label={current().row.label}
               value={fieldText(current().value)}

@@ -570,11 +570,10 @@ export function CanvasGallery() {
           page() === 'node-look' ? (
             <>
               <p class="dinkster-description">
-                The same nodes in today's look and in the proposed look with
-                taller fields, tighter gaps and steppers moved inward, once
-                with the lighter surface as the title bar and once with the
-                title bar in the body's color over a thin line. Painted by the
-                production CanvasRenderer; the product keeps today's look.
+                The same nodes in the original look and in the new look the
+                owner chose: taller fields, tighter gaps, steppers moved
+                inward, a dark body and the title bar in the body's color over
+                a thin line. Painted by the production CanvasRenderer.
               </p>
               <NodeLookGallery theme={theme()} />
             </>

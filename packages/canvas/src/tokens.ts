@@ -505,7 +505,7 @@ export function canvasDetailLevel(scale: number, mediaControlMinScale: number): 
   return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
 }
 
-export type NodeLook = 'current' | 'shaded-title' | 'flat-title'
+export type NodeLook = 'original' | 'flat-title'
 
 export interface RowGeometry {
   /** Height of a row that holds only pins. */
@@ -556,10 +556,9 @@ export interface DesignTokens {
    */
   readonly widgetEditing: 'card' | 'in-row'
   /**
-   * The node look: today's, or the proposal with taller fields, tighter
-   * gaps and a dark body, whose title bar is either the lighter surface
-   * (`shaded-title`) or the body's own color over a thin rule (`flat-title`).
-   * `nodeLookTokens` gives the geometry and colors of each.
+   * The node look: the original, or `flat-title` with taller fields,
+   * tighter gaps, a dark body and a title bar in the body's own color over
+   * a thin rule. `nodeLookTokens` gives the geometry and colors of each.
    */
   readonly nodeLook: NodeLook
   /** Placement inside widget and pin rows; the node look sets it. */
@@ -709,7 +708,7 @@ export const defaultTokens: DesignTokens = {
   titleFontSize: 13,
   widgetRowLook: 'inset-raised',
   widgetEditing: 'card',
-  nodeLook: 'current',
+  nodeLook: 'original',
   rowGeometry: {
     portRowHeight: 24,
     fieldInsetY: 2,
@@ -950,17 +949,17 @@ export function presentedType(
 
 /**
  * The tokens a node look changes, to spread over a theme's tokens. Sizes
- * apply in both themes; the proposal's colors are the dark theme's only,
- * and the light theme keeps today's colors.
+ * apply in both themes; the flat-title colors are the dark theme's only,
+ * and the light theme keeps its original colors.
  */
 export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
-  if (look === 'current') return { nodeLook: look }
+  if (look === 'original') return { nodeLook: look }
   const colors = canvasColorsForTheme(theme)
   const surface = semanticTokensForTheme(theme).surface
   return {
     nodeLook: look,
     rowHeight: 26,
-    headerHeight: look === 'flat-title' ? 26 : 28,
+    headerHeight: 26,
     padBottom: 5,
     rowGeometry: {
       portRowHeight: 24,
@@ -978,7 +977,7 @@ export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial
           colors: {
             ...colors,
             nodeBody: surface.panel,
-            nodeHeader: look === 'flat-title' ? surface.panel : surface.raised,
+            nodeHeader: surface.panel,
             widgetRaised: surface.raised,
             widgetBackground: '#121417',
             nodeHeaderRule: '#2a2f35',

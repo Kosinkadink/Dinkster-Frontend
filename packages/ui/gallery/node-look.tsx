@@ -39,19 +39,12 @@ interface LookCard {
 
 /** Room above the node for badges and the selection outline. */
 const TOP = 28
-/** Narrow enough for the three looks of a node to sit in one line. */
-const LOOK_NODE_WIDTH = 256
 
 const looks: readonly LookCard[] = [
-  { id: 'today', caption: 'Today', look: 'current' },
+  { id: 'original', caption: 'Original', look: 'original' },
   {
-    id: 'lighter-title',
-    caption: 'The lighter title bar',
-    look: 'shaded-title',
-  },
-  {
-    id: 'body-title',
-    caption: 'The title bar as the body',
+    id: 'flat-title',
+    caption: 'New: the title bar as the body',
     look: 'flat-title',
   },
 ]
@@ -107,10 +100,10 @@ function NodeLookCard(props: {
         measure,
         widgetMeasure,
         { x: MARGIN, y: TOP },
-        LOOK_NODE_WIDTH,
+        NODE_WIDTH,
       )
       const node = fixture.scene.nodes[0]!
-      const width = MARGIN * 2 + LOOK_NODE_WIDTH
+      const width = MARGIN * 2 + NODE_WIDTH
       // Room under the node for a collapsed node's attached tab.
       const height = TOP + node.layout.height + MARGIN * 2
       figure.style.width = `${width}px`
@@ -150,7 +143,7 @@ function NodeLookCard(props: {
   )
 }
 
-/** The same nodes in today's look and the proposed looks, painted by the production renderer. */
+/** The same nodes in the original and the flat-title node look, painted by the production renderer. */
 export function NodeLookGallery(props: { theme: 'dark' | 'light' }) {
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))
