@@ -169,6 +169,8 @@ export function CanvasRowField(props: {
   side?: JSX.Element
   onSideSize?: (size: { width: number; height: number }) => void
   ref?: (element: HTMLDivElement) => void
+  /** The flat-title node look moves the steppers inward, as the canvas does. */
+  look?: 'original' | 'flat-title'
 }) {
   let root!: HTMLDivElement
   let row!: HTMLDivElement
@@ -224,6 +226,7 @@ export function CanvasRowField(props: {
       class="dinkster-canvas-field"
       data-place={props.place}
       data-side={props.side !== undefined}
+      data-look={props.look ?? 'original'}
       data-testid="canvas-row-field"
     >
       <div

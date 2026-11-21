@@ -47,7 +47,7 @@ import {
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 
-interface RowExample {
+export interface RowExample {
   readonly id: string
   readonly caption: string
   readonly scale: number
@@ -58,9 +58,9 @@ interface RowExample {
   readonly drag?: { readonly valueKey: string; readonly value: Json }
 }
 
-const NODE_WIDTH = 280
-const MARGIN = 16
-const SIDE_ROOM = 272
+export const NODE_WIDTH = 280
+export const MARGIN = 16
+export const SIDE_ROOM = 272
 const NARROW_NODE_WIDTH = 180
 
 const besideRight = (
@@ -234,15 +234,20 @@ function sliderFill(
   return (value - min) / (max - min)
 }
 
-function RowEditingExample(props: {
+export function RowEditingExample(props: {
   example: RowExample
   theme: 'dark' | 'light'
   registry: WidgetRegistry
+  /** Token overrides, such as a node look's. */
+  look?: Partial<DesignTokens>
+  testIdPrefix?: string
 }) {
   let canvas!: HTMLCanvasElement
   let figure!: HTMLElement
   let field: HTMLDivElement | undefined
   const [scene, setScene] = createSignal<Scene>()
+  const [fieldInsetY, setFieldInsetY] = createSignal(0)
+  const [proposal, setProposal] = createSignal(false)
   let stage!: HTMLDivElement
   const [sideWidth, setSideWidth] = createSignal(SIDE_ROOM - MARGIN)
   const [sideHeight, setSideHeight] = createSignal(0)
@@ -260,7 +265,12 @@ function RowEditingExample(props: {
           widgetEditing: 'in-row',
           ...canvasTypePaintForTheme(theme),
           colors: canvasColorsForTheme(theme),
+          ...props.look,
         }
+        // Today's open field covers the whole row; in a proposed look the
+        // closed field is already as tall as the open one and stays put.
+        setProposal(tokens.nodeLook !== 'original')
+        setFieldInsetY(proposal() ? tokens.rowGeometry.fieldInsetY : 0)
         const measureContext = document
           .createElement('canvas')
           .getContext('2d')!
@@ -374,9 +384,9 @@ function RowEditingExample(props: {
     const width = row.width ?? node.layout.width - row.inset * 2
     const screen = {
       x: (node.x + row.inset) * scale,
-      y: (node.y + row.y) * scale,
+      y: (node.y + row.y + fieldInsetY()) * scale,
       width: width * scale,
-      height: row.height * scale,
+      height: (row.height - fieldInsetY() * 2) * scale,
     }
     const bounds = {
       x: 0,
@@ -404,7 +414,9 @@ function RowEditingExample(props: {
     if (!current || !field) return
     field.style.left = `${current.screen.x}px`
     field.style.top = `${current.screen.y}px`
-    const fieldHeight = current.row.height * Math.max(1, props.example.scale)
+    const fieldHeight =
+      (current.row.height - fieldInsetY() * 2) *
+      Math.max(1, props.example.scale)
     const sideBottom =
       current.place === 'below-node'
         ? current.sideTop + sideHeight()
@@ -420,12 +432,13 @@ function RowEditingExample(props: {
           ref={canvas}
           role="img"
           aria-label={`${props.example.id} in ${props.theme} theme`}
-          data-testid={`row-editing-${props.example.id}`}
+          data-testid={`${props.testIdPrefix ?? 'row-editing'}-${props.example.id}`}
         />
         <Show when={open()}>
           {(current) => (
             <CanvasRowField
               ref={(element) => (field = element)}
+              {...(proposal() ? { look: 'flat-title' as const } : {})}
               rowWidth={current().width}
               label={current().row.label}
               value={fieldText(current().value)}

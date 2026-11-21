@@ -2044,6 +2044,7 @@ describe('node chrome paint on the live renderer', () => {
       free.y + row.y,
       free.layout.width - row.inset * 2,
       row.height,
+      defaultTokens.rowGeometry.fieldInsetY,
     )
     const outline = marked.find(
       (c) =>

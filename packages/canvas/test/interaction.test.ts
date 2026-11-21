@@ -117,6 +117,7 @@ describe('lens widget-row affordance', () => {
       scene.nodes[0]!.layout.width - row.inset * 2,
       defaultTokens.rowHeight,
       row,
+      defaultTokens.rowGeometry,
     )
     const harness = interactionHarness(
       scene,

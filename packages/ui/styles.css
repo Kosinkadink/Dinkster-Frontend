@@ -245,6 +245,10 @@
 .dinkster-canvas-field-mark { position: relative; display: grid; place-items: center; flex: none; margin-left: auto; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-field-input { position: relative; flex: 0 1 auto; field-sizing: content; min-width: var(--dinkster-space-24); margin-left: auto; height: 100%; padding: 0 calc(var(--dinkster-space-4) / 2); border: 0; outline: 0; background: transparent; color: var(--dinkster-text-primary); font: inherit; text-align: right; }
 .dinkster-canvas-field-row[data-steppers='false'] .dinkster-canvas-field-input { padding-right: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
+.dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-step { width: var(--dinkster-space-24); }
+.dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-glyph { stroke-width: 2; }
+.dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-row[data-steppers='true'] .dinkster-canvas-field-label { padding-left: 0; }
+.dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-row[data-steppers='true'] .dinkster-canvas-field-input { padding-right: 0; }
 .dinkster-canvas-field-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-field-input::placeholder { color: var(--dinkster-text-muted); font-style: italic; opacity: 1; }
 .dinkster-canvas-field-side { position: absolute; top: 0; box-sizing: border-box; min-height: var(--dinkster-input-canvas-height); width: max-content; min-width: calc(var(--dinkster-space-32) * 5); max-width: calc(var(--dinkster-space-32) * 8); padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }

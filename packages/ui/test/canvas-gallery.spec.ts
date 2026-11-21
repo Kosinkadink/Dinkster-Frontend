@@ -293,6 +293,37 @@ for (const theme of ['dark', 'light'] as const) {
           })
           .click()
         await page.getByRole('button', { name: label, exact: true }).click()
+        if (id === 'node-look') {
+          // One shot per node: its looks side by side in one wrapping line.
+          const cards = page.locator('figure.dinkster-canvas-example canvas')
+          await expect(cards).toHaveCount(24)
+          for (const card of await cards.all()) {
+            const cardId = (await card.getAttribute('data-testid'))!.slice(
+              'node-look-'.length,
+            )
+            await expect(card).toHaveAttribute(
+              'data-ready',
+              `${cardId}-${theme}`,
+            )
+          }
+          const groups = page.locator('.dinkster-canvas-examples')
+          await expect(groups).toHaveCount(12)
+          for (const [index, group] of (await groups.all()).entries()) {
+            const firstId = (await group
+              .locator('canvas')
+              .first()
+              .getAttribute('data-testid'))!
+            const example = firstId.slice(
+              'node-look-'.length,
+              -'-original'.length,
+            )
+            await expect(group, `group ${index}`).toHaveScreenshot(
+              `node-look-${example}-${theme}.png`,
+            )
+          }
+          expect(errors).toEqual([])
+          return
+        }
         if (id === 'row-editing') {
           // Each example is its own small canvas with the open field over it.
           const examples = page.locator('figure.dinkster-canvas-example')
