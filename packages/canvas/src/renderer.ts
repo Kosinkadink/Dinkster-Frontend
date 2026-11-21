@@ -670,7 +670,7 @@ export const boundaryTargetKey = (side: 'inputs' | 'outputs', item: string): str
 
 /** Dim factor for ghost (unmaterialized dynamic) pins, labels, and widgets. */
 const GHOST_ALPHA = canvasPaintTokens.opacity.ghost
-const PIN_HOVER_SCALE = canvasPaintTokens.pin.hoverScale
+const PIN_HOVER_GROWTH = canvasPaintTokens.pin.hoverGrowth
 const STATUS_RING_GAP = canvasPaintTokens.pin.statusRingGap
 const STATUS_RING_STROKE_WIDTH = canvasPaintTokens.pin.statusRingStroke
 
@@ -735,7 +735,7 @@ const linkCullPad = (scale: number): number =>
 
 const structureCullPad = (scale: number, pinRadius: number, detailLevel: CanvasDetailLevel): number => {
   const radius = detailRadius(pinRadius, scale, detailLevel)
-  const hoveredRingPad = statusRingCullPad(radius, scale) + radius * (PIN_HOVER_SCALE - 1) * Math.SQRT2
+  const hoveredRingPad = statusRingCullPad(radius, scale) + PIN_HOVER_GROWTH * Math.SQRT2
   return Math.max(
     PIN_OVERHANG,
     hoveredRingPad,
@@ -3965,7 +3965,7 @@ export class CanvasRenderer {
         (pin.widgetTap === true) === (this.overlay.focusedPin.widgetTap === true)
       const associated = pin.matchVariable !== undefined &&
         (pin.matchVariable === hoveredMatchVariable || pin.matchVariable === focusedMatchVariable)
-      const radius = hovered || focused || associated ? pinRadius * PIN_HOVER_SCALE : pinRadius
+      const radius = hovered || focused || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
       const shapeScale = pinShapeRadialScale(pinShapeOf(pin.type, pin.direction))
       // Preserve the normal glyph-to-ring gap as a hovered glyph grows.
       const statusRingRadius = pinRadius + STATUS_RING_GAP + (radius - pinRadius) * shapeScale
