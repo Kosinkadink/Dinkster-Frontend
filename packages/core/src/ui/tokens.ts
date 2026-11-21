@@ -55,6 +55,11 @@ export interface SemanticDesignTokens {
     /** A canvas row's field while it is open for editing. */
     readonly fieldOpen: string
   }
+  /** The two squares of the pattern drawn under a color with opacity; nothing is written on them. */
+  readonly checker: {
+    readonly dark: string
+    readonly light: string
+  }
   readonly text: {
     readonly primary: string
     readonly secondary: string
@@ -133,6 +138,7 @@ export const semanticTokensForTheme = (
       selected: colors.bg.hover,
       fieldOpen: theme === 'dark' ? '#0D0F11' : colors.bg.canvas,
     },
+    checker: { dark: '#8D97A1', light: '#E8E8E8' },
     text: {
       primary: colors.text.primary,
       secondary: colors.text.secondary,

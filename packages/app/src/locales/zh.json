@@ -66,6 +66,7 @@
   "modelConsent.phase.failed": "传输失败。重新查看后可明确重试。",
   "common.close": "关闭",
   "saveTargetWidget.title": "保存目标",
+  "saveTargetWidget.default": "默认输出",
   "saveTargetWidget.mount": "可写挂载点",
   "saveTargetWidget.prefix": "相对文件名前缀",
   "saveTargetWidget.naming": "仅填写子文件夹与文件名主体。保存时自动添加编号和 {suffix}。",

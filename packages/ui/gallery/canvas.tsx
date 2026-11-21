@@ -30,6 +30,7 @@ import {
   type CanvasGalleryFixture,
   type CanvasGalleryPage,
 } from '../../canvas/gallery/fixtures.js'
+import { earlierWidgetRows } from '../../canvas/gallery/earlier-widget-rows.js'
 import {
   ProductButton,
   ProductDialog,
@@ -71,6 +72,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'core-rows',
         'row-editing',
         'collection-rows',
+        'editor-rows',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -147,13 +149,16 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'While a workflow is being edited, only running and failed nodes are marked.',
   'run-frozen':
     'A finished run marks every node with its state, in a tab under the node.',
-  widgets: 'One row of every widget kind, with its default value.',
+  widgets:
+    'One row of every widget kind, with its default value; After raises the rows that open an editor and puts a color in an inset field.',
   'core-rows':
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'collection-rows':
-    'Multi-choice, list, colors and curve rows; After makes them raised rows that open an editor.',
+    'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
+  'editor-rows':
+    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -183,6 +188,8 @@ interface Variant {
   readonly caption: string
   readonly tokens: (tokens: DesignTokens, theme: Theme) => DesignTokens
   readonly boundaryNames?: 'current' | 'ids'
+  /** Widget views the look draws with, when not the product's own. */
+  readonly registry?: (registry: WidgetRegistry) => WidgetRegistry
 }
 
 const current: Variant = { id: 'current', caption: '', tokens: (t) => t }
@@ -190,6 +197,17 @@ const chipsBefore: Variant = {
   id: 'chips',
   caption: 'Before',
   tokens: (t) => ({ ...t, badgeLayout: 'chips' }),
+}
+const rowsBefore: Variant = {
+  id: 'inset-raised',
+  caption: 'Before',
+  tokens: (t) => ({ ...t, widgetRowLook: 'inset-raised' }),
+  registry: earlierWidgetRows,
+}
+const rowsAfter: Variant = {
+  ...current,
+  id: 'raised-editors',
+  caption: 'After',
 }
 const tabsAfter: Variant = {
   id: 'tabs',
@@ -244,24 +262,15 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
         },
         { ...current, id: 'ids', caption: 'After', boundaryNames: 'ids' },
       ]
+    case 'widgets':
     case 'core-rows':
-      return [
-        {
-          id: 'inset',
-          caption: 'Before',
-          tokens: (t) => ({ ...t, widgetRowLook: 'inset' }),
-        },
-        { ...current, id: 'inset-raised', caption: 'After' },
-      ]
     case 'collection-rows':
-      return [
-        { ...current, caption: 'Before' },
-        {
-          id: 'inset-raised-collections',
-          caption: 'After',
-          tokens: (t) => ({ ...t, widgetRowLook: 'inset-raised-collections' }),
-        },
-      ]
+    case 'editor-rows':
+    case 'widget-driven':
+    case 'widget-offered':
+    case 'widget-companions':
+    case 'widget-states':
+      return [rowsBefore, rowsAfter]
     case 'tabs':
     case 'tabs-content':
     case 'run-editable':
@@ -277,6 +286,7 @@ const PAD = 10
 
 interface Prepared {
   readonly variant: Variant
+  readonly registry: WidgetRegistry
   readonly tokens: DesignTokens
   readonly fixture: CanvasGalleryFixture
 }
@@ -287,7 +297,6 @@ function ExampleCard(props: {
   prepared: Prepared
   example: CanvasGalleryFixture['examples'][number]
   index: number
-  registry: WidgetRegistry
   onBadge: (hit: BadgeHit | undefined) => void
 }) {
   let canvas!: HTMLCanvasElement
@@ -316,7 +325,7 @@ function ExampleCard(props: {
     const renderer = new CanvasRenderer(
       canvas,
       tokens,
-      createRegistryPainter(props.registry),
+      createRegistryPainter(props.prepared.registry),
     )
     renderer.setReducedMotion(true)
     renderer.setGridVisible(false)
@@ -593,6 +602,7 @@ export function CanvasGallery() {
           }
           return {
             variant,
+            registry: variant.registry?.(registry) ?? registry,
             tokens,
             fixture: createCanvasGalleryFixture(
               currentPage,
@@ -627,7 +637,6 @@ export function CanvasGallery() {
       prepared={variant}
       example={example}
       index={index}
-      registry={registry}
       onBadge={setBadgeDetails}
     />
   )
