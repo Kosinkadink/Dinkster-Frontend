@@ -130,6 +130,11 @@ The App View queue fixture creates its submission-release promise before the
 request handler runs, so observing Submitting can release either an already
 waiting request or one that arrives afterward without losing the release.
 
+The video preview fixture waits for startup ownership before registering its
+synthetic schema or opening its document. Catalog availability alone does not
+mean startup admission has finished; changing its captured registry or tabs
+can reject admission before shared workspace promotion starts.
+
 The Activity, Extensions and Media locale proofs flush fixture persistence and
 wait for a committed version-1 snapshot with no pending workspace candidates
 before recording request baselines. Document recovery slots remain available
