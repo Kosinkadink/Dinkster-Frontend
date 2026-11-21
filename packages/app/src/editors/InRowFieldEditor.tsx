@@ -1,9 +1,9 @@
-import { createEffect, createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
+import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
+import { effectiveWidgetDefault, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
-import { CanvasRowField, CanvasSeedModeIcon, CanvasSideModes, CanvasSidePart, canvasSidePlace, type CanvasSeedMode } from '@dinkster/ui'
+import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, canvasSidePlace, type CanvasSeedMode } from '@dinkster/ui'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
-import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote } from '../widget-commit.js'
+import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
 
 /**
@@ -105,25 +105,45 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     return props.commitValue(value)
   }
 
+  // What leaving the field would do now: close (nothing changed), store a
+  // value, or stay open, while a store is in flight or the value fails the
+  // check every value passes before it is written.
+  const [invalid, setInvalid] = createSignal<string>()
+  type Plan = { readonly kind: 'close' } | { readonly kind: 'blocked' } | { readonly kind: 'store'; readonly value: Json }
+  const plan = (): Plan => {
+    if (!live || props.commitPending()) return { kind: 'blocked' }
+    if (draft() === initialText) return { kind: 'close' }
+    let value: Json
+    if (numeric) {
+      const result = typed()
+      if (result === undefined || result.kind === 'keep' || jsonSameValue(result.value as Json, ed.initial ?? null)) return { kind: 'close' }
+      value = result.value as Json
+    } else value = draft()
+    const problem = widgetCommitError(host.app.widgetRegistryForTab(ed.tab).kind(spec.widgetType), value, spec)
+    if (problem !== undefined) { setInvalid(problem); return { kind: 'blocked' } }
+    return { kind: 'store', value }
+  }
+
   /**
    * Store what Enter would store, or close when that is the stored value.
-   * Resolves true once the field is closed, false when it stays open (a
-   * store in flight or refused). A stored value rebuilds the scene, which
-   * can unmount the field before the store reports back, so an unmounted
-   * field counts as closed.
+   * Resolves true once the field is closed, false when it stays open. A
+   * stored value rebuilds the scene, which can unmount the field before the
+   * store reports back, so an unmounted field counts as closed.
    */
   const commit = (): Promise<boolean> => {
-    if (!live || props.commitPending()) return Promise.resolve(false)
-    if (draft() === initialText) { props.close(); return Promise.resolve(true) }
-    const result = typed()
-    const store = !numeric
-      ? commitText(draft())
-      : result === undefined || result.kind === 'keep' || jsonSameValue(result.value as Json, ed.initial ?? null)
-        ? (props.close(), Promise.resolve(true))
-        : props.commitValue(result.value as Json)
+    const next = plan()
+    if (next.kind === 'blocked') return Promise.resolve(false)
+    if (next.kind === 'close') { props.close(); return Promise.resolve(true) }
+    const store = numeric ? props.commitValue(next.value) : commitText(next.value as string)
     return store.then((closed) => closed || !live)
   }
-  host.bindClickAway?.(() => { void commit() })
+  // A press elsewhere stores the field and goes on to what it pressed, unless
+  // the field cannot be left yet; then the press does nothing.
+  host.bindClickAway?.(() => {
+    if (plan().kind === 'blocked') return false
+    void commit()
+    return true
+  })
   onCleanup(() => host.bindClickAway?.(undefined))
 
   // Tab and Shift+Tab store the field and open the next or previous row of
@@ -181,11 +201,27 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     }
   })
 
+  // The side part's first line is a refusal or a failed check when there is
+  // one; otherwise what Enter would store. The "default" line is a link that
+  // stores the default, as "Reset to default" does.
+  const defaultValue = effectiveWidgetDefault(spec)
+  const storeDefault = (): void => {
+    setDraft(defaultValue === undefined || defaultValue === null ? '' : String(defaultValue))
+    void commit()
+  }
   const side = createMemo(() => {
-    const facts = numeric ? numberFieldFacts(spec).map((fact) => ({ key: fact.key, value: fact.text })) : []
+    const facts = numeric
+      ? numberFieldFacts(spec).map((fact) => ({
+          key: fact.key,
+          value: fact.key === 'default' && defaultValue !== undefined
+            ? <CanvasSideLink onClick={storeDefault}>{fact.text}</CanvasSideLink>
+            : fact.text,
+        }))
+      : []
     const resolved = typed()
-    const problem = resolved?.problem ?? note()
-    const result = resolved?.kind === 'store' ? resolved.result : undefined
+    const blocked = props.commitError() ?? invalid()
+    const problem = blocked ?? resolved?.problem ?? note()
+    const result = blocked === undefined && resolved?.kind === 'store' ? resolved.result : undefined
     if (facts.length === 0 && problem === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined) return undefined
     return (
       <CanvasSidePart
@@ -207,6 +243,9 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     )
   })
 
+  // The field cannot be typed into while a store is in flight.
+  createEffect(() => { if (input !== undefined) input.readOnly = props.commitPending() })
+
   return (
     <div
       class="widget-in-row-field"
@@ -226,11 +265,13 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         value={draft()}
         onInput={(value) => {
           setDraft(value)
+          setInvalid(undefined)
           suggest(value.at((input?.selectionStart ?? 0) - 1) ?? '')
         }}
         onKeyDown={onKeyDown}
         inputRef={(element) => {
           input = element
+          element.setAttribute('aria-description', spec.widgetType)
           if (completions !== undefined) {
             completions.anchor(element, () => element.closest<HTMLElement>('.dinkster-canvas-field-row'))
             element.addEventListener('click', () => suggest(''))
@@ -240,7 +281,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
           }
           queueMicrotask(() => placeCursor(element))
         }}
-        inputLabel={`Edit ${ed.label}`}
+        inputLabel={ed.label}
         {...(typeof spec.options['placeholder'] === 'string' ? { placeholder: spec.options['placeholder'] } : {})}
         {...(numeric ? {
           onStep: (direction: -1 | 1, fast: boolean) => {
@@ -256,9 +297,6 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         {...(side() === undefined ? {} : { side: side()! })}
       />
       {completions === undefined ? null : <completions.Suggestions />}
-      <Show when={props.commitError()}>
-        {(error) => <p class="dinkster-canvas-side-problem" role="alert" data-testid="widget-commit-error">{error()}</p>}
-      </Show>
     </div>
   )
 }

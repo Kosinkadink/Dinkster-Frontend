@@ -1776,7 +1776,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   })
   onCleanup(retractWidgetFocus)
-  let editorClickAway: (() => void) | undefined
+  let editorClickAway: (() => unknown) | undefined
   let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   interface ControllerMenuState {
@@ -2521,8 +2521,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // capture, then let this exact pointerdown continue to its canvas
           // or control target: click, pan, and selection are not a two-gesture
           // interaction.
-          if (editorClickAway !== undefined) editorClickAway()
-          else setEditor(undefined)
+          if (editorClickAway === undefined) setEditor(undefined)
+          else if (editorClickAway() === false) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+          }
         }
         return
       }
@@ -5188,7 +5191,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // the OWNER backend's advertised batch-merge providers.
         ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
         ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
-        multiline: widgetKind === undefined || hit.row.viewId === 'core.text',
+        multiline: widgetKind === undefined || hit.row.viewId === 'core.text' ||
+          (hit.row.viewId === 'core.line' && typeof value === 'string' && value.includes('\n')),
         rect: inRow
           ? { x: hit.x, y: hit.y + fieldInsetY, width: hit.width, height: hit.height - fieldInsetY * 2 }
           : { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
@@ -5236,6 +5240,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line') return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
+      // Single-line text that holds a line break opens in the multiline editor,
+      // which keeps the line break.
+      const owner = row.familyOwner
+      const stored = tab.store.doc.graphs[owner?.graphId ?? currentGraphId(tab)]?.nodes[owner?.nodeId ?? node.id]
+        ?.values[owner?.valueKey ?? row.valueKey]
+      if (typeof stored === 'string' && stored.includes('\n')) return false
       const reg = registry()
       const schema = reg ? documentResolver(tab.store.doc, reg.resolve)(node.node.type) : undefined
       return !(schema?.items.some((item) => item.kind !== 'section' && item.outputDescriptors?.input === row.valueKey) ?? false)
@@ -5247,13 +5257,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     moveEditorRow = (from, direction) => {
       const tab = activeTab()
       const node = renderer.getScene().nodes.find((item) => item.id === from.nodeId)
-      if (tab === undefined || node === undefined) return
+      // Zoomed out to the overview, rows cannot be clicked and Tab does nothing.
+      if (tab === undefined || node === undefined || renderer.getDetailLevel() === 'overview') return
       const stops = node.layout.rows.filter((row): row is Extract<Hit, { kind: 'widget' }>['row'] =>
         row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && editsInRow(tab, node, row))
       const index = stops.findIndex((row) => row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!
       const width = row.width ?? node.layout.width - row.inset * 2
+      // A row partly outside the canvas moves into view by the least needed.
+      const viewport = renderer.getViewport()
+      const left = (node.x + row.inset) * viewport.scale + viewport.x
+      const top = (node.y + row.y) * viewport.scale + viewport.y
+      const right = left + width * viewport.scale
+      const bottom = top + row.height * viewport.scale
+      const dx = left < 0 ? -left : right > canvasEl.clientWidth ? canvasEl.clientWidth - right : 0
+      const dy = top < 0 ? -top : bottom > canvasEl.clientHeight ? canvasEl.clientHeight - bottom : 0
+      if (dx !== 0 || dy !== 0) renderer.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
       openWidgetEditor({
         kind: 'widget', node, row,
         x: node.x + row.inset, y: node.y + row.y, width, height: row.height,

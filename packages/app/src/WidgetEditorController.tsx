@@ -166,8 +166,11 @@ export interface WidgetEditorProps {
   viewport: () => { x: number; y: number; scale: number }
   /** Opens the next (1) or previous (-1) row of the same node that Tab stops on. */
   moveRow?: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => void
-  /** Registers the synchronous commit-or-close path for an outside press. */
-  bindClickAway?: (handler: (() => void) | undefined) => void
+  /**
+   * Registers the synchronous commit-or-close path for an outside press. A
+   * handler that returns false keeps the editor open and stops the press.
+   */
+  bindClickAway?: (handler: (() => unknown) | undefined) => void
   /** Lets the canvas activate an exposed ASSET row after this modal closes. */
   onAssetBackdropPointerDown?: (event: PointerEvent) => void
   onClose: () => void
