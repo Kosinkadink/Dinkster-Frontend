@@ -1779,6 +1779,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let editorClickAway: (() => unknown) | undefined
   let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
+  let editsRowsInPlace = (): boolean => false
   interface ControllerMenuState {
     readonly x: number
     readonly y: number
@@ -5254,13 +5255,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // Tab never leaves the node: past its last stop it goes to the first. A
     // row that a wire drives is skipped, and a closed section's rows are not
     // laid out.
+    editsRowsInPlace = () => renderer.getDesignTokens().widgetEditing === 'in-row'
     moveEditorRow = (from, direction) => {
       const tab = activeTab()
       const node = renderer.getScene().nodes.find((item) => item.id === from.nodeId)
       // Zoomed out to the overview, rows cannot be clicked and Tab does nothing.
       if (tab === undefined || node === undefined || renderer.getDetailLevel() === 'overview') return
+      // Fields edited in their row, and text edited in place in the node.
+      const opensInPlace = (row: Extract<Hit, { kind: 'widget' }>['row']): boolean =>
+        row.spec.widgetType === 'STRING' && (row.viewId === 'core.text' || row.viewId === 'core.line') &&
+        widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is Extract<Hit, { kind: 'widget' }>['row'] =>
-        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && editsInRow(tab, node, row))
+        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && (editsInRow(tab, node, row) || opensInPlace(row)))
       const index = stops.findIndex((row) => row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!
@@ -7214,7 +7220,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             boundary={canvasEl.parentElement!}
             viewport={editorViewport}
             bindClickAway={(handler) => { editorClickAway = handler }}
-            moveRow={(from, direction) => moveEditorRow(from, direction)}
+            {...(editsRowsInPlace() ? { moveRow: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => moveEditorRow(from, direction) } : {})}
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
             onClose={() => {
               setEditor(undefined)

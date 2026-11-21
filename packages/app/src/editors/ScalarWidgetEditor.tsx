@@ -54,21 +54,21 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   let popover: HTMLDivElement | undefined
   onCleanup(() => { live = false })
 
-  const commitTarget = (value: Json): void => {
-    if (!live || props.commitPending()) return
+  /** Resolves true once the editor is closed, false while it stays open. */
+  const commitTarget = (value: Json): Promise<boolean> => {
+    if (!live || props.commitPending()) return Promise.resolve(false)
     if (text && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
       const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
       const resolution = resolveTextCommit(ed.initial, value, current)
-      if (resolution.kind === 'none') { props.close(); return }
+      if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
       if (resolution.kind === 'splice') {
-        void props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
-        return
+        return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
       }
     }
-    props.commitValue(value)
+    return props.commitValue(value)
   }
 
   const parse = (raw: string): Json | undefined => {
@@ -103,23 +103,46 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     return value
   }
 
-  const commit = (raw: string, closeOnInvalid = false, skipUnchanged = false): void => {
-    if (!live || props.commitPending()) return
+  const commit = (raw: string, closeOnInvalid = false, skipUnchanged = false): Promise<boolean> => {
+    if (!live || props.commitPending()) return Promise.resolve(false)
     setError(undefined)
     const value = parse(raw)
-    if (value === undefined) { if (closeOnInvalid) props.close(); return }
+    if (value === undefined) {
+      if (closeOnInvalid) props.close()
+      return Promise.resolve(closeOnInvalid)
+    }
     if (skipUnchanged) {
       let initial = ed.initial
       if (ed.spec === undefined) {
         try { initial = JSON.parse(String(initial)) as Json } catch { initial = undefined }
       }
-      if (jsonSameValue(value, initial)) { props.close(); return }
+      if (jsonSameValue(value, initial)) { props.close(); return Promise.resolve(true) }
     }
-    commitTarget(value)
+    return commitTarget(value)
   }
 
   const completions = createTextCompletions(host, () => live)
   const { open, entries, interaction, requestCompletions, completionHandlers, completionKeyDown, Suggestions } = completions
+
+  // In the multiline box Ctrl+Enter stores the text and then runs the
+  // workflow, as it does everywhere. Where rows are edited in place, Tab
+  // stores it and opens the next or previous row of the node; a tab
+  // character cannot be typed. The suggestion list keeps the first Tab.
+  const multilineKeyDown = (event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }): void => {
+    if (!event.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      const queue = host.app.commands.get('workflow.queue')
+      void commit(event.currentTarget.value).then((closed) => { if ((closed || !live) && queue?.enabled?.() !== false) queue?.run() })
+      return
+    }
+    if (completionKeyDown(event)) return
+    const moveRow = host.moveRow
+    if (event.isComposing || event.key !== 'Tab' || moveRow === undefined || ed.target.kind !== 'input') return
+    event.preventDefault()
+    const from = { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
+    const direction = event.shiftKey ? -1 : 1
+    void commit(event.currentTarget.value).then((closed) => { if (closed || !live) moveRow(from, direction) })
+  }
 
   const clickAway = (): void => {
     if (ed.spec !== undefined && ed.multiline && !list) {
@@ -138,7 +161,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     const scale = () => host.viewport().scale
     return <div class="widget-editor widget-editor-in-node" data-testid="widget-editor" data-editor-target="input" data-editor-mode="STRING" data-editor-surface="in-node" role="dialog" aria-label={`Edit ${ed.label} STRING`} style={{ left: `${anchor().x}px`, top: `${anchor().y}px`, width: `${anchor().width}px`, height: `${anchor().height}px`, padding: `${2 * scale()}px 0`, 'border-radius': `${4 * scale()}px` }}>
       <div class="widget-editor-in-node-surface"><span class="widget-editor-in-node-label" style={{ width: '100%', height: `${defaultTokens.multilineText.labelHeight * scale()}px`, 'font-size': `${defaultTokens.fontSize * scale()}px`, 'padding-left': `${6 * scale()}px` }}>{ed.label}</span>
-        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { completions.anchor(el); queueMicrotask(() => el.focus()) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.multilineText.fontSize * scale()}px`, 'line-height': `${defaultTokens.multilineText.lineHeight * scale()}px`, padding: `${defaultTokens.multilineText.padding * scale()}px`, width: `calc(100% - ${defaultTokens.multilineText.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${defaultTokens.multilineText.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={(event) => { if (!event.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit(event.currentTarget.value); return } completionKeyDown(event) }} />
+        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { completions.anchor(el); queueMicrotask(() => el.focus()) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.multilineText.fontSize * scale()}px`, 'line-height': `${defaultTokens.multilineText.lineHeight * scale()}px`, padding: `${defaultTokens.multilineText.padding * scale()}px`, width: `calc(100% - ${defaultTokens.multilineText.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${defaultTokens.multilineText.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={multilineKeyDown} />
         <Suggestions />
       </div>
       <Show when={props.commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
