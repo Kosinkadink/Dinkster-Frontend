@@ -219,6 +219,11 @@ export interface BadgeLayoutOptions {
   /** Outer painted outline edge, in world units from the node body. */
   readonly outset?: number
   readonly hoveredId?: string
+  /**
+   * Width of a tab's text in the tab font. Paint, pointer targets and bounds
+   * pass the same measure; without one a character counts as one font size.
+   */
+  readonly measureLabel?: (text: string) => number
 }
 
 /** Shared placement for paint, pointer targets and conservative visual bounds. */
@@ -234,8 +239,9 @@ export function layoutNodeBadges(
   const inset = Math.min(paint.inset, node.layout.width / 2)
   const available = Math.max(0, node.layout.width - inset * 2)
   const strip = paint.padding * 2 + paint.iconSize
+  const labelWidth = (text: string): number => Math.ceil(options.measureLabel?.(text) ?? text.length * paint.fontSize)
   const fullWidth = (badge: NodeBadge): number => Math.min(available,
-    paint.padding * 2 + paint.iconSize + paint.iconGap + Math.min(paint.maxLabelWidth, badge.glyph.length * paint.fontSize))
+    paint.padding * 2 + paint.iconSize + paint.iconGap + Math.min(paint.maxLabelWidth, labelWidth(badge.glyph)))
   const result: BadgePlacement[] = []
   const header = badges.filter((badge) => badge.placement === undefined)
   const headerCount = Math.min(header.length, Math.floor((available + BADGE_GAP) / BADGE_STRIDE))
@@ -269,13 +275,13 @@ export function layoutNodeBadges(
       }
       widths = visible.map((badge, index) => Math.min(available,
         overflow.length > 0 && index === visible.length - 1
-          ? paint.padding * 2 + badge.glyph.length * paint.fontSize : strip))
+          ? paint.padding * 2 + labelWidth(badge.glyph) : strip))
       // Reserve the overflow count before returning words to priority tabs.
       while (visible.length > 1 && total(widths) > available) {
         overflow = lane.slice(visible.length - 2)
         visible = [...visible.slice(0, -2), { ...visible[visible.length - 1]!, glyph: `+${overflow.length}` }]
         widths = visible.map((badge, index) => index === visible.length - 1
-          ? Math.min(available, paint.padding * 2 + badge.glyph.length * paint.fontSize) : strip)
+          ? Math.min(available, paint.padding * 2 + labelWidth(badge.glyph)) : strip)
       }
       for (let index = 0; index < visible.length - (overflow.length > 0 ? 1 : 0); index++) {
         const trial = [...widths]
