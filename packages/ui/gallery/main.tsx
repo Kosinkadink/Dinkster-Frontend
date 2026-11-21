@@ -166,10 +166,23 @@ function Gallery() {
                             ? 'Windows'
                             : 'Linux'}
                       </span>
-                      <ProductWindowChrome
-                        title="Dinkster Desktop [QA]"
-                        platform={platform}
-                      />
+                      <div class="dinkster-desktop-preview">
+                        <ProductWindowChrome
+                          title="Dinkster Desktop"
+                          platform={platform}
+                          qa
+                          development
+                        />
+                        <div class="dinkster-page">
+                          <ProductErrorBanner onDismiss={() => {}}>
+                            Project changes could not be saved.
+                          </ProductErrorBanner>
+                        </div>
+                        <ProductToast
+                          notification={{ message: 'Project changes saved.' }}
+                          onDismiss={() => {}}
+                        />
+                      </div>
                     </div>
                   )}
                 </For>

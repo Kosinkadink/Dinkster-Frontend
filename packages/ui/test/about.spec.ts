@@ -11,7 +11,14 @@ for (const width of [1280, 390]) {
       const chrome = page.locator(
         `.dinkster-window-chrome[data-platform="${platform}"]`,
       )
-      await expect(chrome).toHaveText('Dinkster Desktop [QA]')
+      await expect(chrome).toHaveText('Dinkster Desktop[QA]Development')
+      const preview = chrome.locator('..')
+      const marking = chrome.locator('.dinkster-window-identity')
+      await expect(marking).toBeVisible()
+      const markBounds = (await marking.boundingBox())!
+      const toastBounds = (await preview.getByRole('status').boundingBox())!
+      expect(markBounds.y + markBounds.height).toBeLessThan(toastBounds.y)
+      await expect(preview.getByRole('alert')).toBeVisible()
       expect((await chrome.boundingBox())?.height).toBe(56)
       await expect(chrome).toHaveCSS(
         'padding-left',
