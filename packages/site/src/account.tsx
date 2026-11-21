@@ -4,6 +4,7 @@ import { createStore, reconcile } from 'solid-js/store'
 import { CreditCard, KeyRound, Package, Shield, User } from 'lucide-solid'
 import {
   ProductAccountMenu,
+  ProductAuthCard,
   ProductButton,
   ProductCodeBlock,
   ProductDisclosure,
@@ -16,6 +17,10 @@ import {
   ProductLoading,
   ProductNotice,
   ProductPage,
+  ProductPanel,
+  ProductProviderButton,
+  ProductSection,
+  ProductStatusPill,
   ProductQrCode,
   ProductSelect,
   ProductShell,
@@ -52,12 +57,15 @@ interface Fact {
   label: string
   value: string
   chip?: string
+  tone?: 'good' | 'warning' | 'problem' | 'neutral'
   link?: AccountControl
 }
 export interface AccountBlock extends Conditional, Partial<AccountControl> {
   t:
     | 'h1'
     | 'h2'
+    | 'section'
+    | 'panel'
     | 'steps'
     | 'or'
     | 'p'
@@ -72,6 +80,7 @@ export interface AccountBlock extends Conditional, Partial<AccountControl> {
     | 'codes'
     | 'qr'
     | 'key'
+  blocks?: AccountBlock[]
   text?: string
   id?: string
   label?: string
@@ -105,6 +114,7 @@ export interface AccountModel {
     blocks: AccountBlock[]
     banner?: Message
     back?: AccountControl
+    footer?: { text: string; action: AccountControl }
   }
   state: {
     flags: Record<string, boolean>
@@ -116,6 +126,7 @@ export interface AccountModel {
   navigation: { id: string; text: string; go: string; href: string }[]
   username: string
   email?: string
+  pictureSrc?: string | null
   signOut: AccountControl
 }
 export interface AccountViewOptions {
@@ -136,11 +147,21 @@ const navigationIcons = {
 const sentenceLabel = (label: string) =>
   label === 'API Keys' ? 'API keys' : label
 
+function flattenBlocks(
+  blocks: AccountBlock[],
+  include: (block: AccountBlock) => boolean = () => true,
+): AccountBlock[] {
+  return blocks
+    .filter(include)
+    .flatMap((block) => [block, ...flattenBlocks(block.blocks ?? [], include)])
+}
+
 /** The account service owns API calls and secret lifetime; this view owns DOM
  * and interaction behavior. Fields expose data-account-field to that controller. */
 export function accountView(options: AccountViewOptions) {
   const [model, setModel] = createSignal<AccountModel>()
   const [blocks, setBlocks] = createStore<AccountBlock[]>([])
+  const controls = createMemo(() => flattenBlocks(blocks))
   const [pending, setPending] = createSignal<AccountControl>()
   const [edits, setEdits] = createSignal<Record<string, string>>({})
   const baselines: Record<string, string> = {}
@@ -150,7 +171,7 @@ export function accountView(options: AccountViewOptions) {
       ? !control.changed_fields.some(
           (id) =>
             (edits()[id] ??
-              model()?.screen.blocks.find((block) => block.id === id)?.value ??
+              controls().find((block) => block.id === id)?.value ??
               '') !== baselines[id],
         )
       : !!control.disabled
@@ -273,6 +294,16 @@ export function accountView(options: AccountViewOptions) {
         return null
       case 'h2':
         return <h2 class="dinkster-heading">{item.text}</h2>
+      case 'section':
+        return (
+          <ProductSection title={item.text ?? ''}>
+            {renderBlocks(() => item.blocks ?? [])}
+          </ProductSection>
+        )
+      case 'panel':
+        return (
+          <ProductPanel>{renderBlocks(() => item.blocks ?? [])}</ProductPanel>
+        )
       case 'steps':
       case 'p':
         return (
@@ -288,16 +319,32 @@ export function accountView(options: AccountViewOptions) {
         )
       case 'or':
         return options.config.providers.length ? (
-          <p class="dinkster-description">{item.text}</p>
+          <p class="dinkster-auth-separator">{item.text}</p>
         ) : null
       case 'link':
         return action(item as AccountControl, true)
       case 'button':
-        return action(item as AccountControl)
+        return (
+          <div class="dinkster-actions">{action(item as AccountControl)}</div>
+        )
       case 'provider':
-        return options.config.providers.includes(item.provider ?? '')
-          ? action(item as AccountControl)
-          : null
+        return options.config.providers.includes(item.provider ?? '') &&
+          (item.provider === 'github' || item.provider === 'google') ? (
+          <ProductProviderButton
+            provider={item.provider}
+            type="button"
+            disabled={
+              disabled(item as AccountControl) ||
+              (!!pending() && pending() !== item)
+            }
+            pending={pending() === item}
+            onClick={() => {
+              void activate(item as AccountControl)
+            }}
+          >
+            {item.text}
+          </ProductProviderButton>
+        ) : null
       case 'buttons':
         return (
           <div class="dinkster-actions">
@@ -308,7 +355,7 @@ export function accountView(options: AccountViewOptions) {
         )
       case 'field':
         return (
-          <div class="dinkster-stack">
+          <>
             <ProductField
               label={label()}
               description={item.hint ?? ''}
@@ -331,7 +378,7 @@ export function accountView(options: AccountViewOptions) {
               )}
             </ProductField>
             {item.aside && action(item.aside, true)}
-          </div>
+          </>
         )
       case 'select':
         return (
@@ -369,7 +416,9 @@ export function accountView(options: AccountViewOptions) {
                 <>
                   {fact.value}{' '}
                   <Show when={fact.chip}>
-                    <span class="dinkster-metadata">{fact.chip}</span>
+                    <ProductStatusPill tone={fact.tone ?? 'neutral'}>
+                      {fact.chip}
+                    </ProductStatusPill>
                   </Show>{' '}
                   {fact.link && action(fact.link, true)}
                 </>
@@ -428,11 +477,20 @@ export function accountView(options: AccountViewOptions) {
         )
     }
   }
+  const renderBlocks = (items: () => AccountBlock[]): JSX.Element => (
+    <For each={items()}>
+      {(item) => (
+        <Show when={visible(item)}>
+          <Show when={item.t} keyed>
+            {(_type) => block(item)}
+          </Show>
+        </Show>
+      )}
+    </For>
+  )
   const dispose = render(() => {
     const title = createMemo(
-      () =>
-        model()?.screen.blocks.find((item) => item.t === 'h1')?.text ??
-        'Account',
+      () => controls().find((item) => item.t === 'h1')?.text ?? 'Account',
     )
     const navigation = createMemo(() =>
       model()?.screen.layout === 'account'
@@ -444,101 +502,108 @@ export function accountView(options: AccountViewOptions) {
           }))
         : [],
     )
+    const content = () => (
+      <>
+        <Show when={model()!.screen.back}>
+          {(back) => action(back(), true)}
+        </Show>
+        <Show
+          when={
+            model()!.state.flash?.tone !== 'success' && model()!.state.flash
+          }
+        >
+          {(flash) => message(flash() as Message)}
+        </Show>
+        <Show
+          when={!model()!.state.loading}
+          fallback={<ProductLoading label="Loading..." />}
+        >
+          <Show when={!model()!.state.loadFailed}>
+            <Show
+              when={
+                model()!.state.dismissedBanner !== model()!.screen.id &&
+                model()!.screen.banner
+              }
+            >
+              {(banner) => message(banner() as Message)}
+            </Show>
+            {renderBlocks(() => model()!.screen.blocks)}
+          </Show>
+        </Show>
+      </>
+    )
     return (
       <div class="dinkster-root" data-density="site" data-theme="dark">
         <Show when={model()}>
-          {(_current) => (
-            <>
-              <ProductShell
-                title="Dinkster"
-                navigation={navigation()}
-                currentHref={
-                  model()!.navigation.find(
-                    (item) => item.id === model()!.screen.nav,
-                  )?.href ?? ''
-                }
-                onNavigate={(href) => {
-                  const item = model()!.navigation.find(
-                    (entry) => entry.href === href,
-                  )
-                  if (item) options.onNavigate(item.go)
-                }}
-                account={
-                  model()!.screen.layout !== 'card' ? (
+          <form
+            data-screen={model()!.screen.id}
+            aria-busy={!!model()!.state.loading}
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (model()!.state.loading || model()!.state.loadFailed) return
+              const control = flattenBlocks(blocks, visible).find(
+                (item) => item.t === 'button' && item.press === 'commits',
+              )
+              if (control) void activate(control as AccountControl)
+            }}
+          >
+            <Show
+              when={model()!.screen.layout === 'card'}
+              fallback={
+                <ProductShell
+                  title="Account"
+                  navigation={navigation()}
+                  currentHref={
+                    model()!.navigation.find(
+                      (item) => item.id === model()!.screen.nav,
+                    )?.href ?? ''
+                  }
+                  onNavigate={(href) => {
+                    const item = model()!.navigation.find(
+                      (entry) => entry.href === href,
+                    )
+                    if (item) options.onNavigate(item.go)
+                  }}
+                  account={
                     <ProductAccountMenu
                       name={model()!.username}
                       email={model()!.email ?? ''}
+                      pictureSrc={model()!.pictureSrc ?? null}
                       onSignOut={() => {
                         void activate(model()!.signOut)
                       }}
                     />
-                  ) : undefined
+                  }
+                >
+                  <ProductPage title={title()}>{content()}</ProductPage>
+                </ProductShell>
+              }
+            >
+              <ProductAuthCard
+                title={title()}
+                footer={
+                  <Show when={model()!.screen.footer}>
+                    {(footer) => (
+                      <div class="dinkster-auth-footer">
+                        <p class="dinkster-description">{footer().text}</p>
+                        {action(footer().action)}
+                      </div>
+                    )}
+                  </Show>
                 }
               >
-                <ProductPage title={title()}>
-                  <Show when={model()!.screen.back}>
-                    {(back) => action(back(), true)}
-                  </Show>
-                  <Show
-                    when={
-                      model()!.state.flash?.tone !== 'success' &&
-                      model()!.state.flash
-                    }
-                  >
-                    {(flash) => message(flash() as Message)}
-                  </Show>
-                  <form
-                    class="dinkster-stack"
-                    data-screen={model()!.screen.id}
-                    aria-busy={!!model()!.state.loading}
-                    noValidate
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      if (model()!.state.loading || model()!.state.loadFailed)
-                        return
-                      const control = model()!.screen.blocks.find(
-                        (item) =>
-                          item.t === 'button' && item.press === 'commits',
-                      )
-                      if (control) void activate(control as AccountControl)
-                    }}
-                  >
-                    <Show
-                      when={!model()!.state.loading}
-                      fallback={<ProductLoading label="Loading..." />}
-                    >
-                      <Show when={!model()!.state.loadFailed}>
-                        <Show
-                          when={
-                            model()!.state.dismissedBanner !==
-                              model()!.screen.id && model()!.screen.banner
-                          }
-                        >
-                          {(banner) => message(banner() as Message)}
-                        </Show>
-                        <For each={model()!.screen.blocks}>
-                          {(item) => (
-                            <Show when={visible(item)}>
-                              <Show when={item.t} keyed>
-                                {(_type) => block(item)}
-                              </Show>
-                            </Show>
-                          )}
-                        </For>
-                      </Show>
-                    </Show>
-                  </form>
-                </ProductPage>
-              </ProductShell>
-              <ProductToast
-                notification={notification()}
-                onDismiss={() => {
-                  if (sourceState) sourceState.flash = null
-                  setNotification(undefined)
-                }}
-              />
-            </>
-          )}
+                {content()}
+              </ProductAuthCard>
+            </Show>
+          </form>
+          <ProductToast
+            notification={notification()}
+            onDismiss={() => {
+              if (sourceState) sourceState.flash = null
+              setNotification(undefined)
+            }}
+          />
         </Show>
       </div>
     )
@@ -547,11 +612,12 @@ export function accountView(options: AccountViewOptions) {
     render(next: AccountModel) {
       const previous = model()?.screen.id
       sourceState = next.state
-      for (const control of next.screen.blocks) {
+      const nextControls = flattenBlocks(next.screen.blocks)
+      for (const control of nextControls) {
         if (control.changed_fields && control.disabled === true) {
           for (const id of control.changed_fields) {
             baselines[id] =
-              next.screen.blocks.find((field) => field.id === id)?.value ?? ''
+              nextControls.find((field) => field.id === id)?.value ?? ''
           }
         }
       }
@@ -566,7 +632,7 @@ export function accountView(options: AccountViewOptions) {
           state: { ...next.state },
         })
       })
-      document.title = `${next.screen.blocks.find((item) => item.t === 'h1')?.text ?? 'Account'} | Dinkster`
+      document.title = `${nextControls.find((item) => item.t === 'h1')?.text ?? 'Account'} | Dinkster`
       if (next.state.flash !== lastFlash) {
         lastFlash = next.state.flash
         setNotification(

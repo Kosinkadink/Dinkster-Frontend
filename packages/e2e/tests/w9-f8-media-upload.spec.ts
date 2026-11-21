@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/asset-widget-presentation-proof'
 const digest = `blake3:${'a'.repeat(64)}`

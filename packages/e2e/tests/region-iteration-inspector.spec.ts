@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_REGION_INSPECTOR_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })

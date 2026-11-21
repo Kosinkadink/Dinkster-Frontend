@@ -40,6 +40,36 @@ export default async function waitForNativeComposition(): Promise<void> {
           const body = await plan.text()
           assert.equal(plan.status, 200, `workflow plan failed: ${body}`)
           assert.deepEqual(JSON.parse(body), { packs: [], assets: [], errors: [] })
+          const registration = await fetch(`${backend}/api/projects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: 'default', name: 'Default' }),
+            signal: AbortSignal.timeout(2_000),
+          })
+          const registered = await registration.text()
+          assert.equal(registration.status, 200, registered)
+          const { project } = JSON.parse(registered) as { project: { revision: number } }
+          const needsResponse = await fetch(`${backend}/api/projects/default/needs`)
+          assert(needsResponse.ok, 'Hosted fixture project needs must be available')
+          const needs = await needsResponse.json() as { installed: { pack: string }[] }
+          assert(Array.isArray(needs.installed), 'Captured packs must be reported as installed')
+          // Editing fixtures deliberately use the captured pack set in one project.
+          const enabled = await fetch(`${backend}/api/projects/default`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ revision: project.revision, patch: {
+              packs: { extra: needs.installed.map(({ pack }) => pack).sort() },
+            } }),
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(enabled.status, 200, await enabled.text())
+          const catalog = await fetch(`${backend}/api/nodes?wire=45`)
+          const scoped = await fetch(`${backend}/api/nodes?wire=45&project=default`)
+          assert(catalog.ok && scoped.ok, 'Hosted fixture catalogs must be available')
+          const globalNodes = await catalog.json() as { nodes: Record<string, unknown> }
+          const projectNodes = await scoped.json() as { nodes: Record<string, unknown> }
+          assert.deepEqual(Object.keys(projectNodes.nodes).sort(), Object.keys(globalNodes.nodes).sort(),
+            'The fixture project must enable every captured node')
           return
         }
         lastFailure = 'native composition is still in progress'

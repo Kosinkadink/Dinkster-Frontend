@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function prepare(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
