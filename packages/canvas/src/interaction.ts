@@ -3000,6 +3000,10 @@ export class InteractionController {
 
   private controllerChipContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const { row } = hit
+    // In-row editing draws a number's mode as an icon before its value and no
+    // chip, so the whole row opens the field and its side part sets the mode.
+    if (this.renderer.getDesignTokens().widgetEditing === 'in-row' &&
+      (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT')) return false
     return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
   }
 

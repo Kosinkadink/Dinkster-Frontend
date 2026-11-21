@@ -126,6 +126,8 @@ export interface WidgetEditorState {
     readonly look: 'original' | 'flat-title'
     readonly nodeBottom: number
     readonly help?: string
+    /** A seed's after-run mode. */
+    readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
     /** Where a click opened a text row, in client coordinates. */
     readonly caret?: { readonly x: number; readonly y: number }
   }

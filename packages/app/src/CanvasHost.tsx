@@ -5196,6 +5196,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodeBottom: hit.node.y + hit.node.layout.height,
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || spec.widgetType !== 'STRING' ? {} : { caret }),
+          ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),

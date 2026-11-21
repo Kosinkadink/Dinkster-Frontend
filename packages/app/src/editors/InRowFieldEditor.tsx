@@ -1,7 +1,7 @@
 import { createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { formatWidgetValue, jsonSameValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
+import { formatWidgetValue, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
-import { CanvasRowField, CanvasSidePart, canvasSidePlace } from '@dinkster/ui'
+import { CanvasRowField, CanvasSeedModeIcon, CanvasSideModes, CanvasSidePart, canvasSidePlace, type CanvasSeedMode } from '@dinkster/ui'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote } from '../widget-commit.js'
 
@@ -54,6 +54,27 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     if (result.problem !== undefined && (value === range.min || value === range.max)) return previous
     return at(value)
   })
+
+  // A seed's side part sets what happens after each run; the choice is
+  // stored at once, as its own undo step, and the field stays open. "new
+  // seed" puts a random seed in the field, stored like a typed one.
+  const [mode, setMode] = createSignal<CanvasSeedMode | undefined>(inRow.controllerMode)
+  const chooseMode = (next: CanvasSeedMode): void => {
+    const previous = mode()
+    if (next === previous || ed.target.kind !== 'input') return
+    setMode(next)
+    void props.commitCommand({ command: 'node.setController', params: {
+      graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
+      nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
+      inputId: ed.target.familyOwner?.valueKey ?? ed.target.valueKey,
+      mode: next,
+    } }, false).then((stored) => { if (!stored && live) setMode(previous) })
+  }
+  const newSeed = (): void => {
+    setDraft(String(randomNumericValue(numericStepConstraints(spec))))
+    input?.focus()
+    input?.select()
+  }
 
   const commitText = (value: string): Promise<boolean> => {
     if (ed.target.kind === 'input') {
@@ -150,9 +171,19 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     const resolved = typed()
     const problem = resolved?.problem ?? note()
     const result = resolved?.kind === 'store' ? resolved.result : undefined
-    if (facts.length === 0 && problem === undefined && result === undefined && inRow.help === undefined) return undefined
+    if (facts.length === 0 && problem === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined) return undefined
     return (
       <CanvasSidePart
+        {...(inRow.controllerMode === undefined ? {} : {
+          children: (
+            <CanvasSideModes
+              current={mode()!}
+              step={String(numericStepConstraints(spec).step)}
+              onMode={chooseMode}
+              onNewSeed={newSeed}
+            />
+          ),
+        })}
         facts={facts}
         {...(result === undefined ? {} : { result })}
         {...(problem === undefined ? {} : { problem })}
@@ -190,6 +221,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
           },
         } : {})}
         {...(fill() === undefined ? {} : { fill: fill()! })}
+        {...(inRow.controllerMode === undefined ? {} : { mark: <CanvasSeedModeIcon mode={mode()!} /> })}
         place={placement().place}
         sideTop={placement().sideTop}
         onSideSize={setSideSize}
