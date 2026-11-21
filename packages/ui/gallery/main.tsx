@@ -157,21 +157,44 @@ function Gallery() {
                 components="ProductWindowChrome"
               >
                 <For each={['win32', 'linux', 'darwin'] as const}>
-                  {(platform) => (
-                    <div class="dinkster-stack">
-                      <span class="dinkster-metadata">
-                        {platform === 'darwin'
-                          ? 'macOS'
-                          : platform === 'win32'
-                            ? 'Windows'
-                            : 'Linux'}
-                      </span>
-                      <ProductWindowChrome
-                        title="Dinkster Desktop [QA]"
-                        platform={platform}
-                      />
-                    </div>
-                  )}
+                  {(platform) => {
+                    const [error, setError] = createSignal(true)
+                    const [notification, setNotification] = createSignal<
+                      { message: string } | undefined
+                    >({ message: 'Project changes saved.' })
+                    return (
+                      <div class="dinkster-stack">
+                        <span class="dinkster-metadata">
+                          {platform === 'darwin'
+                            ? 'macOS'
+                            : platform === 'win32'
+                              ? 'Windows'
+                              : 'Linux'}
+                        </span>
+                        <div class="dinkster-desktop-preview">
+                          <ProductWindowChrome
+                            title="Dinkster Desktop"
+                            platform={platform}
+                            qa
+                            development
+                          />
+                          <div class="dinkster-page">
+                            <Show when={error()}>
+                              <ProductErrorBanner
+                                onDismiss={() => setError(false)}
+                              >
+                                Project changes could not be saved.
+                              </ProductErrorBanner>
+                            </Show>
+                          </div>
+                          <ProductToast
+                            notification={notification()}
+                            onDismiss={() => setNotification(undefined)}
+                          />
+                        </div>
+                      </div>
+                    )
+                  }}
                 </For>
               </Section>
               <Section title="Dark appearance" components="ProductAbout">

@@ -180,6 +180,12 @@ importers:
         specifier: ^1.9.4
         version: 1.9.14
     devDependencies:
+      '@dinkster/branding':
+        specifier: workspace:*
+        version: link:../../branding/tokens
+      '@dinkster/core':
+        specifier: workspace:*
+        version: link:../core
       '@playwright/test':
         specifier: ^1.50.0
         version: 1.61.1
@@ -189,6 +195,9 @@ importers:
       axe-core:
         specifier: 4.14.0
         version: 4.14.0
+      postcss:
+        specifier: 8.5.19
+        version: 8.5.19
       tsx:
         specifier: ^4.23.12
         version: 4.23.12

@@ -911,9 +911,30 @@ screenshot baselines do not use fallback text.
 `ProductWindowChrome` reserves the native title-bar overlay area and the
 macOS traffic-light inset, uses the shared 56px bar and palette, and marks
 its empty background draggable while its contents remain non-draggable.
-The host supplies the exact title and platform. The gallery shows Windows,
-Linux and macOS geometry; native Electron control behavior is checked by
-the adopting Desktop application, not the browser gallery.
+The host supplies the exact title and platform. Optional `qa` and `development`
+flags add `ProductWindowIdentity` inside the bar. The visible Development label
+has the full unpublished-project explanation as its title. QA and development
+labels stack at narrow widths instead of occupying the bottom-right toast
+corner; the existing toast inset is unchanged. The gallery shows Windows,
+Linux and macOS geometry;
+native Electron control behavior is checked by the adopting Desktop application,
+not the browser gallery.
+
+The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
+`DinksterDesktopChrome.install({title, platform, theme, qa?, development?})`,
+and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
+scoped shared CSS with embedded Noto fonts plus token-derived native overlay
+colors/height and macOS traffic-light position. The installer reuses the first
+`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
+without one it prepends `ProductWindowChrome`. If the app later creates or
+replaces its bar, the installer moves its markings there and removes its own
+fallback; removing the app bar restores the fallback. Reinstallation disconnects
+the prior observer and replaces only its own markings/fallback. The host inserts
+the supplied CSS and runs the
+installer after document load, using its existing isolated renderer boundary.
+The bundle has an embedded symbol, no network imports, no Node/Electron API and
+no preload bridge. Content styles and the page's CSP remain host-owned. Both
+files are hashed by the site manifest and required by the wheel packager.
 
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host
