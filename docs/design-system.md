@@ -494,6 +494,16 @@ meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
 
+Every scrolling surface in the app, the gallery and the site uses one scrollbar
+from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
+the surface behind shows, and a fully rounded thumb 1 px clear of each side.
+The thumb is `border-subtle` at rest, `border-hover` under the pointer and
+`border-strong` while dragged. Firefox, which has no `::-webkit-scrollbar`,
+gets `scrollbar-width: thin` with the resting color on a transparent track.
+Chrome ignores the WebKit rules on an element that sets `scrollbar-width` or
+`scrollbar-color`, so a surface does not set either; it may reserve the space
+with `scrollbar-gutter: stable`.
+
 `pnpm check:raw-controls` also rejects undefined `--dinkster-*` references in
 app TypeScript and every app stylesheet. Use a name from the shared projection
 or a local CSS declaration. Compact controls use `control-compact-height`,
