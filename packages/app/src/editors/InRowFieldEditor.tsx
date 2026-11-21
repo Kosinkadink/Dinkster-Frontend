@@ -1,5 +1,5 @@
 import { createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { formatWidgetValue, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
+import { jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
 import { CanvasRowField, CanvasSeedModeIcon, CanvasSideModes, CanvasSidePart, canvasSidePlace, type CanvasSeedMode } from '@dinkster/ui'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
@@ -18,13 +18,8 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const spec = ed.spec!
   const inRow = ed.inRow!
   const numeric = spec.widgetType === 'INT' || spec.widgetType === 'FLOAT'
-  // The field opens with the text the closed row shows, so the value keeps
-  // its look; a float the row rounds opens with every digit instead.
-  const initialText = ((): string => {
-    if (ed.initial === undefined || ed.initial === null) return ''
-    const shown = formatWidgetValue(ed.initial, spec)
-    return typeof ed.initial === 'number' && Number(shown) === ed.initial ? shown : String(ed.initial)
-  })()
+  // The field holds the full stored value, not the row's formatted text.
+  const initialText = ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
   const [draft, setDraft] = createSignal(initialText)
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   let live = true

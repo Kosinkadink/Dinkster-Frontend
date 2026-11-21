@@ -1,4 +1,4 @@
-import { assetMultiSelect } from '@dinkster/core'
+import { assetMultiSelect, jsonSameValue, type Json, type WorkflowDocument } from '@dinkster/core'
 import type { LayoutRow, SceneValueSource } from '@dinkster/canvas'
 import type { Tab } from './app-state.js'
 import type { WidgetEditorState } from './WidgetEditor.js'
@@ -69,4 +69,17 @@ export function widgetEditorAnchorAlive(
   const multiAtOpen = ed.declaredType !== undefined && assetMultiSelect(ed.declaredType, ed.mergeableTypes)
   const multiNow = row.type !== undefined && assetMultiSelect(row.type, currentMergeableTypes)
   return multiAtOpen === multiNow
+}
+
+/**
+ * A field open in its row closes when something else changes its own stored
+ * value, such as a seed advancing when a run ends; other editors and other
+ * changes are not affected.
+ */
+export function inRowValueKept(ed: WidgetEditorState | undefined, doc: WorkflowDocument): boolean {
+  if (ed?.inRow === undefined || ed.target.kind !== 'input') return true
+  const target = ed.target
+  const stored = doc.graphs[target.familyOwner?.graphId ?? ed.graphId]?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
+    ?.values[target.familyOwner?.valueKey ?? target.valueKey]
+  return jsonSameValue((stored ?? null) as Json, ed.inRow.storedAtOpen)
 }

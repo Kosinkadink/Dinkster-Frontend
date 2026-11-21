@@ -833,7 +833,9 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     bypassWash: 'rgba(147, 88, 220, 0.28)',
     selection: tokens.border.focus,
     dropTarget: tokens.border.selected,
-    modifiedIndicator: tokens.meaning.warning.border,
+    // The dot on a closed section that hides changed values. Yellow is kept
+    // for problems.
+    modifiedIndicator: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,

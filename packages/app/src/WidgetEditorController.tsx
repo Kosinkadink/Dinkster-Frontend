@@ -126,6 +126,8 @@ export interface WidgetEditorState {
     readonly look: 'original' | 'flat-title'
     readonly nodeBottom: number
     readonly help?: string
+    /** The raw stored value when the field opened (null when none was stored). */
+    readonly storedAtOpen: Json
     /** A seed's after-run mode. */
     readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
     /** Where a click opened a text row, in client coordinates. */
