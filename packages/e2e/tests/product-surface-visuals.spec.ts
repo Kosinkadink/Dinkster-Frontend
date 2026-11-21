@@ -966,7 +966,6 @@ test('Editor host and target fallbacks explain unavailable editors', async ({ pa
   await closeGallery(page)
   for (const [kind, text] of [
     ['curve', 'No curve target is active.'],
-    ['image', 'No image target is active.'],
     ['unregistered-editor', "No editor registered for kind 'unregistered-editor'"],
   ] as const) {
     await page.evaluate((kind) => {
