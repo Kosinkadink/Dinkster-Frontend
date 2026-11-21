@@ -467,7 +467,7 @@ describe('sizing', () => {
     const single = doLayout([widget('s', { widget: { widgetType: 'STRING', options: {} } })])
     const multi = doLayout([widget('s', { widget: { widgetType: 'STRING', options: { multiline: true } } })])
     expect(multi.height - single.height).toBe(
-      4 + defaultTokens.multilineText.labelHeight - defaultTokens.rowHeight +
+      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight - defaultTokens.rowHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding,
     )
   })
@@ -630,7 +630,7 @@ describe('manual size override', () => {
     const grown = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
       size: { width: natural.width, height: natural.height + 61 },
     })
-    const multilineHeight = 4 + defaultTokens.multilineText.labelHeight +
+    const multilineHeight = defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
     expect(natural.rows[0]).toMatchObject({ kind: 'widget', height: multilineHeight })
     expect(grown.rows[0]).toMatchObject({ kind: 'widget', height: multilineHeight + 61 })
@@ -650,10 +650,10 @@ describe('manual size override', () => {
       size: { width: natural.width, height: natural.height + 61 },
     })
     expect(grown.rows.map((row) => row.height)).toEqual([
-      4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 30,
+      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 30,
       defaultTokens.rowHeight,
-      4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 31,
-      defaultTokens.rowHeight,
+      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 31,
+      defaultTokens.rowGeometry.portRowHeight,
     ])
     expect(grown.rows[1]!.y - natural.rows[1]!.y).toBe(30)
     expect(grown.rows[2]!.y - natural.rows[2]!.y).toBe(30)
@@ -683,7 +683,7 @@ describe('manual size override', () => {
     const grown = layoutNode(schema, selected, defaultTokens, measure, widgetMeasure, {
       size: { width: natural.width, height: natural.height + 61 },
     })
-    const multilineHeight = 4 + defaultTokens.multilineText.labelHeight +
+    const multilineHeight = defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
     expect(grown.rows[1]).toMatchObject({ kind: 'widget', inputId: 'active', height: multilineHeight + 61 })
     expect(grown.rows[2]).toMatchObject({ kind: 'widget', inputId: 'inactive', height: multilineHeight, inactive: true })
@@ -780,7 +780,7 @@ describe('in-node preview region', () => {
     const grown = withPreviewRegion(textRequested, defaultTokens)
     expect(grown.preview?.height).toBe(defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight)
     expect(grown.rows[0]!.height).toBe(
-      4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight +
+      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight +
       2 * defaultTokens.multilineText.padding + 40,
     )
   })

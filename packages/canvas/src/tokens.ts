@@ -138,7 +138,8 @@ export const canvasPaintTokens = {
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
-    outline: { idle: 1.25, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /** `crisp` is the idle outline of a node look with crisp edges. */
+    outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
@@ -461,6 +462,8 @@ export const canvasPaintTokens = {
     connectedControllerOpacity: 0.5,
     connectedGlyphOpacity: 0.35,
     stepperStroke: 1.5,
+    /** Moves a 1 px line onto a pixel row's center. */
+    pixelCenter: 0.5,
     rangeFillAccentOpacity: 0.2,
     dragLineStroke: 2,
     modeIconSize: canvasSemanticTokens.space[16] + canvasSemanticTokens.space[4],
@@ -561,6 +564,13 @@ export interface DesignTokens {
    * a thin rule. `nodeLookTokens` gives the geometry and colors of each.
    */
   readonly nodeLook: NodeLook
+  /**
+   * At 100 percent, put the node's idle outline, its title bar's rule,
+   * its row boxes and the steppers' lines on whole pixels: the outline is
+   * 1 px drawn inside the node's box, and stepper lines sit on pixel
+   * centers.
+   */
+  readonly crispEdges: boolean
   /** Placement inside widget and pin rows; the node look sets it. */
   readonly rowGeometry: RowGeometry
   readonly badgeLayout: 'chips' | 'tabs'
@@ -689,10 +699,10 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
 }
 
 export const defaultTokens: DesignTokens = {
-  rowHeight: 24,
-  headerHeight: 28,
+  rowHeight: 26,
+  headerHeight: 26,
   padX: 10,
-  padBottom: 8,
+  padBottom: 5,
   previewDefaultHeight: 180,
   previewMinHeight: 40,
   previewCaptionHeight: 22,
@@ -708,17 +718,18 @@ export const defaultTokens: DesignTokens = {
   titleFontSize: 13,
   widgetRowLook: 'inset-raised',
   widgetEditing: 'card',
-  nodeLook: 'original',
+  nodeLook: 'flat-title',
+  crispEdges: true,
   rowGeometry: {
     portRowHeight: 24,
-    fieldInsetY: 2,
-    fieldInsetX: 5.5 + canvasSemanticTokens.space[4],
-    stepperZone: 12,
-    stepperCenter: 6,
-    stepperStroke: 1.5,
-    stepperLabelInset: 6,
-    textEndInset: 0,
-    portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
+    fieldInsetY: 1,
+    fieldInsetX: 8,
+    stepperZone: 22,
+    stepperCenter: 12.5,
+    stepperStroke: 1,
+    stepperLabelInset: 2,
+    textEndInset: 4,
+    portLabelInset: 10,
   },
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
@@ -754,7 +765,7 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
     typeColors: {
       ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
-        STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
       } : {
         CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
         IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
@@ -778,10 +789,13 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
   return {
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
-    nodeBody: tokens.surface.raised,
+    // The dark theme's flat-title look: the darker surface is the body and
+    // the title bar, raised rows take the lighter one. The light theme
+    // keeps its original surfaces.
+    nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
-    widgetRaised: tokens.surface.panel,
-    nodeHeaderRule: tokens.border.subtle,
+    widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
+    nodeHeaderRule: theme === 'dark' ? '#2a2f35' : tokens.border.subtle,
     nodeOutline: tokens.border.strong,
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
@@ -790,7 +804,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     title: tokens.text.primary,
     label: tokens.text.secondary,
     value: tokens.text.primary,
-    widgetBackground: tokens.surface.inset,
+    widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
@@ -948,41 +962,38 @@ export function presentedType(
 }
 
 /**
- * The tokens a node look changes, to spread over a theme's tokens. Sizes
- * apply in both themes; the flat-title colors are the dark theme's only,
- * and the light theme keeps its original colors.
+ * The tokens a node look changes, to spread over a theme's tokens. The
+ * defaults are the flat-title look; `original` restores the earlier sizes
+ * in both themes and the earlier dark colors, for side-by-side review.
  */
 export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
-  if (look === 'original') return { nodeLook: look }
+  if (look === 'flat-title') return { nodeLook: look }
   const colors = canvasColorsForTheme(theme)
-  const surface = semanticTokensForTheme(theme).surface
+  const original = semanticTokensForTheme(theme)
   return {
     nodeLook: look,
-    rowHeight: 26,
-    headerHeight: 26,
-    padBottom: 5,
+    crispEdges: false,
+    rowHeight: 24,
+    headerHeight: 28,
+    padBottom: 8,
     rowGeometry: {
       portRowHeight: 24,
-      fieldInsetY: 1,
-      fieldInsetX: 7.5,
-      stepperZone: 22,
-      stepperCenter: 12,
-      stepperStroke: 1,
-      stepperLabelInset: 2,
-      textEndInset: 4,
-      portLabelInset: 10,
+      fieldInsetY: 2,
+      fieldInsetX: 5.5 + canvasSemanticTokens.space[4],
+      stepperZone: 12,
+      stepperCenter: 6,
+      stepperStroke: 1.5,
+      stepperLabelInset: 6,
+      textEndInset: 0,
+      portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
     },
-    ...(theme === 'dark'
-      ? {
-          colors: {
-            ...colors,
-            nodeBody: surface.panel,
-            nodeHeader: surface.panel,
-            widgetRaised: surface.raised,
-            widgetBackground: '#121417',
-            nodeHeaderRule: '#2a2f35',
-          },
-        }
-      : {}),
+    colors: {
+      ...colors,
+      nodeBody: original.surface.raised,
+      nodeHeader: original.surface.panel,
+      widgetRaised: original.surface.panel,
+      nodeHeaderRule: original.border.subtle,
+      widgetBackground: original.surface.inset,
+    },
   }
 }

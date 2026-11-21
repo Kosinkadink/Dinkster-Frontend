@@ -3147,7 +3147,7 @@ export class CanvasRenderer {
                 : t.colors.nodeIdleOutline
     const strongOutline = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress?.state === 'done'
     const outline = canvasPaintTokens.node.outline
-    const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : outline.idle
+    const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
     const outlineDash = unrecognized || runtimeError || hasDocumentError
       ? nodeStateDash('error', scale)
       : running
@@ -3159,10 +3159,14 @@ export class CanvasRenderer {
     const dash = outlineOwnsDash ? outlineDash : modeDash(mode, scale)
     if (running) this.drawRunningGlow(ctx, node.x, node.y, l.width, l.height)
     if (dash !== undefined) ctx.setLineDash(dash)
+    const outlineStroke = screenAwareStroke(outlineWidth, scale, strongOutline || unrecognized ? outline.strongScreen : outline.screen)
+    // Crisp edges draw the outline inside the node's box, so a 1 px outline
+    // covers whole pixels instead of straddling the box's edge.
+    const outlineInset = t.crispEdges ? outlineStroke / 2 : 0
     ctx.beginPath()
-    ctx.roundRect(node.x, node.y, l.width, l.height, t.cornerRadius)
+    ctx.roundRect(node.x + outlineInset, node.y + outlineInset, l.width - outlineInset * 2, l.height - outlineInset * 2, Math.max(0, t.cornerRadius - outlineInset))
     ctx.strokeStyle = outlineColor
-    ctx.lineWidth = screenAwareStroke(outlineWidth, scale, strongOutline || unrecognized ? outline.strongScreen : outline.screen)
+    ctx.lineWidth = outlineStroke
     ctx.stroke()
     if (dash !== undefined) ctx.setLineDash([])
     if (running && !this.reducedMotion) this.drawRunningAccent(ctx, node.x, node.y, l.width, l.height)
@@ -3483,7 +3487,7 @@ export class CanvasRenderer {
           if (numeric && row.derivedValue === undefined && !row.ghost) {
             // Edge glyphs reserve only the small bump zones; the broad center
             // remains the familiar editor activation target.
-            const cy = rowY + t.rowHeight / 2
+            const cy = rowY + t.rowHeight / 2 + (t.crispEdges ? canvasPaintTokens.widget.pixelCenter : 0)
             const glyphAlpha = ctx.globalAlpha
             const previousStrokeStyle: string | CanvasGradient | CanvasPattern = ctx.strokeStyle
             const previousLineWidth = ctx.lineWidth
