@@ -86,12 +86,6 @@
     },
     {
       "kind": "inlineStyle",
-      "path": "packages/app/src/CompositorEditor.tsx",
-      "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
       "path": "packages/app/src/ContextMenu.tsx",
       "count": 1,
       "issue": 382
@@ -136,24 +130,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/GlslEditor.tsx",
       "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/ImageDocumentWorkspace.tsx",
-      "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/ImageEditor.tsx",
-      "count": 8,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/ImageEditor.tsx",
-      "count": 1,
       "issue": 382
     },
     {
