@@ -7,7 +7,7 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { Menu, type LucideIcon } from 'lucide-solid'
+import { ChevronRight, Menu, type LucideIcon } from 'lucide-solid'
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
 import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
 import { ProductIcon } from './controls.js'
@@ -61,6 +61,79 @@ export interface ProductNavigationItem {
   label: string
   href: string
   icon: LucideIcon
+  /** Pages under this item, listed in headings while the item is current. */
+  groups?: readonly ProductNavigationGroup[]
+}
+
+export interface ProductNavigationGroup {
+  label: string
+  items: readonly { label: string; href: string }[]
+}
+
+/** A heading that opens and closes its pages. Only the heading holding the
+ * current page starts open, and moving to a page opens its heading. */
+function ProductNavigationGroups(props: {
+  groups: readonly ProductNavigationGroup[]
+  currentHref: string
+  onSelect: (event: MouseEvent, href: string) => void
+}) {
+  const holding = () =>
+    props.groups.find((group) =>
+      group.items.some((item) => item.href === props.currentHref),
+    )?.label
+  const [open, setOpen] = createSignal<ReadonlySet<string>>(new Set())
+  createEffect(() => {
+    const label = holding()
+    if (label !== undefined && !open().has(label))
+      setOpen((current) => new Set([...current, label]))
+  })
+  const toggle = (label: string) =>
+    setOpen((current) => {
+      const next = new Set(current)
+      if (!next.delete(label)) next.add(label)
+      return next
+    })
+  return (
+    <For each={props.groups}>
+      {(group) => {
+        const listId = createUniqueId()
+        return (
+          <>
+            <button
+              type="button"
+              class="dinkster-nav-group"
+              aria-expanded={open().has(group.label)}
+              aria-controls={listId}
+              onClick={() => toggle(group.label)}
+            >
+              <ProductIcon icon={ChevronRight} />
+              {group.label}
+            </button>
+            <div
+              id={listId}
+              class="dinkster-nav-pages"
+              hidden={!open().has(group.label)}
+            >
+              <For each={group.items}>
+                {(item) => (
+                  <a
+                    class="dinkster-nav-page"
+                    href={item.href}
+                    aria-current={
+                      props.currentHref === item.href ? 'page' : undefined
+                    }
+                    onClick={(event) => props.onSelect(event, item.href)}
+                  >
+                    {item.label}
+                  </a>
+                )}
+              </For>
+            </div>
+          </>
+        )
+      }}
+    </For>
+  )
 }
 
 export function ProductShell(props: {
@@ -77,6 +150,21 @@ export function ProductShell(props: {
   let navigationToggle!: HTMLButtonElement
   let sidebar!: HTMLElement
   let main!: HTMLElement
+  const select = (event: MouseEvent, href: string) => {
+    if (
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.shiftKey
+    )
+      return
+    event.preventDefault()
+    const closing = open()
+    props.onNavigate(href)
+    setOpen(false)
+    if (closing) main.focus()
+  }
   createEffect(() => {
     if (!open()) return
     const dismiss = (event: PointerEvent) => {
@@ -145,33 +233,45 @@ export function ProductShell(props: {
               aria-label={strings.mainNavigation}
             >
               <For each={props.navigation}>
-                {(item) => (
-                  <a
-                    class="dinkster-nav-item"
-                    href={item.href}
-                    aria-current={
-                      props.currentHref === item.href ? 'page' : undefined
-                    }
-                    onClick={(event) => {
-                      if (
-                        event.button !== 0 ||
-                        event.ctrlKey ||
-                        event.metaKey ||
-                        event.altKey ||
-                        event.shiftKey
-                      )
-                        return
-                      event.preventDefault()
-                      const closing = open()
-                      props.onNavigate(item.href)
-                      setOpen(false)
-                      if (closing) main.focus()
-                    }}
-                  >
-                    <ProductIcon icon={item.icon} />
-                    {item.label}
-                  </a>
-                )}
+                {(item) => {
+                  const inside = () =>
+                    item.groups?.some((group) =>
+                      group.items.some(
+                        (page) => page.href === props.currentHref,
+                      ),
+                    ) ?? false
+                  return (
+                    <>
+                      <a
+                        class="dinkster-nav-item"
+                        href={item.href}
+                        aria-current={
+                          props.currentHref === item.href
+                            ? 'page'
+                            : inside()
+                              ? 'true'
+                              : undefined
+                        }
+                        onClick={(event) => select(event, item.href)}
+                      >
+                        <ProductIcon icon={item.icon} />
+                        {item.label}
+                      </a>
+                      <Show
+                        when={
+                          item.groups &&
+                          (props.currentHref === item.href || inside())
+                        }
+                      >
+                        <ProductNavigationGroups
+                          groups={item.groups!}
+                          currentHref={props.currentHref}
+                          onSelect={select}
+                        />
+                      </Show>
+                    </>
+                  )
+                }}
               </For>
             </nav>
           </aside>
