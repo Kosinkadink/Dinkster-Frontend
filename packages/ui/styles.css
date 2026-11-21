@@ -33,6 +33,8 @@
 .dinkster-nav-page:hover { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
 .dinkster-nav-page[aria-current='page'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); }
 .dinkster-page { min-width: 0; padding: var(--dinkster-page-padding); }
+/* Content in another form than the shell's takes that form's body type, which it would otherwise inherit from the root. */
+.dinkster-page[data-density] { font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-root .dinkster-page:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 /* Centered in the space beside the sidebar; its contents stay left-aligned. */
 .dinkster-content { max-width: var(--dinkster-content-max-width); margin-inline: auto; }
@@ -134,7 +136,8 @@
 .dinkster-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 [data-density='site'] .dinkster-shell { display: block; }
 [data-density='site'] .dinkster-topbar { height: var(--dinkster-top-bar-height); padding: 0; z-index: 2; }
-[data-density='site'] .dinkster-topbar-inner { display: flex; justify-content: space-between; align-items: center; width: calc(100% - var(--dinkster-site-tablet-page-margin) * 2); max-width: var(--dinkster-site-shell-max-width); margin-inline: auto; }
+/* The top bar's contents span the window at the page margin; the navigation and content below stay in the centered frame. */
+[data-density='site'] .dinkster-topbar-inner { display: flex; justify-content: space-between; align-items: center; width: calc(100% - var(--dinkster-site-tablet-page-margin) * 2); margin-inline: auto; }
 [data-density='site'] .dinkster-brand { gap: var(--dinkster-space-12); }
 [data-density='site'] .dinkster-brand > .dinkster-brand-mark { display: none; }
 [data-density='site'] .dinkster-brand > .dinkster-wordmark { display: block; width: var(--dinkster-site-wordmark-width); height: var(--dinkster-site-wordmark-height); }
