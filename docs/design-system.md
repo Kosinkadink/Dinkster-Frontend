@@ -84,12 +84,15 @@ choose a light or dark foreground against their actual fill, including the
 hovered fill.
 
 - `ProductShell` owns the frame and responsive navigation. With site density,
-  its 1040px centered frame contains 220px navigation and a 32px content gap.
+  its 1040px centered frame contains 220px navigation and a 32px content gap,
+  while the top bar's wordmark, Account product label and 32px account circle
+  span the window 24px from its edges (8px on phones).
   With app density the sidebar spans the window's left edge. In both densities
   the content column is centered in the space beside the navigation (in the
   whole window without it); headings, text and content inside the column stay
-  left-aligned.
-  Its wordmark, Account product label and 32px account circle share that frame.
+  left-aligned. `contentDensity` sets a different density for the page area
+  than the root's, such as site-density components inside the app-density
+  frame; the page area then takes that density's body type.
   On phones the navigation is a 240px overlay aligned 8px from the window edge
   and 4px below its toggle button; it closes on an outside press, Escape or a
   choice without moving the page. A navigation item may carry headed groups
@@ -216,9 +219,12 @@ Gallery routes `#site-security` (alice and the reference Security rows),
 and `#site-card` (centered sign-in/providers) exercise the shared patterns.
 The Security route has computed-geometry and interaction checks at 1280,
 1440, 1920 and 390px; screenshots are captures, not an approved baseline.
-The canvas gallery uses app density and its full-width shell rather than the
-centered account frame; as on every shell page, its content column is
-centered beside the sidebar.
+The component gallery's own pages use the Canvas page's app-density frame
+(full-height side list, top bar across the window, content centered beside the
+list) while their content keeps site density, so the components show their
+site sizes. Below the 768px breakpoint the pages other than Canvas keep the
+site density's narrow frame: wordmark, no title, and the side list as a menu
+panel.
 
 ## Shared design build checks
 

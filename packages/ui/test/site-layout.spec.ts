@@ -22,6 +22,12 @@ for (const width of [1280, 1440, 1920, 390]) {
         getComputedStyle(document.querySelector(selector)!)
       return {
         topbar: rect('.dinkster-topbar').height,
+        // The top bar's contents span the window at the page margin.
+        topbarEdges: [
+          rect('.dinkster-brand').left,
+          window.innerWidth -
+            rect('.dinkster-menu-trigger[data-account]').right,
+        ],
         avatar: rect('.dinkster-avatar').width,
         trigger: rect('.dinkster-menu-trigger[data-account]').width,
         wordmark: rect('.dinkster-brand .dinkster-wordmark').height,
@@ -57,6 +63,7 @@ for (const width of [1280, 1440, 1920, 390]) {
     })
     expect(geometry).toEqual({
       topbar: 56,
+      topbarEdges: width < 768 ? [8, 8] : [24, 24],
       avatar: 32,
       trigger: 40,
       wordmark: 30,
