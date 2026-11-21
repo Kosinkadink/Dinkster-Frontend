@@ -711,6 +711,19 @@ const modeDash = (mode: 'active' | 'muted' | 'bypassed', scale: number): number[
 const detailRadius = (radius: number, scale: number, detailLevel: CanvasDetailLevel): number =>
   detailLevel === 'overview' ? screenAwareStroke(radius, scale, canvasPaintTokens.pin.overviewMinRadius) : radius
 
+/**
+ * The painted center of a pin on a box's side at edge `x` and row center `y`.
+ * Crisp edges draw the 1 px border inside the box, so the pin moves half a
+ * line inward to sit centered on it, and half a pixel down so its odd
+ * diameter covers whole pixel rows. Wires and hit targets keep the edge and
+ * the row center, which the pin covers.
+ */
+const edgePinPoint = (t: DesignTokens, direction: 'in' | 'out', x: number, y: number): { x: number; y: number } => {
+  if (!t.crispEdges) return { x, y }
+  const inset = canvasPaintTokens.node.outline.crisp / 2
+  return { x: direction === 'in' ? x + inset : x - inset, y: y + canvasPaintTokens.widget.pixelCenter }
+}
+
 const statusRingCullPad = (radius: number, scale: number): number =>
   radius + STATUS_RING_GAP + screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH) / 2
 
@@ -3898,12 +3911,13 @@ export class CanvasRenderer {
         const type = pins.every((pin) => JSON.stringify(pin.type) === first)
           ? pins[0]!.type
           : { kind: 'wildcard' } as const
+        const point = edgePinPoint(t, direction, direction === 'in' ? node.x : node.x + l.width, node.y + l.headerHeight / 2)
         paintTypedPin(
           ctx,
           t,
           type,
-          direction === 'in' ? node.x : node.x + l.width,
-          node.y + l.headerHeight / 2,
+          point.x,
+          point.y,
           this.viewport.scale,
           false,
           direction,
@@ -3916,8 +3930,7 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
-      const px = pin.direction === 'in' ? node.x : node.x + l.width
-      const py = node.y + pin.y
+      const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
       const isTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -4207,10 +4220,13 @@ export class CanvasRenderer {
     // Dashed border: the "derived, not a real node" signal.
     ctx.save()
     ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.boundary.world, canvasPaintTokens.dash.boundary.screen, scale))
+    // Crisp edges draw the border like a node's: 1 px inside the box.
+    const borderStroke = screenAwareStroke(t.crispEdges ? canvasPaintTokens.node.outline.crisp : paint.stroke, scale, paint.minScreenStroke)
+    const borderInset = t.crispEdges ? borderStroke / 2 : 0
     ctx.beginPath()
-    ctx.roundRect(x, y, l.width, l.height, t.cornerRadius)
+    ctx.roundRect(x + borderInset, y + borderInset, l.width - borderInset * 2, l.height - borderInset * 2, Math.max(0, t.cornerRadius - borderInset))
     ctx.strokeStyle = t.colors.nodeOutline
-    ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.minScreenStroke)
+    ctx.lineWidth = borderStroke
     ctx.stroke()
     ctx.restore()
     if (this.overlay.bodyDropNode === boundarySceneId(bnode.side)) {
@@ -4269,8 +4285,7 @@ export class CanvasRenderer {
     // Pins. Ghost pins draw hollow; a legal boundary drop target gets the
     // same highlight ring as regular pins.
     for (const pin of l.pins) {
-      const px = pin.direction === 'in' ? x : x + l.width
-      const py = y + pin.y
+      const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()
         ctx.arc(px, py, pinRadius + STATUS_RING_GAP, 0, Math.PI * 2)
