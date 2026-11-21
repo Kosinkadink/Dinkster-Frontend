@@ -532,7 +532,11 @@ export interface RowGeometry {
   readonly boxedTopInset: number
   /** Space from the title line to a first row of pins, whose text carries its own space. */
   readonly pinTopInset: number
-  /** Space from a last row of pins to the node's bottom edge; after a boxed row it is padBottom. */
+  /**
+   * Space from a last row of pins to the node's bottom edge; after a boxed row
+   * it is padBottom. Both bottom insets include the 1px border, which is drawn
+   * inside the node's box.
+   */
   readonly pinBottomInset: number
 }
 
@@ -708,7 +712,7 @@ export const defaultTokens: DesignTokens = {
   rowHeight: 26,
   headerHeight: 26,
   padX: 10,
-  padBottom: 5,
+  padBottom: 6,
   previewDefaultHeight: 180,
   previewMinHeight: 40,
   previewCaptionHeight: 22,
@@ -738,7 +742,7 @@ export const defaultTokens: DesignTokens = {
     portLabelInset: 10,
     boxedTopInset: 5,
     pinTopInset: 1,
-    pinBottomInset: 1,
+    pinBottomInset: 2,
   },
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,

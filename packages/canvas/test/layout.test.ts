@@ -474,6 +474,8 @@ describe('sizing', () => {
 
   it('keeps 6 px clear above the first and below the last thing seen, a field edge or pin text', () => {
     // A field's box starts at its edge; a pin's 16 px line of text is centered in its row.
+    // The node's 1 px border is drawn inside its box, so the bottom edge's clear space ends one pixel up.
+    const border = 1
     const fieldTop = (row: { y: number }) => row.y + defaultTokens.rowGeometry.fieldInsetY
     const fieldBottom = (row: { y: number; height: number }) => row.y + row.height - defaultTokens.rowGeometry.fieldInsetY
     const textTop = (row: { y: number; height: number }) => row.y + row.height / 2 - 8
@@ -481,15 +483,15 @@ describe('sizing', () => {
 
     const fields = doLayout([widget('a'), widget('b')])
     expect(fieldTop(fields.rows[0]!) - fields.headerHeight).toBe(6)
-    expect(fields.height - fieldBottom(fields.rows.at(-1)!)).toBe(6)
+    expect(fields.height - border - fieldBottom(fields.rows.at(-1)!)).toBe(6)
 
     const pins = doLayout([input('a'), input('b'), output('c')])
     expect(textTop(pins.rows[0]!) - pins.headerHeight).toBe(6)
-    expect(pins.height - textBottom(pins.rows.at(-1)!)).toBe(6)
+    expect(pins.height - border - textBottom(pins.rows.at(-1)!)).toBe(6)
 
     const pinThenField = doLayout([input('a'), widget('b')])
     expect(textTop(pinThenField.rows[0]!) - pinThenField.headerHeight).toBe(6)
-    expect(pinThenField.height - fieldBottom(pinThenField.rows.at(-1)!)).toBe(6)
+    expect(pinThenField.height - border - fieldBottom(pinThenField.rows.at(-1)!)).toBe(6)
 
     // A preview after a last row of pins ends the node like any boxed region.
     const withPanel = withPreviewRegion(pins, defaultTokens)
