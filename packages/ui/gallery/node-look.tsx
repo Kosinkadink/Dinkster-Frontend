@@ -35,7 +35,6 @@ interface LookCard {
   readonly id: string
   readonly caption: string
   readonly look: NodeLook
-  readonly exchangeLight: boolean
 }
 
 /** Room above the node for badges and the selection outline. */
@@ -43,44 +42,19 @@ const TOP = 28
 /** Narrow enough for the three looks of a node to sit in one line. */
 const LOOK_NODE_WIDTH = 256
 
-const looks = (theme: 'dark' | 'light'): readonly LookCard[] => [
-  { id: 'today', caption: 'Today', look: 'current', exchangeLight: false },
+const looks: readonly LookCard[] = [
+  { id: 'today', caption: 'Today', look: 'current' },
   {
     id: 'lighter-title',
     caption: 'The lighter title bar',
     look: 'shaded-title',
-    exchangeLight: false,
   },
   {
     id: 'body-title',
     caption: 'The title bar as the body',
     look: 'flat-title',
-    exchangeLight: false,
   },
-  ...(theme === 'light'
-    ? [
-        {
-          id: 'lighter-title-exchanged',
-          caption: 'The lighter title bar, surfaces exchanged',
-          look: 'shaded-title' as const,
-          exchangeLight: true,
-        },
-        {
-          id: 'body-title-exchanged',
-          caption: 'The title bar as the body, surfaces exchanged',
-          look: 'flat-title' as const,
-          exchangeLight: true,
-        },
-      ]
-    : []),
 ]
-
-function lookTokens(
-  card: LookCard,
-  theme: 'dark' | 'light',
-): Partial<DesignTokens> {
-  return nodeLookTokens(card.look, theme, card.exchangeLight)
-}
 
 function NodeLookCard(props: {
   example: NodeLookExample
@@ -110,7 +84,7 @@ function NodeLookCard(props: {
         ...defaultTokens,
         ...canvasTypePaintForTheme(theme),
         colors: canvasColorsForTheme(theme),
-        ...lookTokens(card, theme),
+        ...nodeLookTokens(card.look, theme),
       }
       const measureContext = document.createElement('canvas').getContext('2d')!
       const measure: TextMeasurer = (text, role) => {
@@ -186,7 +160,7 @@ export function NodeLookGallery(props: { theme: 'dark' | 'light' }) {
         {([example, title, description]) => (
           <ProductSection title={title} description={description}>
             <div class="dinkster-canvas-examples">
-              <For each={looks(props.theme)}>
+              <For each={looks}>
                 {(card) => (
                   <NodeLookCard
                     example={example}
@@ -205,7 +179,7 @@ export function NodeLookGallery(props: { theme: 'dark' | 'light' }) {
         description="Sample image with steps open in its row and its side part beside the node."
       >
         <div class="dinkster-canvas-examples">
-          <For each={looks(props.theme)}>
+          <For each={looks}>
             {(card) => (
               <RowEditingExample
                 example={{
@@ -218,7 +192,7 @@ export function NodeLookGallery(props: { theme: 'dark' | 'light' }) {
                 }}
                 theme={props.theme}
                 registry={registry}
-                look={lookTokens(card, props.theme)}
+                look={nodeLookTokens(card.look, props.theme)}
                 testIdPrefix="node-look"
               />
             )}

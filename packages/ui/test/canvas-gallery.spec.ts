@@ -296,7 +296,7 @@ for (const theme of ['dark', 'light'] as const) {
         if (id === 'node-look') {
           // One shot per node: its looks side by side in one wrapping line.
           const cards = page.locator('figure.dinkster-canvas-example canvas')
-          await expect(cards).toHaveCount(theme === 'dark' ? 36 : 60)
+          await expect(cards).toHaveCount(36)
           for (const card of await cards.all()) {
             const cardId = (await card.getAttribute('data-testid'))!.slice(
               'node-look-'.length,

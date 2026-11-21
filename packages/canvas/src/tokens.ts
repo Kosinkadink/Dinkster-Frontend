@@ -950,20 +950,13 @@ export function presentedType(
 
 /**
  * The tokens a node look changes, to spread over a theme's tokens. Sizes
- * apply in both themes. In the dark theme the proposal makes the darker
- * surface the node body and sets its own field and rule colors. The light
- * theme keeps today's colors unless `exchangeLight` swaps its two surfaces
- * the same way, without the dark theme's own field and rule colors.
+ * apply in both themes; the proposal's colors are the dark theme's only,
+ * and the light theme keeps today's colors.
  */
-export function nodeLookTokens(
-  look: NodeLook,
-  theme: 'dark' | 'light',
-  exchangeLight = false,
-): Partial<DesignTokens> {
+export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
   if (look === 'current') return { nodeLook: look }
   const colors = canvasColorsForTheme(theme)
   const surface = semanticTokensForTheme(theme).surface
-  const exchange = theme === 'dark' || exchangeLight
   return {
     nodeLook: look,
     rowHeight: 26,
@@ -980,16 +973,15 @@ export function nodeLookTokens(
       textEndInset: 4,
       portLabelInset: 10,
     },
-    ...(exchange
+    ...(theme === 'dark'
       ? {
           colors: {
             ...colors,
             nodeBody: surface.panel,
             nodeHeader: look === 'flat-title' ? surface.panel : surface.raised,
             widgetRaised: surface.raised,
-            ...(theme === 'dark'
-              ? { widgetBackground: '#121417', nodeHeaderRule: '#2a2f35' }
-              : {}),
+            widgetBackground: '#121417',
+            nodeHeaderRule: '#2a2f35',
           },
         }
       : {}),
