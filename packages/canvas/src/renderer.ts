@@ -1087,6 +1087,17 @@ export class CanvasRenderer {
     this.updateNodePaint(this.rowDrags, next, () => { this.rowDrags = next })
   }
 
+  private openRows: Readonly<Record<string, string>> = {}
+
+  /**
+   * The row whose field is open over the canvas. The canvas leaves that row
+   * unpainted, so nothing of it shows around the field.
+   */
+  setOpenRow(row: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    const next = row === undefined ? {} : { [row.nodeId]: row.valueKey }
+    this.updateNodePaint(this.openRows, next, () => { this.openRows = next })
+  }
+
   private lensCapabilities: RendererLensCapabilities = {}
   private typeAdornments: readonly TypeAdornmentDescriptor[] = []
 
@@ -3413,6 +3424,7 @@ export class CanvasRenderer {
             ctx.globalAlpha = rowAlpha
           }
         } else {
+          if (this.openRows[sceneNode.id] === row.valueKey) continue
           const companion = this.companions[sceneNode.id]?.[row.valueKey]
           const widgetWidth = row.width ?? l.width - row.inset * 2
           // Selector rows ignore boundary bindings for inertness: the bound row

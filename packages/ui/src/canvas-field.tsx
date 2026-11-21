@@ -103,17 +103,24 @@ export function canvasFieldOutline(
       (point[1] - before[1]) * (after[0] - point[0])
     )
   })
-  // Keep the stroke inside the shape.
-  const xs = cleaned.map(([x]) => x)
-  const ys = cleaned.map(([, y]) => y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-  const inside = cleaned.map(([x, y]): [number, number] => [
-    x === minX ? x + inset : x === maxX ? x - inset : x,
-    y === minY ? y + inset : y === maxY ? y - inset : y,
-  ])
+  // Keep the stroke inside the shape on every edge, the inside corner of an
+  // L included: move each edge inward along its normal. The points run
+  // clockwise on screen, so the inside is to the right of each edge.
+  const normal = (from: [number, number], to: [number, number]) => [
+    -Math.sign(to[1] - from[1]),
+    Math.sign(to[0] - from[0]),
+  ]
+  const inside = cleaned.map(([x, y], index): [number, number] => {
+    const before = normal(
+      cleaned[(index + cleaned.length - 1) % cleaned.length]!,
+      [x, y],
+    )
+    const after = normal([x, y], cleaned[(index + 1) % cleaned.length]!)
+    return [
+      x + inset * (before[0]! + after[0]!),
+      y + inset * (before[1]! + after[1]!),
+    ]
+  })
   // Round only the outer corners; the inside corner of an L stays square.
   const convex = (index: number) => {
     const [ax, ay] = inside[(index + inside.length - 1) % inside.length]!
@@ -181,11 +188,16 @@ export function CanvasRowField(props: {
     width: number
     height: number
   }>()
+  const flat = () => props.look === 'flat-title'
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
+    // In the flat-title look the open field is its row's field grown by one
+    // pixel on every side, so the fill spans the row's field inside that.
     if (fill)
-      fill.style.width = `${Math.max(0, Math.min(1, props.fill ?? 0)) * 100}%`
+      fill.style.width = flat()
+        ? `${Math.max(0, Math.min(1, props.fill ?? 0)) * (props.rowWidth - 2)}px`
+        : `${Math.max(0, Math.min(1, props.fill ?? 0)) * 100}%`
     if (!side) {
       setSideSize(undefined)
       return
@@ -250,7 +262,17 @@ export function CanvasRowField(props: {
               onPointerDown={(event) => event.preventDefault()}
               onClick={(event) => step()(-1, event.shiftKey)}
             >
-              <Minus class="dinkster-canvas-field-glyph" aria-hidden="true" />
+              <Show
+                when={flat()}
+                fallback={
+                  <Minus
+                    class="dinkster-canvas-field-glyph"
+                    aria-hidden="true"
+                  />
+                }
+              >
+                <StepGlyph path={MINUS_PATH} />
+              </Show>
             </button>
           )}
         </Show>
@@ -280,7 +302,17 @@ export function CanvasRowField(props: {
               onPointerDown={(event) => event.preventDefault()}
               onClick={(event) => step()(1, event.shiftKey)}
             >
-              <Plus class="dinkster-canvas-field-glyph" aria-hidden="true" />
+              <Show
+                when={flat()}
+                fallback={
+                  <Plus
+                    class="dinkster-canvas-field-glyph"
+                    aria-hidden="true"
+                  />
+                }
+              >
+                <StepGlyph path={PLUS_PATH} />
+              </Show>
             </button>
           )}
         </Show>
@@ -298,6 +330,27 @@ export function CanvasRowField(props: {
         <path d={outline()} />
       </svg>
     </div>
+  )
+}
+
+/*
+ * The canvas draws the minus and plus as round-capped 1px lines, centred
+ * 12.5px from the field's ends and half a pixel below its middle, so each
+ * lands on whole pixels. These paths draw the same lines in the 24px stepper
+ * zones at each end of the row's field.
+ */
+const MINUS_PATH = 'M9.5 12.5H15.5'
+const PLUS_PATH = 'M8.5 12.5H14.5M11.5 9.5V15.5'
+
+function StepGlyph(props: { path: string }) {
+  return (
+    <svg
+      class="dinkster-canvas-field-step-glyph"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d={props.path} />
+    </svg>
   )
 }
 

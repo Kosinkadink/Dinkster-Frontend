@@ -615,6 +615,7 @@ export interface DesignTokens {
     readonly groupDefault: string
     readonly title: string
     readonly label: string
+    readonly valueMark: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -808,7 +809,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
     widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
-    nodeHeaderRule: theme === 'dark' ? '#2a2f35' : tokens.border.subtle,
+    nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
@@ -816,6 +817,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     groupDefault: tokens.border.strong,
     title: tokens.text.primary,
     label: tokens.text.secondary,
+    // A word or icon before a value that describes it, such as a seed's mode.
+    valueMark: tokens.text.muted,
     value: tokens.text.primary,
     widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
     widgetAffordance: tokens.text.disabled,
@@ -1009,6 +1012,7 @@ export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial
       nodeHeader: original.surface.panel,
       widgetRaised: original.surface.panel,
       nodeHeaderRule: original.border.subtle,
+      valueMark: colors.label,
       widgetBackground: original.surface.inset,
     },
   }

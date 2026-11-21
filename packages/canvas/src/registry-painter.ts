@@ -307,7 +307,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,
-                  textY - modeIconSize / 2, modeIconSize, tokens.colors.label)
+                  textY - modeIconSize / 2, modeIconSize, tokens.colors.valueMark)
               }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)
