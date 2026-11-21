@@ -1,5 +1,29 @@
 # Rework Queue
 
+## Image documents workspace
+
+- What and purpose: a separate center workspace imports and edits layered images, masks, drafts and library documents.
+- Why parked: image authoring is withdrawn until its workflow is redesigned; it must not distract from the working graph surfaces.
+- Kept code: [draft-image-editors-before-parking-1112](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-image-editors-before-parking-1112), commit `650b053a0ece3ab9cb352394ff3333f613a3ca73`. Paths: `packages/app/src/{ImageDocumentWorkspace.tsx,image-document-local.ts,image-document-library.ts,image-document-renderer.ts,App.tsx,styles/image-editor.css}`, `packages/app/test/{ImageDocumentWorkspace.dom.test.tsx,image-document-persistence.test.ts}`, `packages/e2e/tests/image-document-workspace.spec.ts` and its product screenshot case.
+- Still active: stored documents, drafts and assets are not modified. The shared image-document format and layered-asset rendering remain.
+- Return condition: agree the revised image authoring flow, restore the workspace and its tests together, and prove project-scoped recovery, library publication, rendering, stale-request refusal and graph independence in a real browser.
+
+## Mask painter
+
+- What and purpose: the image editor opens a PNG input for local mask painting and baking a derived asset.
+- Why parked: image editing is withdrawn until its interaction and graph integration are redesigned.
+- Kept code: [draft-image-editors-before-parking-1112](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-image-editors-before-parking-1112), commit `650b053a0ece3ab9cb352394ff3333f613a3ca73`. Paths: `packages/app/src/{ImageEditor.tsx,image-editor.ts,image-input.ts,image-mask-tool.ts,image-png.ts,app-state.ts,CanvasHost.tsx}`, `packages/app/test/{image-editor.test.ts,image-editor.dom.test.tsx,image-input.test.ts,editors.test.ts}`, `packages/e2e/tests/{image-editor.spec.ts,image-bake-live.spec.ts}`.
+- Still active: image assets, input picking, previews and workflow asset ownership remain; the image editor kind and its entry points are absent.
+- Return condition: agree the redesigned editing flow, restore painter code and tests together, and verify source identity, painting, bake ownership, cancellation, stale-source refusal and undo in a real browser.
+
+## Compositor editor
+
+- What and purpose: a full-center image editor changes layer order, transforms, masks and canvas properties through a stored compositor recipe.
+- Why parked: the compositor editor is withdrawn with the mask painter until image authoring is redesigned.
+- Kept code: [draft-image-editors-before-parking-1112](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-image-editors-before-parking-1112), commit `650b053a0ece3ab9cb352394ff3333f613a3ca73`. Paths: `packages/app/src/{CompositorEditor.tsx,app-state.ts,builtin-bindings.ts,CanvasHost.tsx,styles/image-editor.css}`, `packages/app/test/{CompositorEditor.dom.test.tsx,editors.test.ts}`, `packages/e2e/tests/compositor-editor.spec.ts` and compositor product screenshot cases.
+- Still active: compositor node registration, stored recipes, runtime execution, the compact widget row and layered-asset rendering remain.
+- Return condition: agree the revised editor and widget entry, restore code and tests together, and prove native layer execution, stored-recipe replay, unchanged Cancel, atomic Apply and stale-document refusal in a real browser.
+
 ## Standalone tabs proof page
 
 - What and purpose: an isolated page exercised ProductTabs keyboard focus, selection and ARIA behavior without application state.
@@ -190,7 +214,7 @@ User-requested (verbatim intent, ledger rows slice 61-63):
 ## Mask paint applied to the graph
 
 - What and purpose: "Apply mask to graph" creates or updates a mask-paint node and redirects the source image loader's mask consumers in one undoable edit. Unlike Bake to asset, it keeps a cumulative editable paint recipe in the workflow.
-- Why parked: the backend no longer serves `dinkster.mask.paint` or the required `image-source` and `mask-paint` editor roles. The image editor, local paint tools and Bake to asset remain available.
+- Why parked: the backend no longer serves `dinkster.mask.paint` or the required `image-source` and `mask-paint` editor roles. The image editor, local paint tools and Bake to asset are also parked; see Mask painter above.
 - Kept code: [draft-frontend-features-before-removal-776](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-features-before-removal-776), commit `26d9be97f039c40f1e9fc97e566ac44b976b90be`. Main paths: `packages/core/src/extensions/commands/mask-paint.ts`, `packages/core/src/mask-paint-recipe.ts`, `packages/app/src/{ImageEditor.tsx,image-editor.ts,app-state.ts}`. Tests: mask cases in `packages/core/test/image-commands.test.ts`, `packages/app/test/{image-editor.test.ts,editors.test.ts}`, and `packages/e2e/tests/image-mask-graph-live.spec.ts`.
 - Backend needed: a served image loader with role `image-source`, an `image` asset input and IMAGE/MASK outputs; `dinkster.mask.paint` with role `mask-paint`, image asset `source`, multiline STRING `operations`, and MASK output. Asset upload/read routes must remain available. No feature-specific server start flag exists. Backend draft source is on [draft-nodes-before-first-party-packs-638](https://github.com/Kosinkadink/Dinkster/tree/draft-nodes-before-first-party-packs-638), recorded at `728f58b22ccf6bb64c7e2b8ee38f35c69fbf4a75`.
 - Return and hand test: restore only this feature and serve its nodes through an installed pack. Load an image, connect its mask to two consumers, open the image editor, paint, and apply to graph. Verify one paint node replaces only the mask consumers, reopening edits that same recipe, and one Undo/Redo restores/reapplies the complete graph edit. Check stale source/topology refusal and Bake to asset separately.
@@ -199,7 +223,7 @@ User-requested (verbatim intent, ledger rows slice 61-63):
 ## Layer-document graph export and opening
 
 - What and purpose: "Export snapshot to graph" inserts load/flatten nodes for a published image document. "Open layers" opens a native layer output in the image document workspace. "Export editable recipe" branches layer-edit/flatten/save nodes from that output, retaining editable layer operations rather than only rendered pixels.
-- Why parked: the layer-document node family and native `dinkster.layers` outputs are not served. The workspace's local layers, masks, drafts, Publish, Render and Open library remain available; the ordinary tensor `LAYERS` type is not a native image document.
+- Why parked: the layer-document node family and native `dinkster.layers` outputs are not served. The Image documents workspace and its local editing, drafts, Publish, Render and Open library actions are also parked; see Image documents workspace above. The ordinary tensor `LAYERS` type is not a native image document.
 - Kept code: [draft-frontend-features-before-removal-776](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-features-before-removal-776), commit `26d9be97f039c40f1e9fc97e566ac44b976b90be`. Main paths: `packages/core/src/extensions/commands/image-document.ts`, `packages/app/src/{image-document-graph.ts,ImageDocumentWorkspace.tsx,App.tsx}`. Tests: `packages/app/test/image-document-recipe.test.ts`, graph cases in image-document persistence/workspace and core image-command tests, and `packages/e2e/tests/image-document-graph{,-live}.spec.ts`.
 - Backend needed: served `dinkster.layers.load`, `dinkster.layers.edit`, `dinkster.layers.flatten` with roles `layers-load`, `layers-edit`, `layers-flatten`, and an image save node with role `image-save`. Restore against the served save id, not the kept fallback `dinkster.save_image`. The native `dinkster.layers` value must expose the canonical `application/vnd.dinkster.image-document+json` document rendition through `/api/values`; typed image-document upload, render, asset and library routes must also work. No feature-specific start flag exists. Related layer source is kept on backend [draft-nodes-before-first-party-packs-638](https://github.com/Kosinkadink/Dinkster/tree/draft-nodes-before-first-party-packs-638), recorded at `728f58b22ccf6bb64c7e2b8ee38f35c69fbf4a75`; serving/exporting the nodes still needs explicit implementation.
 - Return and hand test: restore the three graph actions together. Export a two-layer workspace snapshot, run the resulting graph, open its native layers output, edit opacity and a mask, export an editable recipe and run again. Compare rendered pixels with the workspace, test Undo/Redo, save/reopen, and refuse stale graph/backend destinations. Never substitute a flattened preview for a native layer document.
