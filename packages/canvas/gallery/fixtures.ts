@@ -19,6 +19,8 @@ import {
   SUBGRAPH_BADGE,
   defaultTokens,
   buildScene,
+  dropTargetKey,
+  pinPosition,
   withPreviewRegion,
   executionBlockedBadge,
   executionErrorBadge,
@@ -782,17 +784,34 @@ export function createCanvasGalleryFixture(
       Muted: [MUTED_BADGE],
       Bypassed: [BYPASSED_BADGE],
     }
+    // One card: a FLOAT wire held from a value node over the cfg field it
+    // fits, so the row shows it takes the wire on release.
+    const held = 'Wire held over a row'
+    add('Value', schema('Value', [{ kind: 'output', id: 'FLOAT', type: concrete('FLOAT') }]))
+    add(held, sample)
+    const heldY = 54 + 7 * 250
+    fixture.scene.nodes = fixture.scene.nodes.map((node) =>
+      node.id === 'Value' ? { ...node, x: 24, y: heldY + 120 }
+        : node.id === held ? { ...node, x: 424, y: heldY } : node)
+    const valueNode = fixture.scene.nodes.at(-2)!
+    const heldNode = fixture.scene.nodes.at(-1)!
+    examples.splice(-2, 2, { caption: held, nodes: [fixture.scene.nodes.length - 2, fixture.scene.nodes.length - 1] })
+    const from = pinPosition(valueNode, 'FLOAT', 'out')!
+    const to = pinPosition(heldNode, 'cfg', 'in')!
     fixture.overlay = {
       selection: new Set(['Selected']),
       hoveredNode: 'Hovered',
       hoveredWidget: { nodeId: 'Hovered row', valueKey: 'cfg' },
+      ghostLink: { x1: from.x, y1: from.y, x2: to.x, y2: to.y, typeName: 'FLOAT' },
+      dropTargets: new Set([dropTargetKey(held, 'cfg', 'in')]),
+      dropRow: { nodeId: held, valueKey: 'cfg' },
     }
     fixture.rowMarks = { 'Invalid value': new Set(['steps']) }
     fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
       ...node,
       ...(node.id === 'Colored' ? { color: tokens.stateColors.running } : {}),
     }))
-    fixture.height = 1800
+    fixture.height = 2100
   } else if (page === 'types') {
     const types: TypeExpr[] = Object.keys(defaultTokens.typeColors).map(
       concrete,
