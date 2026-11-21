@@ -6,10 +6,10 @@ export const NET_VIEWS_EXT_KEY = 'dinkster.netViews'
 /**
  * Authored tag geometry. `offset` is relative to the owning node's stored
  * view position (its top-left), so the tag rides along when the node moves.
- * `absolute` is the retired world-coordinate form: it renders where it was
- * saved but never follows the node. Documents are canonicalized to offsets
- * on load whenever the owning node has a stored position; absolute survives
- * only when the owner cannot be resolved.
+ * `absolute` stores world coordinates when the owner has no stored position:
+ * it renders where it was saved but never follows the node. Documents are
+ * canonicalized to offsets on load whenever the owning node has a stored
+ * position; otherwise absolute geometry survives.
  */
 export type NetViewGeometry =
   | { readonly kind: 'offset'; readonly x: number; readonly y: number }
