@@ -4552,7 +4552,8 @@ function paintHeaderRule(
 ): void {
   if (t.nodeLook !== 'flat-title' || height <= headerHeight) return
   ctx.fillStyle = t.colors.nodeHeaderRule
-  ctx.fillRect(x, y + headerHeight - 1, width, 1)
+  const stroke = canvasPaintTokens.node.headerRuleStroke
+  ctx.fillRect(x, y + headerHeight - stroke, width, stroke)
 }
 
 /** Alpha applied to nodes/links outside a partial-execution scope preview. */

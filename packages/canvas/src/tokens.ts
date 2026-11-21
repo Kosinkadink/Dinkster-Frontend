@@ -143,6 +143,8 @@ export const canvasPaintTokens = {
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
     errorHeaderTint: 0.35,
+    /** The flat-title look's rule under the title, inside the title bar. */
+    headerRuleStroke: 1,
     titleBadgeGap: canvasSemanticTokens.space[4],
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
@@ -948,13 +950,20 @@ export function presentedType(
 
 /**
  * The tokens a node look changes, to spread over a theme's tokens. Sizes
- * apply in both themes; the proposal's colors are the dark theme's only,
- * and the light theme keeps today's colors.
+ * apply in both themes. In the dark theme the proposal makes the darker
+ * surface the node body and sets its own field and rule colors. The light
+ * theme keeps today's colors unless `exchangeLight` swaps its two surfaces
+ * the same way, without the dark theme's own field and rule colors.
  */
-export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
+export function nodeLookTokens(
+  look: NodeLook,
+  theme: 'dark' | 'light',
+  exchangeLight = false,
+): Partial<DesignTokens> {
   if (look === 'current') return { nodeLook: look }
   const colors = canvasColorsForTheme(theme)
   const surface = semanticTokensForTheme(theme).surface
+  const exchange = theme === 'dark' || exchangeLight
   return {
     nodeLook: look,
     rowHeight: 26,
@@ -971,15 +980,16 @@ export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial
       textEndInset: 4,
       portLabelInset: 10,
     },
-    ...(theme === 'dark'
+    ...(exchange
       ? {
           colors: {
             ...colors,
             nodeBody: surface.panel,
             nodeHeader: look === 'flat-title' ? surface.panel : surface.raised,
             widgetRaised: surface.raised,
-            widgetBackground: '#121417',
-            nodeHeaderRule: '#2a2f35',
+            ...(theme === 'dark'
+              ? { widgetBackground: '#121417', nodeHeaderRule: '#2a2f35' }
+              : {}),
           },
         }
       : {}),

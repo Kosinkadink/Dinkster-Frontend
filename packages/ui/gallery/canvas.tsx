@@ -36,6 +36,7 @@ import {
   ProductSection,
   ProductTextInput,
 } from '../src/index.js'
+import { NodeLookGallery } from './node-look.js'
 import { RowEditingGallery } from './row-editing.js'
 
 export function CanvasGallery() {
@@ -79,7 +80,7 @@ export function CanvasGallery() {
       currentPage === 'run-editable' ||
       currentPage === 'run-frozen'
     document.documentElement.dataset.theme = currentTheme
-    if (currentPage === 'row-editing') return
+    if (currentPage === 'row-editing' || currentPage === 'node-look') return
     let disposed = false
     let renderer: CanvasRenderer | undefined
     let removeBadgeListeners: (() => void) | undefined
@@ -564,8 +565,20 @@ export function CanvasGallery() {
         </ProductField>
       </Show>
       <Show
-        when={page() !== 'row-editing'}
+        when={page() !== 'row-editing' && page() !== 'node-look'}
         fallback={
+          page() === 'node-look' ? (
+            <>
+              <p class="dinkster-description">
+                The same nodes in today's look and in the proposed look with
+                taller fields, tighter gaps and steppers moved inward, once
+                with the lighter surface as the title bar and once with the
+                title bar in the body's color over a thin line. Painted by the
+                production CanvasRenderer; the product keeps today's look.
+              </p>
+              <NodeLookGallery theme={theme()} />
+            </>
+          ) : (
           <>
             <p class="dinkster-description">
               Number, single-line text and seed rows become their own field
@@ -575,6 +588,7 @@ export function CanvasGallery() {
             </p>
             <RowEditingGallery theme={theme()} />
           </>
+          )
         }
       >
         <ProductSection
