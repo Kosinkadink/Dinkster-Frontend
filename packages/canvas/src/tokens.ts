@@ -833,8 +833,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     label: tokens.text.secondary,
     // A word or icon before a value that describes it, such as a seed's mode.
     valueMark: tokens.text.muted,
-    swatchChecker: tokens.surface.checker,
-    swatchCheckerAlt: tokens.surface.checkerAlt,
+    swatchChecker: tokens.checker.dark,
+    swatchCheckerAlt: tokens.checker.light,
     value: tokens.text.primary,
     widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
     widgetAffordance: tokens.text.disabled,

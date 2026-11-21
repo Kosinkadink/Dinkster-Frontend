@@ -4665,10 +4665,14 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
     ctx.fillStyle = tokens.colors.swatchCheckerAlt
     ctx.fillRect(left, top, size, size)
     ctx.fillStyle = tokens.colors.swatchChecker
-    for (let row = 0; row * checkerCell < size; row++) {
-      for (let column = row % 2; column * checkerCell < size; column += 2) {
-        ctx.fillRect(left + column * checkerCell, top + row * checkerCell, checkerCell, checkerCell)
+    let rowStartsDark = true
+    for (let cellTop = top; cellTop < top + size; cellTop += checkerCell) {
+      let dark = rowStartsDark
+      for (let cellLeft = left; cellLeft < left + size; cellLeft += checkerCell) {
+        if (dark) ctx.fillRect(cellLeft, cellTop, checkerCell, checkerCell)
+        dark = !dark
       }
+      rowStartsDark = !rowStartsDark
     }
   }
   ctx.fillStyle = color
