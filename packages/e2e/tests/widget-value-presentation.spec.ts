@@ -75,7 +75,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
 
 test('ASSET values preserve the placeholder before the label and ellipsize long names', async ({ page }) => {
   const natural = await paintNode(page)
-  expect(natural.calls).toContain('no asset')
+  expect(natural.calls).toContain('Choose model')
   await test.info().attach('asset-placeholder-default-width', {
     body: await page.screenshot({ clip: natural.clip, animations: 'disabled' }),
     contentType: 'image/png',
@@ -83,8 +83,8 @@ test('ASSET values preserve the placeholder before the label and ellipsize long 
 
   const narrow = await paintNode(page, 140)
   expect(narrow.nodeWidth).toBe(140)
-  expect(narrow.calls).toContain('no asset')
-  expect(narrow.calls).not.toContain('no...')
+  expect(narrow.calls).toContain('Choose model')
+  expect(narrow.calls.some((call) => call.startsWith('Choose') && call.endsWith('...'))).toBe(false)
   await test.info().attach('asset-placeholder-narrow-width', {
     body: await page.screenshot({ clip: narrow.clip, animations: 'disabled' }),
     contentType: 'image/png',

@@ -59,7 +59,8 @@ export const canvasGalleryPages = [
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
   ['node-look', 'Original and new node look'],
-  ['collection-rows', 'Collection widget rows proposal'],
+  ['collection-rows', 'Collection widget rows'],
+  ['editor-rows', 'Rows that open an editor'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -159,13 +160,18 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
     ],
   }),
   widget('compositor', 'COMPOSITOR', null),
-  widget('asset', 'ASSET', {
-    digest: 'blake3:' + 'a'.repeat(64),
-    name: 'portrait-reference.png',
-    size: 1234567,
-    mediaType: 'image/png',
-    virtualPath: 'input/portrait-reference.png',
-  }),
+  widget(
+    'asset',
+    'ASSET',
+    {
+      digest: 'blake3:' + 'a'.repeat(64),
+      name: 'portrait-reference.png',
+      size: 1234567,
+      mediaType: 'image/png',
+      virtualPath: 'input/portrait-reference.png',
+    },
+    { accept: ['image/png', 'image/jpeg', 'image/webp'] },
+  ),
   widget('recording', 'AUDIO_RECORD', null),
   widget('webcam', 'WEBCAM', null),
   widget('mount', 'MOUNT', null),
@@ -404,6 +410,80 @@ export function createCanvasGalleryFixture(
           { position: 0.2, value: 0.1 },
           { position: 0.7, value: 0.65 },
           { position: 1, value: 0.3 },
+        ],
+      },
+    })
+  } else if (page === 'editor-rows') {
+    const opener = galleryWidgetInputs.filter((item) =>
+      [
+        'asset',
+        'recording',
+        'webcam',
+        'model',
+        'bounding_box',
+        'compare',
+        'save_target',
+        'video_edit',
+        'list',
+        'colors',
+        'curve',
+        'camera_angle',
+        'compositor',
+        'resolution',
+      ].includes(item.id),
+    )
+    const checkpoint: InputSpec = {
+      kind: 'input',
+      id: 'checkpoint',
+      type: concrete('ASSET'),
+      optional: false,
+      widget: {
+        widgetType: 'ASSET',
+        kind: 'model/checkpoints',
+        options: {},
+        default: null,
+      },
+    }
+    const definition = schema('Editor rows', [checkpoint, ...opener])
+    const audio = {
+      digest: 'blake3:' + 'b'.repeat(64),
+      name: 'voice-take-2.wav',
+      size: 482304,
+      mediaType: 'audio/wav',
+      virtualPath: 'input/voice-take-2.wav',
+    }
+    add('Chosen values', definition, {
+      checkpoint: {
+        digest: 'blake3:' + 'c'.repeat(64),
+        name: 'sd_xl_base_1.0.safetensors',
+        size: 6938078334,
+        mediaType: 'application/octet-stream',
+        virtualPath: 'models/checkpoints/sd_xl_base_1.0.safetensors',
+      },
+      recording: audio,
+      webcam: {
+        digest: 'blake3:' + 'd'.repeat(64),
+        name: 'webcam-frame.png',
+        size: 90211,
+        mediaType: 'image/png',
+        virtualPath: 'input/webcam-frame.png',
+      },
+      save_target: { mount: 'output', prefix: 'portraits/take' },
+      video_edit: { trim: { start_time: 2, duration: 5 } },
+    })
+    add('Empty values', definition, {
+      checkpoint: null,
+      asset: null,
+      recording: null,
+      webcam: null,
+      save_target: null,
+      video_edit: {},
+      list: [],
+      colors: [],
+      curve: {
+        points: [
+          { position: 0, value: 0 },
+          { position: 1, value: 1 },
         ],
       },
     })
@@ -1066,7 +1146,10 @@ export const rowEditingSchema: NodeSchema = schema('Sample image', [
   { kind: 'input', id: 'model', type: concrete('MODEL'), optional: false },
   { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
   {
-    ...widget('seed', 'INT', 123456789, { min: 0, max: '18446744073709551615' }),
+    ...widget('seed', 'INT', 123456789, {
+      min: 0,
+      max: '18446744073709551615',
+    }),
     tooltip: 'Starting point of the noise.',
     widget: {
       widgetType: 'INT',
@@ -1172,21 +1255,40 @@ const coreInput = (id: string): InputSpec =>
 
 /** The nodes of the node look page, each shown in every look. */
 export const nodeLookExamples = [
-  ['sample', 'Sample image', 'A pin row, a seed, two numbers, a slider and a text.'],
+  [
+    'sample',
+    'Sample image',
+    'A pin row, a seed, two numbers, a slider and a text.',
+  ],
   ['pins', 'Pins only', 'Three inputs and two outputs, no widgets.'],
-  ['raised', 'Raised rows', 'An asset and a color open a picker; a toggle, a dropdown and a multiline text.'],
-  ['sections', 'Sections', 'A collapsed section with a changed value, and the open Advanced section with its wash.'],
+  [
+    'raised',
+    'Raised rows',
+    'An asset and a color open a picker; a toggle, a dropdown and a multiline text.',
+  ],
+  [
+    'sections',
+    'Sections',
+    'A collapsed section with a changed value, and the open Advanced section with its wash.',
+  ],
   ['collapsed', 'Collapsed', 'A collapsed node is its title bar alone.'],
   ['selected', 'Selected', 'The selection outline.'],
   ['running', 'Running', 'Running, 45 percent done.'],
   ['error', 'Error', 'The run failed on this node.'],
   ['muted', 'Muted', 'A muted node is dimmed.'],
   ['bypassed', 'Bypassed', 'A bypassed node is dimmed under a purple wash.'],
-  ['subgraph', 'Subgraph instance', 'An instance of a subgraph, with its badge.'],
+  [
+    'subgraph',
+    'Subgraph instance',
+    'An instance of a subgraph, with its badge.',
+  ],
 ] as const
 export type NodeLookExample = (typeof nodeLookExamples)[number][0]
 
-const nodeLookSchemas: Record<'pins' | 'raised' | 'sections' | 'subgraph', NodeSchema> = {
+const nodeLookSchemas: Record<
+  'pins' | 'raised' | 'sections' | 'subgraph',
+  NodeSchema
+> = {
   pins: schema('Image blend', [
     { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
     { kind: 'input', id: 'overlay', type: concrete('IMAGE'), optional: false },
@@ -1201,17 +1303,38 @@ const nodeLookSchemas: Record<'pins' | 'raised' | 'sections' | 'subgraph', NodeS
   sections: schema('Save video', [
     { kind: 'input', id: 'images', type: concrete('IMAGE'), optional: false },
     widget('fps', 'FLOAT', 24, { min: 1, max: 120, step: 1 }),
-    { kind: 'section', id: 'output', displayName: 'Output', collapsedByDefault: true },
-    { ...widget('filename_prefix', 'STRING', 'video/Dinkster'), section: 'output' },
-    { ...widget('format', 'COMBO', 'mp4', { options: ['mp4', 'webm'] }), section: 'output' },
+    {
+      kind: 'section',
+      id: 'output',
+      displayName: 'Output',
+      collapsedByDefault: true,
+    },
+    {
+      ...widget('filename_prefix', 'STRING', 'video/Dinkster'),
+      section: 'output',
+    },
+    {
+      ...widget('format', 'COMBO', 'mp4', { options: ['mp4', 'webm'] }),
+      section: 'output',
+    },
     { ...widget('crf', 'INT', 19, { min: 0, max: 51 }), advanced: true },
-    { ...widget('preset', 'COMBO', 'medium', { options: ['fast', 'medium', 'slow'] }), advanced: true },
+    {
+      ...widget('preset', 'COMBO', 'medium', {
+        options: ['fast', 'medium', 'slow'],
+      }),
+      advanced: true,
+    },
   ]),
   subgraph: schema('Upscale and sharpen', [
     { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
     { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
     widget('scale', 'FLOAT', 2, { min: 1, max: 4, step: 0.5 }),
-    widget('sharpen', 'FLOAT', 0.35, { min: 0, max: 1, step: 0.05, display: 'slider' }),
+    widget('sharpen', 'FLOAT', 0.35, {
+      min: 0,
+      max: 1,
+      step: 0.05,
+      display: 'slider',
+    }),
   ]),
 }
 
@@ -1223,16 +1346,29 @@ export function createNodeLookFixture(
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   width = 280,
-): Pick<CanvasGalleryFixture, 'states' | 'badges' | 'overlay'> & { scene: Scene } {
+): Pick<CanvasGalleryFixture, 'states' | 'badges' | 'overlay'> & {
+  scene: Scene
+} {
   const size = { width, height: 0 }
   if (example === 'sample')
     return {
-      scene: createRowEditingScene(tokens, measure, widgetMeasure, position, width),
+      scene: createRowEditingScene(
+        tokens,
+        measure,
+        widgetMeasure,
+        position,
+        width,
+      ),
       states: {},
       badges: {},
       overlay: {},
     }
-  if (example === 'pins' || example === 'raised' || example === 'sections' || example === 'subgraph') {
+  if (
+    example === 'pins' ||
+    example === 'raised' ||
+    example === 'sections' ||
+    example === 'subgraph'
+  ) {
     const definition = nodeLookSchemas[example]
     const scene = singleNodeScene(
       definition,
@@ -1240,7 +1376,9 @@ export function createNodeLookFixture(
       {
         position,
         size,
-        ...(example === 'sections' ? { sections: { advanced: { collapsed: false } } } : {}),
+        ...(example === 'sections'
+          ? { sections: { advanced: { collapsed: false } } }
+          : {}),
       },
       tokens,
       measure,
@@ -1249,10 +1387,14 @@ export function createNodeLookFixture(
     return {
       scene:
         example === 'subgraph'
-          ? { ...scene, nodes: scene.nodes.map((node) => ({ ...node, isSubgraph: true })) }
+          ? {
+              ...scene,
+              nodes: scene.nodes.map((node) => ({ ...node, isSubgraph: true })),
+            }
           : scene,
       states: {},
-      badges: example === 'subgraph' ? { [definition.type]: [SUBGRAPH_BADGE] } : {},
+      badges:
+        example === 'subgraph' ? { [definition.type]: [SUBGRAPH_BADGE] } : {},
       overlay: {},
     }
   }
@@ -1272,7 +1414,9 @@ export function createNodeLookFixture(
         : example === 'error'
           ? { [sample.type]: { state: 'error' } }
           : {},
-    badges: example === 'error' ? { [sample.type]: [executionErrorBadge(1)] } : {},
-    overlay: example === 'selected' ? { selection: new Set([sample.type]) } : {},
+    badges:
+      example === 'error' ? { [sample.type]: [executionErrorBadge(1)] } : {},
+    overlay:
+      example === 'selected' ? { selection: new Set([sample.type]) } : {},
   }
 }

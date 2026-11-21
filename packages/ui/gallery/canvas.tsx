@@ -70,6 +70,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'core-rows',
         'row-editing',
         'collection-rows',
+        'editor-rows',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -113,6 +114,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'collection-rows':
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
+  'editor-rows':
+    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -224,6 +227,7 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
     case 'widgets':
     case 'core-rows':
     case 'collection-rows':
+    case 'editor-rows':
     case 'widget-driven':
     case 'widget-offered':
     case 'widget-companions':

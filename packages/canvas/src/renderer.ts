@@ -4676,10 +4676,62 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
   ctx.restore()
 }
 
-/** The text a row's own view shows for a value, and the color square before it if any. */
+/**
+ * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
+ * then "+N" for the rest. The first item always shows, cut if it must be.
+ */
+export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number): string {
+  const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
+  // Items past the row's width cannot fit, so the search starts below them.
+  let candidate = 0
+  for (let used = 0; candidate < items.length && used <= maxWidth; candidate++) {
+    used += measureWidth(ctx, items[candidate]!) + (candidate > 0 ? measureWidth(ctx, ', ') : 0)
+  }
+  for (let shown = candidate; shown >= 1; shown--) {
+    const text = items.slice(0, shown).join(', ') + more(shown)
+    if (measureWidth(ctx, text) <= maxWidth) return text
+  }
+  return fitText(ctx, items[0] ?? '', Math.max(0, maxWidth - measureWidth(ctx, more(1)))) + more(1)
+}
+
+/**
+ * As many color squares as fit in `maxWidth` ending at `right`, then "+N"
+ * for the rest in `textColor`. Returns the left edge of what was drawn.
+ */
+export function paintSwatchRow(ctx: CanvasRenderingContext2D, colors: readonly string[], right: number, centerY: number, maxWidth: number, tokens: DesignTokens, textColor: string): number {
+  const { size, listGap } = canvasPaintTokens.widget.valueSwatch
+  const count = (shown: number) => shown < colors.length ? `+${colors.length - shown}` : ''
+  const widthFor = (shown: number) => shown * size + Math.max(0, shown - 1) * listGap
+    + (shown < colors.length ? (shown > 0 ? listGap : 0) + measureWidth(ctx, count(shown)) : 0)
+  let shown = colors.length
+  while (shown > 0 && widthFor(shown) > maxWidth) shown--
+  let left = right
+  const rest = count(shown)
+  if (rest !== '') {
+    const align = ctx.textAlign
+    ctx.fillStyle = textColor
+    ctx.textAlign = 'right'
+    ctx.fillText(rest, right, centerY)
+    ctx.textAlign = align
+    left -= measureWidth(ctx, rest) + listGap
+  }
+  for (let index = shown - 1; index >= 0; index--) {
+    left -= size
+    paintValueSwatch(ctx, colors[index]!, left, centerY - size / 2, tokens)
+    left -= listGap
+  }
+  return left + listGap
+}
+
+/**
+ * The text a row's own view shows for a value, with the color square before
+ * it, the list items it fits, or the color squares it draws instead.
+ */
 export interface CompanionSummary {
   readonly text: string
   readonly swatch?: string
+  readonly items?: readonly string[]
+  readonly swatches?: readonly string[]
 }
 
 /**
@@ -4698,7 +4750,8 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const estimate = companion.state === 'estimate'
   // The approx prefix keeps a mirror-computed estimate distinguishable from
   // an execution-recorded value even without color.
-  const text = (estimate ? '\u2248 ' : '') + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
+  const prefix = estimate ? '\u2248 ' : ''
+  const text = prefix + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
   const swatch = summary?.swatch
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
@@ -4711,24 +4764,30 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
     : estimate ? tokens.colors.companionEstimate : tokens.colors.companionValue
   ctx.font = `italic ${prevFont}`
   ctx.globalAlpha = companionAlpha ?? prevAlpha
-  const displayText = fitText(ctx, text, availableWidth)
+  const textY = y + rowHeight / 2
+  // Squares stand in for the text; the prefix, if any, sits before them.
+  const squaresLeft = summary?.swatches === undefined
+    ? undefined
+    : paintSwatchRow(ctx, summary.swatches, x + field.right, textY, Math.max(0, availableWidth - measureWidth(ctx, prefix)), tokens, color)
+  const textRight = squaresLeft === undefined ? x + field.right : squaresLeft - (prefix === '' ? 0 : canvasPaintTokens.widget.valueSwatch.listGap)
+  const displayText = squaresLeft !== undefined ? prefix
+    : summary?.items !== undefined ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
+    : fitText(ctx, text, availableWidth)
   ctx.fillStyle = color
   ctx.textAlign = 'right'
-  const textRight = x + field.right
-  const textY = y + rowHeight / 2
   ctx.fillText(displayText, textRight, textY)
   if (swatch !== undefined) {
     const { size, gap } = canvasPaintTokens.widget.valueSwatch
     paintValueSwatch(ctx, swatch, textRight - measureWidth(ctx, displayText) - gap - size, textY - size / 2, tokens)
   }
-  if (unproven && displayText.length > 0) {
+  if (unproven && (displayText.length > 0 || squaresLeft !== undefined)) {
     ctx.save()
     ctx.strokeStyle = color
     ctx.lineWidth = canvasPaintTokens.widget.companion.stroke
     ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
     ctx.beginPath()
     ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + canvasPaintTokens.widget.companion.underlineOffset)
-    ctx.lineTo(textRight, textY + canvasPaintTokens.widget.companion.underlineOffset)
+    ctx.lineTo(x + field.right, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.stroke()
     ctx.restore()
   }

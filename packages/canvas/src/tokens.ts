@@ -427,8 +427,8 @@ export const canvasPaintTokens = {
   widget: {
     opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
-    /** The color square directly before a color code, and its checker cells. */
-    valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3 },
+    /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
+    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
