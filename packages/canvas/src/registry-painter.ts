@@ -8,13 +8,14 @@
  * layout-independent; the adapter owns pixels.
  */
 
-import { formatWidgetValue, type Json, type WidgetRegistry } from '@dinkster/core'
+import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
+import type { ToolboxButton } from './toolbox.js'
 
 const paint = canvasPaintTokens.widget
 const TEXT_PAD = paint.textPadding
@@ -34,6 +35,37 @@ function compactAssetValue(value: Json, valid: boolean): string {
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
   const custom = options[value === true ? 'labelOn' : 'labelOff']
   return typeof custom === 'string' && custom !== '' ? custom : String(value)
+}
+
+/**
+ * The value text a view draws for `value` on its own row, so a value passed
+ * down a wire reads the same as a stored one. Undefined when the view draws
+ * no value text or cannot draw this value.
+ */
+function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): CompanionSummary | undefined {
+  let summary: CompanionSummary | undefined
+  try {
+    view.drawCompact({
+      rect: () => {},
+      text: (_x, _y, run, style) => {
+        if (summary !== undefined || style['role'] !== 'widgetValue') return
+        const text = run.split('\n')[0] ?? ''
+        summary = typeof style['swatch'] === 'string' ? { text, swatch: style['swatch'] } : { text }
+      },
+      hitRegion: () => {},
+    }, value, spec, { focused: false, connected: false, readonly: true })
+  } catch {
+    return undefined
+  }
+  return summary
+}
+
+/** Kind icon of each row that opens an editor, raised in the `raised-editors` look. */
+const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon']>>> = {
+  'core.asset': 'image',
+  'core.list': 'list',
+  'core.colors': 'palette',
+  'core.curve': 'spline',
 }
 
 /** Measured ASCII ellipsis shared by every registry-backed compact view.
@@ -60,12 +92,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fill()
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
-      const formatted = formatWidgetValue(args.companion.value, row.spec)
+      const summary = tokens.widgetRowLook === 'raised-editors'
+        ? compactSummary(view, args.companion.value, row.spec)
+        : undefined
+      const formatted = summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
       const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
       const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
       ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
-      paintCompanionValue(args)
+      paintCompanionValue(args, summary)
       return
     }
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
@@ -81,16 +116,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const inRow = tokens.widgetEditing === 'in-row'
     // In-row editing draws a number's after-run mode as an icon before its value instead of the chip.
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
-    const openerIcon = tokens.widgetRowLook !== 'inset'
-      ? row.viewId === 'core.asset' ? 'image'
+    const rowsRaisedForEditors = tokens.widgetRowLook === 'raised-editors'
+    const openerIcon = rowsRaisedForEditors
+      ? RAISED_ROW_ICONS[row.viewId]
+      : row.viewId === 'core.asset' ? 'image'
         : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
-        : tokens.widgetRowLook === 'inset-raised-collections'
-          ? row.viewId === 'core.multiSelect' ? 'list-checks'
-            : row.viewId === 'core.list' ? 'list'
-            : row.viewId === 'core.colors' ? 'palette'
-            : row.viewId === 'core.curve' ? 'spline' : undefined
-          : undefined
-      : undefined
+        : undefined
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
@@ -242,12 +273,16 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           }
           if (style['role'] === 'curveSample') {
             ctx.fillStyle = tokens.colors.widgetAffordanceActive
-            if (tokens.widgetRowLook === 'inset-raised-collections') {
-              // Keep the trace below the summary; field padding erases thin samples.
-              const plotHeight = rowHeight - paint.curve.inset * 2
-              ctx.fillRect(contentStart + rx * contentWidth,
-                y + rowHeight + paint.curve.inset + ry / paint.curve.sourceRows * plotHeight,
-                Math.min(rw, 1 - rx) * contentWidth,
+            if (rowsRaisedForEditors) {
+              // The curve fills the row's second line from the row's start,
+              // clear of the row's edges and of the summary above it.
+              const plotLeft = chrome.x + paint.curve.insetX
+              const plotWidth = Math.max(0, chrome.width - paint.curve.insetX * 2)
+              const plotTop = y + rowHeight + paint.curve.inset
+              const plotHeight = Math.max(0, chrome.y + chrome.height - paint.curve.inset - plotTop)
+              ctx.fillRect(plotLeft + rx * plotWidth,
+                plotTop + ry / paint.curve.sourceRows * plotHeight,
+                Math.min(rw, 1 - rx) * plotWidth,
                 Math.max(paint.curve.minSampleHeight, rh / paint.curve.sourceRows * plotHeight))
               return
             }
@@ -284,7 +319,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const zoneRight = alignRight ? px - reserveRight : px + reserveLeft + zoneWidth
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
-            const iconReserve = modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0
+            const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
+            const iconReserve = (modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0)
+              + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
             const text = ellipsize(ctx, run.split('\n')[0] ?? '', Math.max(0, availableWidth - iconReserve))
             const lineTop = y + ty * rowHeight + geometry.fieldInsetY
             const lineBottom = y + (ty + 1) * rowHeight - geometry.fieldInsetY
@@ -308,6 +345,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,
                   textY - modeIconSize / 2, modeIconSize, tokens.colors.valueMark)
+              }
+              if (swatch !== undefined) {
+                paintValueSwatch(ctx, swatch, textX - measureWidth(ctx, text) - paint.valueSwatch.gap - paint.valueSwatch.size,
+                  textY - paint.valueSwatch.size / 2, tokens)
               }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)

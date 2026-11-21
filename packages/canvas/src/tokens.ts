@@ -426,7 +426,9 @@ export const canvasPaintTokens = {
   },
   widget: {
     opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
-    curve: { sourceRows: 2, inset: 2, minSampleHeight: 1 },
+    curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
+    /** The color square directly before a color code, and its checker cells. */
+    valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -560,7 +562,16 @@ export interface DesignTokens {
   readonly fontFamily: string
   readonly fontSize: number
   readonly titleFontSize: number
-  readonly widgetRowLook: 'inset' | 'inset-raised' | 'inset-raised-collections'
+  /**
+   * Which rows are raised and what a closed row shows. `raised-editors`:
+   * a row that opens an editor is raised, a value typed in its row is an
+   * inset field, a color's square sits directly before its code over a
+   * checker pattern, a curve is drawn in its row, and a value passed down a
+   * wire shows the same summary as its own row. `inset-raised` is the
+   * earlier look: color and asset rows raised, the square by the name, a
+   * curve described in text and a passed structured value shown as code.
+   */
+  readonly widgetRowLook: 'inset-raised' | 'raised-editors'
   /**
    * How number, single-line text and seed rows are edited: in a card under
    * the row, or in the row itself. In-row editing tints a slider's fill with
@@ -616,6 +627,9 @@ export interface DesignTokens {
     readonly title: string
     readonly label: string
     readonly valueMark: string
+    /** The two squares of the pattern under a color square with opacity. */
+    readonly swatchChecker: string
+    readonly swatchCheckerAlt: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -727,7 +741,7 @@ export const defaultTokens: DesignTokens = {
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
   titleFontSize: 13,
-  widgetRowLook: 'inset-raised',
+  widgetRowLook: 'raised-editors',
   widgetEditing: 'card',
   nodeLook: 'flat-title',
   crispEdges: true,
@@ -819,6 +833,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     label: tokens.text.secondary,
     // A word or icon before a value that describes it, such as a seed's mode.
     valueMark: tokens.text.muted,
+    swatchChecker: tokens.surface.checker,
+    swatchCheckerAlt: tokens.surface.checkerAlt,
     value: tokens.text.primary,
     widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
     widgetAffordance: tokens.text.disabled,

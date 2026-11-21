@@ -382,8 +382,8 @@ describe('registry painter label/value split', () => {
   })
 
   it.each([
-    { look: 'inset' as const, width: 112 },
-    { look: 'inset-raised' as const, width: 121 },
+    { look: 'raised-editors' as const, width: 121 },
+    { look: 'raised-editors' as const, width: 160 },
     { look: 'inset-raised' as const, width: 160 },
   ])('keeps a short ASSET placeholder whole with $look controls and a long label', ({ look, width }) => {
     const tokens = { ...defaultTokens, widgetRowLook: look }

@@ -4645,26 +4645,66 @@ export function paintStaleValueStrikethrough(
   ctx.restore()
 }
 
+/** A color with opacity: `#rgba` or `#rrggbbaa` short of fully opaque. */
+function hasOpacity(color: string): boolean {
+  const alpha = /^#(?:[\da-f]{3}([\da-f])|[\da-f]{6}([\da-f]{2}))$/i.exec(color)
+  return alpha !== null && !/^f+$/i.test(alpha[1] ?? alpha[2]!)
+}
+
+/** The square of a color directly before its code; opacity shows over a checker pattern. */
+export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, left: number, top: number, tokens: DesignTokens): void {
+  const { size, radius, checkerCell } = canvasPaintTokens.widget.valueSwatch
+  // Whole pixels keep the square's edges and checker cells sharp.
+  left = Math.round(left)
+  top = Math.round(top)
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(left, top, size, size, radius)
+  ctx.clip()
+  if (hasOpacity(color)) {
+    ctx.fillStyle = tokens.colors.swatchCheckerAlt
+    ctx.fillRect(left, top, size, size)
+    ctx.fillStyle = tokens.colors.swatchChecker
+    for (let row = 0; row * checkerCell < size; row++) {
+      for (let column = row % 2; column * checkerCell < size; column += 2) {
+        ctx.fillRect(left + column * checkerCell, top + row * checkerCell, checkerCell, checkerCell)
+      }
+    }
+  }
+  ctx.fillStyle = color
+  ctx.fillRect(left, top, size, size)
+  ctx.restore()
+}
+
+/** The text a row's own view shows for a value, and the color square before it if any. */
+export interface CompanionSummary {
+  readonly text: string
+  readonly swatch?: string
+}
+
 /**
  * Draw a companion (propagated) value into a widget row whose chrome+label
  * are already painted: italic, companion color, right-aligned - the shared
  * "this is what flows in, not what you stored" style for every widget kind.
  * Stale/unproven companions use their own semantic color and dotted
  * underline. Full text opacity preserves AA contrast and the underline keeps
- * the state distinguishable without color.
+ * the state distinguishable without color. `summary`, when given, is the
+ * text the row's own view shows for the value, used instead of its code.
  */
-export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs): void {
+export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs, summary?: CompanionSummary): void {
   if (companion === undefined) return
   const prevFont = ctx.font
   const prevAlpha = ctx.globalAlpha
   const estimate = companion.state === 'estimate'
   // The approx prefix keeps a mirror-computed estimate distinguishable from
   // an execution-recorded value even without color.
-  const text = (estimate ? '\u2248 ' : '') + (formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
+  const text = (estimate ? '\u2248 ' : '') + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
+  const swatch = summary?.swatch
+  const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   const labelZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
-  const availableWidth = Math.max(0, field.right - field.left - labelZone)
+  const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven
     ? tokens.colors.companionUnproven
@@ -4677,6 +4717,10 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const textRight = x + field.right
   const textY = y + rowHeight / 2
   ctx.fillText(displayText, textRight, textY)
+  if (swatch !== undefined) {
+    const { size, gap } = canvasPaintTokens.widget.valueSwatch
+    paintValueSwatch(ctx, swatch, textRight - measureWidth(ctx, displayText) - gap - size, textY - size / 2, tokens)
+  }
   if (unproven && displayText.length > 0) {
     ctx.save()
     ctx.strokeStyle = color

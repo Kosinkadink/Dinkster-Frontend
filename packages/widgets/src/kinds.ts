@@ -696,7 +696,11 @@ function drawCompactNumber(
     ctx.rect(0, 0, fraction, 1, { role: 'numericRangeFill', fraction })
   }
   const label = (spec.options['display_name'] as string | undefined) ?? ''
-  compactRow(ctx, label, formatted, state, 'widget.edit')
+  // An empty number shows its hint when it declares one, otherwise nothing.
+  const empty = value === null || value === undefined
+  const hint = spec.options['placeholder']
+  compactRow(ctx, label, empty ? (typeof hint === 'string' ? hint : '') : formatted, state, 'widget.edit',
+    empty && typeof hint === 'string')
 }
 
 export const numberView: WidgetView<IntegerWidgetValue> = {
@@ -820,15 +824,8 @@ export const colorView: WidgetView<string> = {
   ...makeCompactView<string>('core.color', 'COLOR'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    ctx.text(0, 0, label, { role: 'widgetLabel', width: 0.42 })
-    // A compact square leaves the remaining row for the exact stored text;
-    // alpha remains visible even though canvas fill colors also consume it.
-    ctx.rect(0, 0.2, 0.12, 0.6, { fill: value, fixedAspect: 'square' })
-    ctx.text(1, 0, value, {
-      role: 'widgetValue', align: 'right', width: 1, reserveLeft: 16, truncated: state.truncated ?? false,
-    })
-    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+    // `swatch` asks the painter for a square of the color directly before its code.
+    compactRow(ctx, label, value, state, 'widget.edit', false, { swatch: value })
   },
 }
 export function integerColorHex(value: unknown): string | undefined {
@@ -853,7 +850,10 @@ export const colorsView: WidgetView<string[]> = {
     for (const [index, color] of value.slice(0, 4).entries()) {
       ctx.rect(index * 0.14, 0.2, 0.12, 0.6, { fill: color, fixedAspect: 'square' })
     }
-    ctx.text(1, 0, `${value.length} colors`, { role: 'widgetValue', align: 'right', width: 1, reserveLeft: 64, truncated: state.truncated ?? false })
+    ctx.text(1, 0, value.length === 0 ? 'No colors' : `${value.length} colors`, {
+      role: 'widgetValue', align: 'right', width: 1, reserveLeft: 64, truncated: state.truncated ?? false,
+      ...(value.length === 0 ? { placeholder: true } : {}),
+    })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
   },
 }
