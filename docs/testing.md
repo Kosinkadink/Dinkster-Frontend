@@ -241,6 +241,9 @@ explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
 Product option fixtures resolve controls by option ID rather than global list
 position so collection updates cannot redirect a pending selection.
+Detached-window close actions require the page's close event and retain all
+rejoin and recovery assertions. Only a click's target-closed error on an
+already closed page is accepted; other action errors still fail the case.
 Palette surface fixtures await startup ownership before publishing schemas or
 opening their document so they do not invalidate the restored inventory's acknowledgment.
 Remote combo refresh proof waits for the previous option to detach and the
