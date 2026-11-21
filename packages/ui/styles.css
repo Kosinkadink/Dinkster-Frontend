@@ -25,7 +25,8 @@
 .dinkster-nav-item[aria-current='page'] { background: var(--dinkster-surface-selected); color: var(--dinkster-text-primary); border-left-color: var(--dinkster-accent-border); }
 .dinkster-page { min-width: 0; padding: var(--dinkster-page-padding); }
 .dinkster-root .dinkster-page:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
-.dinkster-content { max-width: var(--dinkster-content-max-width); }
+/* Centered in the space beside the sidebar; its contents stay left-aligned. */
+.dinkster-content { max-width: var(--dinkster-content-max-width); margin-inline: auto; }
 .dinkster-content[data-width='table'] { max-width: var(--dinkster-table-max-width); }
 .dinkster-stack { display: grid; gap: var(--dinkster-space-16); }
 .dinkster-stack > :is(.dinkster-button, .dinkster-menu-anchor) { justify-self: start; }
@@ -138,7 +139,7 @@
 [data-density='site'] .dinkster-nav-item:hover { background: var(--dinkster-interaction-hover); }
 [data-density='site'] .dinkster-nav-item[aria-current='page']::before { content: ''; position: absolute; left: 0; top: calc((100% - var(--dinkster-site-navigation-marker-height)) / 2); width: var(--dinkster-site-navigation-marker-width); height: var(--dinkster-site-navigation-marker-height); border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) 0; background: var(--dinkster-accent-border); }
 [data-density='site'] .dinkster-page { padding: 0; }
-[data-density='site'] .dinkster-content { max-width: var(--dinkster-site-content-max-width); gap: var(--dinkster-site-section-gap); }
+[data-density='site'] .dinkster-content { max-width: var(--dinkster-site-content-max-width); margin-inline: 0; gap: var(--dinkster-site-section-gap); }
 [data-density='site'] .dinkster-content > header + :not(section) { margin-top: calc(var(--dinkster-site-title-panel-gap) - var(--dinkster-site-section-gap)); }
 [data-density='site'] .dinkster-content > section { gap: var(--dinkster-site-heading-gap); }
 [data-density='site'] :is(.dinkster-list, .dinkster-panel) { background: var(--dinkster-surface-panel); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-site-panel-radius); }
@@ -279,7 +280,11 @@
 .dinkster-canvas-side-mode-meaning { margin: 0; color: var(--dinkster-text-secondary); }
 .dinkster-canvas-side-link { padding: 0; border: 0; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); background: transparent; color: var(--dinkster-text-secondary); font: inherit; cursor: pointer; }
 .dinkster-canvas-side-link:hover { color: var(--dinkster-text-primary); }
-.dinkster-canvas-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); }
-.dinkster-canvas-example { display: grid; gap: var(--dinkster-space-8); margin: 0; }
+/* Its width comes from the column, never from a wide card, so a card can shrink and scroll. */
+.dinkster-canvas-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); contain: inline-size; }
+/* As wide as its picture, so a long caption wraps under it; wider than the column, it scrolls inside itself, never the page. */
+.dinkster-canvas-example { display: grid; grid-template-columns: min-content; gap: var(--dinkster-space-8); width: min-content; max-width: 100%; margin: 0; overflow-x: auto; }
+.dinkster-canvas-comparison { display: grid; gap: var(--dinkster-space-8); }
+.dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }

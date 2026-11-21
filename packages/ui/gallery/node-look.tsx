@@ -56,7 +56,6 @@ function NodeLookCard(props: {
   registry: WidgetRegistry
 }) {
   let canvas!: HTMLCanvasElement
-  let figure!: HTMLElement
   const id = () => `${props.example}-${props.card.id}`
   createEffect(() => {
     const theme = props.theme
@@ -106,7 +105,6 @@ function NodeLookCard(props: {
       const width = MARGIN * 2 + NODE_WIDTH
       // Room under the node for a collapsed node's attached tab.
       const height = TOP + node.layout.height + MARGIN * 2
-      figure.style.width = `${width}px`
       canvas.style.width = `${width}px`
       canvas.style.height = `${height}px`
       renderer = new CanvasRenderer(
@@ -131,7 +129,7 @@ function NodeLookCard(props: {
     })
   })
   return (
-    <figure ref={figure} class="dinkster-canvas-example">
+    <figure class="dinkster-canvas-example">
       <canvas
         ref={canvas}
         role="img"
