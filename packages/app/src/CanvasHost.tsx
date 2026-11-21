@@ -2571,7 +2571,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // surface; the ordinary host-owned editor Escape path resumes once the
       // surface is gone.
       if (editorOpen && document.querySelector('.suggestion-surface') &&
-        isInside(event, '.widget-editor')) return
+        isInside(event, '.widget-editor, .widget-in-row-field')) return
       if (paletteOpen) dismiss(event, closePalette)
       else if (editorOpen) {
         // Let an unblocked native widget dialog own Escape so the browser

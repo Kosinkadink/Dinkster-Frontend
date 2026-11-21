@@ -38,9 +38,10 @@ export type TextControl = HTMLInputElement | HTMLTextAreaElement
  * The suggestion list of a text editor: embeddings and LoRAs from the live
  * inventory, or the text editor extensions registered for the field. Shared
  * by the card and the field open in its row. `isLive` is false once the
- * editor is closed, so a late result is dropped.
+ * editor is closed, so a late result is dropped. `onAccepted` runs after a
+ * picked suggestion is written into the control.
  */
-export function createTextCompletions(host: WidgetEditorProps, isLive: () => boolean) {
+export function createTextCompletions(host: WidgetEditorProps, isLive: () => boolean, onAccepted?: (control: TextControl) => void) {
   const ed = host.ed
   const text = ed.spec?.widgetType === 'STRING'
   const [session, setSession] = createSignal<CompletionSession>({ status: 'idle' })
@@ -57,6 +58,7 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
   let controller: AbortController | undefined
   let serial = 0
   let completionAnchor: TextControl | undefined
+  let placeAt: (() => HTMLElement | null) | undefined
   
   const completionContext = (): TextWidgetEditorContext | undefined => {
     if (!text || ed.spec === undefined || ed.target.kind !== 'input') return undefined
@@ -135,18 +137,20 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
     textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`
     textarea.setSelectionRange(start + text.length, start + text.length)
     closeCompletions()
+    onAccepted?.(textarea)
   }
   
   const completionHandlers = {
     input: (event: InputEvent & { currentTarget: TextControl }) => requestCompletions(event.currentTarget, typeof event.data === 'string' ? event.data : event.currentTarget.value.at((event.currentTarget.selectionStart ?? 0) - 1) ?? ''),
   }
-  const Suggestions = () => <Show when={open() && completionAnchor !== undefined}><SuggestionSurface ariaLabel="Text suggestions" anchor={completionAnchor!} {...(host.boundary === undefined ? {} : { boundary: host.boundary })} state={surfaceState()} interaction={interaction} onAccept={(entry) => accept(completionAnchor!, entry)} /></Show>
+  const Suggestions = () => <Show when={open() && completionAnchor !== undefined}><SuggestionSurface ariaLabel="Text suggestions" anchor={placeAt?.() ?? completionAnchor!} {...(host.boundary === undefined ? {} : { boundary: host.boundary })} state={surfaceState()} interaction={interaction} onAccept={(entry) => accept(completionAnchor!, entry)} /></Show>
   const completionKeyDown = (event: KeyboardEvent & { currentTarget: TextControl }): boolean => interaction.onKeyDown(event, entries(), event.currentTarget, (entry) => accept(event.currentTarget, entry), closeCompletions)
   return {
     open,
     entries,
     interaction,
-    anchor: (element: TextControl): void => { completionAnchor = element },
+    /** The control picked suggestions go into; `place` is what the list is placed against, the control by default. */
+    anchor: (element: TextControl, place?: () => HTMLElement | null): void => { completionAnchor = element; placeAt = place },
     requestCompletions,
     completionHandlers,
     completionKeyDown,

@@ -1,9 +1,10 @@
-import { createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
 import { jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { numberFieldFacts } from '@dinkster/widgets'
 import { CanvasRowField, CanvasSeedModeIcon, CanvasSideModes, CanvasSidePart, canvasSidePlace, type CanvasSeedMode } from '@dinkster/ui'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote } from '../widget-commit.js'
+import { createTextCompletions } from './text-completions.js'
 
 /**
  * A number, single-line text or seed row edited in its own row on the
@@ -25,6 +26,24 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   let live = true
   let input: HTMLInputElement | undefined
   onCleanup(() => { live = false })
+
+  // Text keeps today's suggestion list. It is part of the open field: while
+  // it is open, Tab and Enter pick and Escape closes only the list.
+  const completions = numeric ? undefined : createTextCompletions(host, () => live, (control) => setDraft(control.value))
+  const suggest = (trigger: string): void => {
+    if (completions !== undefined && input !== undefined) completions.requestCompletions(input, trigger)
+  }
+  createEffect(() => {
+    if (completions === undefined || input === undefined) return
+    const open = completions.open()
+    input.setAttribute('aria-autocomplete', 'list')
+    input.setAttribute('aria-expanded', String(open))
+    const active = completions.interaction.activeOptionId(completions.entries())
+    if (open) input.setAttribute('aria-controls', completions.interaction.listboxId)
+    else input.removeAttribute('aria-controls')
+    if (active === undefined) input.removeAttribute('aria-activedescendant')
+    else input.setAttribute('aria-activedescendant', active)
+  })
 
   const typed = createMemo(() =>
     numeric && draft() !== initialText ? resolveTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue) : undefined)
@@ -112,6 +131,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   // wait for the store, so the next row opens on the updated document.
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing) return
+    if (completions?.open() === true && completions.completionKeyDown(event as KeyboardEvent & { currentTarget: HTMLInputElement })) return
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
@@ -204,9 +224,22 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         rowWidth={rowWidth}
         label={ed.label}
         value={draft()}
-        onInput={setDraft}
+        onInput={(value) => {
+          setDraft(value)
+          suggest(value.at((input?.selectionStart ?? 0) - 1) ?? '')
+        }}
         onKeyDown={onKeyDown}
-        inputRef={(element) => { input = element; queueMicrotask(() => placeCursor(element)) }}
+        inputRef={(element) => {
+          input = element
+          if (completions !== undefined) {
+            completions.anchor(element, () => element.closest<HTMLElement>('.dinkster-canvas-field-row'))
+            element.addEventListener('click', () => suggest(''))
+            element.addEventListener('keyup', (event) => {
+              if (completions.entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) suggest('')
+            })
+          }
+          queueMicrotask(() => placeCursor(element))
+        }}
         inputLabel={`Edit ${ed.label}`}
         {...(typeof spec.options['placeholder'] === 'string' ? { placeholder: spec.options['placeholder'] } : {})}
         {...(numeric ? {
@@ -222,6 +255,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         onSideSize={setSideSize}
         {...(side() === undefined ? {} : { side: side()! })}
       />
+      {completions === undefined ? null : <completions.Suggestions />}
       <Show when={props.commitError()}>
         {(error) => <p class="dinkster-canvas-side-problem" role="alert" data-testid="widget-commit-error">{error()}</p>}
       </Show>
