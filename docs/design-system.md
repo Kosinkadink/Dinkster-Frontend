@@ -92,7 +92,9 @@ hovered fill.
   Its wordmark, Account product label and 32px account circle share that frame.
   On phones the navigation is a 240px overlay aligned 8px from the window edge
   and 4px below its toggle button; it closes on an outside press, Escape or a
-  choice without moving the page.
+  choice without moving the page. A navigation item may carry headed groups
+  of pages, shown under it while it or one of its pages is current; each
+  heading is a button that opens and closes its pages.
   App density retains the full-width frame. The top bar stays while scrolling. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
   `ProductLoading` until data arrives. Selecting from open mobile navigation
@@ -713,12 +715,16 @@ not add DOM roots.
 
 ### Canvas gallery
 
-The shared component gallery includes `/#canvas`. Its theme buttons and its
-Page list, grouped under Nodes, Tabs and states, Rows, Wires, Subgraphs and
-Zoom, select fixed examples painted by the production `CanvasRenderer`,
-registry widget painter, layout and scene builder, without a backend. Previous
-page and Next page step through the list in order, and the selected page is
-kept in the address as `?page=<id>` so a page can be linked. Each page
+The shared component gallery includes `/#canvas`. Its pages show fixed
+examples painted by the production `CanvasRenderer`, registry widget painter,
+layout and scene builder, without a backend. They are listed in the gallery's
+side list under Canvas, in headings Nodes, Tabs and states, Rows, Wires,
+Subgraphs and Zoom. Only the heading holding the current page starts open; a
+heading opens and closes on a click, Enter or Space, and opening a page opens
+its heading. Each page has its own link, `?page=<id>#canvas`. The foot of the
+page links the previous and next page in list order by name. Only the dark
+theme is designed, so the page has no theme control; `&theme=light` in the
+address shows the light theme for checks. Each page
 has one sentence on what to look at. Each example is its own card: a canvas
 sized to the example's nodes, links, tabs and toolbar, with its name as the
 caption, in rows that wrap. Whole graphs (structural parts, subgraph pages and
