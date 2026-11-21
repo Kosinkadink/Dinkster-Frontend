@@ -106,8 +106,9 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
 
-  // The list stays while a row is open in place. The row is on the node
-  // Enter centered, once the camera has stopped.
+  // The list stays while a row is open in place. Once the camera has stopped
+  // on the node Enter centered, show that node at 100 percent so its rows
+  // take clicks, and open its width row.
   const viewportNow = () => page.evaluate(() => JSON.stringify(window.__dinksterTest!.renderer!.getViewport()))
   let settled = ''
   await expect.poll(async () => {
@@ -127,10 +128,10 @@ test('semantic scene navigation stays virtual until focused and pans only on act
         Math.hypot(a.x + a.layout.width / 2 - centerX, a.y + a.layout.height / 2 - centerY) -
         Math.hypot(b.x + b.layout.width / 2 - centerX, b.y + b.layout.height / 2 - centerY))[0]!
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'width')!
-    return {
-      x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
-      y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
-    }
+    const x = canvas.width / 2 - (node.x + node.layout.width / 2)
+    const y = canvas.height / 2 - (node.y + row.y + row.height / 2)
+    renderer.setViewport({ x, y, scale: 1 })
+    return { x: canvas.left + canvas.width / 2, y: canvas.top + canvas.height / 2 }
   })
   await page.mouse.click(widthRow.x, widthRow.y)
   await expect(page.locator('.widget-in-row-field input')).toBeFocused()

@@ -526,7 +526,7 @@ test('MARKDOWN previews safely and edits one undoable source string', async ({ p
   await page.screenshot({ path: testInfo.outputPath('markdown-readonly-desktop.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')
   await openEditor(page, 'title')
-  await expect(page.getByRole('dialog', { name: 'Edit title STRING' }).locator('input')).toHaveValue('Unchanged text')
+  await expect(page.getByRole('textbox', { name: 'title', exact: true })).toHaveValue('Unchanged text')
   await page.screenshot({ path: testInfo.outputPath('markdown-string-sibling.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')
 })
@@ -1234,15 +1234,17 @@ test('INT and single-line STRING popover blur does not commit while in-node mult
   const int = page.getByTestId('widget-editor').locator('input')
   await int.fill('12'); await int.blur()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBeUndefined()
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
-  await page.getByTestId('widget-editor-cancel').click()
+  // The field stays open with what was typed; Escape discards it.
+  await expect(int).toHaveValue('12')
+  await int.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 
   await openEditor(page, 'title')
   const str = page.getByTestId('widget-editor').locator('input')
   await str.fill('not committed by blur'); await str.blur()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBeUndefined()
-  await page.getByTestId('widget-editor-cancel').click()
+  await expect(str).toHaveValue('not committed by blur')
+  await str.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 
   // The in-node multiline textarea keeps its established blur-commit path.
@@ -1329,7 +1331,7 @@ test('numeric row edge steppers use schema defaults and bounds; each click is on
 
   // A center click retains the text editor behavior.
   await openEditor(page, 'count')
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
+  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
   await page.getByTestId('widget-editor').locator('input').fill('100')
   await page.getByTestId('widget-editor').locator('input').press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)

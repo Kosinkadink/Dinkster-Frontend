@@ -60,7 +60,7 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
   let serial = 0
   let completionAnchor: TextControl | undefined
   let placeAt: (() => HTMLElement | null) | undefined
-  
+
   const completionContext = (): TextWidgetEditorContext | undefined => {
     if (!text || ed.spec === undefined || ed.target.kind !== 'input') return undefined
     const nodeType = ed.tab.store.doc.graphs[ed.graphId]?.nodes[ed.target.nodeId]?.type
@@ -74,7 +74,7 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
     setSession({ status: 'idle' }); interaction.reset()
   }
   onCleanup(closeCompletions)
-  
+
   const openSession = (handle: TextCompletionInventoryRequestHandle, request: CompletionContext & { textarea: TextControl; providerByCompletion?: ReadonlyMap<TextCompletion, TextWidgetEditorExtension> }): void => {
     const requestSerial = ++serial
     const context = { text: request.text, caret: request.caret, ...(request.isCurrent === undefined ? {} : { isCurrent: request.isCurrent }) }
@@ -95,7 +95,7 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
       interaction.reset()
     })
   }
-  
+
   const requestCompletions = (textarea: TextControl, trigger: string): void => {
     const context = completionContext()
     if (context === undefined) return
@@ -127,7 +127,7 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
     })
     openSession({ loading: { status: 'loading', scopeId, query: '' }, settled }, { textarea, text, caret, providerByCompletion: providerMap })
   }
-  
+
   const accept = (textarea: TextControl, entry: CompletionEntry): void => {
     const state = session()
     const context = completionContext()
@@ -140,7 +140,7 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
     closeCompletions()
     onAccepted?.(textarea)
   }
-  
+
   const completionHandlers = {
     input: (event: InputEvent & { currentTarget: TextControl }) => requestCompletions(event.currentTarget, typeof event.data === 'string' ? event.data : event.currentTarget.value.at((event.currentTarget.selectionStart ?? 0) - 1) ?? ''),
   }
