@@ -49,25 +49,17 @@
   resize: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  /* auto lets the 6px WebKit product scrollbar own Chromium layout width. */
+  /* auto keeps the field's own width in Firefox and lets its 6px WebKit scrollbar own the layout width in Chromium. */
   scrollbar-width: auto;
-  scrollbar-color: auto;
 }
 
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar {
   width: var(--multiline-scrollbar-width, 6px);
   height: var(--multiline-scrollbar-width, 6px);
 }
-.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-track { background: var(--dinkster-surface-canvas); }
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-thumb {
   min-height: calc(var(--multiline-scrollbar-width, 6px) + var(--multiline-scrollbar-width, 6px));
-  background: var(--dinkster-border-strong);
-  border: 1px solid var(--dinkster-surface-canvas);
-  border-radius: 6px;
 }
-.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-thumb:hover { background: var(--dinkster-text-secondary); }
-.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-corner { background: var(--dinkster-surface-canvas); }
-.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-button { display: none; }
 
 .suggestion-surface {
   position: fixed;
@@ -95,14 +87,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: var(--dinkster-space-4);
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
   scrollbar-gutter: stable;
-}
-.suggestion-surface-listbox::-webkit-scrollbar { width: var(--dinkster-space-8); }
-.suggestion-surface-listbox::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
-.suggestion-surface-listbox::-webkit-scrollbar-thumb {
-  background: var(--dinkster-border-strong);
-  border-radius: var(--dinkster-radius-capsule);
 }
 
 .suggestion-surface-option {

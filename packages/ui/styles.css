@@ -14,6 +14,17 @@
   outline-offset: var(--dinkster-focus-ring-width);
 }
 .dinkster-root [hidden] { display: none !important; }
+/* One quiet scrollbar for every surface: no track, a rounded thumb 1 px clear of each side that brightens under the pointer and while dragged. */
+*::-webkit-scrollbar { width: var(--dinkster-scrollbar-size); height: var(--dinkster-scrollbar-size); }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-thumb { min-width: var(--dinkster-space-24); min-height: var(--dinkster-space-24); border: var(--dinkster-border-width) solid transparent; border-radius: var(--dinkster-radius-card); background-color: var(--dinkster-border-subtle); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--dinkster-border-hover); }
+*::-webkit-scrollbar-thumb:active { background-color: var(--dinkster-border-strong); }
+*::-webkit-scrollbar-button { display: none; }
+/* Chrome ignores the rules above on an element that sets either standard property, so only browsers without them get the standard ones. */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--dinkster-border-subtle) transparent; }
+}
 :root:has(.dinkster-topbar) { scroll-padding-top: calc(var(--dinkster-top-bar-height) + var(--dinkster-space-16)); }
 .dinkster-shell { display: grid; min-height: 100dvh; grid-template: var(--dinkster-top-bar-height) 1fr / var(--dinkster-sidebar-width) minmax(0, 1fr); }
 .dinkster-shell[data-navigation='false'] { grid-template-columns: minmax(0, 1fr); }
