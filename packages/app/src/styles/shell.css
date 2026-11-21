@@ -67,9 +67,8 @@
 .tab,
 .tab-new {
   display: inline-flex;
-  flex: 0 1 220px;
+  flex: 0 1 auto;
   align-items: center;
-  min-width: 104px;
   min-height: 36px;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   color: var(--dinkster-text-secondary);
@@ -85,6 +84,13 @@
 
 .tab:hover,
 .tab-new:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+
+/* A tab is as wide as its title and close button, up to 220px; when the
+   strip is crowded it shrinks to about three letters and the close button. */
+.tab {
+  min-width: calc(2 * var(--dinkster-space-8) + 2px + 5ch + var(--dinkster-space-4) + 24px);
+  max-width: 220px;
+}
 
 .tab.active {
   position: relative;
@@ -827,7 +833,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   }
   .dock-resize,
   .rail-resize { display: none; }
-  .tab { min-width: 120px; }
+  .tab { max-width: 120px; }
   .tab-target { max-width: 120px; }
 }
 
