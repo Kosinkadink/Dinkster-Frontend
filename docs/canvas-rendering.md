@@ -73,7 +73,9 @@ The title rule and every field's box fill whole pixel rows. Stepper glyphs are
 A pin on a node's or boundary panel's side is 11px across and centered on the
 1px border line: 5px outside it and 5px inside, and half a pixel below its
 row's center so it covers whole pixel rows. Wires and hit targets keep the
-box's edge and the row's center, which the pin covers. The `crispEdges` token
+box's edge and the row's center, which the pin covers. A pointed, focused or
+matched pin grows by 1px of radius on the same center, from 11px to 13px across,
+so it stays on whole pixels and 1px clear of a field's end. The `crispEdges` token
 holds this behavior. `nodeLookTokens('original', theme)` restores the earlier
 look for the gallery's side-by-side page.
 
