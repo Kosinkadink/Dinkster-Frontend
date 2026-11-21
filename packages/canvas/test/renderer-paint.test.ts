@@ -14,6 +14,11 @@ import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
+// Crisp edges center a side pin on the node's 1 px border, half a pixel
+// inside the box's edge, and half a pixel below its row's center.
+const PIN_INSET = 0.5
+const PIN_DROP = 0.5
+
 // The renderer's rAF loop is irrelevant here: renderNow() paints
 // synchronously. Stub the scheduler so construction works under node.
 beforeAll(() => {
@@ -556,11 +561,11 @@ describe('canvas hover affordance paint', () => {
       hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
     }))
     const hovered = calls.find((call) =>
-      call.method === 'arc' && call.args[0] === 100 && call.args[1] === 156 &&
+      call.method === 'arc' && call.args[0] === 100 + PIN_INSET && call.args[1] === 156 + PIN_DROP &&
       call.args[2] === defaultTokens.pinRadius * 1.35,
     )
     const ordinary = calls.find((call) =>
-      call.method === 'arc' && call.args[0] === 240 && call.args[1] === 156 &&
+      call.method === 'arc' && call.args[0] === 240 - PIN_INSET && call.args[1] === 156 + PIN_DROP &&
       call.args[2] === defaultTokens.pinRadius,
     )
     expect(hovered).toBeDefined()
@@ -582,10 +587,10 @@ describe('canvas hover affordance paint', () => {
     }
     const assertAssociated = (calls: readonly PaintCall[]) => {
       expect(calls).toContainEqual(expect.objectContaining({
-        method: 'arc', args: [100, 156, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
+        method: 'arc', args: [100 + PIN_INSET, 156 + PIN_DROP, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
       }))
       expect(calls).toContainEqual(expect.objectContaining({
-        method: 'arc', args: [240, 156, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
+        method: 'arc', args: [240 - PIN_INSET, 156 + PIN_DROP, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
       }))
     }
     assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
@@ -1030,7 +1035,7 @@ describe('viewport culling regressions', () => {
   it('keeps nodes within the 12px PIN_OVERHANG and culls nodes beyond it', () => {
     const original = fixtureScene('clean').nodes[0]!
     const near = { ...original, id: 'near', x: 100 - original.layout.width - 6, y: 100 }
-    const far = { ...original, id: 'far', x: 100 - original.layout.width - 13, y: 300 }
+    const far = { ...original, id: 'far', x: 100 - original.layout.width - 14, y: 300 }
     const { ctx, calls } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     renderer.setGridVisible(false)
@@ -1210,8 +1215,8 @@ describe('diagnostic paint on the live renderer', () => {
     const scene = fixtureScene('clean')
     const sink = nodeOf(scene, 'c2')
     const pin = sink.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === 'in')!
-    const px = sink.x
-    const py = sink.y + pin.y
+    const px = sink.x + PIN_INSET
+    const py = sink.y + pin.y + PIN_DROP
     const calls = paintWith(scene, (renderer) => renderer.setPortProblems({ c2: { in: kind } }))
     const ring = calls.findIndex((call) =>
       call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
@@ -1558,8 +1563,8 @@ describe('node chrome paint on the live renderer', () => {
     renderer.renderNow()
     const proxyArcs = calls.filter((call) =>
       call.method === 'arc' &&
-      call.args[0] === projected.x + projected.layout.width &&
-      call.args[1] === projected.y + projected.layout.headerHeight / 2 &&
+      call.args[0] === projected.x + projected.layout.width - PIN_INSET &&
+      call.args[1] === projected.y + projected.layout.headerHeight / 2 + PIN_DROP &&
       call.args[2] === defaultTokens.pinRadius)
     // One circular proxy contributes one fill path and one outline path.
     expect(proxyArcs).toHaveLength(2)
@@ -1766,7 +1771,7 @@ describe('node chrome paint on the live renderer', () => {
     const outputPin = node.layout.pins.find((pin) => pin.direction === 'out')!
     expect(calls.some((call) =>
       call.method === 'arc' &&
-      call.args[0] === preview.x + preview.width && call.args[1] === preview.y + outputPin.y,
+      call.args[0] === preview.x + preview.width - PIN_INSET && call.args[1] === preview.y + outputPin.y + PIN_DROP,
     )).toBe(true)
     const link = scene.links.find((candidate) => candidate.from.kind === 'port' && candidate.from.node === node.id)!
     const linkCurveIndex = calls.findIndex((call) =>
@@ -2174,8 +2179,8 @@ describe('node chrome paint on the live renderer', () => {
     const scene = constructsScene()
     const n = nodeOf(scene, 'opt2')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     // Outer disc: FILLED with the type color (not a stroked ring).
     const discIdx = calls.findIndex(
@@ -2196,8 +2201,8 @@ describe('node chrome paint on the live renderer', () => {
     const scene = constructsScene()
     const n = nodeOf(scene, 'c1')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const outerIdx = calls.findIndex(
       (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
@@ -2225,12 +2230,12 @@ describe('node chrome paint on the live renderer', () => {
     }
     const maybeNode = nodeOf(scene, 'lat')
     const maybePin = maybeNode.layout.pins.find((pin) => pin.direction === 'out')!
-    const maybeX = maybeNode.x + maybeNode.layout.width
-    const maybeY = maybeNode.y + maybePin.y
+    const maybeX = maybeNode.x + maybeNode.layout.width - PIN_INSET
+    const maybeY = maybeNode.y + maybePin.y + PIN_DROP
     const ordinaryNode = nodeOf(scene, 'img')
     const ordinaryPin = ordinaryNode.layout.pins.find((pin) => pin.direction === 'out')!
-    const ordinaryX = ordinaryNode.x + ordinaryNode.layout.width
-    const ordinaryY = ordinaryNode.y + ordinaryPin.y
+    const ordinaryX = ordinaryNode.x + ordinaryNode.layout.width - PIN_INSET
+    const ordinaryY = ordinaryNode.y + ordinaryPin.y + PIN_DROP
     const calls = paint(scene)
     const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
 
@@ -2257,8 +2262,8 @@ describe('node chrome paint on the live renderer', () => {
     }
     const n = nodeOf(scene, 'c1')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const sliceFills = calls.filter((c) => c.method === 'fill' && [
       typeColor(defaultTokens, 'IMAGE'),
@@ -2293,8 +2298,8 @@ describe('node chrome paint on the live renderer', () => {
     }
     const n = nodeOf(scene, 'c1')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const r = defaultTokens.pinRadius * PIN_DIAMOND_SCALE
     // Diamond outline: top vertex moveTo, then the three remaining vertices.
@@ -2322,8 +2327,8 @@ describe('node chrome paint on the live renderer', () => {
     const n = nodeOf(scene, 'c1')
     const calls = paint(scene)
     for (const pin of n.layout.pins) {
-      const px = pin.direction === 'in' ? n.x : n.x + n.layout.width
-      const py = n.y + pin.y
+      const px = pin.direction === 'in' ? n.x + PIN_INSET : n.x + n.layout.width - PIN_INSET
+      const py = n.y + pin.y + PIN_DROP
       const arc = calls.findIndex((c) =>
         c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius)
       expect(arc).toBeGreaterThanOrEqual(0)
@@ -2346,8 +2351,8 @@ describe('node chrome paint on the live renderer', () => {
     }
     const n = nodeOf(scene, 'c2')
     const pin = n.layout.pins[0]!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const arcIdx = calls.findIndex(
       (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
@@ -2423,7 +2428,7 @@ describe('node chrome paint on the live renderer', () => {
     const hPin = hidden.layout.pins.find((p) => p.widgetBacked === true)!
     const sPin = shown.layout.pins.find((p) => p.widgetBacked === true)!
     const at = (calls: PaintCall[], n: SceneNode, pinY: number) =>
-      calls.some((c) => c.method === 'arc' && c.args[0] === n.x && c.args[1] === n.y + pinY)
+      calls.some((c) => c.method === 'arc' && c.args[0] === n.x + PIN_INSET && c.args[1] === n.y + pinY + PIN_DROP)
     const calls = paint(scene)
     expect(at(calls, shown, sPin.y)).toBe(true)
     expect(at(calls, hidden, hPin.y)).toBe(false)
@@ -3047,8 +3052,8 @@ describe('boundary pseudo-node paint on the live renderer', () => {
     for (const bn of scene.boundaryNodes) {
       const ghost = bn.layout.pins.find((p) => p.ghost === true)
       expect(ghost, `${bn.side} expose pin`).toBeDefined()
-      const px = ghost!.direction === 'in' ? bn.x : bn.x + bn.layout.width
-      const py = bn.y + ghost!.y
+      const px = ghost!.direction === 'in' ? bn.x + PIN_INSET : bn.x + bn.layout.width - PIN_INSET
+      const py = bn.y + ghost!.y + PIN_DROP
       const arcIdx = calls.findIndex(
         (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
       )

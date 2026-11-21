@@ -722,7 +722,7 @@ export const defaultTokens: DesignTokens = {
   mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,
-  pinRadius: 5.5,
+  pinRadius: 6,
   cornerRadius: 6,
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
@@ -989,6 +989,7 @@ export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial
   return {
     nodeLook: look,
     crispEdges: false,
+    pinRadius: 5.5,
     rowHeight: 24,
     headerHeight: 28,
     padBottom: 8,
