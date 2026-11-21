@@ -152,6 +152,19 @@ describe('attached tab geometry', () => {
     expect(shifted.height).toBe(bounds.height)
   })
 
+  it('makes each tab as wide as its padding, icon and measured text, the text capped at 120 px', () => {
+    const node = { ...original, x: 0, y: 0, layout: { ...original.layout, width: 600 } }
+    const tab = (glyph: string): NodeBadge => ({ id: glyph, glyph, placement: 'above', variant: 'label', color: '#345678' })
+    const list = [tab('OK'), tab('Deprecated'), tab('A label much longer than any tab may show')]
+    // 5.5 px a character: unlike the 11 px fallback, so a layout that ignores the measure fails.
+    const options = { tokens, measureLabel: (text: string) => text.length * 5.5 }
+    const entries = layoutNodeBadges(node, list, options)
+    // Two 6 px paddings, a 10 px icon and a 4 px gap around the text.
+    expect(entries.map((entry) => entry.width)).toEqual([12 + 10 + 4 + 11, 12 + 10 + 4 + 55, 12 + 10 + 4 + 120])
+    expect(entries.every((entry) => !entry.compact)).toBe(true)
+    expect(entries.at(-1)!.x).toBe(entries[1]!.x + entries[1]!.width + 2)
+  })
+
   it('preserves chip rectangles unless tabs are explicitly selected', () => {
     const list = [SUBGRAPH_BADGE, ...badges]
     const entries = layoutNodeBadges(original, list, { tokens: defaultTokens })

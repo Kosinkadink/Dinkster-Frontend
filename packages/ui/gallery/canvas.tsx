@@ -96,7 +96,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   previews:
     'Previews inside nodes: image, video, audio and model, and the loading, unavailable, failed, cached and estimated states.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  tabs: 'Tabs above a node say what it is and tabs below say what happened, drawn at 75 percent zoom in both proposed sizes; the larger tabs also start 16 px in from the side instead of 12 px.',
+  tabs: 'Tabs above a node say what it is and tabs below say what happened, drawn at 75 percent zoom; a tab is as wide as its icon and its text.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
     'Every state a node can show: hover, selection, run states, problems, mode, color, a new title and a bad value.',
@@ -143,21 +143,16 @@ interface Variant {
 }
 
 const current: Variant = { id: 'current', caption: '', tokens: (t) => t }
-const tabSizeCaption = (size: DesignTokens['badgeTab']) =>
-  `After: ${size.height} px tabs, ${size.fontSize} px text`
 const chipsBefore: Variant = {
   id: 'chips',
   caption: 'Before',
   tokens: (t) => ({ ...t, badgeLayout: 'chips' }),
 }
-const tabsAfter = (
-  size: DesignTokens['badgeTab'],
-  caption: string,
-): Variant => ({
-  id: `tabs-${size.height}`,
-  caption,
-  tokens: (t) => ({ ...t, badgeLayout: 'tabs', badgeTab: size }),
-})
+const tabsAfter: Variant = {
+  id: 'tabs',
+  caption: 'After',
+  tokens: (t) => ({ ...t, badgeLayout: 'tabs' }),
+}
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
@@ -226,20 +221,9 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
       ]
     case 'tabs':
     case 'tabs-content':
-      return [
-        chipsBefore,
-        tabsAfter(
-          defaultTokens.badgeTab,
-          tabSizeCaption(defaultTokens.badgeTab),
-        ),
-        tabsAfter(
-          canvasPaintTokens.badge.roomierTab,
-          tabSizeCaption(canvasPaintTokens.badge.roomierTab),
-        ),
-      ]
     case 'run-editable':
     case 'run-frozen':
-      return [chipsBefore, tabsAfter(defaultTokens.badgeTab, 'After')]
+      return [chipsBefore, tabsAfter]
     default:
       return [current]
   }
