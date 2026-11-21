@@ -282,7 +282,7 @@ describe('registry painter label/value split', () => {
       width: 150, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
     const fill = painted.fills.find((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)!
-    const chrome = widgetChromeRect(10, 20, 150, 24)
+    const chrome = widgetChromeRect(10, 20, 150, 24, defaultTokens.rowGeometry.fieldInsetY)
     const clip = painted.clips.find((candidate) => candidate.y === chrome.y && candidate.height === chrome.height)!
     expect(clip).toMatchObject(chrome)
     expect(fill).toMatchObject({ x: chrome.x, y: chrome.y, height: chrome.height })

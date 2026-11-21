@@ -502,6 +502,28 @@ export function canvasDetailLevel(scale: number, mediaControlMinScale: number): 
   return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
 }
 
+export type NodeLook = 'current' | 'shaded-title' | 'flat-title'
+
+export interface RowGeometry {
+  /** Height of a row that holds only pins. */
+  readonly portRowHeight: number
+  /** A widget field's inset from the top and bottom of its row. */
+  readonly fieldInsetY: number
+  /** A widget field's inset from the node's edge. */
+  readonly fieldInsetX: number
+  /** Width of the stepper zone at each end of a number field. */
+  readonly stepperZone: number
+  /** Distance from a field's end to its stepper glyph's center. */
+  readonly stepperCenter: number
+  readonly stepperStroke: number
+  /** A number field's label, after the minus stepper's zone. */
+  readonly stepperLabelInset: number
+  /** Extra inset of a text field's value from the field's right end. */
+  readonly textEndInset: number
+  /** A pin's name, from the node's edge. */
+  readonly portLabelInset: number
+}
+
 export interface DesignTokens {
   readonly rowHeight: number
   readonly headerHeight: number
@@ -530,6 +552,15 @@ export interface DesignTokens {
    * drawing the mode chip.
    */
   readonly widgetEditing: 'card' | 'in-row'
+  /**
+   * The node look: today's, or the proposal with taller fields, tighter
+   * gaps and a dark body, whose title bar is either the lighter surface
+   * (`shaded-title`) or the body's own color over a thin rule (`flat-title`).
+   * `nodeLookTokens` gives the geometry and colors of each.
+   */
+  readonly nodeLook: NodeLook
+  /** Placement inside widget and pin rows; the node look sets it. */
+  readonly rowGeometry: RowGeometry
   readonly badgeLayout: 'chips' | 'tabs'
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
@@ -549,6 +580,10 @@ export interface DesignTokens {
     readonly gridDot: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    /** Face of a raised opener row, lighter than the node body. */
+    readonly widgetRaised: string
+    /** Rule under a title bar drawn in the body's own color. */
+    readonly nodeHeaderRule: string
     /** Structural and pseudo-node outline, stronger than inset chrome. */
     readonly nodeOutline: string
     readonly nodeIdleOutline: string
@@ -671,6 +706,18 @@ export const defaultTokens: DesignTokens = {
   titleFontSize: 13,
   widgetRowLook: 'inset-raised',
   widgetEditing: 'card',
+  nodeLook: 'current',
+  rowGeometry: {
+    portRowHeight: 24,
+    fieldInsetY: 2,
+    fieldInsetX: 5.5 + canvasSemanticTokens.space[4],
+    stepperZone: 12,
+    stepperCenter: 6,
+    stepperStroke: 1.5,
+    stepperLabelInset: 6,
+    textEndInset: 0,
+    portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
+  },
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
@@ -731,6 +778,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     gridDot: tokens.border.subtle,
     nodeBody: tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    widgetRaised: tokens.surface.panel,
+    nodeHeaderRule: tokens.border.subtle,
     nodeOutline: tokens.border.strong,
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
@@ -893,5 +942,45 @@ export function presentedType(
     tooltip: canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined
       ? `${label} (${canonicalName})`
       : label,
+  }
+}
+
+/**
+ * The tokens a node look changes, to spread over a theme's tokens. Sizes
+ * apply in both themes; the proposal's colors are the dark theme's only,
+ * and the light theme keeps today's colors.
+ */
+export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
+  if (look === 'current') return { nodeLook: look }
+  const colors = canvasColorsForTheme(theme)
+  const surface = semanticTokensForTheme(theme).surface
+  return {
+    nodeLook: look,
+    rowHeight: 26,
+    headerHeight: look === 'flat-title' ? 26 : 28,
+    padBottom: 5,
+    rowGeometry: {
+      portRowHeight: 24,
+      fieldInsetY: 1,
+      fieldInsetX: 7.5,
+      stepperZone: 22,
+      stepperCenter: 12,
+      stepperStroke: 1,
+      stepperLabelInset: 2,
+      textEndInset: 4,
+      portLabelInset: 10,
+    },
+    ...(theme === 'dark'
+      ? {
+          colors: {
+            ...colors,
+            nodeBody: surface.panel,
+            nodeHeader: look === 'flat-title' ? surface.panel : surface.raised,
+            widgetRaised: surface.raised,
+            widgetBackground: '#121417',
+            nodeHeaderRule: '#2a2f35',
+          },
+        }
+      : {}),
   }
 }

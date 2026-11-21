@@ -58,7 +58,7 @@ import {
   type WidgetSpec,
 } from '@dinkster/core'
 import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
-import { controllerChipContains, WIDGET_EDGE_CONTROL_WIDTH } from './controller-chip.js'
+import { controllerChipContains } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -2899,14 +2899,15 @@ export class InteractionController {
 
   private controllerChipContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const { row } = hit
-    return controllerChipContains(hit.localX, hit.localY, hit.width, row.height)
+    return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
   }
 
   private widgetRowAffordanceContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const capabilities = this.renderer.getLensCapabilities?.()
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
     if (affordance === undefined || affordance.disabled === true) return false
-    const rect = widgetRowAffordanceRect(hit.width, this.renderer.getDesignTokens().rowHeight, hit.row)
+    const tokens = this.renderer.getDesignTokens()
+    const rect = widgetRowAffordanceRect(hit.width, tokens.rowHeight, hit.row, tokens.rowGeometry)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.width &&
       hit.localY >= rect.y && hit.localY <= rect.y + rect.height
   }
@@ -3344,9 +3345,10 @@ export class InteractionController {
             return
           }
           const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-          const direction = g.hit.localX <= WIDGET_EDGE_CONTROL_WIDTH
+          const stepperZone = this.renderer.getDesignTokens().rowGeometry.stepperZone
+          const direction = g.hit.localX <= stepperZone
             ? -1
-            : g.hit.localX >= g.hit.width - WIDGET_EDGE_CONTROL_WIDTH ? 1 : 0
+            : g.hit.localX >= g.hit.width - stepperZone ? 1 : 0
           if (numeric && row.derivedValue === undefined && !row.ghost && direction !== 0) {
             const stored = g.hit.node.node.values[row.valueKey]
             const intrinsic = this.host.resolveWidgetDefault?.(row.spec)

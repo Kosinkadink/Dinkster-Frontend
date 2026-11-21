@@ -316,7 +316,7 @@ export interface NodeLayout {
 }
 
 /** Shared visible bounds for registry widget chrome and its overlay states. */
-export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number): {
+export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
   readonly x: number
   readonly y: number
   readonly width: number
@@ -324,13 +324,13 @@ export function widgetChromeRect(x: number, rowY: number, width: number, rowHeig
   readonly radius: number
 } {
   const paint = canvasPaintTokens.widget
-  return { x, y: rowY + paint.verticalInset, width, height: rowHeight - paint.verticalInset * 2, radius: paint.radius }
+  return { x, y: rowY + insetY, width, height: rowHeight - insetY * 2, radius: paint.radius }
 }
 
 /** Floating label band plus padded multiline content rows. */
 export function multilineWidgetHeight(rows: number, tokens: DesignTokens): number {
   // The content budget lives inside widgetChromeRect's top/bottom inset.
-  return canvasPaintTokens.widget.verticalInset * 2 + tokens.multilineText.labelHeight +
+  return tokens.rowGeometry.fieldInsetY * 2 + tokens.multilineText.labelHeight +
     rows * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
 }
 
@@ -1071,7 +1071,9 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
-  const rowBaseHeight = (row: PendingRow): number => row.kind !== 'widget'
+  const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
+    ? tokens.rowGeometry.portRowHeight
+    : row.kind !== 'widget'
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
@@ -1130,7 +1132,7 @@ export function layoutNode(
       }
       y += height
     } else if (row.kind === 'ports') {
-      const height = tokens.rowHeight
+      const height = tokens.rowGeometry.portRowHeight
       rows.push({
         kind: 'ports',
         y,
@@ -1154,7 +1156,7 @@ export function layoutNode(
       if (flexible) flexibleIndex += 1
       // Keep the capsule and its edge controls clear of sockets on either
       // border. The symmetric side also reserves space for output widgets.
-      const inset = tokens.pinRadius + WIDGET_PIN_GAP
+      const inset = tokens.rowGeometry.fieldInsetX
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
       if (!w.socketless) pins.push({
