@@ -33,10 +33,9 @@ import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
-import { ImageEditor } from './ImageEditor.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
@@ -1707,12 +1706,6 @@ export function App(props: {
       onCleanup(app.frontendDoors.editorBinding(id, binding))
     }
   })
-  const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
-    roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
-    get title() { return message('shell.editor.image') },
-    component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
-  })
-  onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
     roles: builtinEditorRoles(CURVE_EDITOR_KIND),
     get title() { return message('shell.editor.curve') },
