@@ -448,6 +448,46 @@ list. This follows the same reference's `app.ts` `refreshComboInNodes` and
 `reloadNodeDefs`: replace option vocabulary without assigning widget values.
 `backends.test.ts` asserts both scene vocabularies and an unchanged document.
 
+## Number, text and seed rows edited in their row
+
+INT, FLOAT (slider included), seed and single-line STRING rows are edited in
+the row itself; no card opens. A click on the row makes the row the field, at
+the row's own size, with a side part beside the node (or on its left, or under
+the field when zoomed out) holding what Enter would store or a problem, the
+limits, a `default` link that stores the declared default, and the help text.
+A seed's side part also holds its four after-run modes as one group of icons
+and a `new seed` link; the closed row shows the mode as an icon before the
+value. A slider's fill follows the typed text while it is in range.
+
+- Enter stores and keeps the keyboard on the row; Escape cancels and keeps it
+  there too. Ctrl+Enter stores, then runs the workflow.
+- Tab and Shift+Tab store, then move to the next or previous row of the node,
+  wrapping, skipping rows a wire drives, and panning a partly hidden row into
+  view. Tab does nothing at overview zoom or in a frozen tab.
+- A click on another row stores the open field and opens the other row. A
+  click inside the field stays in it. While a store is pending the field is
+  read-only, and a refusal becomes the side part's first line.
+- Number text is selected when the field opens. Text opened by a click puts the
+  cursor where it was clicked; text opened by Tab is selected. Text holding a
+  line break opens in the multiline editor instead. The suggestion list of a
+  text row sits under the row; its first Tab picks and its first Escape closes
+  only the list.
+- The draft survives document changes while its row keeps the same contract
+  and box, and closes when its own stored value changes elsewhere.
+
+When the keyboard is on a row and nothing is open (after Enter or Escape in a
+field, or when Tab reaches a toggle, a choice or a row that opens an editor),
+the row shows the open field's outline with a side part holding its default
+and help. Enter or Space then acts on the row: a toggle flips and keeps the
+focus, any other row opens. Tab moves on and Escape leaves the row. The outline
+shows only when the keyboard put it there; a pointer press clears it.
+
+The field is named by the row's label with the widget type as its description,
+and its problem line is its error message. The canvas scene navigator lists
+each widget row with its value, and it and the wired-row buttons stay
+available while a row is edited in place. The `widgetEditing` design token
+selects this (`in-row`, the default) or the earlier card (`card`).
+
 ## Product number, slider, and color controls
 
 ProductNumberInput renders a text-entry spinbutton with product-owned minus
@@ -532,8 +572,9 @@ text and padding take priority over the label floor after opener icons reserve
 their space; the label may disappear if even its ellipsis cannot fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
-more deliberate editing is useful. INT, FLOAT, single-line STRING, COLOR,
-COMBO, and MOUNT use a small non-modal popover anchored to that row. A
+more deliberate editing is useful. INT, FLOAT and single-line STRING are
+edited in the row itself (see above); COLOR, COMBO, and MOUNT use a small
+non-modal popover anchored to that row. A
 node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
 non-resizable, canvas-stage-clamped, and close through Escape, Cancel, a
@@ -557,13 +598,13 @@ through that same command path and then closes; unchanged or invalid text
 closes without a write. COMBO still commits only a deliberately activated
 option, and value-source multiline STRING closes without committing its draft.
 Cancel and Escape discard uncommitted state. The in-node
-multiline editor continues to commit changed text on Ctrl+Enter or
-click-away/blur, cancel on Escape, and close without a write when unchanged.
+multiline editor continues to commit changed text on Ctrl+Enter (which then
+also runs the workflow) or click-away/blur, cancel on Escape, and close without a write when unchanged.
 Its local draft remains open across document updates. On commit, the editor
 maps its character-range change over text that arrived after the editor opened,
 so non-overlapping concurrent edits are retained. If the stored value is no
 longer text, the editor falls back to the ordinary whole-value write.
-INT and FLOAT popovers focus and select
+In the `card` look, INT and FLOAT popovers focus and select
 their complete value when opened, so typing replaces the old value immediately.
 That behavior belongs only to INT and FLOAT; every other editor's existing
 focus and selection behavior is unchanged. Single-line STRING, multiline text,

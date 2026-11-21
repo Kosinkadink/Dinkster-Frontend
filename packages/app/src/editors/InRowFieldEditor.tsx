@@ -255,7 +255,10 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   return (
     <div
       class="widget-in-row-field"
-      data-testid="widget-in-row-field"
+      data-testid="widget-editor"
+      data-editor-target={ed.target.kind}
+      data-editor-mode={spec.widgetType}
+      data-editor-surface="in-row"
       style={rowPlacementStyle(placement())}
     >
       <CanvasRowField

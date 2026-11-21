@@ -34,17 +34,19 @@ export function rowPlacement(
   const grow = row.look === 'flat-title' ? 1 : 0
   const rowWidth = row.rect.width + grow * 2
   const scale = viewport.scale
+  // Zoomed in, the whole box scales, its one-pixel growth included.
+  const zoom = Math.max(1, scale)
   const screen = {
-    x: row.rect.x * scale + viewport.x - grow,
-    y: row.rect.y * scale + viewport.y - grow,
-    width: rowWidth * Math.max(1, scale),
-    height: (row.rect.height + grow * 2) * Math.max(1, scale),
+    x: row.rect.x * scale + viewport.x - grow * zoom,
+    y: row.rect.y * scale + viewport.y - grow * zoom,
+    width: rowWidth * zoom,
+    height: (row.rect.height + grow * 2) * zoom,
   }
   return {
     rowWidth,
     screen,
     scale,
-    place: canvasSidePlace(screen, { x: 0, y: 0, ...bounds }, sideWidth * Math.max(1, scale), scale),
+    place: canvasSidePlace(screen, { x: 0, y: 0, ...bounds }, sideWidth * zoom, scale),
     sideTop: (row.nodeBottom - row.rect.y) * scale + grow,
   }
 }
