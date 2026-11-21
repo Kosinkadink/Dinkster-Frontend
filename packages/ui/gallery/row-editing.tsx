@@ -7,6 +7,8 @@ import {
   onCleanup,
 } from 'solid-js'
 import {
+  effectiveWidgetDefault,
+  formatWidgetValue,
   numericStepConstraints,
   type Json,
   type WidgetRegistry,
@@ -33,10 +35,13 @@ import {
 } from '@dinkster/widgets'
 import {
   createRowEditingScene,
+  createRowFocusScene,
   rowEditingSchema,
+  rowFocusSchema,
 } from '../../canvas/gallery/fixtures.js'
 import {
   CanvasRowField,
+  CanvasRowFocus,
   CanvasSeedModeIcon,
   CanvasSideLink,
   CanvasSideModes,
@@ -55,6 +60,8 @@ export interface RowExample {
   readonly node: { readonly x: number; readonly y: number }
   readonly nodeWidth?: number
   readonly open?: string
+  /** The row the keyboard is on while nothing is open, on the keyboard node. */
+  readonly focus?: string
   readonly drag?: { readonly valueKey: string; readonly value: Json }
 }
 
@@ -82,6 +89,18 @@ const besideLeft = (id: string, caption: string, open: string): RowExample => ({
   width: SIDE_ROOM + NODE_WIDTH + MARGIN,
   node: { x: SIDE_ROOM, y: MARGIN },
   open,
+})
+const focusedRight = (
+  id: string,
+  caption: string,
+  focus: string,
+): RowExample => ({
+  id,
+  caption,
+  scale: 1,
+  width: MARGIN + NODE_WIDTH + SIDE_ROOM,
+  node: { x: MARGIN, y: MARGIN },
+  focus,
 })
 const zoomedOut = (id: string, caption: string, open: string): RowExample => ({
   id,
@@ -198,6 +217,26 @@ const groups: readonly {
     ],
   },
   {
+    title: 'The keyboard on a row',
+    examples: [
+      focusedRight(
+        'focus-toggle',
+        'Tab reached enabled, a toggle. The row is drawn as it is closed; the outline shows where the keyboard is, and the side part holds the default and the help.',
+        'enabled',
+      ),
+      focusedRight(
+        'focus-choice',
+        'Tab reached sampler_name, a row that opens an editor: the same look.',
+        'sampler_name',
+      ),
+      focusedRight(
+        'focus-number',
+        'steps just stored with Enter, or left with Escape: the keyboard stays on the row in the same look.',
+        'steps',
+      ),
+    ],
+  },
+  {
     title: 'Dragging a number',
     examples: [
       {
@@ -286,7 +325,11 @@ export function RowEditingExample(props: {
             ? { viewId: view.id, rows: view.measure(spec).rows }
             : undefined
         }
-        const built = createRowEditingScene(
+        const built = (
+          example.focus === undefined
+            ? createRowEditingScene
+            : createRowFocusScene
+        )(
           tokens,
           measure,
           widgetMeasure,
@@ -328,14 +371,16 @@ export function RowEditingExample(props: {
   })
   const openRow = createMemo(() => {
     const current = scene()
-    const key = props.example.open
+    const key = props.example.open ?? props.example.focus
     if (!current || key === undefined) return undefined
     const node = current.nodes[0]!
     const row = node.layout.rows.find(
       (row): row is WidgetRow => row.kind === 'widget' && row.valueKey === key,
     )
     if (!row) return undefined
-    const item = rowEditingSchema.items.find(
+    const schema =
+      props.example.focus === undefined ? rowEditingSchema : rowFocusSchema
+    const item = schema.items.find(
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
     const help = item?.kind === 'input' ? item.tooltip : undefined
@@ -350,6 +395,25 @@ export function RowEditingExample(props: {
     const target = openRow()
     if (!target) return undefined
     const { row, help, facts } = target
+    if (props.example.focus !== undefined) {
+      const declared = effectiveWidgetDefault(row.spec)
+      if (declared === undefined && help === undefined) return undefined
+      return (
+        <CanvasSidePart
+          facts={
+            declared === undefined
+              ? []
+              : [
+                  {
+                    key: 'default',
+                    value: formatWidgetValue(declared, row.spec),
+                  },
+                ]
+          }
+          {...(help !== undefined ? { help: help! } : {})}
+        />
+      )
+    }
     if (facts.length === 0 && help === undefined) return undefined
     return (
       <CanvasSidePart
@@ -442,7 +506,23 @@ export function RowEditingExample(props: {
           aria-label={`${props.example.id} in ${props.theme} theme`}
           data-testid={`${props.testIdPrefix ?? 'row-editing'}-${props.example.id}`}
         />
-        <Show when={open()}>
+        <Show when={props.example.focus !== undefined && open()}>
+          {(current) => (
+            <CanvasRowFocus
+              ref={(element) => (field = element)}
+              {...(proposal() ? { look: 'flat-title' as const } : {})}
+              rowWidth={current().width}
+              place={current().place}
+              sideTop={current().sideTop}
+              onSideSize={(size) => {
+                setSideWidth(size.width)
+                setSideHeight(size.height)
+              }}
+              {...(side() !== undefined ? { side: side()! } : {})}
+            />
+          )}
+        </Show>
+        <Show when={props.example.focus === undefined && open()}>
           {(current) => (
             <CanvasRowField
               ref={(element) => (field = element)}

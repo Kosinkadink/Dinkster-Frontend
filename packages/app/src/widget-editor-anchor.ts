@@ -1,4 +1,4 @@
-import { assetMultiSelect } from '@dinkster/core'
+import { assetMultiSelect, jsonSameValue, type Json, type WorkflowDocument } from '@dinkster/core'
 import type { LayoutRow, SceneValueSource } from '@dinkster/canvas'
 import type { Tab } from './app-state.js'
 import type { WidgetEditorState } from './WidgetEditor.js'
@@ -6,7 +6,9 @@ import type { WidgetEditorState } from './WidgetEditor.js'
 /** The scene-node shape the anchor check reads. */
 export interface WidgetEditorAnchorNode {
   readonly id: string
-  readonly layout: { readonly rows: readonly LayoutRow[] }
+  readonly x: number
+  readonly y: number
+  readonly layout: { readonly width: number; readonly rows: readonly LayoutRow[] }
 }
 
 /** True across an unchanged session or an equivalent session replacement. */
@@ -22,8 +24,10 @@ export function tabDocumentUnchanged(owner: Tab, ownerRevision: number | undefin
  * contract in a rebuilt scene. Rows match on valueKey (the persisted key
  * editors read and write), not inputId: dynamic rows elaborate the two
  * differently. Multiline STRING input drafts survive document changes and
- * reconcile at commit. ASSET staging can also survive document changes, but
- * its multi-select decision must remain stable. Other drafts require an
+ * reconcile at commit. A field open in its row survives document changes,
+ * such as a finishing run advancing a seed, while its row stays where the
+ * field is drawn. ASSET staging can also survive document changes, but its
+ * multi-select decision must remain stable. Other drafts require an
  * unchanged document.
  */
 export function widgetEditorAnchorAlive(
@@ -55,9 +59,27 @@ export function widgetEditorAnchorAlive(
     JSON.stringify(row.selector ?? null) === JSON.stringify(target.selector ?? null) &&
     JSON.stringify(row.sourceFilename ?? null) === JSON.stringify(ed.sourceFilename ?? null)
   if (!sameContract) return false
+  if (ed.inRow !== undefined) {
+    const width = row.width ?? node.layout.width - row.inset * 2
+    return ed.rect.x === node.x + row.inset && ed.rect.width === width &&
+      ed.rect.y + ed.rect.height / 2 === node.y + row.y + row.height / 2
+  }
   if (ed.multiline && ed.spec?.widgetType === 'STRING') return true
   if (ed.spec?.widgetType !== 'ASSET') return documentUnchanged
   const multiAtOpen = ed.declaredType !== undefined && assetMultiSelect(ed.declaredType, ed.mergeableTypes)
   const multiNow = row.type !== undefined && assetMultiSelect(row.type, currentMergeableTypes)
   return multiAtOpen === multiNow
+}
+
+/**
+ * A field open in its row closes when something else changes its own stored
+ * value, such as a seed advancing when a run ends; other editors and other
+ * changes are not affected.
+ */
+export function inRowValueKept(ed: WidgetEditorState | undefined, doc: WorkflowDocument): boolean {
+  if (ed?.inRow === undefined || ed.target.kind !== 'input') return true
+  const target = ed.target
+  const stored = doc.graphs[target.familyOwner?.graphId ?? ed.graphId]?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
+    ?.values[target.familyOwner?.valueKey ?? target.valueKey]
+  return jsonSameValue((stored ?? null) as Json, ed.inRow.storedAtOpen)
 }

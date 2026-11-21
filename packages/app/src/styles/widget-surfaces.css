@@ -11,6 +11,19 @@
   pointer-events: auto;
 }
 
+/* A field open in its row takes the pointer, so a click inside it moves the
+   cursor instead of reaching the canvas underneath. It and the outline of a
+   row the keyboard is on sit at the row's top left and scale from there. */
+.widget-in-row-field {
+  pointer-events: auto;
+}
+
+.widget-in-row-field,
+.widget-row-focus {
+  position: absolute;
+  transform-origin: 0 0;
+}
+
 .widget-editor-in-node-surface {
   position: relative;
   display: flex;
