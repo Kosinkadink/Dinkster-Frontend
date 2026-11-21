@@ -173,9 +173,13 @@ export function ProductTextInput(
     'class' | 'style' | 'type'
   > & {
     type?: 'text' | 'email' | 'password' | 'url' | 'search' | 'tel'
+    density?: 'canvas'
   },
 ) {
-  return <input {...props} class="dinkster-input" />
+  const [local, input] = splitProps(props, ['density'])
+  return (
+    <input {...input} data-density={local.density} class="dinkster-input" />
+  )
 }
 
 export function ProductTextArea(

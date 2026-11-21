@@ -135,7 +135,10 @@ owners and other clients remain protected; matching digests alone do not confer
 release authority. Unknown or refused observations leave protection intact.
 Participating windows fence publication through each candidate's acknowledged
 release. A detected older, unfenced census member blocks the reclamation pass,
-including members using a different project's rendezvous name.
+including members using a different project's rendezvous name. If browser UUID
+generation, Web Locks enumeration or BroadcastChannel is unavailable, the shell
+still starts but census-based reclamation stays disabled; missing capabilities
+do not authorize releasing protected results.
 
 Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and

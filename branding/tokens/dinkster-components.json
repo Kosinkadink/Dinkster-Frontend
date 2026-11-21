@@ -4,6 +4,7 @@
     "fontFamily": "\"Noto Sans\", sans-serif",
     "fontMono": "\"Noto Sans Mono\", monospace",
     "metadata": { "fontSize": 11, "lineHeight": 16, "fontWeight": 400 },
+    "canvas": { "fontSize": 12, "lineHeight": 16, "fontWeight": 400 },
     "body": { "fontSize": 13, "lineHeight": 20, "fontWeight": 400 },
     "section": { "fontSize": 15, "lineHeight": 20, "fontWeight": 400 },
     "title": { "fontSize": 18, "lineHeight": 24, "fontWeight": 700 },
@@ -13,6 +14,7 @@
   "interaction": {
     "compactControlHeight": 32,
     "primaryInputHeight": 40,
+    "canvasInputHeight": 24,
     "focusRingWidth": 2,
     "disabledOpacity": 0.45
   },

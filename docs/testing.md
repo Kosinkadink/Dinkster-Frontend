@@ -153,7 +153,13 @@ scheduled runs, called runs, and dispatched runs all use the complete matrix.
 Parallel-safe runs as six shards, backend-serial as two, and native startup
 as one isolated job. Every E2E lane installs
 and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
-browser WebGL and native headless rendering.
+browser WebGL and native headless rendering. Exact-version Vulkan package files
+are cached by distribution and architecture; jobs still install and verify them.
+One preceding job captures the pinned CPU generation for the browser shards and
+CI/audit-assets. Its workflow artifact binds the engine pin and preparation
+recipe, including the pack pin. Tar preserves executable modes and interpreter
+links, and consumers require the same workspace path for contributor imports.
+Native startup independently runs the full preparation instead of restoring it.
 Both the server and Torch worker interpreters install the pinned checkout's
 first-party pack sources; catalog composition alone does not prove that the
 execution interpreter can import those packs.
