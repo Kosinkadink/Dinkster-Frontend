@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import {
   nativeTest as test,
   expect,
@@ -81,6 +81,17 @@ async function detach(page: Page): Promise<Page> {
   return detached
 }
 
+async function closeDetachedWindow(detached: Page, button: Locator): Promise<void> {
+  await Promise.all([
+    detached.waitForEvent('close'),
+    button.click().catch((error: unknown) => {
+      // The window can close before Chromium acknowledges the click that closed it.
+      if (!detached.isClosed() || !(error instanceof Error) ||
+        !error.message.startsWith('locator.click: Target page, context or browser has been closed')) throw error
+    }),
+  ])
+}
+
 test('repeated detach and rejoin preserves foreign edits and remains editable', async ({
   page,
   context,
@@ -129,10 +140,7 @@ test('repeated detach and rejoin preserves foreign edits and remains editable', 
     ).toBe(true)
     const detachedNodes = await nodes(detached, id)
     await expect.poll(() => nodes(page, id)).toEqual(detachedNodes)
-    await Promise.all([
-      detached.waitForEvent('close'),
-      detached.getByTestId('redock-workflow').click(),
-    ])
+    await closeDetachedWindow(detached, detached.getByTestId('redock-workflow'))
     await expect(page.getByTestId('detached-workspace-state')).toHaveCount(0)
     await addNode(page)
     expect(Object.keys(await nodes(page, id))).toHaveLength(3 + cycle * 2)
@@ -211,10 +219,7 @@ for (const failedWindow of ['primary', 'detached'] as const) {
     )
     await addNode(failedWindow === 'primary' ? detached : page)
     if (failedWindow === 'primary') {
-      await Promise.all([
-        detached.waitForEvent('close'),
-        detached.getByTestId('redock-workflow').click(),
-      ])
+      await closeDetachedWindow(detached, detached.getByTestId('redock-workflow'))
     }
     const recovery = failed.getByTestId('workflow-session-recovery')
     await expect(recovery).toBeVisible()
@@ -232,12 +237,8 @@ for (const failedWindow of ['primary', 'detached'] as const) {
     ).toBe(1)
     await failed.unroute('**/api/library/retentions/document/*?scope=local')
     if (failedWindow === 'detached') {
-      await Promise.all([
-        detached.waitForEvent('close'),
-        recovery
-          .getByRole('button', { name: 'Open recovery copy', exact: true })
-          .click(),
-      ])
+      await closeDetachedWindow(detached,
+        recovery.getByRole('button', { name: 'Open recovery copy', exact: true }))
     } else {
       await recovery
         .getByRole('button', { name: 'Open recovery copy', exact: true })
