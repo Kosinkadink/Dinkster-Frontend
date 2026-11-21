@@ -763,7 +763,8 @@ gutter (6px scrollbar plus 2px rounded-edge inset). An empty canonical
 value remains empty in the document but paints the input display name as a
 muted italic placeholder. Populated values paint verbatim with 14px type, 20px
 leading, and 6px content padding. These additive multiline tokens do not alter
-the shared 12px/24px compact-row rhythm used by single-line and scalar widgets.
+the shared compact-row rhythm (12px type, 26px rows holding a 24px field) used
+by single-line and scalar widgets.
 
 Opening the field replaces the painted multiline surface with a DOM textarea
 over the exact widget rectangle rather than detaching the text into a popover.

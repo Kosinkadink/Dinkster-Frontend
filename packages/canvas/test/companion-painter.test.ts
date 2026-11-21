@@ -164,8 +164,8 @@ describe('companion value painting', () => {
     expect(companion.fill).toBe(defaultTokens.colors.companionUnproven)
     expect(companion.alpha).toBe(1)
     expect(strikes).toEqual([{
-      from: [170, 16],
-      to: [188, 16],
+      from: [160, 16],
+      to: [178, 16],
       color: defaultTokens.colors.companionUnproven,
       width: 1,
       dash: [1, 2],
@@ -191,8 +191,8 @@ describe('companion value painting', () => {
     const { ctx, strikes } = fakeCtx()
     createRegistryPainter(registry)(argsWith(ctx, { connected: true }))
     expect(strikes).toEqual([{
-      from: [174, 12],
-      to: [186, 12],
+      from: [164, 12],
+      to: [176, 12],
       color: defaultTokens.colors.value,
       width: 1.5,
       dash: [],

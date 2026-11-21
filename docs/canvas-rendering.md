@@ -50,6 +50,22 @@ This affects comparison setup only, not production rendering. Frame-time tools
 and measured results are documented in [Performance baselines](perf.md);
 timings are reports, not CI assertions.
 
+## Node look
+
+Nodes use the flat-title look. A row is 26px: a 24px field and a 2px gap.
+Fields sit 7px inside the node's 1px border, and pin rows are 24px. In the
+dark theme the body and the 26px title bar share the darker surface
+(`#1c1f23`), a 1px `#2a2f35` rule closes the title bar, and fields use
+`#121417`. Raised opener rows take the lighter surface. The light theme takes
+the same sizes and keeps its original colors.
+
+At 100 percent zoom, with a node at whole-number coordinates, every edge falls
+on whole pixels. The idle outline is 1px wide and drawn inside the node's box.
+The title rule and every field's box fill whole pixel rows. Stepper glyphs are
+1px lines centered on pixel rows and columns, 9px inside the field's ends.
+The `crispEdges` token holds this behavior. `nodeLookTokens('original', theme)`
+restores the earlier look for the gallery's side-by-side page.
+
 ## Numeric edits and comparison diagnostics
 
 Static numeric widget edits reuse scene geometry when the effective interface

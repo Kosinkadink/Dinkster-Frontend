@@ -1112,14 +1112,17 @@ const nodeOf = (scene: Scene, id: string): SceneNode => {
 const paintedAfter = (calls: PaintCall[], index: number, method: 'stroke' | 'fill'): PaintCall | undefined =>
   calls.slice(index + 1).find((c) => c.method === method)
 
+/** The node's outline stroke, drawn inside its box by half its line width. */
 const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined => {
-  const path = calls.findIndex((call, index) =>
-    call.method === 'roundRect' &&
-    call.args[0] === node.x &&
-    call.args[1] === node.y &&
-    call.args[2] === node.layout.width &&
-    call.args[3] === node.layout.height &&
-    calls[index + 1]?.method === 'stroke')
+  const path = calls.findIndex((call, index) => {
+    const stroke = calls[index + 1]
+    if (call.method !== 'roundRect' || stroke?.method !== 'stroke') return false
+    const inset = (stroke.lineWidth ?? 0) / 2
+    return call.args[0] === node.x + inset &&
+      call.args[1] === node.y + inset &&
+      call.args[2] === node.layout.width - inset * 2 &&
+      call.args[3] === node.layout.height - inset * 2
+  })
   return path < 0 ? undefined : calls[path + 1]
 }
 
@@ -1235,8 +1238,9 @@ describe('diagnostic paint on the live renderer', () => {
     renderer.renderNow()
     expect(lookupPasses).toBe(0)
     expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
-    // The fixed fixtures allow a small drawing margin, not another per-dot grid path.
-    const callLimit = count === 66 ? 1250 : count === 300 ? 5600 : 21000
+    // The fixed fixtures allow a small drawing margin and the title bar's
+    // rule on each node, not another per-dot grid path.
+    const callLimit = (count === 66 ? 1250 : count === 300 ? 5600 : 21000) + count
     expect(calls.length).toBeLessThanOrEqual(callLimit)
     renderer.dispose()
   })
@@ -1868,10 +1872,7 @@ describe('node chrome paint on the live renderer', () => {
     const regionScene = { ...scene, nodes: scene.nodes.map((node) => node.id === region.id ? region : node) }
     const regionCalls = paint(regionScene)
     expect(regionCalls.some((call) => call.method === 'fillText' && call.args[0] === 'map')).toBe(true)
-    expect(regionCalls.filter((call) =>
-      call.method === 'roundRect' && call.args[0] === region.x && call.args[1] === region.y &&
-      call.args[2] === region.layout.width && call.args[3] === region.layout.height
-    ).length).toBeGreaterThanOrEqual(2)
+    expect(nodeBorder(regionCalls, region)).toBeDefined()
     expect(regionCalls.some((call) =>
       call.method === 'roundRect' && call.args[0] === region.x + 3 && call.args[1] === region.y + 3 &&
       call.args[2] === region.layout.width - 6 && call.args[3] === region.layout.height - 6
@@ -1947,7 +1948,7 @@ describe('node chrome paint on the live renderer', () => {
     const bodyIdx = calls.findIndex(
       (c) => c.method === 'roundRect' && c.args[0] === n.x && c.args[1] === n.y && c.args[3] === n.layout.height,
     )
-    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#533a3c')
+    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#493031')
     expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')).toBe(true)
     expect(nodeBorder(calls, n)).toMatchObject({
       strokeStyle: defaultTokens.colors.error,
@@ -1962,7 +1963,7 @@ describe('node chrome paint on the live renderer', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
     const calls = paintWithTokens(scene, { ...defaultTokens, colors: canvasColorsForTheme(theme) })
-    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#533a3c' || call.fillStyle === '#6b3d3b'))).toBe(false)
+    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#493031' || call.fillStyle === '#6b3d3b'))).toBe(false)
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
