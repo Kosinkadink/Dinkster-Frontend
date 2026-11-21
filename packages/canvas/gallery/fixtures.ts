@@ -58,7 +58,7 @@ export const canvasGalleryPages = [
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
-  ['node-look', 'Node look proposal'],
+  ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows proposal'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],

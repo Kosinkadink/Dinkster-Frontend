@@ -318,14 +318,14 @@ describe('registry painter label/value split', () => {
     expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 6 })
     expect(idle.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
     expect(idle.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
-    expect(scrollbar).toMatchObject({ x: 152, y: 20, width: 6, radius: 3 })
+    expect(scrollbar).toMatchObject({ x: 152, y: 19, width: 6, radius: 3 })
     expect(scrollbar!.y + scrollbar!.height).toBeLessThanOrEqual(72)
   })
 
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
-    expect(placeholder).toMatchObject({ x: 6, y: 36, fill: defaultTokens.colors.label })
+    expect(placeholder).toMatchObject({ x: 6, y: 35, fill: defaultTokens.colors.label })
     expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 
@@ -359,9 +359,9 @@ describe('registry painter label/value split', () => {
     })
     expect(fills).toHaveLength(1)
     expect(fills[0]!.fillStyle).toBe(color)
-    expect(fills[0]!.width).toBeCloseTo(10.4)
-    expect(fills[0]!.height).toBeCloseTo(10.4)
-    expect(fills[0]!.y).toBeCloseTo(6.8)
+    expect(fills[0]!.width).toBeCloseTo(12.4)
+    expect(fills[0]!.height).toBeCloseTo(12.4)
+    expect(fills[0]!.y).toBeCloseTo(5.8)
     expect(fills[0]!.x).toBeGreaterThanOrEqual(0)
     expect(fills[0]!.x + fills[0]!.width).toBeLessThanOrEqual(160)
   })
@@ -459,7 +459,7 @@ describe('registry painter label/value split', () => {
   })
 
   it('a value too long to fit beside the label floor falls back to proportional sharing', () => {
-    const texts = paint(1.2345678901234568e+23, 200)
+    const texts = paint(1.2345678901234568e+23, 220)
     const label = texts.find((t) => t.startsWith(LABEL.slice(0, 3)))
     expect(label).toBeDefined()
     expect(label!.replace(/\.\.\.$/, '').length).toBeGreaterThan(6)
@@ -508,11 +508,11 @@ describe('registry painter label/value split', () => {
       const painted = paintMultilineDetails(height, width)
       expect(painted.texts).toEqual(['text', ...['one', 'two', 'three', 'four', 'five'].slice(0, textRows)])
       expect(painted.fills).toHaveLength(rectRows)
-      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 11, align: 'left' })
+      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 10, align: 'left' })
       expect(painted.textCalls.slice(1).every((call) => call.x >= 0 && call.x <= width)).toBe(true)
       expect(painted.clips.every((clip) => clip.y >= 0 && clip.y + clip.height <= height)).toBe(true)
       if (height === 88) {
-        expect(painted.clips.some((clip) => clip.y === 66 && clip.height === 14)).toBe(true)
+        expect(painted.clips.some((clip) => clip.y === 65 && clip.height === 16)).toBe(true)
       }
     }
   })
@@ -525,9 +525,9 @@ describe('registry painter label/value split', () => {
     expect(painted.texts).toContain('epsilon')
     expect(painted.texts).toContain('second canonical')
     const values = painted.textCalls.filter((call) => call.text.includes('alpha') || call.text.includes('epsilon') || call.text === 'second canonical')
-    expect(values.map((call) => call.y)).toEqual([36, 56, 76])
+    expect(values.map((call) => call.y)).toEqual([35, 55, 75])
     const label = painted.textCalls.find((call) => call.text === 'text')!
-    const valueClip = painted.clips.find((clip) => clip.y === 26 && clip.x === 0)!
+    const valueClip = painted.clips.find((clip) => clip.y === 25 && clip.x === 0)!
     expect(valueClip).toMatchObject({ x: 0, width: 152 })
     expect(valueClip.x).toBeLessThan(label.x)
   })
@@ -536,8 +536,8 @@ describe('registry painter label/value split', () => {
     const painted = paintMultilineDetails(76, 160, `alpha${' '.repeat(30)}\nsecond canonical`)
     const values = painted.textCalls.filter((call) => call.text.trimEnd() === 'alpha' || call.text === 'second canonical')
     expect(values.map((call) => ({ text: call.text.trimEnd(), y: call.y }))).toEqual([
-      { text: 'alpha', y: 36 },
-      { text: 'second canonical', y: 56 },
+      { text: 'alpha', y: 35 },
+      { text: 'second canonical', y: 55 },
     ])
   })
 })

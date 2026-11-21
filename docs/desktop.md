@@ -85,14 +85,6 @@ continuation cursor. Workflows and files page independently within the selected
 project. The renderer has no engine URL, SQLite access or file-reading command.
 It displays only metadata, not file contents or model-folder inventory.
 
-When Desktop supplies its opening capability, the selected project's assets
-page offers Open project. It passes only the saved installation ID and library
-project ID to Desktop, which resolves and checks the environment before any
-switch. While opening, repeat activation and back navigation are disabled.
-Failure stays in a dismissible error banner and permits retry; success shows a
-corner notification. Older Desktop bridges without this capability keep the
-read-only browser and do not show Open project.
-
 The installation list, project list and project assets have loading and empty
 states. An unavailable bridge or unreadable library gets one plain by-the-way
 notice rather than an empty-library claim, raw storage diagnostics or an approval
