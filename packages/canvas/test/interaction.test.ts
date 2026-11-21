@@ -1183,6 +1183,135 @@ describe('node-body link drops', () => {
   })
 })
 
+describe('link drops on a field row', () => {
+  const FLOAT = { kind: 'concrete', name: 'FLOAT' }
+  const INT = { kind: 'concrete', name: 'INT' }
+  const row = (inputId: string, type: object, y: number, inset = 9.5, width?: number) => ({
+    kind: 'widget', inputId, valueKey: inputId, label: inputId, type, y, height: 24, inset,
+    ...(width !== undefined ? { width } : {}),
+    spec: { widgetType: (type as any).name, options: {}, default: 0 },
+  })
+  const pin = (portId: string, direction: 'in' | 'out', y: number, type: object, extra: object = {}) =>
+    ({ portId, address: { port: portId }, direction, y, type, ...extra })
+  // n2 (x 200..300, y 10..130): a plain FLOAT input declared first, then
+  // rows steps (INT), cfg (FLOAT), and one line holding seed (INT) beside
+  // denoise (FLOAT). n1 offers a FLOAT output at (110, 32) and a FLOAT
+  // input at (10, 48).
+  const fieldScene = (): Scene => {
+    const scene = interactionScene() as any
+    scene.reroutes = []
+    scene.valueSources = []
+    scene.selectors = []
+    scene.nodes[0].layout.pins = [pin('out', 'out', 22, FLOAT), pin('in', 'in', 38, FLOAT)]
+    scene.nodes[1].node.values = { steps: 20, cfg: 7, seed: 1, denoise: 1 }
+    scene.nodes[1].layout = {
+      ...scene.nodes[1].layout,
+      height: 120,
+      rows: [
+        row('steps', INT, 20),
+        row('cfg', FLOAT, 44),
+        row('seed', INT, 68, 9.5, 31),
+        row('denoise', FLOAT, 68, 59.5, 31),
+      ],
+      pins: [
+        pin('first', 'in', 24, FLOAT),
+        pin('steps', 'in', 32, INT, { widgetBacked: true }),
+        pin('cfg', 'in', 56, FLOAT, { widgetBacked: true }),
+        pin('seed', 'in', 74, INT, { widgetBacked: true }),
+        pin('denoise', 'in', 86, FLOAT, { widgetBacked: true }),
+        pin('steps', 'out', 32, INT, { widgetTap: true }),
+        pin('cfg', 'out', 56, FLOAT, { widgetTap: true }),
+        pin('result', 'out', 110, FLOAT),
+      ],
+    }
+    return scene
+  }
+  const CFG_ROW = { x: 250, y: 66 }
+
+  it('wires the fitting field under the pointer and outlines that row, not the node', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', CFG_ROW.x, CFG_ROW.y)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toEqual({ nodeId: 'n2', valueKey: 'cfg' })
+    expect(overlay.bodyDropNode).toBeUndefined()
+    expect([...overlay.dropTargets]).toEqual(['n2:cfg:in'])
+    expect(overlay.ghostLink).toMatchObject({ x2: 200, y2: 66 })
+    harness.fire('pointerup', CFG_ROW.x, CFG_ROW.y)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'cfg' } },
+    })
+  })
+
+  it('replaces the wire of a field that already has one, though a free input fits', () => {
+    const scene = fieldScene() as any
+    scene.links = [{
+      id: 'old', from: { kind: 'port', node: 'other', port: 'out' },
+      to: { kind: 'port', node: 'n2', port: 'cfg' }, x1: 0, y1: 0, x2: 0, y2: 0,
+    }]
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', CFG_ROW.x, CFG_ROW.y)
+    expect((harness.overlays.at(-1) as any).dropRow).toEqual({ nodeId: 'n2', valueKey: 'cfg' })
+    harness.fire('pointerup', CFG_ROW.x, CFG_ROW.y)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'cfg' } },
+    })
+  })
+
+  it('sends a drop on a field that does not fit to the next free input that fits', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', 250, 42)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toBeUndefined()
+    expect(overlay.bodyDropNode).toBe('n2')
+    expect([...overlay.dropTargets]).toEqual(['n2:first:in'])
+    harness.fire('pointerup', 250, 42)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'first' } },
+    })
+  })
+
+  it('tries the fields on the same line before the rest of the node', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', 225, 90)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toBeUndefined()
+    expect(overlay.bodyDropNode).toBe('n2')
+    expect([...overlay.dropTargets]).toEqual(['n2:denoise:in'])
+    harness.fire('pointerup', 225, 90)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'denoise' } },
+    })
+  })
+
+  it('keeps the declared order for a drop on the title', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', 250, 20)
+    expect((harness.overlays.at(-1) as any).dropRow).toBeUndefined()
+    harness.fire('pointerup', 250, 20)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'first' } },
+    })
+  })
+
+  it("gives a wire dragged back from an input the field's own value, not the node's first output", () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 10, 48)
+    harness.fire('pointermove', CFG_ROW.x, CFG_ROW.y)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toEqual({ nodeId: 'n2', valueKey: 'cfg' })
+    expect([...overlay.dropTargets]).toEqual(['n2:cfg:out:tap'])
+    harness.fire('pointerup', CFG_ROW.x, CFG_ROW.y)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { from: { node: 'n2', tap: 'cfg' }, to: { node: 'n1', port: 'in' } },
+    })
+  })
+})
+
 describe('COMBO link gesture regressions', () => {
   const STRING = { kind: 'concrete', name: 'STRING' }
   const COMBO = { kind: 'concrete', name: 'COMBO' }

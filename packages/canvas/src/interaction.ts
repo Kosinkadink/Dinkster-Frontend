@@ -65,7 +65,7 @@ import { controllerChipContains } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, type PinLayout } from './layout.js'
+import { BOUNDARY_ADD_SLOT, type LayoutRow, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -520,6 +520,15 @@ export type CanvasHoverTarget =
   | { readonly kind: 'link'; readonly hit: Extract<Hit, { kind: 'link' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'toolbox'; readonly button: ToolboxButtonRect; readonly x: number; readonly y: number }
 
+type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
+/** Where a link dropped on a node body lands: an input or output pin, or a field's value tap. */
+type BodyDropHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
+
+/** True when a body drop resolved to the field row's own input or value tap. */
+const landsOnRow = (candidate: BodyDropHit, row: WidgetRow | undefined): row is WidgetRow =>
+  row !== undefined && candidate.pin.portId === row.inputId &&
+  (candidate.kind === 'widgetTap' || candidate.direction === 'in')
+
 type Gesture =
   | { readonly kind: 'idle' }
   | {
@@ -680,9 +689,10 @@ type Gesture =
         readonly prev: PortEndpointJson
       }
       readonly dropTargets: ReadonlySet<string>
-      /** Per-layout auto-slot cache. Recomputed when the hovered SceneNode is replaced. */
+      /** Per-layout auto-slot cache. Recomputed when the hovered SceneNode or field row changes. */
       bodyCandidateNode?: SceneNode | undefined
-      bodyCandidate?: Extract<Hit, { kind: 'pin' }> | undefined
+      bodyCandidateRow?: WidgetRow | undefined
+      bodyCandidate?: BodyDropHit | undefined
       moved: boolean
     }
   | {
@@ -2783,28 +2793,50 @@ export class InteractionController {
   }
 
   /**
-   * Deterministically choose a node-body drop slot. Inputs with no driver
+   * Deterministically choose a node-body drop slot. A field row under the
+   * pointer takes the link itself when it fits, occupied or not, exactly as
+   * a drop on its pin would: its input when the drag seeks an input, its
+   * value tap when the drag seeks an output. Otherwise inputs with no driver
    * rank before driven inputs; outputs fan out, so every output is free.
-   * Within a rank, layout pin order is the declared/elaborated order. The
-   * legal-target set is the same structural compatibility decision used by
-   * explicit pin drops. Iterating all ranked pins avoids stopping at an
-   * early slot that fails that full drag-specific validation.
+   * Within a rank, the fields on the pointer's line come first, then layout
+   * pin order, which is the declared/elaborated order. The legal-target set
+   * is the same structural compatibility decision used by explicit pin
+   * drops. Iterating all ranked pins avoids stopping at an early slot that
+   * fails that full drag-specific validation.
    */
   private bodyDropCandidate(
     g: Extract<Gesture, { kind: 'link' }>,
     scene: Scene,
     node: SceneNode,
-  ): Extract<Hit, { kind: 'pin' }> | undefined {
-    if (g.bodyCandidateNode === node) return g.bodyCandidate
+    row?: WidgetRow,
+  ): BodyDropHit | undefined {
+    if (g.bodyCandidateNode === node && g.bodyCandidateRow === row) return g.bodyCandidate
     g.bodyCandidateNode = node
+    g.bodyCandidateRow = row
     g.bodyCandidate = undefined
-    // Widget taps are excluded: a body drop lands on real ports only (a tap
-    // ranked here would commit as a bogus PORT endpoint via pinEndpoint);
-    // explicit tap-pin hits keep their own 'widgetTap' hit path.
-    const pins = node.layout.pins.filter((pin) =>
-      pin.direction === g.seeking && pin.widgetTap !== true &&
-      (pin.familyOwner === undefined || pin.familyOwner.socketed === true),
-    )
+    const socketed = (pin: PinLayout): boolean => pin.familyOwner === undefined || pin.familyOwner.socketed === true
+    const legal = (pin: PinLayout): boolean =>
+      g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true))
+    const hitOf = (pin: PinLayout): BodyDropHit | undefined => {
+      const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)
+      if (!position) return undefined
+      return pin.widgetTap === true
+        ? { kind: 'widgetTap', node, input: pin.address.port as string, x: position.x, y: position.y, type: pin.type, pin }
+        : { kind: 'pin', node, pin, portId: pin.portId, direction: pin.direction, x: position.x, y: position.y, type: pin.type }
+    }
+    if (row !== undefined) {
+      // Seeking an output, a field offers its value tap; seeking an input, its input pin.
+      const own = node.layout.pins.find((pin) =>
+        pin.portId === row.inputId && pin.direction === g.seeking &&
+        (pin.widgetTap === true) === (g.seeking === 'out') &&
+        pin.collapsedSection === undefined && socketed(pin) && legal(pin),
+      )
+      g.bodyCandidate = own && hitOf(own)
+      if (g.bodyCandidate) return g.bodyCandidate
+    }
+    // Widget taps are excluded from the ranking: a body drop away from a
+    // field lands on real ports only.
+    const pins = node.layout.pins.filter((pin) => pin.direction === g.seeking && pin.widgetTap !== true && socketed(pin))
     // Links hidden by the gesture (the grabbed rewire or net delivery) do
     // not occupy their sink: the drag is moving them off it.
     const isOccupied = (pin: PinLayout): boolean =>
@@ -2812,16 +2844,15 @@ export class InteractionController {
         link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
         link.to.kind === 'port' && link.to.node === node.id && portEndKey(link.to) === pin.portId,
       )
-    const ranked = [...pins.filter((pin) => !isOccupied(pin)), ...pins.filter(isOccupied)]
+    const line = new Set(row === undefined ? [] : node.layout.rows.flatMap((other) =>
+      other.kind === 'widget' && other.y === row.y ? [other.inputId] : []))
+    const lineFirst = (group: PinLayout[]): PinLayout[] =>
+      [...group.filter((pin) => line.has(pin.portId)), ...group.filter((pin) => !line.has(pin.portId))]
+    const ranked = [...lineFirst(pins.filter((pin) => !isOccupied(pin))), ...lineFirst(pins.filter(isOccupied))]
     for (const pin of ranked) {
-      if (!g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction))) continue
-      const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)
-      if (!position) continue
-      g.bodyCandidate = {
-        kind: 'pin', node, pin, portId: pin.portId, direction: pin.direction,
-        x: position.x, y: position.y, type: pin.type,
-      }
-      break
+      if (!legal(pin)) continue
+      g.bodyCandidate = hitOf(pin)
+      if (g.bodyCandidate) break
     }
     return g.bodyCandidate
   }
@@ -3206,10 +3237,13 @@ export class InteractionController {
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
         const boundaryBody = !explicitPin && (hit.kind === 'boundary-body' || hit.kind === 'boundary-header') ? hit.bnode : undefined
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
-        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode) : undefined)
+        const fieldRow = bodyNode && hit.kind === 'widget' ? hit.row : undefined
+        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
+        const dropRow = nodeCandidate && !explicitPin && landsOnRow(nodeCandidate, fieldRow) ? fieldRow : undefined
         if (!bodyNode) {
           g.bodyCandidateNode = undefined
+          g.bodyCandidateRow = undefined
           g.bodyCandidate = undefined
         }
         const end = candidate ?? w
@@ -3226,9 +3260,12 @@ export class InteractionController {
         this.pushOverlay({
           ghostLink: ghost,
           dropTargets: nodeCandidate
-            ? new Set([dropTargetKey(nodeCandidate.node.id, nodeCandidate.portId, nodeCandidate.direction)])
+            ? new Set([dropTargetKey(nodeCandidate.node.id, nodeCandidate.pin.portId, nodeCandidate.pin.direction, nodeCandidate.pin.widgetTap === true)])
             : boundaryCandidate ? new Set([boundaryTargetKey(boundaryCandidate.bnode.side, boundaryCandidate.item)]) : g.dropTargets,
-          ...(bodyNode && nodeCandidate ? { bodyDropNode: bodyNode.id } : {}),
+          // The field under the pointer shows that it takes the wire; any
+          // other body drop outlines the node whose ranked slot it takes.
+          ...(bodyNode && dropRow ? { dropRow: { nodeId: bodyNode.id, valueKey: dropRow.valueKey } } : {}),
+          ...(bodyNode && nodeCandidate && !dropRow ? { bodyDropNode: bodyNode.id } : {}),
           ...(boundaryBody && boundaryCandidate ? { bodyDropNode: boundarySceneId(boundaryBody.side) } : {}),
           ...(g.hideLinkIds !== undefined ? { hiddenLinkIds: g.hideLinkIds } : {}),
         })
@@ -3843,12 +3880,14 @@ export class InteractionController {
     const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
     if (!bodyNode) {
       g.bodyCandidateNode = undefined
+      g.bodyCandidateRow = undefined
       g.bodyCandidate = undefined
     }
     const boundaryBody = rawHit.kind === 'boundary-body' || rawHit.kind === 'boundary-header' ? rawHit.bnode : undefined
+    const fieldRow = bodyNode && rawHit.kind === 'widget' ? rawHit.row : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
-      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode) ?? rawHit) : rawHit
+      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode, fieldRow) ?? rawHit) : rawHit
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&
@@ -4722,6 +4761,7 @@ export class InteractionController {
       groupDragOffset?: { groupId: string; dx: number; dy: number }
       groupResizeGhost?: { groupId: string; x: number; y: number; width: number; height: number }
       bodyDropNode?: string
+      dropRow?: { nodeId: string; valueKey: string }
     } = {},
   ): void {
     const ghost = extra.ghostLink ?? this.paletteGhost

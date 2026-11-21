@@ -555,6 +555,8 @@ export interface OverlayState {
   readonly dropTargets?: ReadonlySet<string>
   /** Node whose body currently resolves to the highlighted auto-selected pin. */
   readonly bodyDropNode?: string
+  /** Field row under a link drag that takes the wire when dropped. */
+  readonly dropRow?: { readonly nodeId: string; readonly valueKey: string }
   /** The reroute whose ghost in/out sockets are revealed (pointer hover). */
   readonly hoveredReroute?: string
   /** Link whose midpoint handle is under the idle pointer. */
@@ -958,7 +960,7 @@ export class CanvasRenderer {
     }
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
-      'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'hoveredNode',
+      'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
       'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -3504,6 +3506,22 @@ export class CanvasRenderer {
             ctx.beginPath()
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.stroke()
+          }
+          if (this.overlay.dropRow?.nodeId === sceneNode.id && this.overlay.dropRow.valueKey === row.valueKey) {
+            // A held wire takes this field when dropped: the drop-target
+            // outline sits inside the chrome, at full strength even on a
+            // wired (dimmed) row.
+            const outlineAlpha = ctx.globalAlpha
+            ctx.globalAlpha = rowAlpha
+            const stroke = canvasPaintTokens.widget.dropStroke
+            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
+            ctx.strokeStyle = t.colors.dropTarget
+            ctx.lineWidth = stroke
+            ctx.beginPath()
+            ctx.roundRect(chrome.x + stroke / 2, chrome.y + stroke / 2, chrome.width - stroke, chrome.height - stroke,
+              Math.max(0, chrome.radius - stroke / 2))
+            ctx.stroke()
+            ctx.globalAlpha = outlineAlpha
           }
           const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
           // In-row editing draws a number's mode as an icon before its value instead of the chip.
