@@ -1360,7 +1360,9 @@ class Evaluator {
     const table = this.scope.tables?.get(name)
     if (table !== undefined) return table
     const kind = this.scope.names.get(name)!
-    const value = bind(kind, this.values.values?.get(name) ?? UNKNOWN)
+    // A stored None is a value; only a missing name is unknown.
+    const stored = this.values.values?.get(name)
+    const value = bind(kind, stored === undefined ? UNKNOWN : stored)
     if (value === UNKNOWN) throw STOP_UNKNOWN
     return check(value)
   }
