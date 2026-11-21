@@ -96,7 +96,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await page.reload()
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await page.evaluate(async () => {
-      window.__dinksterTest!.app.registerSchemas([{ type: 'PickerMedia', displayName: 'Picker media', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }] }])
+      window.__dinksterTest!.app.registerSchemas([
+        { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },
+        { type: 'PickerMedia', displayName: 'Picker media', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }] }])
       await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-picker-proof', root: 'g0', graphs: { g0: { id: 'g0', name: 'root', nodes: { media: { id: 'media', type: 'PickerMedia', values: { image: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } }, view: { graphs: { g0: { nodes: { media: { position: { x: 100, y: 100 } } } } } } }, 'Media picker proof')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })

@@ -1,7 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as base, waitForStartupOwnership } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+
+const test = base.extend<{ proofDocument: boolean }>({ proofDocument: [true, { option: true }] })
+const residentTest = test.extend({ proofDocument: false })
 
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_22'] !== '1') return
@@ -50,11 +53,12 @@ const reportTwoProblems = (page: Page): Promise<void> =>
     ])
   })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, proofDocument }) => {
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
   )
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
+  if (!proofDocument) return
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
@@ -84,7 +88,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const state of ['shared', 'isolated', 'host-refused'] as const) {
-  test(`resident process availability is visible before Run (${state})`, async ({ page }) => {
+  residentTest(`resident process availability is visible before Run (${state})`, async ({ page }) => {
     let submissions = 0
     page.on('request', (request) => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs') submissions++
@@ -105,7 +109,8 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
         residentAffinity: { types: ['MODEL'], routes: [{ process: state === 'isolated' ? 'isolated' : 'models', pack: 'modifier', worker: 'local' }] } },
       },
     } }))
-    await page.reload()
+    await mockProjectPacks(page, ['models', 'modifier'])
+    await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
     await waitForStartupOwnership(page)
     await page.evaluate(async () => {

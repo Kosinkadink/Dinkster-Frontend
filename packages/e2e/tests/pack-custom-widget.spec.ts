@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, openRailPanel, nativeTest as base, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, openRailPanel, nativeTest as base, type Page } from './fixtures.js'
 import { widgetDiagnostics } from './widget-diagnostics.js'
 
 const proofDir = process.env['DINKSTER_CUSTOM_WIDGET_PROOF_DIR']
@@ -45,6 +45,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
       },
     },
   } }))
+  await mockProjectPacks(page, ['isopack'])
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
 

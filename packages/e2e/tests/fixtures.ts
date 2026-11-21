@@ -13,6 +13,20 @@ import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with
 const nativeCatalogBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 let nativeCatalogAvailable: Promise<boolean> | undefined
 
+export async function mockProjectPacks(page: Page, packs: readonly string[] = []): Promise<void> {
+  await page.route('/api/projects/default', (route) => {
+    if (route.request().method() !== 'GET') throw new Error(`Unexpected project write: ${route.request().method()}`)
+    return route.fulfill({ json: { project: {
+      id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Default',
+      created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+      packs: { extra: packs }, environment: null, accountProject: null,
+    } } })
+  })
+  await page.route('/api/projects/default/needs', (route) => route.fulfill({ json: {
+    packs: [], extra: packs, unknown: [], installed: packs.map((pack) => ({ pack, version: null })),
+  } }))
+}
+
 export async function waitForStartupOwnership(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
     window.__dinksterTest.app.backends.get()[0]?.registry.get() !== undefined &&

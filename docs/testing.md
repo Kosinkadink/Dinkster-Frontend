@@ -60,7 +60,13 @@ use `nativeTest` from `tests/fixtures.ts` for blank startup. The seeded `test`
 fixture is for cases that exercise Basic/Subgraph and must resolve their seed
 node types. Mixed suites select the appropriate fixture per case; hooks that
 customize those documents check the `seedWorkflows` fixture option first. A mock
-catalog does not gain nodes from the real project's enabled packs; unrelated seed
+catalog does not gain nodes from the real project's enabled packs. Pack-declaring
+mocks use `mockProjectPacks` with their installed and enabled pack IDs; strict API
+mocks also answer project and needs reads explicitly. Reload tests restore every
+frontend-only schema used by their retained tabs, not just the active document.
+Independent editor cases opt out of shared document setup before navigation.
+Unresolved-workflow refusal tests assert and close their needs review before
+exercising Queue; they do not declare unidentified nodes ready. Unrelated seed
 documents must not be hidden by dismissing needs review.
 
 The separate native startup job runs the live client/app cases, then

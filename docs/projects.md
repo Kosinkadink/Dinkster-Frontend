@@ -93,7 +93,9 @@ changes, and unreadable workflows stay visible as unknown needs. This review doe
 not install or update software. It rechecks project revision and installed facts
 before an enablement write; stale reviews require a new read. Transferring an
 unchanged workflow into its shared editing session preserves the review; edits
-or document replacements invalidate it. Successful enablement shows a dismissible
+or document replacements invalidate it. Registering frontend schemas rechecks needs
+against the new registry rather than keeping an unidentified-node review from
+before the extension loaded. Successful enablement shows a dismissible
 success toast and refreshes the scoped node catalog.
 
 Review installation prepares an exact-version software review through the existing

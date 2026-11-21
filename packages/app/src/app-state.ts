@@ -9754,6 +9754,7 @@ export class AppState {
       if (reg) {
         backend.registry.set(this.layerExtraSchemas(reg))
         backend.invalidateRemoteChoices()
+        if (backend.protocol === 'dinkster') void this.checkProjectNeeds(backend)
       }
     }
   }
