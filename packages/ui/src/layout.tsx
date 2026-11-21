@@ -142,6 +142,9 @@ export function ProductShell(props: {
   currentHref: string
   onNavigate: (href: string) => void
   account?: JSX.Element
+  /** The form the page content uses when it differs from the shell's, such
+   * as site-form components shown inside an app-form frame. */
+  contentDensity?: 'app' | 'site' | undefined
   children: JSX.Element
 }) {
   const strings = useProductStrings()
@@ -276,7 +279,12 @@ export function ProductShell(props: {
             </nav>
           </aside>
         </Show>
-        <main class="dinkster-page" tabindex="-1" ref={main}>
+        <main
+          class="dinkster-page"
+          data-density={props.contentDensity}
+          tabindex="-1"
+          ref={main}
+        >
           {props.children}
         </main>
       </div>
