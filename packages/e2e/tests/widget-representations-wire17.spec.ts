@@ -299,7 +299,9 @@ test('multiline preview expands with node height while representation, editor, a
   await page.locator('[data-item-id="core.widget.representation"]').hover()
   await page.locator('[data-item-id="core.widget.representation.single-line"]').click()
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
-  expect((await textRow(page)).height).toBe(24)
+  // A single-line representation takes exactly one row.
+  expect((await textRow(page)).height).toBe(await page.evaluate(() =>
+    (window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { rowHeight: number } }).getDesignTokens().rowHeight))
 
   const single = await textRow(page)
   await page.mouse.click(single.x, single.y, { button: 'right' })
