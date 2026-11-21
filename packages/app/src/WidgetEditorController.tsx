@@ -116,6 +116,13 @@ export interface WidgetEditorState {
    */
   readonly mergeableTypes?: readonly string[]
   readonly multiline: boolean
+  /**
+   * Set when the row is edited in its own row on the canvas instead of in a
+   * card: the node look, the node's bottom edge in world coordinates (the
+   * side part goes under the node when neither side has room), and the
+   * input's tooltip for the side part.
+   */
+  readonly inRow?: { readonly look: 'original' | 'flat-title'; readonly nodeBottom: number; readonly help?: string }
   /** Current materialized member names for schema-declared completion sources. */
   readonly inputFamilyMembers?: Readonly<Record<string, readonly string[]>>
   /** Editor anchor rect in canvas world coordinates. */

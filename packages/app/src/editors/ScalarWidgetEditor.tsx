@@ -24,6 +24,7 @@ import { Check, X } from 'lucide-solid'
 import { floatKind, floatSliderView, intKind } from '@dinkster/widgets'
 import { ProductSlider } from '../ProductSlider.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
+import { InRowFieldImplementation } from './InRowFieldEditor.js'
 import {
   WidgetEditorController,
   type WidgetEditorImplementationProps,
@@ -294,5 +295,5 @@ export const ScalarWidgetEditor: Component<WidgetEditorProps> = (props) => {
   if (props.ed.spec?.widgetType === intKind.type && props.ed.viewId === 'core.integerColor') {
     return <ColorWidgetEditor {...props} />
   }
-  return <WidgetEditorController {...props} implementation={ScalarImplementation} />
+  return <WidgetEditorController {...props} implementation={props.ed.inRow === undefined ? ScalarImplementation : InRowFieldImplementation} />
 }

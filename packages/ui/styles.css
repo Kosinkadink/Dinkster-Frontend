@@ -254,6 +254,8 @@
 .dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; }
 .dinkster-canvas-field-mark { position: relative; display: grid; place-items: center; flex: none; margin-left: auto; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-field-input { position: relative; flex: 0 1 auto; field-sizing: content; min-width: var(--dinkster-space-24); margin-left: auto; height: 100%; padding: 0 calc(var(--dinkster-space-4) / 2); border: 0; outline: 0; background: transparent; color: var(--dinkster-text-primary); font: inherit; text-align: right; }
+/* The open field's outline marks its focus; the input draws no ring of its own. */
+.dinkster-canvas-field .dinkster-canvas-field-input:focus-visible { outline: 0; }
 .dinkster-canvas-field-row[data-steppers='false'] .dinkster-canvas-field-input { padding-right: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-step { width: var(--dinkster-space-24); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-glyph { stroke-width: 2; }

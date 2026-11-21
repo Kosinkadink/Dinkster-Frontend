@@ -2474,7 +2474,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
-    const EDITOR_SURFACES = '.widget-editor, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
+    const EDITOR_SURFACES = '.widget-editor, .widget-in-row-field, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
     const AUDIO_SLIDER = '.node-media-overlay .product-slider'
     // An editor can refuse host dismissal while an effect is in flight (an
     // asset upload batch must not keep uploading into a closed overlay).
@@ -3534,6 +3534,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setEditorViewport({ ...renderer.getViewport() })
     setCanvasClientRect(canvasEl.getBoundingClientRect())
     const unsubscribeEditorViewport = renderer.onViewportChange(() => setEditorViewport({ ...renderer.getViewport() }))
+    // A row edited in place is drawn by its field, so the canvas leaves it out.
+    createEffect(() => {
+      const ed = editor()
+      renderer.setOpenRow(ed?.inRow !== undefined && ed.target.kind === 'input'
+        ? { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
+        : undefined)
+    })
     // Camera moves change the broadcast world-rect; the channel's throttle
     // coalesces the pan/zoom stream, so this can ride every change.
     const unsubscribePresenceViewport = renderer.onViewportChange(publishPresence)
@@ -5139,6 +5146,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return
       }
 
+      // Number, slider, seed and single-line text rows are edited in their own
+      // row when the canvas edits in the row; every other kind keeps its card.
+      const tokens = renderer.getDesignTokens()
+      const inRowView = hit.row.viewId === 'core.number' || hit.row.viewId === 'core.slider' || hit.row.viewId === 'core.line'
+      const inRow = tokens.widgetEditing === 'in-row' && widgetKind !== undefined && inRowView &&
+        widgetView?.editorUi === undefined && descriptors === undefined
+      const fieldInsetY = tokens.rowGeometry.fieldInsetY
+      const inputItem = schema?.items.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
+      const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
+
       // Keep the graph as the focus origin before an optional editor takes
       // focus. ASSET uses native modal restoration; other families open an
       // anchored, non-modal popover near this compact row.
@@ -5169,12 +5186,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
         ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
         multiline: widgetKind === undefined || hit.row.viewId === 'core.text',
-        rect: {
-          x: hit.x,
-          y: hit.y,
-          width: hit.width,
-          height: hit.height,
-        },
+        rect: inRow
+          ? { x: hit.x, y: hit.y + fieldInsetY, width: hit.width, height: hit.height - fieldInsetY * 2 }
+          : { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+        ...(inRow ? { inRow: {
+          look: tokens.nodeLook,
+          nodeBottom: hit.node.y + hit.node.layout.height,
+          ...(help === undefined ? {} : { help }),
+        } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
         ...(descriptors !== undefined ? { outputDescriptors: {
