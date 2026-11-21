@@ -489,12 +489,7 @@
   gap: var(--dinkster-space-8);
   max-height: min(420px, calc(100vh - 140px));
   overflow-y: auto;
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
-  scrollbar-width: thin;
 }
-.workflow-queue-list::-webkit-scrollbar { width: 8px; }
-.workflow-queue-list::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
-.workflow-queue-list::-webkit-scrollbar-thumb { background: var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); }
 
 @media (max-width: 520px) {
   .workflow-queue-control { max-width: calc(100% - var(--dinkster-space-16)); }
