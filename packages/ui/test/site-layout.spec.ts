@@ -42,6 +42,17 @@ for (const width of [1280, 1440, 1920, 390]) {
           rect('.dinkster-list').top - rect('section .dinkster-heading').bottom,
         horizontalOverflow:
           document.documentElement.scrollWidth > window.innerWidth,
+        // Space between the content column and the page area's padding
+        // edges, left then right.
+        columnGaps: (() => {
+          const page = rect('.dinkster-page')
+          const padding = style('.dinkster-page')
+          const column = rect('.dinkster-content')
+          return [
+            column.left - page.left - parseFloat(padding.paddingLeft),
+            page.right - parseFloat(padding.paddingRight) - column.right,
+          ].map(Math.round)
+        })(),
       }
     })
     expect(geometry).toEqual({
@@ -58,6 +69,9 @@ for (const width of [1280, 1440, 1920, 390]) {
       titleToHeading: 32,
       headingToPanel: 12,
       horizontalOverflow: false,
+      // The 1040 px frame less 220 px navigation and a 32 px gap leaves
+      // 788 px for the 720 px column; a phone's column fills its width.
+      columnGaps: width < 768 ? [0, 0] : [34, 34],
     })
     await page.screenshot({
       path: `test-results/captures/site-security-${width}.png`,

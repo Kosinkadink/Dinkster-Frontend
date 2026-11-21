@@ -84,9 +84,10 @@ hovered fill.
 
 - `ProductShell` owns the frame and responsive navigation. With site density,
   its 1040px centered frame contains 220px navigation and a 32px content gap.
-  With app density the sidebar spans the window's left edge and the content
-  column is centered in the space beside it (in the whole window without a
-  sidebar); headings, text and content inside the column stay left-aligned.
+  With app density the sidebar spans the window's left edge. In both densities
+  the content column is centered in the space beside the navigation (in the
+  whole window without it); headings, text and content inside the column stay
+  left-aligned.
   Its wordmark, Account product label and 32px account circle share that frame.
   On phones the navigation is a 240px overlay aligned 8px from the window edge;
   it closes on an outside press, Escape or a choice without moving the page.
@@ -212,7 +213,8 @@ and `#site-card` (centered sign-in/providers) exercise the shared patterns.
 The Security route has computed-geometry and interaction checks at 1280,
 1440, 1920 and 390px; screenshots are captures, not an approved baseline.
 The canvas gallery uses app density and its full-width shell rather than the
-centered account frame; its content column is centered beside the sidebar.
+centered account frame; as on every shell page, its content column is
+centered beside the sidebar.
 
 ## Shared design build checks
 
