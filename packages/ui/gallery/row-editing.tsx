@@ -243,7 +243,6 @@ export function RowEditingExample(props: {
   testIdPrefix?: string
 }) {
   let canvas!: HTMLCanvasElement
-  let figure!: HTMLElement
   let field: HTMLDivElement | undefined
   const [scene, setScene] = createSignal<Scene>()
   const [fieldInsetY, setFieldInsetY] = createSignal(0)
@@ -297,7 +296,6 @@ export function RowEditingExample(props: {
         const node = built.nodes[0]!
         const height =
           (example.node.y + node.layout.height + MARGIN) * example.scale
-        figure.style.width = `${example.width}px`
         canvas.style.width = `${example.width}px`
         canvas.style.height = `${height}px`
         renderer = new CanvasRenderer(
@@ -426,7 +424,7 @@ export function RowEditingExample(props: {
     stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN)}px`
   })
   return (
-    <figure ref={figure} class="dinkster-canvas-example">
+    <figure class="dinkster-canvas-example">
       <div ref={stage} class="dinkster-canvas-example-stage">
         <canvas
           ref={canvas}

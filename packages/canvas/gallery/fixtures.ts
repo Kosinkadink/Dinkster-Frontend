@@ -203,6 +203,8 @@ export interface CanvasGalleryFixture {
   companions: CompanionMap
   rowMarks: RowMarkMap
   labels: readonly { text: string; x: number; y: number }[]
+  /** Cards to draw: each lists its nodes' indexes in the scene, or covers the whole scene when it lists none. */
+  examples: readonly { caption: string; nodes?: readonly number[] }[]
 }
 
 /** Fixed public renderer inputs, also reusable for frame-equivalence checks. */
@@ -238,8 +240,9 @@ export function createCanvasGalleryFixture(
     companions: {},
     rowMarks: {},
     labels: [],
+    examples: [],
   }
-  const labels: { text: string; x: number; y: number }[] = []
+  const examples: { caption: string; nodes?: readonly number[] }[] = []
   const add = (
     id: string,
     definition = sample,
@@ -364,9 +367,12 @@ export function createCanvasGalleryFixture(
       widgetMeasure,
       seedControllerEnabled: true,
     })
+    examples.push({
+      caption: id,
+      nodes: scene.nodes.map((_, i) => fixture.scene.nodes.length + i),
+    })
     fixture.scene.nodes.push(...scene.nodes)
     fixture.scene.links.push(...scene.links)
-    labels.push({ text: id, x, y: y - 24 })
   }
   if (page === 'collection-rows') {
     const collection = galleryWidgetInputs.filter((item) =>
@@ -515,10 +521,12 @@ export function createCanvasGalleryFixture(
             widgetMeasure,
             page === 'boundary',
           )
-    if (page === 'boundary-names') {
-      labels.push({ text: 'Inside the subgraph', x: 24, y: 40 })
-      labels.push({ text: 'Collapsed occurrence', x: 360, y: 340 })
-    }
+    if (page === 'boundary-names')
+      fixture.labels = [
+        { text: 'Inside the subgraph', x: 24, y: 40 },
+        { text: 'Collapsed occurrence', x: 360, y: 340 },
+      ]
+    examples.push({ caption: '' })
     fixture.scene = {
       ...scene,
       nodes: [...scene.nodes],
@@ -824,6 +832,8 @@ export function createCanvasGalleryFixture(
       {},
       2,
     )
+    // The linked pair is one example.
+    examples.splice(0, examples.length, { caption: '', nodes: [0, 1] })
     const [source, target] = fixture.scene.nodes
     source!.layout.pins
       .filter((pin) => pin.direction === 'out')
@@ -1047,10 +1057,7 @@ export function createCanvasGalleryFixture(
       fixture.height = 350 * fixture.scale
     }
   }
-  fixture.labels = labels.map((label) => {
-    const node = fixture.scene.nodes.find((node) => node.id === label.text)
-    return node ? { ...label, x: node.x, y: node.y - 24 } : label
-  })
+  fixture.examples = examples
   return fixture
 }
 
