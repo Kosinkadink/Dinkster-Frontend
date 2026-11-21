@@ -58,6 +58,7 @@ export const canvasGalleryPages = [
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
+  ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows proposal'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
@@ -202,6 +203,8 @@ export interface CanvasGalleryFixture {
   companions: CompanionMap
   rowMarks: RowMarkMap
   labels: readonly { text: string; x: number; y: number }[]
+  /** Cards to draw: each lists its nodes' indexes in the scene, or covers the whole scene when it lists none. */
+  examples: readonly { caption: string; nodes?: readonly number[] }[]
 }
 
 /** Fixed public renderer inputs, also reusable for frame-equivalence checks. */
@@ -237,8 +240,9 @@ export function createCanvasGalleryFixture(
     companions: {},
     rowMarks: {},
     labels: [],
+    examples: [],
   }
-  const labels: { text: string; x: number; y: number }[] = []
+  const examples: { caption: string; nodes?: readonly number[] }[] = []
   const add = (
     id: string,
     definition = sample,
@@ -363,9 +367,12 @@ export function createCanvasGalleryFixture(
       widgetMeasure,
       seedControllerEnabled: true,
     })
+    examples.push({
+      caption: id,
+      nodes: scene.nodes.map((_, i) => fixture.scene.nodes.length + i),
+    })
     fixture.scene.nodes.push(...scene.nodes)
     fixture.scene.links.push(...scene.links)
-    labels.push({ text: id, x, y: y - 24 })
   }
   if (page === 'collection-rows') {
     const collection = galleryWidgetInputs.filter((item) =>
@@ -514,10 +521,12 @@ export function createCanvasGalleryFixture(
             widgetMeasure,
             page === 'boundary',
           )
-    if (page === 'boundary-names') {
-      labels.push({ text: 'Inside the subgraph', x: 24, y: 40 })
-      labels.push({ text: 'Collapsed occurrence', x: 360, y: 340 })
-    }
+    if (page === 'boundary-names')
+      fixture.labels = [
+        { text: 'Inside the subgraph', x: 24, y: 40 },
+        { text: 'Collapsed occurrence', x: 360, y: 340 },
+      ]
+    examples.push({ caption: '' })
     fixture.scene = {
       ...scene,
       nodes: [...scene.nodes],
@@ -823,6 +832,8 @@ export function createCanvasGalleryFixture(
       {},
       2,
     )
+    // The linked pair is one example.
+    examples.splice(0, examples.length, { caption: '', nodes: [0, 1] })
     const [source, target] = fixture.scene.nodes
     source!.layout.pins
       .filter((pin) => pin.direction === 'out')
@@ -1046,10 +1057,7 @@ export function createCanvasGalleryFixture(
       fixture.height = 350 * fixture.scale
     }
   }
-  fixture.labels = labels.map((label) => {
-    const node = fixture.scene.nodes.find((node) => node.id === label.text)
-    return node ? { ...label, x: node.x, y: node.y - 24 } : label
-  })
+  fixture.examples = examples
   return fixture
 }
 
@@ -1090,15 +1098,16 @@ export const rowEditingSchema: NodeSchema = schema('Sample image', [
   },
 ])
 
-/** One node of the row-editing page, laid out by the production scene builder. */
-export function createRowEditingScene(
+/** A document holding one node, laid out by the production scene builder. */
+function singleNodeScene(
+  definition: NodeSchema,
+  node: Record<string, Json>,
+  view: Record<string, Json>,
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
-  position: { x: number; y: number },
-  width = 280,
 ): Scene {
-  const id = 'Sample image'
+  const id = definition.type
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
@@ -1112,11 +1121,11 @@ export function createRowEditingScene(
         nodes: {
           [id]: {
             id,
-            type: rowEditingSchema.type,
+            type: definition.type,
+            ...node,
             values: {
-              ...defaultValuesOf(rowEditingSchema),
-              seed: 123456789,
-              denoise: 0.65,
+              ...defaultValuesOf(definition),
+              ...((node['values'] as Record<string, Json> | undefined) ?? {}),
             },
           },
         },
@@ -1125,26 +1134,145 @@ export function createRowEditingScene(
         reroutes: {},
       },
     },
-    view: {
-      graphs: {
-        gallery: {
-          nodes: {
-            [id]: { position, size: { width, height: 0 } },
-          },
-        },
-      },
-    },
+    view: { graphs: { gallery: { nodes: { [id]: view } } } },
   })
   if (!loaded.document)
-    throw new Error(`Invalid row editing document: ${JSON.stringify(loaded)}`)
+    throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
   return buildScene({
     document: loaded.document,
     graphId: 'gallery',
-    resolve: (type) =>
-      type === rowEditingSchema.type ? rowEditingSchema : undefined,
+    resolve: (type) => (type === definition.type ? definition : undefined),
     tokens,
     measure,
     widgetMeasure,
     seedControllerEnabled: true,
   })
+}
+
+/** One node of the row-editing page, laid out by the production scene builder. */
+export function createRowEditingScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    rowEditingSchema,
+    { values: { seed: 123456789, denoise: 0.65 } },
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
+const coreInput = (id: string): InputSpec =>
+  galleryWidgetInputs.find((item) => item.id === id)!
+
+/** The nodes of the node look page, each shown in every look. */
+export const nodeLookExamples = [
+  ['sample', 'Sample image', 'A pin row, a seed, two numbers, a slider and a text.'],
+  ['pins', 'Pins only', 'Three inputs and two outputs, no widgets.'],
+  ['raised', 'Raised rows', 'An asset and a color open a picker; a toggle, a dropdown and a multiline text.'],
+  ['sections', 'Sections', 'A collapsed section with a changed value, and the open Advanced section with its wash.'],
+  ['collapsed', 'Collapsed', 'A collapsed node is its title bar alone.'],
+  ['selected', 'Selected', 'The selection outline.'],
+  ['running', 'Running', 'Running, 45 percent done.'],
+  ['error', 'Error', 'The run failed on this node.'],
+  ['muted', 'Muted', 'A muted node is dimmed.'],
+  ['bypassed', 'Bypassed', 'A bypassed node is dimmed under a purple wash.'],
+  ['subgraph', 'Subgraph instance', 'An instance of a subgraph, with its badge.'],
+] as const
+export type NodeLookExample = (typeof nodeLookExamples)[number][0]
+
+const nodeLookSchemas: Record<'pins' | 'raised' | 'sections' | 'subgraph', NodeSchema> = {
+  pins: schema('Image blend', [
+    { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
+    { kind: 'input', id: 'overlay', type: concrete('IMAGE'), optional: false },
+    { kind: 'input', id: 'mask', type: concrete('MASK'), optional: true },
+    { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+    { kind: 'output', id: 'MASK', type: concrete('MASK') },
+  ]),
+  raised: schema(
+    'Load reference',
+    ['asset', 'color', 'toggle', 'choice', 'prompt'].map(coreInput),
+  ),
+  sections: schema('Save video', [
+    { kind: 'input', id: 'images', type: concrete('IMAGE'), optional: false },
+    widget('fps', 'FLOAT', 24, { min: 1, max: 120, step: 1 }),
+    { kind: 'section', id: 'output', displayName: 'Output', collapsedByDefault: true },
+    { ...widget('filename_prefix', 'STRING', 'video/Dinkster'), section: 'output' },
+    { ...widget('format', 'COMBO', 'mp4', { options: ['mp4', 'webm'] }), section: 'output' },
+    { ...widget('crf', 'INT', 19, { min: 0, max: 51 }), advanced: true },
+    { ...widget('preset', 'COMBO', 'medium', { options: ['fast', 'medium', 'slow'] }), advanced: true },
+  ]),
+  subgraph: schema('Upscale and sharpen', [
+    { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
+    { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+    widget('scale', 'FLOAT', 2, { min: 1, max: 4, step: 0.5 }),
+    widget('sharpen', 'FLOAT', 0.35, { min: 0, max: 1, step: 0.05, display: 'slider' }),
+  ]),
+}
+
+/** One node of the node look page with its run state, badges and selection. */
+export function createNodeLookFixture(
+  example: NodeLookExample,
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Pick<CanvasGalleryFixture, 'states' | 'badges' | 'overlay'> & { scene: Scene } {
+  const size = { width, height: 0 }
+  if (example === 'sample')
+    return {
+      scene: createRowEditingScene(tokens, measure, widgetMeasure, position, width),
+      states: {},
+      badges: {},
+      overlay: {},
+    }
+  if (example === 'pins' || example === 'raised' || example === 'sections' || example === 'subgraph') {
+    const definition = nodeLookSchemas[example]
+    const scene = singleNodeScene(
+      definition,
+      example === 'sections' ? { values: { format: 'webm' } } : {},
+      {
+        position,
+        size,
+        ...(example === 'sections' ? { sections: { advanced: { collapsed: false } } } : {}),
+      },
+      tokens,
+      measure,
+      widgetMeasure,
+    )
+    return {
+      scene:
+        example === 'subgraph'
+          ? { ...scene, nodes: scene.nodes.map((node) => ({ ...node, isSubgraph: true })) }
+          : scene,
+      states: {},
+      badges: example === 'subgraph' ? { [definition.type]: [SUBGRAPH_BADGE] } : {},
+      overlay: {},
+    }
+  }
+  const scene = singleNodeScene(
+    sample,
+    example === 'muted' || example === 'bypassed' ? { mode: example } : {},
+    { position, size, ...(example === 'collapsed' ? { collapsed: true } : {}) },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+  return {
+    scene,
+    states:
+      example === 'running'
+        ? { [sample.type]: { state: 'running', value: 0.45 } }
+        : example === 'error'
+          ? { [sample.type]: { state: 'error' } }
+          : {},
+    badges: example === 'error' ? { [sample.type]: [executionErrorBadge(1)] } : {},
+    overlay: example === 'selected' ? { selection: new Set([sample.type]) } : {},
+  }
 }

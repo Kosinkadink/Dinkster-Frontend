@@ -72,18 +72,22 @@ files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
 The Canvas pages include an Attached tabs proposal at controls and content
-zoom in both themes. Its Badge layout selector compares production chips with
-the opt-in renderer layout: small header marks, bounded identity tabs above,
-run details below, crowded icon strips and an overflow count. Hover reveals
-a strip label; clicking a tab or overflow opens its full details. The proposed
-16px height, 11px text and 12px side inset live in the typed canvas tokens.
-The page lets height, text size and inset vary independently, including a
-20px/12px/16px comparison. None of these dimensions is approved and production
-continues to use chips. Candidate tab icons and labels choose a light or dark
-foreground against their actual fill, including the hovered fill.
+zoom in both themes. Each example shows production chips (Before) beside the
+opt-in renderer layout in both proposed sizes: small header marks, bounded
+identity tabs above, run details below, crowded icon strips and an overflow
+count. Hover reveals a strip label; clicking a tab or overflow opens its full
+details. The sizes are 16px high with 11px text and a 12px side inset, from
+the typed canvas tokens, and 20px with 12px text and a 16px inset. Neither is
+approved and production continues to use chips. Candidate tab icons and labels
+choose a light or dark foreground against their actual fill, including the
+hovered fill.
 
 - `ProductShell` owns the frame and responsive navigation. With site density,
   its 1040px centered frame contains 220px navigation and a 32px content gap.
+  With app density the sidebar spans the window's left edge. In both densities
+  the content column is centered in the space beside the navigation (in the
+  whole window without it); headings, text and content inside the column stay
+  left-aligned.
   Its wordmark, Account product label and 32px account circle share that frame.
   On phones the navigation is a 240px overlay aligned 8px from the window edge;
   it closes on an outside press, Escape or a choice without moving the page.
@@ -209,7 +213,8 @@ and `#site-card` (centered sign-in/providers) exercise the shared patterns.
 The Security route has computed-geometry and interaction checks at 1280,
 1440, 1920 and 390px; screenshots are captures, not an approved baseline.
 The canvas gallery uses app density and its full-width shell rather than the
-centered account frame; its fixed-size renderer fixtures retain their space.
+centered account frame; as on every shell page, its content column is
+centered beside the sidebar.
 
 ## Shared design build checks
 
@@ -706,21 +711,31 @@ not add DOM roots.
 
 ### Canvas gallery
 
-The shared component gallery includes `/#canvas`. Its theme and page controls
-select fixed examples painted by the production `CanvasRenderer`, registry
-widget painter, layout and scene builder, without a backend. The reusable
-fixtures live under `packages/canvas/gallery/`; the gallery shell owns only
-selection, captions and decoded preview images. Gallery captions are annotations,
-not part of node paint. Widget fixtures include link-driven inputs, offered
+The shared component gallery includes `/#canvas`. Its theme buttons and its
+Page list, grouped under Nodes, Tabs and states, Rows, Wires, Subgraphs and
+Zoom, select fixed examples painted by the production `CanvasRenderer`,
+registry widget painter, layout and scene builder, without a backend. Previous
+page and Next page step through the list in order, and the selected page is
+kept in the address as `?page=<id>` so a page can be linked. Each page
+has one sentence on what to look at. Each example is its own card: a canvas
+sized to the example's nodes, links, tabs and toolbar, with its name as the
+caption, in rows that wrap. Whole graphs (structural parts, subgraph pages and
+the minimap) are one card. A card wider than the column scrolls inside itself,
+so no page scrolls sideways at phone width. A page that compares a previous
+look with the current one shows both side by side for each example, captioned
+Before and After, instead of a selector. The reusable fixtures live under
+`packages/canvas/gallery/` and name each example's nodes; the gallery shell
+owns only selection, cards, captions and decoded preview images. Gallery
+captions are annotations, not part of node paint. Widget fixtures include link-driven inputs, offered
 family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
 Core widget rows compares selected, empty and long values for the core kinds.
 The default `widgetRowLook: 'inset-raised'` keeps direct values in inset fields
 and gives color and asset openers raised faces, kind icons and an opening
-chevron. Their real swatches and value summaries are preserved. Core row look
-compares these current rows with previous all-inset paint on the same fixture;
-that comparison does not change other pages. Number paint is unchanged; this
+chevron. Their real swatches and value summaries are preserved. Before shows
+previous all-inset paint on the same fixture; that comparison does not change
+other pages. Number paint is unchanged; this
 is not a proposed number editor or approval of its appearance.
 
 Collection widget rows proposal compares the current inset collection rows with
@@ -730,19 +745,19 @@ minimal, and long or varied document values: selection counts, literal list
 values, palette swatches and counts, and sampled curves with point counts and
 interpolation. Curves require at least one point, so the minimal fixture is a
 flat one-point curve. Production defaults, other pages and editors do not use
-the proposal. Collection row look switches both paints on the same document.
+the proposal. Before and After draw both paints from the same document.
 
-The Idle outline page compares Previous outline with Quieter outline (current)
-on idle, hovered and selected nodes. The app and gallery default to the shared
-subtle idle border; the Previous outline selector overrides only that page's
-`nodeIdleOutline` role to retain the former strong-border comparison.
+The Idle outline page compares the previous outline (Before) with the quieter
+current outline (After) on idle, hovered and selected nodes. The app and
+gallery default to the shared subtle idle border; Before overrides only that
+page's `nodeIdleOutline` role to retain the former strong-border comparison.
 
 The app canvas and gallery use contrast-adjusted type colors in both themes.
 The named palette keeps each hue and meets 3:1 against that theme's node body;
 colors already meeting the threshold remain unchanged. Unknown types keep their
 stable hashed hue with theme-specific lightness. Live app theme changes update
-chrome and type paint together. The Pins and links page retains Previous colors
-as a page-only comparison; it cannot change app defaults or other gallery pages.
+chrome and type paint together. The Pins and links page retains the previous
+colors as a page-only Before; it cannot change app defaults or other gallery pages.
 
 Node titles retain normal letter widths and end in an ellipsis when they do not
 fit the space left by header marks. The typed `titleOverflow` default applies to
@@ -752,7 +767,7 @@ long, renamed and minimized titles in the same production layout. Only those
 gallery pages can select the previous look; it cannot change other pages or the
 app. Title placement, available width and overview title painting are unchanged.
 The canvas gallery loads its regular, semibold and italic faces before measuring
-or painting, so a cold page and a return from a comparison use the same glyphs.
+or painting, so a cold page and a return to a page use the same glyphs.
 
 Subgraph names compares previous generated names with production ids as
 written in the interior Inputs/Outputs panels and the collapsed occurrence.
@@ -766,11 +781,13 @@ states and absent execution. Editable paint retains only running and failed
 nodes; frozen paint retains every recorded state and its bottom label. Collapsed
 instances aggregate occurrence severity and running progress before this
 visibility filter. These gallery-only pages use the shared canvas presentation
-API, not an adopted app-view policy. Attached tabs and their adjustable dimensions
-remain proposals; production run paint and chip defaults are unchanged.
+API, not an adopted app-view policy. Each example shows chips (Before) beside
+16px attached tabs (After); attached tabs remain a proposal and production run
+paint and chip defaults are unchanged.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
-themes in the same Linux Chromium job as the shared component screenshots.
+themes in the same Linux Chromium job as the shared component screenshots, and
+checks that no page scrolls sideways at 390px and that the column is centered.
 Intentional paint changes include reviewed picture differences; token-only
 moves preserve the pictures. `packages/canvas/src/tokens.ts` owns shared
 semantic paint roles and the fixed `canvasPaintTokens` geometry. Existing

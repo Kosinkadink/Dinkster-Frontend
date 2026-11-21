@@ -86,12 +86,10 @@ for (const dpr of [1, 1.25, 2]) {
       })
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto('/#canvas')
-      await expect(
-        page.getByRole('img', {
-          name: 'anatomy in dark theme',
-          exact: true,
-        }),
-      ).toHaveAttribute('data-ready', 'anatomy-dark')
+      await expect(page.getByTestId('canvas-anatomy-0')).toHaveAttribute(
+        'data-ready',
+        'anatomy-dark',
+      )
       await page.addScriptTag({ content: script })
     })
     test.afterAll(async () => {
@@ -181,9 +179,10 @@ test('every registered gallery widget survives selection, drag, edit and theme i
   page,
 }) => {
   await page.goto('/#canvas')
-  await expect(
-    page.getByRole('img', { name: 'anatomy in dark theme', exact: true }),
-  ).toHaveAttribute('data-ready', 'anatomy-dark')
+  await expect(page.getByTestId('canvas-anatomy-0')).toHaveAttribute(
+    'data-ready',
+    'anatomy-dark',
+  )
   await page.addScriptTag({ content: script })
   for (const input of galleryWidgetInputs) {
     const result = await page.evaluate(

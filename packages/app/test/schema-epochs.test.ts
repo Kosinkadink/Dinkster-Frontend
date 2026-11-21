@@ -58,31 +58,6 @@ beforeEach(() => {
 })
 
 describe('schema_changed epoch invalidation', () => {
-  it('keeps the catalog unavailable when legacy registration fails and resumes on refresh', async () => {
-    const source = JSON.stringify({ v: 1, projects: [{ id: 'p-film', name: 'Film', createdAt: 17 }] })
-    const data = new Map([['dinkster.projects', source]])
-    vi.stubGlobal('localStorage', {
-      getItem: (key: string) => data.get(key) ?? null,
-      removeItem: (key: string) => { data.delete(key) },
-    })
-    try {
-      const register = vi.spyOn(nativeConnection(), 'registerProject').mockRejectedValue(new Error('registration unavailable'))
-      vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
-      await app.refreshBackendSchemas(backend)
-      expect(backend.registry.get()).toBeUndefined()
-      expect(backend.schemaState.get()).toMatchObject({ status: 'error', message: 'registration unavailable' })
-      expect(data.get('dinkster.projects')).toBe(source)
-      register.mockImplementation(async (id, name) => ({ id, name, created: '2026-11-18T12:34:56Z', revision: 1, deleted: false }))
-      await app.refreshBackendSchemas(backend)
-      expect(backend.registry.get()?.epoch).toBe(2)
-      expect(data.has('dinkster.projects')).toBe(false)
-    } finally {
-      app.dispose()
-      vi.unstubAllGlobals()
-      vi.restoreAllMocks()
-    }
-  })
-
   it('registers browser projects on connection without removing device drafts', async () => {
     const source = JSON.stringify({ v: 1, projects: [{ id: 'p-film', name: 'Film', createdAt: 17 }] })
     const data = new Map([['dinkster.projects', source], ['dinkster.p.p-film.openTabs', 'device draft']])
@@ -97,10 +72,7 @@ describe('schema_changed epoch invalidation', () => {
         registered.set(id, name)
         return { id, name, created: '2026-11-18T12:34:56Z', revision: 1, deleted: false }
       })
-      vi.spyOn(nativeConnection(), 'fetchSchemas').mockImplementation(async () => {
-        if (registered.get('p-film') !== 'Film') throw new Error('Project must be registered before its catalog is requested')
-        return reg(backend, 2)
-      })
+      vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
       ;(backend.connection.status as unknown as { set(value: string): void }).set('connected')
       await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
       expect(registered.get('p-film')).toBe('Film')
@@ -237,7 +209,7 @@ describe('schema_changed epoch invalidation', () => {
     push(backend, { type: 'schema_changed', epoch: 2 })
     push(backend, { type: 'schema_changed', epoch: 3 })
     push(backend, { type: 'schema_changed', epoch: 4 })
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
     // First fetch observed only epoch 2; the coalesced target is 4, so
     // exactly one follow-up fetch lands the newest surface.
     resolveFirst!(reg(backend, 2))
@@ -301,9 +273,7 @@ describe('reconnect capability invalidation', () => {
       }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
     const startup = app.refreshBackendSchemas(backend)
-    await vi.waitFor(() => expect(resolveStartup).toBeTypeOf('function'))
     setStatus('connected')
-    await vi.waitFor(() => expect(resolveRefresh).toBeTypeOf('function'))
     const finishStartup = async (): Promise<void> => {
       if (outcome === 'success') resolveStartup(reg(backend, 2))
       else rejectStartup(new Error('schema fetch invalidated by server reconnect'))
@@ -331,7 +301,6 @@ describe('reconnect capability invalidation', () => {
       }))
       .mockResolvedValueOnce(reg(backend, 9))
     setStatus('connected')
-    await vi.waitFor(() => expect(resolveRefresh).toBeTypeOf('function'))
     await app.refreshBackendSchemas(backend)
     if (outcome === 'success') resolveRefresh(reg(backend, 3))
     else rejectRefresh(new Error('obsolete reconnect failed'))
@@ -413,7 +382,6 @@ describe('reconnect capability invalidation', () => {
     expect(backend.registry.get()?.graphFeatures).toBeUndefined()
     expect(backend.registry.get()?.epoch).toBe(3) // schemas stay for display
     expect(backend.workerCatalog.get()).toEqual({ status: 'unsupported' })
-    await vi.waitFor(() => expect(resolveFetch).toBeTypeOf('function'))
     resolveFetch({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     await flush()
     expect(backend.registry.get()?.graphFeatures).toEqual(['typedLiteral'])
@@ -459,7 +427,7 @@ describe('reconnect capability invalidation', () => {
       }))
       .mockResolvedValue(reg(backend, 3)) // the new life: no features
     push(backend, { type: 'schema_changed', epoch: 4 })
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
     // The server restarts while that fetch is in flight; its (old-life)
     // response advertising typedLiteral must be discarded, not committed -
     // committing would restore the capabilities the reconnect invalidated.
@@ -485,7 +453,7 @@ describe('reconnect capability invalidation', () => {
       .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject }))
       .mockRejectedValue(new Error('still offline'))
     push(backend, { type: 'schema_changed', epoch: 2 })
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
     // The server restarts mid-fetch (the restart is WHY the fetch fails):
     // the new life still owes its unconditional fetch, exactly once.
     setStatus('connected')

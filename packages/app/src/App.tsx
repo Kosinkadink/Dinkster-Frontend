@@ -42,7 +42,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductErrorBanner, ProductToast } from '@dinkster/ui'
+import { ProductErrorBanner } from '@dinkster/ui'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -79,7 +79,6 @@ import { useAppMessage } from './locale.js'
 import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
 import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
 import { NodeInstallPrompt } from './NodeInstallPrompt.js'
-import { ProjectNeedsPrompt } from './ProjectNeedsPrompt.js'
 import { HostUiProviderHost } from './host-ui.js'
 import {
   activePanelIndicator,
@@ -477,8 +476,6 @@ export function App(props: {
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
-  const projectNeedsReview = useSignal(app.projectNeedsReview)
-  const projectPackNotification = useSignal(app.projectPackNotification)
   const placementStatus = useSignal(app.placementStatus)
   const transientStatus = useSignal(app.transientStatus)
   const detachedWorkflowIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
@@ -2696,10 +2693,8 @@ export function App(props: {
           <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></ProductButton>
         </div>
       </header>
-      <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
-      <Show when={nodeInstallRequest() === undefined && modalPanel() === '' ? projectNeedsReview() : undefined} keyed>{(review) => <ProjectNeedsPrompt app={app} review={review} />}</Show>
 
       {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
           modal at a time, hosted by a native <dialog> opened with

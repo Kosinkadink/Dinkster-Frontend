@@ -138,11 +138,14 @@ export const canvasPaintTokens = {
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
-    outline: { idle: 1.25, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /** `crisp` is the idle outline of a node look with crisp edges. */
+    outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
     errorHeaderTint: 0.35,
+    /** The flat-title look's rule under the title, inside the title bar. */
+    headerRuleStroke: 1,
     titleBadgeGap: canvasSemanticTokens.space[4],
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
@@ -459,9 +462,12 @@ export const canvasPaintTokens = {
     connectedControllerOpacity: 0.5,
     connectedGlyphOpacity: 0.35,
     stepperStroke: 1.5,
+    /** Moves a 1 px line onto a pixel row's center. */
+    pixelCenter: 0.5,
     rangeFillAccentOpacity: 0.2,
     dragLineStroke: 2,
-    modeWordGap: canvasSemanticTokens.space[8],
+    modeIconSize: canvasSemanticTokens.space[16] + canvasSemanticTokens.space[4],
+    modeIconGap: canvasSemanticTokens.space[4],
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
@@ -502,6 +508,38 @@ export function canvasDetailLevel(scale: number, mediaControlMinScale: number): 
   return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
 }
 
+export type NodeLook = 'original' | 'flat-title'
+
+export interface RowGeometry {
+  /** Height of a row that holds only pins. */
+  readonly portRowHeight: number
+  /** A widget field's inset from the top and bottom of its row. */
+  readonly fieldInsetY: number
+  /** A widget field's inset from the node's edge. */
+  readonly fieldInsetX: number
+  /** Width of the stepper zone at each end of a number field. */
+  readonly stepperZone: number
+  /** Distance from a field's end to its stepper glyph's center. */
+  readonly stepperCenter: number
+  readonly stepperStroke: number
+  /** A number field's label, after the minus stepper's zone. */
+  readonly stepperLabelInset: number
+  /** Extra inset of a text field's value from the field's right end. */
+  readonly textEndInset: number
+  /** A pin's name, from the node's edge. */
+  readonly portLabelInset: number
+  /** Space from the title line to a first row that is boxed (a field, section or growth row). */
+  readonly boxedTopInset: number
+  /** Space from the title line to a first row of pins, whose text carries its own space. */
+  readonly pinTopInset: number
+  /**
+   * Space from a last row of pins to the node's bottom edge; after a boxed row
+   * it is padBottom. Both bottom insets include the 1px border, which is drawn
+   * inside the node's box.
+   */
+  readonly pinBottomInset: number
+}
+
 export interface DesignTokens {
   readonly rowHeight: number
   readonly headerHeight: number
@@ -530,6 +568,21 @@ export interface DesignTokens {
    * drawing the mode chip.
    */
   readonly widgetEditing: 'card' | 'in-row'
+  /**
+   * The node look: the original, or `flat-title` with taller fields,
+   * tighter gaps, a dark body and a title bar in the body's own color over
+   * a thin rule. `nodeLookTokens` gives the geometry and colors of each.
+   */
+  readonly nodeLook: NodeLook
+  /**
+   * At 100 percent, put the node's idle outline, its title bar's rule,
+   * its row boxes and the steppers' lines on whole pixels: the outline is
+   * 1 px drawn inside the node's box, and stepper lines sit on pixel
+   * centers.
+   */
+  readonly crispEdges: boolean
+  /** Placement inside widget and pin rows; the node look sets it. */
+  readonly rowGeometry: RowGeometry
   readonly badgeLayout: 'chips' | 'tabs'
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
@@ -549,6 +602,10 @@ export interface DesignTokens {
     readonly gridDot: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    /** Face of a raised opener row, lighter than the node body. */
+    readonly widgetRaised: string
+    /** Rule under a title bar drawn in the body's own color. */
+    readonly nodeHeaderRule: string
     /** Structural and pseudo-node outline, stronger than inset chrome. */
     readonly nodeOutline: string
     readonly nodeIdleOutline: string
@@ -558,6 +615,7 @@ export interface DesignTokens {
     readonly groupDefault: string
     readonly title: string
     readonly label: string
+    readonly valueMark: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -652,10 +710,10 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
 }
 
 export const defaultTokens: DesignTokens = {
-  rowHeight: 24,
-  headerHeight: 28,
+  rowHeight: 26,
+  headerHeight: 26,
   padX: 10,
-  padBottom: 8,
+  padBottom: 6,
   previewDefaultHeight: 180,
   previewMinHeight: 40,
   previewCaptionHeight: 22,
@@ -671,6 +729,22 @@ export const defaultTokens: DesignTokens = {
   titleFontSize: 13,
   widgetRowLook: 'inset-raised',
   widgetEditing: 'card',
+  nodeLook: 'flat-title',
+  crispEdges: true,
+  rowGeometry: {
+    portRowHeight: 26,
+    fieldInsetY: 1,
+    fieldInsetX: 8,
+    stepperZone: 22,
+    stepperCenter: 12.5,
+    stepperStroke: 1,
+    stepperLabelInset: 2,
+    textEndInset: 4,
+    portLabelInset: 10,
+    boxedTopInset: 5,
+    pinTopInset: 1,
+    pinBottomInset: 2,
+  },
   badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
@@ -705,7 +779,7 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
     typeColors: {
       ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
-        STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
       } : {
         CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
         IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
@@ -729,8 +803,13 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
   return {
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
-    nodeBody: tokens.surface.raised,
+    // The dark theme's flat-title look: the darker surface is the body and
+    // the title bar, raised rows take the lighter one. The light theme
+    // keeps its original surfaces.
+    nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
+    nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
@@ -738,8 +817,10 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     groupDefault: tokens.border.strong,
     title: tokens.text.primary,
     label: tokens.text.secondary,
+    // A word or icon before a value that describes it, such as a seed's mode.
+    valueMark: tokens.text.muted,
     value: tokens.text.primary,
-    widgetBackground: tokens.surface.inset,
+    widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
@@ -893,5 +974,46 @@ export function presentedType(
     tooltip: canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined
       ? `${label} (${canonicalName})`
       : label,
+  }
+}
+
+/**
+ * The tokens a node look changes, to spread over a theme's tokens. The
+ * defaults are the flat-title look; `original` restores the earlier sizes
+ * in both themes and the earlier dark colors, for side-by-side review.
+ */
+export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
+  if (look === 'flat-title') return { nodeLook: look }
+  const colors = canvasColorsForTheme(theme)
+  const original = semanticTokensForTheme(theme)
+  return {
+    nodeLook: look,
+    crispEdges: false,
+    rowHeight: 24,
+    headerHeight: 28,
+    padBottom: 8,
+    rowGeometry: {
+      portRowHeight: 24,
+      fieldInsetY: 2,
+      fieldInsetX: 5.5 + canvasSemanticTokens.space[4],
+      stepperZone: 12,
+      stepperCenter: 6,
+      stepperStroke: 1.5,
+      stepperLabelInset: 6,
+      textEndInset: 0,
+      portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
+      boxedTopInset: 0,
+      pinTopInset: 0,
+      pinBottomInset: 8,
+    },
+    colors: {
+      ...colors,
+      nodeBody: original.surface.raised,
+      nodeHeader: original.surface.panel,
+      widgetRaised: original.surface.panel,
+      nodeHeaderRule: original.border.subtle,
+      valueMark: colors.label,
+      widgetBackground: original.surface.inset,
+    },
   }
 }

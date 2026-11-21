@@ -231,9 +231,7 @@ describe('addBackend / removeBackend', () => {
     })
 
     const first = app.refreshBackendSchemas(backend)
-    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'))
     const second = app.refreshBackendSchemas(backend)
-    await vi.waitFor(() => expect(resolveSecond).toBeTypeOf('function'))
     const newest = buildDinksterRegistry(backend.id, nodesPayload)
     resolveSecond(newest)
     await second
@@ -561,7 +559,6 @@ describe('addBackend / removeBackend', () => {
     let rejectRequest!: (reason: Error) => void
     vi.spyOn(retired.connection, 'fetchSchemas').mockImplementation(() => new Promise((_resolve, reject) => { rejectRequest = reject }))
     const request = app.refreshBackendSchemas(retired)
-    await vi.waitFor(() => expect(rejectRequest).toBeTypeOf('function'))
     app.removeBackend(retired.id)
     const replacement = app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')!
     const problemsBefore = app.problems.get().length

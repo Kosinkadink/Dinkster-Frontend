@@ -117,6 +117,7 @@ describe('lens widget-row affordance', () => {
       scene.nodes[0]!.layout.width - row.inset * 2,
       defaultTokens.rowHeight,
       row,
+      defaultTokens.rowGeometry,
     )
     const harness = interactionHarness(
       scene,
@@ -3114,23 +3115,23 @@ describe('after-generate controller chip', () => {
   it('reports the chip as its own tooltip target', () => {
     const targets: unknown[] = []
     const harness = interactionHarness(controllerScene('fixed'), { onHoverTarget: (target) => targets.push(target) })
-    harness.fire('pointermove', 81, 35)
+    harness.fire('pointermove', 65, 35)
     expect(targets.at(-1)).toMatchObject({ kind: 'controller' })
   })
 
   it.each(['fixed', 'increment', 'decrement', 'randomize'] as const)('opens the detail menu from the %s chip', (current) => {
     const activated: unknown[] = []
     const harness = interactionHarness(controllerScene(current), { onControllerActivate: (hit) => activated.push(hit) })
-    harness.fire('pointerdown', 81, 35)
-    harness.fire('pointerup', 81, 35)
+    harness.fire('pointerdown', 65, 35)
+    harness.fire('pointerup', 65, 35)
     expect(activated).toHaveLength(1)
     expect(harness.dispatched).toEqual([])
   })
 
   it('keeps a link-driven controller chip inert because advancement skips linked values', () => {
     const harness = interactionHarness(controllerScene('increment', true))
-    harness.fire('pointerdown', 81, 35)
-    harness.fire('pointerup', 81, 35)
+    harness.fire('pointerdown', 65, 35)
+    harness.fire('pointerup', 65, 35)
     expect(harness.dispatched).toEqual([])
   })
 
