@@ -5,7 +5,7 @@
  * synthetic schema through the SAME public extension API (registerSchemas)
  * and open a matching workflow document.
  */
-import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, appViewTest as test, nativeAppViewTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -92,7 +92,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 // Context menus
 // ---------------------------------------------------------------------------
 
-test('canvas name prompts await acceptance and keep refused or newer drafts', {
+documentTest('canvas name prompts await acceptance and keep refused or newer drafts', {
   annotation: { type: 'mock-name-dispatch' },
 }, async ({ page }, testInfo) => {
   await page.evaluate(async () => {
@@ -245,7 +245,7 @@ test('menu delete removes the node + links in ONE undo step', async ({ page }) =
   expect(restored.graphs['g0']!.links['l2']).toBeDefined()
 })
 
-test('right-click empty canvas offers Add Node, which opens the palette there', async ({ page }) => {
+documentTest('right-click empty canvas offers Add Node, which opens the palette there', async ({ page }) => {
   await page.mouse.click(700, 750, { button: 'right' })
   await expect(menu(page)).toBeVisible()
   await menuItem(page, 'core.canvas.addNode').click()
@@ -553,7 +553,7 @@ const sectionState = (page: Page, nodeId: string) =>
     }
   }, nodeId)
 
-test('clicking the section strip collapses; height shrinks; undo re-expands', async ({ page }) => {
+documentTest('clicking the section strip collapses; height shrinks; undo re-expands', async ({ page }) => {
   await openSectionedWorkflow(page)
 
   const open = await sectionState(page, 's0')
@@ -580,7 +580,7 @@ test('clicking the section strip collapses; height shrinks; undo re-expands', as
   expect((await sectionState(page, 's0')).viewSections).toBeUndefined()
 })
 
-test('noodle into a collapsed section stays anchored on the header row', async ({ page }) => {
+documentTest('noodle into a collapsed section stays anchored on the header row', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await sectionPoint(page, 's0', 'adv')))
 
@@ -595,7 +595,7 @@ test('noodle into a collapsed section stays anchored on the header row', async (
   expect(anchored.linkY).toBe(anchored.headerCenter)
 })
 
-test('right-click on the section strip offers Collapse/Expand', async ({ page }) => {
+documentTest('right-click on the section strip offers Collapse/Expand', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await sectionPoint(page, 's0', 'adv')), { button: 'right' })
   await expect(menuItem(page, 'core.section.toggle')).toContainText('Collapse section')
@@ -643,7 +643,7 @@ const sectionRow = (page: Page, nodeId: string, sectionId: string) =>
     { nodeId, sectionId },
   )
 
-test('widget context menu resets to the LIVE schema default; undo restores', async ({ page }) => {
+documentTest('widget context menu resets to the LIVE schema default; undo restores', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await widgetPoint(page, 's0', 'w')), { button: 'right' })
   await expect(menuItem(page, 'core.widget.reset')).toContainText('Reset to default')
@@ -663,7 +663,7 @@ test('widget context menu resets to the LIVE schema default; undo restores', asy
   await page.keyboard.press('Escape')
 })
 
-test('collapsed section carries hiddenModified; section reset clears it in ONE undo step', async ({ page }) => {
+documentTest('collapsed section carries hiddenModified; section reset clears it in ONE undo step', async ({ page }) => {
   await openSectionedWorkflow(page)
   // Collapse: the off-default w (3 vs 20) is now hidden -> indicator count 1.
   await page.mouse.click(...xy(await sectionPoint(page, 's0', 'adv')))
@@ -679,7 +679,7 @@ test('collapsed section carries hiddenModified; section reset clears it in ONE u
   expect(await sectionRow(page, 's0', 'adv')).toMatchObject({ hiddenModified: 1 })
 })
 
-test('node reset covers all widgets; hidden on nodes without resettable widgets', async ({ page }) => {
+documentTest('node reset covers all widgets; hidden on nodes without resettable widgets', async ({ page }) => {
   await openSectionedWorkflow(page)
   await page.mouse.click(...xy(await headerPoint(page, 's0')), { button: 'right' })
   await expect(menuItem(page, 'core.node.reset')).toContainText('Reset all widgets to defaults')
@@ -694,7 +694,7 @@ test('node reset covers all widgets; hidden on nodes without resettable widgets'
   await page.keyboard.press('Escape')
 })
 
-test('FR14 a disabled menu item cannot be invoked by mouse or Enter, and arrows skip it', async ({ page }) => {
+documentTest('FR14 a disabled menu item cannot be invoked by mouse or Enter, and arrows skip it', async ({ page }) => {
   await openSectionedWorkflow(page)
   // Bring every widget to its default so the node reset renders disabled.
   await page.mouse.click(...xy(await headerPoint(page, 's0')), { button: 'right' })
@@ -741,7 +741,7 @@ test('switching tabs dismisses a stale menu', async ({ page }) => {
   await expect(menu(page)).not.toBeVisible()
 })
 
-test('create empty subgraph drills in and one undo removes the definition and repairs navigation', async ({ page }) => {
+documentTest('create empty subgraph drills in and one undo removes the definition and repairs navigation', async ({ page }) => {
   await page.evaluate(() => { (window.__dinksterTest!.app as any).createWorkflow() })
   await identityViewport(page)
   const canvas = page.getByTestId('graph-canvas')

@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-v19-proof'
 

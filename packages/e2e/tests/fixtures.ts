@@ -13,6 +13,20 @@ import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with
 const nativeCatalogBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 let nativeCatalogAvailable: Promise<boolean> | undefined
 
+export async function mockProjectPacks(page: Page, packs: readonly string[] = []): Promise<void> {
+  await page.route('/api/projects/default', (route) => {
+    if (route.request().method() !== 'GET') throw new Error(`Unexpected project write: ${route.request().method()}`)
+    return route.fulfill({ json: { project: {
+      id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Default',
+      created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+      packs: { extra: packs }, environment: null, accountProject: null,
+    } } })
+  })
+  await page.route('/api/projects/default/needs', (route) => route.fulfill({ json: {
+    packs: [], extra: packs, unknown: [], installed: packs.map((pack) => ({ pack, version: null })),
+  } }))
+}
+
 export async function waitForStartupOwnership(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
     window.__dinksterTest.app.backends.get()[0]?.registry.get() !== undefined &&
@@ -80,8 +94,26 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean }>({
+export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean; seedWorkflows: boolean }>({
   appView: [false, { option: true }],
+  seedWorkflows: [false, { option: true }],
+  page: async ({ page, seedWorkflows }, use) => {
+    if (seedWorkflows) {
+      const basic = structuredClone(seedBasic)
+      basic.graphs.g0.links.l2.from.port = 'IMAGE'
+      const subgraph = structuredClone(seedSubgraph)
+      subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+      await page.addInitScript(({ basic, subgraph }) => {
+        if (localStorage.getItem('dinkster.openTabs') !== null) return
+        localStorage.setItem('dinkster.openTabs', JSON.stringify({
+          v: 1,
+          active: basic.lineage,
+          tabs: [{ title: 'Basic', doc: basic, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
+        }))
+      }, { basic, subgraph })
+    }
+    await use(page)
+  },
   // Live retention proofs opt out; ordinary browser fixtures model document
   // declarations while source-bound result claims use the live backend.
   retentionApi: [true, { option: true }],
@@ -142,23 +174,7 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean 
 
 // Editing and execution tests start with explicit documents, while nativeTest
 // exercises the product's schema-independent blank startup.
-export const test = nativeTest.extend({
-  page: async ({ page }, use) => {
-    const basic = structuredClone(seedBasic)
-    basic.graphs.g0.links.l2.from.port = 'IMAGE'
-    const subgraph = structuredClone(seedSubgraph)
-    subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
-    await page.addInitScript(({ basic, subgraph }) => {
-      if (localStorage.getItem('dinkster.openTabs') !== null) return
-      localStorage.setItem('dinkster.openTabs', JSON.stringify({
-        v: 1,
-        active: basic.lineage,
-        tabs: [{ title: 'Basic', doc: basic, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
-      }))
-    }, { basic, subgraph })
-    await use(page)
-  },
-})
+export const test = nativeTest.extend({ seedWorkflows: true })
 
 export const appViewTest = test.extend({ appView: true })
 export const nativeAppViewTest = nativeTest.extend({ appView: true })

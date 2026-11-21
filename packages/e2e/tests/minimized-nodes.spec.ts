@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)

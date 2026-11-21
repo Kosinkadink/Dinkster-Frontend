@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 test('disabled templates have no entry points or background requests', async ({ page }, testInfo) => {
   const featureRequests: string[] = []

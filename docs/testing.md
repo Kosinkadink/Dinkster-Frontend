@@ -48,6 +48,26 @@ stops its setup server. The native servers and execution workers use that
 same snapshot and interpreter, exported as `DINKSTER_E2E_GENERATION` and
 `DINKSTER_E2E_DINKSTER_PYTHON`. Checkout `.venv` environments and
 `prepare-catalogs --defaults` cannot substitute for this captured pack set.
+After composition, hosted setup registers the default fixture project and enables
+the captured installed packs through its revision-checked project API. Its scoped
+catalog must contain exactly the captured environment's nodes before browser
+cases begin. This is explicit test-project setup, not a product default: newly
+created projects still expose only their workflow-used and explicitly enabled
+packs. Other projects are not changed.
+
+Browser tests that serve a synthetic node catalog and open their own workflows
+use `nativeTest` from `tests/fixtures.ts` for blank startup. The seeded `test`
+fixture is for cases that exercise Basic/Subgraph and must resolve their seed
+node types. Mixed suites select the appropriate fixture per case; hooks that
+customize those documents check the `seedWorkflows` fixture option first. A mock
+catalog does not gain nodes from the real project's enabled packs. Pack-declaring
+mocks use `mockProjectPacks` with their installed and enabled pack IDs; strict API
+mocks also answer project and needs reads explicitly. Reload tests restore every
+frontend-only schema used by their retained tabs, not just the active document.
+Independent editor cases opt out of shared document setup before navigation.
+Unresolved-workflow refusal tests assert and close their needs review before
+exercising Queue; they do not declare unidentified nodes ready. Unrelated seed
+documents must not be hidden by dismissing needs review.
 
 The separate native startup job runs the live client/app cases, then
 `playwright.hosted.config.ts --project=native-startup --workers=1`.

@@ -1,4 +1,4 @@
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 
 test('proves both product type disclosures and mutation-free interaction', async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, test, waitForStartupOwnership, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!

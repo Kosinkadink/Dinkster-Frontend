@@ -85,8 +85,9 @@ foreground against their actual fill, including the hovered fill.
 - `ProductShell` owns the frame and responsive navigation. With site density,
   its 1040px centered frame contains 220px navigation and a 32px content gap.
   Its wordmark, Account product label and 32px account circle share that frame.
-  On phones the navigation is a 240px overlay aligned 8px from the window edge;
-  it closes on an outside press, Escape or a choice without moving the page.
+  On phones the navigation is a 240px overlay aligned 8px from the window edge
+  and 4px below its toggle button; it closes on an outside press, Escape or a
+  choice without moving the page.
   App density retains the full-width frame. The top bar stays while scrolling. Its caller
   changes `currentHref` and content synchronously in `onNavigate`, showing
   `ProductLoading` until data arrives. Selecting from open mobile navigation
