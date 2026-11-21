@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const mp4 = readFileSync(new URL('../fixtures/media-overlay/with_metadata.mp4', import.meta.url))
 const png = readFileSync(new URL('../fixtures/media-overlay/with_metadata.png', import.meta.url))
@@ -55,6 +55,7 @@ async function install(
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   ), { timeout: 15_000 }).toBe(true)
+  await waitForStartupOwnership(page)
   strip = Buffer.from(await page.evaluate(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 640; canvas.height = 45
