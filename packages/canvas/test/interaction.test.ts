@@ -2883,6 +2883,82 @@ describe('group resizing', () => {
   })
 })
 
+describe('dragging a number row', () => {
+  const inRowHarness = (scene: Scene, overrides: Partial<InteractionHost> = {}) => {
+    const harness = interactionHarness(scene, overrides)
+    const rowDrags: unknown[] = []
+    Object.assign(harness.renderer, {
+      getDesignTokens: () => ({ ...defaultTokens, widgetEditing: 'in-row' }),
+      setRowDrag: (drag: unknown) => rowDrags.push(drag),
+    })
+    return { ...harness, rowDrags }
+  }
+  const stepsScene = () => {
+    const scene = interactionScene() as any
+    scene.nodes[0].node.values.amount = 20
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'INT', options: { min: 1, max: 10000 }, default: 20 }
+    scene.nodes[0].layout.rows[0].viewId = 'core.number'
+    return scene as Scene
+  }
+
+  it('moves one step per 4 pixels, stores once on release, and opens nothing', () => {
+    const activate = vi.fn()
+    const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 80, 35)
+    harness.fire('pointermove', 100, 35)
+    expect(harness.rowDrags.at(-1)).toEqual({ nodeId: 'n1', valueKey: 'amount', value: 30 })
+    harness.fire('pointerup', 100, 35)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 30 } },
+    ])
+    expect(harness.rowDrags.at(-1)).toBeUndefined()
+    expect(activate).not.toHaveBeenCalled()
+  })
+
+  it('stores nothing when the pointer returns to the press point, and a short press still opens the field', () => {
+    const activate = vi.fn()
+    const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 140, 35)
+    harness.fire('pointermove', 60, 35)
+    harness.fire('pointerup', 60, 35)
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 63, 35)
+    harness.fire('pointerup', 63, 35)
+    expect(harness.dispatched).toEqual([])
+    expect(activate).toHaveBeenCalledOnce()
+  })
+
+  it('puts a slider value under the pointer', () => {
+    const scene = interactionScene() as any
+    scene.nodes[0].node.values.amount = 0.2
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.01, display: 'slider' }, default: 0.5 }
+    scene.nodes[0].layout.rows[0].width = 81
+    scene.nodes[0].layout.rows[0].viewId = 'core.slider'
+    const harness = inRowHarness(scene)
+    // The row starts at world x 19.5 (node x 10 + inset 9.5) and is 81 wide.
+    harness.fire('pointerdown', 30, 35)
+    harness.fire('pointermove', 80, 35)
+    harness.fire('pointerup', 80, 35)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 0.75 } },
+    ])
+  })
+
+  it('leaves a drag inert under card editing and on touch', () => {
+    const card = interactionHarness(stepsScene())
+    card.fire('pointerdown', 60, 35)
+    card.fire('pointermove', 100, 35)
+    card.fire('pointerup', 100, 35)
+    const touch = inRowHarness(stepsScene())
+    touch.fire('pointerdown', 60, 35, { pointerType: 'touch' })
+    touch.fire('pointermove', 100, 35, { pointerType: 'touch' })
+    touch.fire('pointerup', 100, 35, { pointerType: 'touch' })
+    expect([...card.dispatched, ...touch.dispatched]).toEqual([])
+  })
+})
+
 describe('numeric widget steppers', () => {
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
