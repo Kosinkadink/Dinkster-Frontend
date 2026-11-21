@@ -66,6 +66,13 @@ for (const width of [1280, 390]) {
       path: `test-results/captures/desktop-gallery-${width}.png`,
       fullPage: true,
     })
+    const firstPreview = page.locator('.dinkster-desktop-preview').first()
+    await firstPreview.getByRole('button', { name: 'Dismiss error' }).click()
+    await expect(firstPreview.getByRole('alert')).toHaveCount(0)
+    await firstPreview
+      .getByRole('button', { name: 'Dismiss notification' })
+      .click()
+    await expect(firstPreview.getByRole('status')).toBeEmpty()
     await page.addScriptTag({ content: axe.source })
     expect(
       await page.evaluate(
