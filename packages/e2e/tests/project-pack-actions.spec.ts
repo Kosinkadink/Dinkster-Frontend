@@ -84,6 +84,7 @@ for (const entry of ['search', 'import'] as const) {
         await page.evaluate(async () => {
           const app = window.__dinksterTest!.app
           await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'saved-import', root: 'g0',
+            ext: { 'importer.comfyWorkflow': { nodes: [{ id: 1, type: 'LegacyImage', pos: [0, 0] }], links: [] } },
             graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'image.catalog', values: {},
               ext: { 'importer.comfyTranslation': { pack: 'image-tools', version: '1.2.0', sourceClass: 'LegacyImage' } } } },
             links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
