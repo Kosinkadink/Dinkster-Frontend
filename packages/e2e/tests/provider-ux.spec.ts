@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
@@ -145,6 +145,7 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: {}, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
+  await mockProjectPacks(page, ['dinkster-nodes-image', 'dinkster-nodes-generation', 'dinkster-vision-hed'])
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
   await expect.poll(() => page.evaluate(() =>
@@ -305,6 +306,7 @@ test('unavailable vision capability identifies and anchors Preprocess Realistic 
       }],
     },
   }))
+  await mockProjectPacks(page, ['dinkster-nodes-image', 'dinkster-nodes-generation', 'dinkster-vision-hed'])
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
 

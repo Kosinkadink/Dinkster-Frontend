@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test, test as seededTest } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -110,7 +110,7 @@ test('stateful control tooltip re-reads its label after the click toggles state'
   await expect(page.getByTestId('app-tooltip')).toHaveText('Show minimap')
 })
 
-test('canvas pin and widget tooltips use scene coordinates and hide on mouse-down', async ({ page }) => {
+seededTest('canvas pin and widget tooltips use scene coordinates and hide on mouse-down', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   const points = await page.evaluate(() => {
     const test = window.__dinksterTest!

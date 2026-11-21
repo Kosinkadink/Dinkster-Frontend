@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, type Page, type Request } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page, type Request } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 interface AssetValue {
@@ -446,7 +446,6 @@ test('selected image assets preview immediately inside the node and follow impor
     const store = window.__dinksterTest!.app.activeTab()!.store
     return 'status' in store && (store.status as { get(): string }).get() === 'live'
   })).toBe(true)
-  await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'AssetBrowserListTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
     items: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
@@ -456,6 +455,7 @@ test('selected image assets preview immediately inside the node and follow impor
     items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
       widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
   }]))
+  await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual(imported)
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png, 2 selected images: 320 by 180 pixels')

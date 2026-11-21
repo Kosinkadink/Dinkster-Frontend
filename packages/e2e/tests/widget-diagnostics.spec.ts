@@ -18,7 +18,7 @@
  * - every message is anchored as <nodeId>.<valueKey> so a report names the
  *   exact node and input
  */
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const problems = (page: Page) => page.getByTestId('problems-panel')
 

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
 const MOCK = 'http://templates.test'
 const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']

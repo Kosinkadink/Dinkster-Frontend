@@ -1,4 +1,4 @@
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 
 test('optional and maybe-absent pins keep their hollow identity when connected', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

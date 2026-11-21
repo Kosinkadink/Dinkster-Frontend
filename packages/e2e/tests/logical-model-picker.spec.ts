@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
 const MOCK = 'http://logical-model-picker.test'
 const A = `blake3:${'a'.repeat(64)}`

@@ -1,4 +1,4 @@
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 for (const named of [false, true]) {
   test(`canonical forwarded family edits its instance in a drilled view (named=${named})`, async ({ page }, testInfo) => {

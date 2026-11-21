@@ -133,6 +133,7 @@ import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
   EngineNotReadyError,
+  PackInstallError,
   ExecutionStore,
   RetentionClient,
   retainedAssetAcknowledgment,
@@ -146,6 +147,10 @@ import {
   type ExecutionState,
   type ExecutionStatus,
   type LibraryRecord,
+  type LibraryProject,
+  type ProjectNeeds,
+  type PackInstallPlan,
+  type PackPreparationProgress,
   type BackendDiscovery,
   type DinksterSubmitResult,
   type DinksterJobRecord,
@@ -2447,6 +2452,25 @@ interface BackendBase {
  */
 export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection }
 
+export interface ProjectPackInstallationReview {
+  readonly installation: PackInstallPlan
+  readonly expiresAt: number
+  readonly affectedProjects: readonly LibraryProject[] | null
+  readonly scope?: 'every-project' | 'only-project'
+}
+
+export interface ProjectNeedsReview {
+  readonly backend: Backend
+  readonly project: LibraryProject
+  readonly needs: ProjectNeeds
+  readonly enable: readonly string[]
+  readonly changes: ProjectNeeds['packs']
+  readonly errors: readonly string[]
+  readonly current: () => boolean
+  /** Document and project ownership survives an expected registry replacement. */
+  readonly owned: () => boolean
+}
+
 /** A live socket alone does not make the backend's required HTTP metadata usable. */
 export function backendConnectionStatus(backend: Backend): ConnectionStatus {
   const status = backend.connection.status.get()
@@ -2584,6 +2608,15 @@ export class AppState {
   readonly searchOpen = createSignal(false)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
+  readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
+  private readonly projectNeedsChecks = new WeakMap<Backend, object>()
+  private readonly projectPackReviews = new WeakMap<ProjectPackInstallationReview, {
+    readonly review: ProjectNeedsReview
+    readonly environment: { readonly id: string; readonly snapshot: string }
+    readonly recheck: () => Promise<void>
+  }>()
+  readonly projectPackInstallations = new Map<Backend, 'applying' | 'uncertain'>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
   readonly templateGalleryOpen = createSignal(false)
@@ -5463,14 +5496,14 @@ export class AppState {
             this.schemaRequests.set(nativeBackend, request)
             base.schemaState.set({ status: 'loading' })
             this.loadComfyTranslations(nativeBackend, () => gen === staleGen)
+            await migrateBrowserProjects(connection, globalThis.localStorage, undefined, () => current() && gen === staleGen)
+            if (gen < staleGen) continue
+            if (!current()) return targetEpoch
             const fresh = await connection.fetchSchemas()
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
             // and refetch under the current generation instead.
-            if (gen < staleGen) continue
-            if (!current()) return targetEpoch
-            await this.migrateProjectsForBackend(nativeBackend, () => current() && gen === staleGen)
             if (gen < staleGen) continue
             if (!current()) return targetEpoch
             await this.prepareExtensionWorld(nativeBackend, fresh)
@@ -5495,6 +5528,7 @@ export class AppState {
             // Older backend without epochs: one refetch is the best we can do.
             if (fresh.epoch === undefined || fresh.epoch >= targetEpoch || targetEpoch === goal) {
               base.schemaState.set({ status: 'ready' })
+              void this.checkProjectNeeds(nativeBackend)
               return targetEpoch
             }
           }
@@ -8372,7 +8406,243 @@ export class AppState {
     } }
   }
 
+  async checkProjectNeeds(backend: Backend): Promise<void> {
+    if (backend.connection.status.get() !== 'connected' || this.projectPackInstallations.get(backend) === 'applying') return
+    const projectId = activeProjectId()
+    const registry = backend.registry.get()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const request = {}
+    this.projectNeedsChecks.set(backend, request)
+    const documents = this.tabs.get().filter((tab) => this.backendForTab(tab) === backend)
+      .map((tab) => ({ store: tab.store, revision: tab.store.revision, document: tab.store.doc }))
+    const owned = (): boolean => !this.disposed && activeProjectId() === projectId &&
+      this.backends.get().includes(backend) &&
+      documents.every(({ store, revision, document }) => {
+        const tab = this.liveTabContinuing(store)
+        return tab !== undefined && this.backendForTab(tab) === backend && tab.store.revision === revision &&
+          (tab.store.doc === document || tab.store !== store && canonicalJson(tab.store.doc) === canonicalJson(document))
+      })
+    const current = (): boolean => owned() && backend.connection.status.get() === 'connected' &&
+      this.projectPackInstallations.get(backend) !== 'applying' && this.assetConnectionGenerations.get(backend.connection) === generation && backend.registry.get() === registry &&
+      this.projectNeedsChecks.get(backend) === request
+    if (this.projectNeedsReview.get()?.backend === backend) this.projectNeedsReview.set(undefined)
+    try {
+      const project = await backend.connection.getProject(projectId)
+      const needs = await backend.connection.projectNeeds(projectId)
+      if (!current()) return
+      const required = new Map<string, { pack: string; version: string | null }>()
+      const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
+      for (const pack of needs.packs) add(pack.pack, pack.version)
+      for (const pack of needs.extra) add(pack, null)
+      const errors = new Set(needs.unknown.map(({ scope, id }) => `${scope}/${id}`))
+      for (const { document } of documents) {
+        for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+          if (node.virtual === true || node.type.startsWith('#')) continue
+          const saved = document.environment?.nodes[node.type]
+          const schema = registry?.resolve(node.type)
+          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? undefined : 'core')
+          if (pack === undefined) { errors.add(node.type); continue }
+          const provenance = saved?.pack !== undefined ? document.environment?.packs[pack] : registry?.packs?.get(pack)
+          if (pack !== 'core') add(pack, provenance?.version ?? null)
+        }
+      }
+      const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
+      const enabled = new Set([...needs.extra, ...needs.packs.map(({ pack }) => pack)])
+      const changes = [...required.values()].filter(({ pack, version }) =>
+        !installed.has(pack) || version !== null && installed.get(pack) !== version)
+      const changing = new Set(changes.map(({ pack }) => pack))
+      const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
+        .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
+      if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
+      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned })
+    } catch (error) {
+      if (!current()) return
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
+        `Project needs unavailable: ${error instanceof Error ? error.message : String(error)}`)])
+    }
+  }
+
+  async enableReviewedProjectPacks(review: ProjectNeedsReview): Promise<void> {
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (this.projectNeedsReview.get() !== review || !review.current() || review.project.uid === undefined) {
+      throw new Error('Project changed. Review its needs again.')
+    }
+    const project = await review.backend.connection.getProject(review.project.id)
+    const needs = await review.backend.connection.projectNeeds(review.project.id)
+    if (this.projectPackInstallations.has(review.backend) || this.projectNeedsReview.get() !== review || !review.current() || project.uid !== review.project.uid ||
+      project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
+      throw new Error('Project or installed packs changed. Review its needs again.')
+    }
+    await review.backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...review.enable])].sort(), project.revision)
+    if (!review.current()) return
+    this.projectNeedsReview.set(undefined)
+    this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+    await this.refreshBackendSchemas(review.backend)
+  }
+
+  async reviewProjectPackInstallation(review: ProjectNeedsReview, signal: AbortSignal,
+    onProgress: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<ProjectPackInstallationReview> {
+    const current = (): void => {
+      signal.throwIfAborted()
+      if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+      if (this.projectNeedsReview.get() !== review || !review.current() || scope !== undefined && review.project.uid === undefined) {
+        throw new Error(t('projectNeeds.changed'))
+      }
+    }
+    const recheck = async (): Promise<void> => {
+      current()
+      const project = await review.backend.connection.getProject(review.project.id, signal)
+      const needs = await review.backend.connection.projectNeeds(review.project.id, signal)
+      const running = await review.backend.connection.activeEnvironment(signal)
+      current()
+      if (project.uid !== review.project.uid || project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs) ||
+        running?.id !== environment?.id || running?.snapshot !== environment?.snapshot ||
+        project.environment != null && project.environment.id !== running?.id) {
+        throw new Error(t('projectNeeds.changed'))
+      }
+    }
+    current()
+    if (review.errors.length > 0 || review.changes.length === 0 ||
+      review.changes.some(({ version }) => version === null) ||
+      new Set(review.changes.map(({ pack }) => pack)).size !== review.changes.length) {
+      throw new Error(t('projectNeeds.exactVersionsRequired'))
+    }
+    const environment = await review.backend.connection.activeEnvironment(signal)
+    await recheck()
+    const packs = review.changes.map(({ pack, version }) => ({ pack, version: version! }))
+    const plan = await review.backend.connection.planPackInstall(packs, signal, (progress) => {
+      current()
+      onProgress(progress)
+    }, scope)
+    const expiresAt = performance.now() + plan.expiresInSeconds * 1000
+    await recheck()
+    if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
+    const prepared = { installation: plan, expiresAt, ...(scope === undefined ? {} : { scope }) }
+    const retain = (affectedProjects: readonly LibraryProject[] | null): ProjectPackInstallationReview => {
+      const result = { ...prepared, affectedProjects }
+      if (scope !== undefined && environment !== null && plan.confirmation !== undefined && plan.plan['format'] === 'dinkster.project-pack-plan/1') {
+        this.projectPackReviews.set(result, { review, environment, recheck })
+      }
+      return result
+    }
+    const impact = plan.plan['format'] === 'dinkster.project-pack-plan/1' ? plan.plan.packChanges : undefined
+    if (impact == null || environment === null) return retain(null)
+    const changed = new Set(impact.map(({ pack }) => pack))
+    const readProjects = async (): Promise<readonly LibraryProject[]> => {
+      const projects = new Map<string, LibraryProject>()
+      const cursors = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await review.backend.connection.listProjects(cursor, signal)
+        current()
+        for (const project of page.items) {
+          if (projects.has(project.id)) throw new Error(t('projectNeeds.changed'))
+          projects.set(project.id, project)
+        }
+        cursor = page.cursor ?? undefined
+        if (cursor !== undefined && cursors.has(cursor)) throw new Error(t('projectNeeds.changed'))
+        if (cursor !== undefined) cursors.add(cursor)
+      } while (cursor !== undefined)
+      return [...projects.values()].sort((a, b) => a.id.localeCompare(b.id))
+    }
+    const projects = await readProjects()
+    if (!projects.some(({ id, uid, revision }) => id === review.project.id && uid === review.project.uid && revision === review.project.revision)) {
+      throw new Error(t('projectNeeds.changed'))
+    }
+    const affected: LibraryProject[] = []
+    const observedNeeds = new Map<string, ProjectNeeds>()
+    let known = true
+    for (const project of projects) {
+      if (project.deleted || project.id === review.project.id || changed.size === 0) continue
+      if (project.environment == null) { known = false; continue }
+      if (project.environment.id !== environment.id) continue
+      const needs = await review.backend.connection.projectNeeds(project.id, signal)
+      current()
+      observedNeeds.set(project.id, needs)
+      if (needs.unknown.length > 0) known = false
+      if (needs.packs.some(({ pack }) => changed.has(pack)) || needs.extra.some((pack) => changed.has(pack))) {
+        affected.push(project)
+      }
+    }
+    for (const [id, needs] of observedNeeds) {
+      const latest = await review.backend.connection.projectNeeds(id, signal)
+      current()
+      if (JSON.stringify(latest) !== JSON.stringify(needs)) throw new Error(t('projectNeeds.changed'))
+    }
+    if (JSON.stringify(await readProjects()) !== JSON.stringify(projects)) throw new Error(t('projectNeeds.changed'))
+    await recheck()
+    if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
+    return retain(known ? affected : null)
+  }
+
+  async applyReviewedProjectPacks(review: ProjectNeedsReview, prepared: ProjectPackInstallationReview): Promise<void> {
+    const retained = this.projectPackReviews.get(prepared)
+    this.projectPackReviews.delete(prepared)
+    if (retained?.review !== review || prepared.installation.confirmation === undefined || prepared.scope === undefined ||
+      review.project.uid === undefined) throw new Error(t('projectNeeds.changed'))
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (performance.now() >= prepared.expiresAt) throw new Error(t('search.installExpired'))
+    await retained.recheck()
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (performance.now() >= prepared.expiresAt) throw new Error(t('search.installExpired'))
+    const backend = review.backend
+    let acknowledged = false
+    this.projectPackInstallations.set(backend, 'applying')
+    try {
+      const result = await backend.connection.applyPackInstall(prepared.installation.confirmation)
+      acknowledged = true
+      if (backend.connection.status.get() !== 'connected') {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            unsubscribe()
+            reject(new Error(t('projectNeeds.activationReconnect')))
+          }, 15_000)
+          const unsubscribe = backend.connection.status.subscribe((status) => {
+            if (status !== 'connected') return
+            clearTimeout(timer)
+            unsubscribe()
+            resolve()
+          })
+        })
+      }
+      const project = await backend.connection.getProject(review.project.id)
+      const environment = await backend.connection.activeEnvironment()
+      const needs = await backend.connection.projectNeeds(review.project.id)
+      const latest = await backend.connection.getProject(review.project.id)
+      const running = await backend.connection.activeEnvironment()
+      const expected = new Map(review.needs.installed.map(({ pack, version }) => [pack, version]))
+      for (const { pack, version } of review.changes) expected.set(pack, version!)
+      const selected = [...new Set([...review.enable, ...review.changes.map(({ pack }) => pack)])]
+      const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
+      if (this.projectNeedsReview.get() !== review || !review.owned() || backend.connection.status.get() !== 'connected' || project.deleted ||
+        project.uid !== review.project.uid || latest.uid !== project.uid || latest.revision !== project.revision ||
+        JSON.stringify(latest.environment) !== JSON.stringify(project.environment) ||
+        environment === null || running?.id !== environment.id || running.snapshot !== environment.snapshot ||
+        environment.snapshot !== String(result.generation) || project.environment?.id !== environment.id ||
+        (prepared.scope === 'every-project' ? environment.id !== retained.environment.id : environment.id === retained.environment.id) ||
+        needs.unknown.length > 0 || selected.some((pack) => !expected.has(pack) || installed.get(pack) !== expected.get(pack))) {
+        throw new Error(t('projectNeeds.activationChanged'))
+      }
+      await backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...selected])].sort(), latest.revision)
+      if (!review.owned()) return
+      if (this.projectNeedsReview.get() === review) this.projectNeedsReview.set(undefined)
+      this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+    } catch (error) {
+      const rejected = error instanceof PackInstallError && ([400, 401, 403, 404].includes(error.status) ||
+        error.status === 409 && ['invalid-confirmation', 'plan-stale', 'install-in-progress', 'composition-in-progress'].includes(String(error.body?.['error'])))
+      if (!acknowledged && !rejected) {
+        this.projectPackInstallations.set(backend, 'uncertain')
+        throw new Error(t('search.installUnknown'))
+      }
+      throw error
+    } finally {
+      if (this.projectPackInstallations.get(backend) === 'applying') this.projectPackInstallations.delete(backend)
+    }
+    await this.refreshBackendSchemas(backend)
+  }
+
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
+    void this.checkProjectNeeds(backend)
     const document = tab.store.doc
     const revision = tab.store.revision
     const bytes = JSON.stringify(document)
@@ -9484,6 +9754,7 @@ export class AppState {
       if (reg) {
         backend.registry.set(this.layerExtraSchemas(reg))
         backend.invalidateRemoteChoices()
+        if (backend.protocol === 'dinkster') void this.checkProjectNeeds(backend)
       }
     }
   }
@@ -9965,18 +10236,6 @@ export class AppState {
     )
   }
 
-  private async migrateProjectsForBackend(backend: Backend, current: () => boolean): Promise<void> {
-    try {
-      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
-    } catch (cause) {
-      if (!current()) return
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [{
-        severity: 'error', origin: 'schema', code: 'projects.registrationFailed',
-        message: `[${backend.label}] browser project registration failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      }])
-    }
-  }
-
   /** Fetch schemas (+ native diagnostics); failures land in Problems - except
    * the supervisor's engine-not-ready gate, which the supervisor poll narrates
    * (and retries on ready) instead of a scary fetch-failed problem. */
@@ -9991,9 +10250,9 @@ export class AppState {
       this.settings.get<string>('search.registryUrl') === catalogPrefix
     try {
       this.loadComfyTranslations(backend, current)
-      const registry = await backend.connection.fetchSchemas()
+      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
       if (!current()) return
-      await this.migrateProjectsForBackend(backend, current)
+      const registry = await backend.connection.fetchSchemas()
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
@@ -10008,6 +10267,7 @@ export class AppState {
       if (backend.protocol === 'dinkster') {
         void this.refreshPackLocaleOverlay(backend, registry)
         await this.restoreExecutionResults(backend, layered, current)
+        if (current()) void this.checkProjectNeeds(backend)
       }
     } catch (e) {
       if (!current()) return

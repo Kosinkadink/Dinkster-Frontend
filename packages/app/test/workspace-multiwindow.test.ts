@@ -2017,6 +2017,33 @@ describe('AppState multi-window workspace', () => {
     }
   })
 
+  it('keeps an unchanged needs review usable after document authority promotion', async () => {
+    const app = createEditableApp()
+    const backend = app.backends.get()[0]!
+    const project = { id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-19T00:00:00Z', revision: 1, deleted: false }
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({ packs: [], extra: [], unknown: [], installed: [{ pack: 'film-tools', version: '2.1' }] })
+    vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+    await app.openDocument({ ...workflow(), environment: {
+      packs: { 'film-tools': { version: '2.1' } }, nodes: { X: { pack: 'film-tools', signature: 'x' } },
+    } }, 'Film')
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    expect(review.enable).toEqual(['film-tools'])
+    const factories = authorityFactories()
+    await app.enableWorkspaceAuthority(factories.document, factories.workspace)
+    let enabled: readonly string[] = []
+    vi.spyOn(backend.connection, 'setProjectExtraPacks').mockImplementation(async (_id, extra) => {
+      enabled = extra
+      return { ...project, revision: 2 }
+    })
+    vi.spyOn(app, 'refreshBackendSchemas').mockResolvedValue()
+    await app.enableReviewedProjectPacks(review)
+    expect(enabled).toEqual(['film-tools'])
+    expect(app.projectNeedsReview.get()).toBeUndefined()
+  })
+
   it('confirms ownership on the current target after authority promotion opens', async () => {
     const authority = new SharedWorkerDocumentAuthority()
     const renderers: MemoryPort[] = []

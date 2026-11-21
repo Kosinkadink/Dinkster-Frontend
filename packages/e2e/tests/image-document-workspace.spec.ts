@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 import { evidenceGroupDir } from './evidence-output.js'
 
 const proofDir = (): string =>
