@@ -163,7 +163,7 @@ const groups: readonly {
     examples: [
       besideRight(
         'seed-right',
-        'Clicked seed. Its mode icon stays before the value while the field is open. The side part shows the four modes as icons, the meaning of the current one under them, then new seed.',
+        'Clicked seed. Its mode icon stays before the value while the field is open. The side part shows the four modes as one group of icons, the meaning of the current one under them, then new seed.',
         'seed',
       ),
       besideLeft(
@@ -306,6 +306,12 @@ export function RowEditingExample(props: {
         renderer.setReducedMotion(true)
         renderer.setGridVisible(false)
         renderer.setScene(built)
+        // In a proposed look the canvas leaves the open row unpainted.
+        renderer.setOpenRow(
+          example.open !== undefined && proposal()
+            ? { nodeId: node.id, valueKey: example.open }
+            : undefined,
+        )
         renderer.setRowDrag(
           example.drag ? { nodeId: node.id, ...example.drag } : undefined,
         )
@@ -379,12 +385,15 @@ export function RowEditingExample(props: {
     if (!target) return undefined
     const { node, row, help, numeric, facts } = target
     const scale = props.example.scale
-    const width = row.width ?? node.layout.width - row.inset * 2
+    // In a proposed look the open field is the row's field grown by one
+    // pixel on every side, so its outline sits half in the gap between rows.
+    const grow = proposal() ? 1 : 0
+    const width = (row.width ?? node.layout.width - row.inset * 2) + grow * 2
     const screen = {
-      x: (node.x + row.inset) * scale,
-      y: (node.y + row.y + fieldInsetY()) * scale,
+      x: (node.x + row.inset) * scale - grow,
+      y: (node.y + row.y + fieldInsetY()) * scale - grow,
       width: width * scale,
-      height: (row.height - fieldInsetY() * 2) * scale,
+      height: (row.height - fieldInsetY() * 2) * scale + grow * 2,
     }
     const bounds = {
       x: 0,
@@ -414,7 +423,8 @@ export function RowEditingExample(props: {
     field.style.top = `${current.screen.y}px`
     const fieldHeight =
       (current.row.height - fieldInsetY() * 2) *
-      Math.max(1, props.example.scale)
+        Math.max(1, props.example.scale) +
+      (proposal() ? 2 : 0)
     const sideBottom =
       current.place === 'below-node'
         ? current.sideTop + sideHeight()

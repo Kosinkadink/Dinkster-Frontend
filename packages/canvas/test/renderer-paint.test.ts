@@ -527,6 +527,29 @@ describe('canvas hover affordance paint', () => {
     } as unknown as SceneNode],
   })
 
+  it('leaves only the row whose field is open unpainted', () => {
+    const scene = hoverScene()
+    const node = scene.nodes[0]!
+    const row = node.layout.rows[0]!
+    const twoRows: Scene = {
+      ...scene,
+      nodes: [{
+        ...node,
+        node: { ...node.node, values: { amount: 1, other: 2 } },
+        layout: { ...node.layout, rows: [row, { ...row, inputId: 'other', valueKey: 'other', label: 'other', y: 44 }] },
+      } as SceneNode],
+    }
+    // Anything drawn inside a row's band, in canvas coordinates.
+    const inBand = (calls: readonly PaintCall[], top: number) => calls.filter((call) =>
+      ['moveTo', 'lineTo', 'fillText', 'roundRect', 'fillRect'].includes(call.method) &&
+      typeof call.args[1] === 'number' && call.args[1] > top && call.args[1] < top + 24)
+    const closed = paintWith(twoRows)
+    const open = paintWith(twoRows, (renderer) => renderer.setOpenRow({ nodeId: 'hover-node', valueKey: 'amount' }))
+    expect(inBand(closed, 120).length).toBeGreaterThan(0)
+    expect(inBand(open, 120)).toEqual([])
+    expect(inBand(open, 144)).toEqual(inBand(closed, 144))
+  })
+
   it('enlarges only the hovered node pin to 1.35 times its base radius', () => {
     const scene = hoverScene()
     const calls = paintWith(scene, (renderer) => renderer.setOverlay({
