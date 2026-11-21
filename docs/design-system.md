@@ -926,8 +926,11 @@ and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
 scoped shared CSS with embedded Noto fonts plus token-derived native overlay
 colors/height and macOS traffic-light position. The installer reuses the first
 `.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
-without one it prepends `ProductWindowChrome`. Reinstallation replaces only
-its own markings/fallback. The host inserts the supplied CSS and runs the
+without one it prepends `ProductWindowChrome`. If the app later creates or
+replaces its bar, the installer moves its markings there and removes its own
+fallback; removing the app bar restores the fallback. Reinstallation disconnects
+the prior observer and replaces only its own markings/fallback. The host inserts
+the supplied CSS and runs the
 installer after document load, using its existing isolated renderer boundary.
 The bundle has an embedded symbol, no network imports, no Node/Electron API and
 no preload bridge. Content styles and the page's CSP remain host-owned. Both

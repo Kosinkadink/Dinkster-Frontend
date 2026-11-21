@@ -113,6 +113,26 @@ for (const existing of [false, true]) {
         }
       }
     }
+    await page.evaluate(() => {
+      document.querySelector('.topbar')?.remove()
+      const late = document.createElement('header')
+      late.className = 'topbar'
+      late.textContent = 'Late application bar'
+      document.body.prepend(late)
+    })
+    await expect(page.locator('.topbar[data-desktop-chrome]')).toHaveCount(1)
+    await expect(page.locator('.dinkster-window-fallback')).toHaveCount(0)
+    await page.locator('.topbar').evaluate((bar) => {
+      bar.textContent = 'Updated application bar'
+    })
+    await expect(page.locator('.topbar .dinkster-window-identity')).toHaveText(
+      '[QA]Development',
+    )
+    await page.screenshot({
+      path: `test-results/captures/chrome-late-${existing ? 'existing' : 'fallback'}.png`,
+    })
+    await page.locator('.topbar').evaluate((bar) => bar.remove())
+    await expect(page.locator('.dinkster-window-fallback')).toHaveCount(1)
     await page.evaluate(() =>
       window.DinksterDesktopChrome.install({
         title: 'Production',

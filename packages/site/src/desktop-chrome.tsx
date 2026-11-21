@@ -14,39 +14,65 @@ let dispose: (() => void) | undefined
 /** DOM-only chrome adaptation; the host retains navigation and native controls. */
 export function install(options: DesktopChromeOptions): void {
   dispose?.()
-  const existing = document.querySelector<HTMLElement>(
-    '.topbar, .dinkster-topbar, body > header',
-  )
-  const mount = document.createElement('div')
-  let bar: HTMLElement
-  if (existing) {
-    bar = existing
-    mount.className = 'dinkster-window-identity-host'
-    bar.append(mount)
-    const unmount = render(
-      () => (
-        <ProductWindowIdentity
-          qa={options.qa ?? false}
-          development={options.development ?? false}
-        />
-      ),
-      mount,
+  let bar: HTMLElement | undefined
+  let mounted: HTMLDivElement | undefined
+  let clear: (() => void) | undefined
+  function reconcile(): void {
+    const existing = document.querySelector<HTMLElement>(
+      '.topbar, .dinkster-topbar, body > header',
     )
-    dispose = () => {
-      unmount()
-      mount.remove()
+    if (
+      bar?.isConnected &&
+      mounted?.isConnected &&
+      (existing === bar || !existing)
+    )
+      return
+    clear?.()
+    const mount = document.createElement('div')
+    mounted = mount
+    let unmount: () => void
+    if (existing) {
+      bar = existing
+      mount.className = 'dinkster-window-identity-host'
+      bar.append(mount)
+      unmount = render(
+        () => (
+          <ProductWindowIdentity
+            qa={options.qa ?? false}
+            development={options.development ?? false}
+          />
+        ),
+        mount,
+      )
+    } else {
+      document.body.prepend(mount)
+      unmount = render(() => <ProductWindowChrome {...options} />, mount)
+      bar = mount.querySelector('header')!
+      mount.className = 'dinkster-window-fallback'
     }
-  } else {
-    document.body.prepend(mount)
-    const unmount = render(() => <ProductWindowChrome {...options} />, mount)
-    bar = mount.querySelector('header')!
-    mount.className = 'dinkster-window-fallback'
-    dispose = () => {
+    const current = bar
+    const previous = {
+      desktopChrome: current.getAttribute('data-desktop-chrome'),
+      platform: current.getAttribute('data-platform'),
+      theme: current.getAttribute('data-theme'),
+    }
+    current.dataset.desktopChrome = ''
+    current.dataset.platform = options.platform
+    current.dataset.theme = options.theme
+    clear = () => {
       unmount()
       mount.remove()
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === null) delete current.dataset[name]
+        else current.dataset[name] = value
+      }
     }
   }
-  bar.dataset.desktopChrome = ''
-  bar.dataset.platform = options.platform
-  bar.dataset.theme = options.theme
+  reconcile()
+  const observer = new MutationObserver(reconcile)
+  observer.observe(document.body, { childList: true, subtree: true })
+  dispose = () => {
+    observer.disconnect()
+    clear?.()
+  }
 }
