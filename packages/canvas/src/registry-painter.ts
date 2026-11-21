@@ -11,7 +11,7 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPainter } from './renderer.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
@@ -130,7 +130,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
     const rowsRaisedForEditors = tokens.widgetRowLook === 'raised-editors'
     const openerIcon = rowsRaisedForEditors
-      ? RAISED_ROW_ICONS[row.viewId]
+      ? PARKED_EDITOR_VIEWS.has(row.viewId) ? undefined : RAISED_ROW_ICONS[row.viewId]
       : row.viewId === 'core.asset' ? 'image'
         : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
         : undefined

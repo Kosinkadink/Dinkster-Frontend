@@ -428,7 +428,6 @@ export function createCanvasGalleryFixture(
         'colors',
         'curve',
         'camera_angle',
-        'compositor',
         'resolution',
       ].includes(item.id),
     )

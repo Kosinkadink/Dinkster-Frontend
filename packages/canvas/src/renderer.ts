@@ -63,6 +63,14 @@ import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
+/**
+ * Views whose editor is parked. Such a row opens nothing, so the
+ * `raised-editors` look draws it as a plain inset row showing its summary,
+ * with no icon, chevron or hover wash. Its icon stays in the registry
+ * painter's table of raised rows for when an editor returns.
+ */
+export const PARKED_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.compositor'])
+
 /** Pin color for a declared type: canonical id (closed lists included) when
  * the type is recursively closed, else the neutral default. */
 const pinColorOf = (t: DesignTokens, type: TypeExpr): string =>
@@ -3481,7 +3489,7 @@ export class CanvasRenderer {
             hovered,
             tokens: t,
           })
-          if (hovered) {
+          if (hovered && !(t.widgetRowLook === 'raised-editors' && PARKED_EDITOR_VIEWS.has(row.viewId))) {
             // A neutral wash preserves the widget's own active/connected
             // styling without making value selection look like live blue data.
             const hoverAlpha = ctx.globalAlpha

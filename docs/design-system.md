@@ -735,9 +735,12 @@ Core widget rows compares selected, empty and long values for the core kinds.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
-list, colors, curve, camera angle, layers and resolution preview. A raised row
-has a lucide icon for its kind and an opening chevron; an output mount is drawn
-as a choice row. A color's 10 px square sits directly before its code, over a
+list, colors, curve, camera angle and resolution preview. A raised row has a
+lucide icon for its kind and an opening chevron; an output mount is drawn as a
+choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
+compositor's layers) opens nothing, so it is drawn inset with its summary as
+plain text and no hover wash; its icon stays listed for when an editor
+returns. A color's 10 px square sits directly before its code, over a
 checker pattern when the color has opacity. A list shows as many values as fit,
 separated by a comma, then `+N`; colors show as many squares as fit, then `+N`.
 A curve is drawn on its row's second line from the row's start, clear of the
