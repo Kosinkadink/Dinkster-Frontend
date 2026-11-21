@@ -157,7 +157,11 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing) return
     if (completions?.open() === true && completions.completionKeyDown(event as KeyboardEvent & { currentTarget: HTMLInputElement })) return
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (numeric && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Up and Down step what is typed, as the minus and plus do; Shift is ten steps.
+      event.preventDefault()
+      setDraft(stepTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue, event.key === 'ArrowUp' ? 1 : -1, event.shiftKey))
+    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
       void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })

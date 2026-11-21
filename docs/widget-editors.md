@@ -464,6 +464,8 @@ value. A slider's fill follows the typed text while it is in range.
 - Tab and Shift+Tab store, then move to the next or previous row of the node,
   wrapping, skipping rows a wire drives, and panning a partly hidden row into
   view. Tab does nothing at overview zoom or in a frozen tab.
+- Up and Down, like the minus and plus, step what is typed without storing it;
+  Shift makes it ten steps.
 - A click on another row stores the open field and opens the other row. A
   click inside the field stays in it. While a store is pending the field is
   read-only, and a refusal becomes the side part's first line.
