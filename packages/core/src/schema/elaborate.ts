@@ -298,6 +298,8 @@ export interface ElaboratedInterface {
    * leader, with the start key the node shows for each (view mode only).
    */
   readonly unstoredChoices?: Readonly<Record<string, string>>
+  /** Flattened id of every group, choice and type choice the node holds (not offered members). */
+  readonly constructs: readonly string[]
   readonly diagnostics: readonly Diagnostic[]
 }
 
@@ -476,6 +478,7 @@ export function elaborateInterface(
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
+  const constructs = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
   const emittedOutputs = new Set<string>()
@@ -790,6 +793,7 @@ export function elaborateInterface(
 
   const group = (row: GroupSpec, path: string, scope: Scope): void => {
     if (!enter(path)) return
+    if (!scope.ghost) constructs.add(path)
     try {
       groupBody(row, path, scope)
     } finally {
@@ -967,6 +971,7 @@ export function elaborateInterface(
 
   const choice = (row: ChoiceSpec, path: string, scope: Scope): void => {
     if (!enter(path)) return
+    if (!scope.ghost) constructs.add(path)
     try {
       choiceBody(row, path, scope)
     } finally {
@@ -1066,6 +1071,7 @@ export function elaborateInterface(
 
   const typeChoice = (row: TypeChoiceSpec, path: string, scope: Scope): void => {
     if (!enter(path)) return
+    if (!scope.ghost) constructs.add(path)
     try {
       typeChoiceBody(row, path, scope)
     } finally {
@@ -1278,6 +1284,7 @@ export function elaborateInterface(
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
+    constructs: [...constructs],
     diagnostics,
   }
 }

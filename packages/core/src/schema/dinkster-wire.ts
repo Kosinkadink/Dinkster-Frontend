@@ -8,7 +8,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
-import { allRowsOf, canonicalTypeIdOf, inputsOf, outputsOf, scopeRowsOf } from './model.js'
+import { allRowsOf, inputsOf, outputsOf, scopeRowsOf } from './model.js'
 import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'

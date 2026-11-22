@@ -30,33 +30,28 @@ import { asDynamicMemberId, asNodeId, asPortId, isExactWidgetTapRef, isPortEndpo
 import { normalizedComboOptions } from '../schema/combo-options.js'
 import {
   buildGraphConnectivity,
-  collectWire15MemberEvidence,
-  elabKeyOf,
   elabInputsOf,
-  elabOutputsOf,
   elaborateInterface,
   EMPTY_CONNECTIVITY,
   valueKeyOf,
   type Connectivity,
   type ElaboratedInput,
 } from '../schema/elaborate.js'
+import { applyUse, defaultValuesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from '../schema/body.js'
 import {
-  autogrowBounds,
   canonicalTypeIdOf,
-  comboBranchValuePath,
-  defaultValuesOf,
-  effectiveComboOption,
   inputsOf,
   isComboWidgetInput,
-  joinValuePath,
-  outputCountInputsOf,
+  allRowsOf,
   outputsOf,
-  type AutogrowSpec,
-  type CountBoundOutputAutogrowSpec,
-  type DynamicComboSpec,
-  type DynamicSlotSpec,
+  scopeRowsOf,
+  type BodyRow,
+  type ChoiceSpec,
+  type GroupSpec,
   type InputSpec,
   type NodeSchema,
+  type OptionRow,
+  type TypeChoiceSpec,
   type TypeExpr,
 } from '../schema/model.js'
 import type {
@@ -100,8 +95,6 @@ export interface NodeReplacePlan {
   readonly values: Readonly<Record<string, Json>>
   /** Complete target dynamic state when a rule maps choices or input families. */
   readonly dynamic?: Readonly<Record<string, DynamicPortState>>
-  /** Stored source count literals that copied output families depend on. */
-  readonly sourceCountGuards?: Readonly<Record<string, Json>>
   /** Source node and incoming topology read by copied input-family mappings. */
   readonly sourceStateGuard?: string
   /** Exact target schemas used to validate selected dynamic constructs. */
@@ -267,6 +260,8 @@ interface SourceState {
   readonly memberLinksIn: ReadonlySet<string>
   /** Every link using member endpoint ancestry, including unsupported nesting. */
   readonly memberLinks: readonly string[]
+  /** Links and nets whose member output end uses the historical member list form. */
+  readonly listedMemberEnds: ReadonlySet<string>
   /** Nets sourced from any member output of this node. */
   readonly memberNets: readonly string[]
   /** Nets with a member-addressed sink on this node - sink always dropped. */
@@ -274,6 +269,14 @@ interface SourceState {
 }
 
 const memberOutputKey = (family: string, suffix: string): string => JSON.stringify([family, suffix])
+/**
+ * The member a flattened output id names, `<group>.<key>`; a deeper id is a
+ * row of a member of records, which output families do not map.
+ */
+const flatMemberOutput = (port: string): { family: string; suffix: string } | 'nested' | undefined => {
+  const parts = port.split('.')
+  return parts.length === 1 ? undefined : parts.length === 2 ? { family: parts[0]!, suffix: parts[1]! } : 'nested'
+}
 const memberOutputAddress = (key: string): { family: string; suffix: string } => {
   const [family, suffix] = JSON.parse(key) as [string, string]
   return { family, suffix }
@@ -292,6 +295,7 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
   const memberLinks: string[] = []
   const memberNets: string[] = []
   const memberSinkNets: string[] = []
+  const listedMemberEnds = new Set<string>()
   const push = (m: Map<string, string[]>, key: string, id: string): void => {
     const list = m.get(key)
     if (list) list.push(id)
@@ -306,10 +310,15 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
       else push(linksIn, link.to.port, link.id)
     }
     if (isPortEndpoint(link.from) && link.from.node === node.id) {
+      const flat = flatMemberOutput(link.from.port)
       if (link.from.members !== undefined) {
         if (!memberLinks.includes(link.id)) memberLinks.push(link.id)
+        listedMemberEnds.add(link.id)
         if (link.from.members.length === 1)
           push(memberLinksOut, memberOutputKey(link.from.port, link.from.members[0]!), link.id)
+      } else if (flat !== undefined) {
+        if (!memberLinks.includes(link.id)) memberLinks.push(link.id)
+        if (flat !== 'nested') push(memberLinksOut, memberOutputKey(flat.family, flat.suffix), link.id)
       } else push(linksOut, link.from.port, link.id)
     }
     if (isWidgetTapRef(link.from) && link.from.node === node.id) {
@@ -319,10 +328,15 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
   }
   for (const net of Object.values(def.nets)) {
     if (net.source.node === node.id) {
+      const flat = flatMemberOutput(net.source.port)
       if (net.source.members !== undefined) {
         memberNets.push(net.id)
+        listedMemberEnds.add(net.id)
         if (net.source.members.length === 1)
           push(memberNetsOut, memberOutputKey(net.source.port, net.source.members[0]!), net.id)
+      } else if (flat !== undefined) {
+        memberNets.push(net.id)
+        if (flat !== 'nested') push(memberNetsOut, memberOutputKey(flat.family, flat.suffix), net.id)
       }
       else push(netsOut, net.source.port, net.id)
     }
@@ -344,6 +358,7 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
     memberNetsOut,
     memberLinksIn,
     memberLinks,
+    listedMemberEnds,
     memberNets,
     memberSinkNets,
   }
@@ -404,208 +419,116 @@ const diag = (severity: 'error' | 'warning' | 'info', code: string, message: str
   message,
 })
 
-type DynamicStateScope = Readonly<Record<string, DynamicPortState>>
+/**
+ * The member keys of a group in a stored node: its stored members, then the
+ * keys its stored values and wire ends name under `<group>.`. A historical
+ * node may evidence members only by values. With `singleLeaf`, only ids one
+ * level below the group count (a group of values).
+ */
+function memberKeysEvidenced(
+  family: string,
+  explicitMembers: readonly string[],
+  valueKeys: readonly string[],
+  inputPorts: readonly string[],
+  singleLeaf = false,
+): readonly string[] {
+  const result: string[] = []
+  const add = (member: string): void => {
+    if (member !== '' && !result.includes(member)) result.push(member)
+  }
+  for (const member of explicitMembers) add(member)
+  const prefix = `${family}.`
+  for (const key of [...valueKeys, ...inputPorts]) {
+    if (!key.startsWith(prefix)) continue
+    const suffix = key.slice(prefix.length)
+    if (!singleLeaf || !suffix.includes('.')) add(suffix.split('.', 1)[0]!)
+  }
+  return result
+}
 
-/** Validate every persisted selector against the schema branch that owns it. */
+/** Every stored choice and variant key names an option or variant of the construct at its path. */
 const sourceDynamicSelectionProblem = (
   schema: NodeSchema,
   node: Pick<NodeData, 'values' | 'dynamic'>,
 ): string | undefined => {
-  const activeChoices = new WeakMap<object, Map<string, Set<string>>>()
-  const possibleChoices = new WeakMap<object, Map<string, Set<string>>>()
-  const addChoices = (
-    inventory: WeakMap<object, Map<string, Set<string>>>,
-    state: DynamicStateScope | undefined,
-    path: string,
-    choices: readonly string[],
-  ): void => {
-    if (state === undefined) return
-    let paths = inventory.get(state)
-    if (paths === undefined) {
-      paths = new Map()
-      inventory.set(state, paths)
-    }
-    const allowed = paths.get(path) ?? new Set<string>()
-    for (const choice of choices) allowed.add(choice)
-    paths.set(path, allowed)
-  }
-  const visit = (
-    entries: readonly InputSpec[],
-    prefix: string,
-    state: DynamicStateScope | undefined,
-    active: boolean,
-  ): void => {
-    for (const entry of entries) {
-      const path = joinValuePath(prefix, entry.id)
-      const spec = entry.dynamic
-      if (spec === undefined) continue
-      const stored = state?.[path]
-      if (spec.kind === 'dynamicCombo') {
-        const choices = spec.options.map((option) => option.key)
-        addChoices(possibleChoices, state, path, choices)
-        if (active) addChoices(activeChoices, state, path, choices)
-        const selected = effectiveComboOption(spec, stored)
-        for (const option of spec.options) {
-          visit(
-            option.inputs,
-            spec.materialization === 'wire15' ? path : comboBranchValuePath(path, option.key),
-            state,
-            active && option.key === selected,
-          )
-        }
-        continue
-      }
-      if (spec.kind === 'dynamicSlot') {
-        const choices = (spec.variants ?? []).map((variant) => variant.key)
-        addChoices(possibleChoices, state, path, choices)
-        if (active) addChoices(activeChoices, state, path, choices)
-        visit(spec.inputs, path, state, active)
-        for (const variant of spec.variants ?? []) {
-          visit(
-            variant.inputs,
-            spec.materialization === 'wire15' ? path : comboBranchValuePath(path, variant.key),
-            state,
-            active && variant.key === stored?.selected,
-          )
-        }
-        continue
-      }
-      const storedMembers = stored?.members ?? []
-      const wire15 = spec.materialization === 'wire15'
-      const members = wire15
-        ? collectWire15MemberEvidence(
-            path,
-            storedMembers,
-            Object.keys(node.values),
-            [],
-            Object.keys(node.dynamic ?? {}),
-          )
-        : storedMembers
-      for (const member of members) {
-        if (wire15) {
-          visit(spec.template, joinValuePath(path, member), node.dynamic, active)
-        } else {
-          visit(spec.template, path, stored?.memberState?.[member], active)
-        }
-      }
+  const census = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { promoteGhosts: false, includeDormant: true })
+  const declared = new Map<string, readonly string[]>()
+  for (const input of elabInputsOf(census)) {
+    if (input.origin.kind === 'selector' && input.spec.widget !== undefined) {
+      declared.set(input.origin.construct, normalizedComboOptions(input.spec.widget).map((option) => String(option.value)))
+    } else if (input.origin.kind === 'slot' && input.origin.variants !== undefined) {
+      declared.set(input.origin.construct, input.origin.variants.map((variant) => variant.key))
     }
   }
-
-  visit(inputsOf(schema), '', node.dynamic, true)
-
-  let problem: string | undefined
-  const inspect = (state: DynamicStateScope | undefined): void => {
-    if (state === undefined || problem !== undefined) return
-    for (const [path, stored] of Object.entries(state)) {
-      if (stored.selected !== undefined) {
-        const choices = activeChoices.get(state)?.get(path) ?? possibleChoices.get(state)?.get(path)
-        if (choices === undefined || !choices.has(stored.selected)) {
-          problem = `${schema.type}.${path}: stored dynamic choice '${stored.selected}' is not declared`
-          return
-        }
-      }
-      for (const memberState of Object.values(stored.memberState ?? {})) inspect(memberState)
+  for (const [path, stored] of Object.entries(node.dynamic ?? {})) {
+    if (stored.selected !== undefined && !declared.get(path)?.includes(stored.selected)) {
+      return `${schema.type}.${path}: stored dynamic choice '${stored.selected}' is not declared`
     }
   }
-  inspect(node.dynamic)
-  return problem
+  return undefined
 }
 
-/** Static (non-dynamic, non-stamped) port lookup on the target schema. */
+/** A plain input or output of the node's top scope. */
 const staticTargetInput = (schema: NodeSchema, id: string) =>
-  inputsOf(schema).find((i) => i.id === id && i.dynamic === undefined)
+  inputsOf(schema).find((i) => i.id === id)
 const staticTargetOutput = (schema: NodeSchema, id: string) =>
-  outputsOf(schema).find((o) => o.id === id && o.dynamic === undefined)
+  outputsOf(schema).find((o) => o.id === id)
 
-interface Wire15InputFamily {
+const topGroupOf = (schema: NodeSchema, id: string): GroupSpec | undefined =>
+  scopeRowsOf(schema.body).find((row): row is GroupSpec => row.kind === 'group' && row.id === id)
+
+/**
+ * A group of the node's top scope read as an input family: the inputs of
+ * one member are its template. A group of values flattens a member to
+ * `<group>.<key>`, a group of records to `<group>.<key>.<row>`. A group of
+ * records with one row is not read, since the rule language reads a
+ * one-row template as a group of values.
+ */
+interface InputFamily {
   readonly id: string
-  readonly spec: AutogrowSpec
+  readonly group: GroupSpec
   readonly template: readonly InputSpec[]
-  /** Canonical graph port used by non-materialized top-level prefix families. */
+  /** Canonical graph port of a historical family whose members were addressed by member list. */
   readonly memberPort?: string
 }
 
-interface CountOutputFamily {
-  readonly id: string
-  readonly spec: CountBoundOutputAutogrowSpec
+const inputFamilyOf = (schema: NodeSchema, id: string): InputFamily | undefined => {
+  const group = topGroupOf(schema, id)
+  if (group === undefined || group.value?.kind === 'output') return undefined
+  const rows = scopeRowsOf(memberRowsOf(group))
+  if (rows.length === 0 || rows.some((row) => row.kind !== 'input')) return undefined
+  if (group.value === undefined && rows.length === 1) return undefined
+  return { id, group, template: rows as readonly InputSpec[] }
 }
 
-const countOutputFamily = (schema: NodeSchema, id: string): CountOutputFamily | undefined => {
-  const item = outputsOf(schema).find((candidate) => candidate.id === id)
-  const spec = item?.dynamic
-  if (
-    spec?.kind !== 'autogrow' ||
-    !('count' in spec) ||
-    spec.naming.kind === 'native' ||
-    spec.template.length !== 1 ||
-    spec.template[0]!.dynamic !== undefined
-  ) return undefined
-  return { id, spec }
+const familyInputPath = (family: InputFamily, suffix: string, input: string): string => {
+  const member = `${family.id}.${suffix}`
+  return family.template.length === 1 ? member : `${member}.${input}`
 }
 
-const wire15InputFamily = (schema: NodeSchema, id: string): Wire15InputFamily | undefined => {
-  const item = inputsOf(schema).find((candidate) => candidate.id === id)
-  const spec = item?.dynamic
-  const flatPrefixFamily =
-    spec?.kind === 'autogrow'
-    && spec.materialization === undefined
-    && spec.naming.kind === 'prefix'
-    && spec.template.length === 1
-    && spec.template[0]!.id === id
-  if (
-    spec?.kind !== 'autogrow' ||
-    (spec.materialization !== 'wire15' && !flatPrefixFamily) ||
-    spec.naming.kind === 'native' ||
-    spec.template.some((entry) => entry.dynamic !== undefined)
-  )
-    return undefined
-  const template = flatPrefixFamily
-    ? [{ ...spec.template[0]!, id: 'value' }]
-    : spec.template
-  return {
-    id,
-    spec,
-    template,
-    ...(flatPrefixFamily ? { memberPort: joinValuePath(id, spec.template[0]!.id) } : {}),
-  }
-}
+const familyMembersAreAdmitted = (family: InputFamily, members: readonly string[]): boolean =>
+  (family.group.optionalAfterMinimum === true || members.length >= family.group.minMembers) &&
+  members.length <= memberLimitOf(family.group) &&
+  new Set(members).size === members.length &&
+  members.every((member) => keyPosition(family.group.keys, member) !== undefined)
 
-const wire15FamilyInputPath = (
-  family: Wire15InputFamily,
-  suffix: string,
-  input: string,
-): string => {
-  const member = joinValuePath(family.id, suffix)
-  return family.template.length === 1 ? member : joinValuePath(member, input)
-}
-
-const WIRE15_MEMBER_ID = /^[A-Za-z0-9_-]+$/
-
-const familyMembersAreAdmitted = (family: Wire15InputFamily, members: readonly string[]): boolean => {
-  const { min, max } = autogrowBounds(family.spec)
-  if (
-    (family.spec.optionalAfterMinimum !== true && members.length < min) ||
-    members.length > max ||
-    new Set(members).size !== members.length ||
-    members.some((member) => !WIRE15_MEMBER_ID.test(member))
-  )
-    return false
-  return (
-    family.spec.naming.kind !== 'names' ||
-    members.every((member) => family.spec.naming.kind === 'names' && family.spec.naming.names.includes(member))
-  )
-}
-
+/** Member state for a group: its keys, and the next number a numbered group hands out. */
 const familyDynamicState = (
+  group: GroupSpec,
   members: readonly string[],
   source?: DynamicPortState,
 ): DynamicPortState => {
-  const suffixes = members
-    .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
-    .filter((suffix): suffix is string => suffix !== undefined)
-    .map(Number)
-  const seq = Math.max(source?.seq ?? 0, ...(suffixes.length > 0 ? suffixes.map((n) => n + 1) : [0]))
+  const positions = group.keys.kind === 'numbered'
+    ? members.map((member) => keyPosition(group.keys, member)).filter((position): position is number => position !== undefined)
+    : []
+  const seq = Math.max(source?.seq ?? 0, ...positions.map((position) => position + 1))
   return { members, ...(seq > 0 ? { seq } : {}) }
+}
+
+/** A group of output values on the node's top scope. */
+const outputFamilyOf = (schema: NodeSchema, id: string): GroupSpec | undefined => {
+  const group = topGroupOf(schema, id)
+  return group?.value?.kind === 'output' ? group : undefined
 }
 
 const staticWidgetTap = (
@@ -617,7 +540,6 @@ const staticWidgetTap = (
     elaborateInterface(schema, state, EMPTY_CONNECTIVITY, { promoteGhosts: false }),
   ).filter((input) =>
     input.address.port === id &&
-    input.address.members === undefined &&
     input.origin.kind === 'static' &&
     input.spec.widget !== undefined &&
     input.spec.forceInput !== true,
@@ -636,112 +558,50 @@ interface TargetOutputAddress extends TargetAddress {
   readonly members?: readonly string[]
 }
 
-type ChoiceSpec = DynamicComboSpec | (DynamicSlotSpec & { readonly variants: NonNullable<DynamicSlotSpec['variants']> })
-
-const declaredChoiceSpecs = (
+/**
+ * The choice or type choice whose flattened id is `path`, reached through
+ * the chosen options and variants in `selected` (a choice with nothing
+ * stored reads its start option) and through the stored-member paths of
+ * groups of records.
+ */
+const declaredChoiceAt = (
   schema: NodeSchema,
   path: string,
   selected: Readonly<Record<string, DynamicPortState>>,
-): readonly ChoiceSpec[] => {
-  const segments = path.split('.')
-  const choices: ChoiceSpec[] = []
-  const add = (spec: ChoiceSpec): void => {
-    if (!choices.some((candidate) => canonicalJson(candidate) === canonicalJson(spec))) choices.push(spec)
-  }
-  const visit = (inputs: readonly InputSpec[], index: number, prefix: string): void => {
-    if (index >= segments.length) return
-    for (const input of inputs) {
-      if (input.id !== segments[index]) continue
-      const dynamic = input.dynamic
-      if (dynamic === undefined) continue
-      const construct = joinValuePath(prefix, input.id)
-      if (dynamic.kind === 'dynamicCombo') {
-        if (index === segments.length - 1) add(dynamic)
-        else {
-          const active = effectiveComboOption(dynamic, selected[construct])
-          const option = dynamic.options.find((candidate) => candidate.key === active)
-          if (option !== undefined) visit(option.inputs, index + 1, construct)
-        }
-      } else if (dynamic.kind === 'dynamicSlot') {
-        if (index === segments.length - 1 && dynamic.variants !== undefined) add(dynamic as ChoiceSpec)
-        else if (index < segments.length - 1) {
-          visit(dynamic.inputs, index + 1, construct)
-          const variant = dynamic.variants?.find((candidate) =>
-            candidate.key === selected[construct]?.selected)
-          if (variant !== undefined) visit(variant.inputs, index + 1, construct)
-        }
-      } else if (
-        dynamic.materialization === 'wire15' &&
-        dynamic.naming.kind !== 'native' &&
-        index + 2 < segments.length
-      ) {
-        const member = segments[index + 1]!
-        if (
-          WIRE15_MEMBER_ID.test(member) &&
-          (dynamic.naming.kind !== 'names' || dynamic.naming.names.includes(member))
-        ) visit(dynamic.template, index + 2, joinValuePath(construct, member))
+): ChoiceSpec | TypeChoiceSpec | undefined => {
+  const visit = (rows: readonly OptionRow[], prefix: string, shared?: ReadonlyMap<string, BodyRow>): ChoiceSpec | TypeChoiceSpec | undefined => {
+    for (const raw of scopeRowsOf(rows)) {
+      const row = raw.kind === 'use' ? (shared?.get(raw.id) === undefined ? undefined : applyUse(shared.get(raw.id)!, raw)) : raw
+      if (row === undefined || row.kind === 'row' || row.kind === 'section') continue
+      const construct = prefix + row.id
+      if (row.kind === 'choice') {
+        if (construct === path) return row
+        if (!path.startsWith(`${construct}.`)) continue
+        const key = selected[construct]?.selected ?? row.default ?? row.options[0]?.key
+        const option = row.options.find((candidate) => candidate.key === key)
+        const found = option && visit(option.rows, `${construct}.`, new Map(scopeRowsOf(row.shared).flatMap((item) => item.kind === 'use' || item.kind === 'row' || item.kind === 'section' ? [] : [[item.id, item as BodyRow]])))
+        if (found !== undefined) return found
+      } else if (row.kind === 'typeChoice') {
+        if (construct === path && row.variants !== undefined) return row
+        if (!path.startsWith(`${construct}.`)) continue
+        const variant = row.variants?.find((candidate) => candidate.key === selected[construct]?.selected)
+        const found = visit([...row.rows, ...(variant?.rows ?? [])], `${construct}.`)
+        if (found !== undefined) return found
+      } else if (row.kind === 'group' && row.member !== undefined && path.startsWith(`${construct}.`)) {
+        const key = path.slice(construct.length + 1).split('.', 1)[0]!
+        if (keyPosition(row.keys, key) === undefined) continue
+        const found = visit(row.member, `${construct}.${key}.`)
+        if (found !== undefined) return found
       }
     }
+    return undefined
   }
-  visit(inputsOf(schema), 0, '')
-  return choices
+  return visit(schema.body, '')
 }
-
-const missingRequiredSlotChoices = (
-  schema: NodeSchema,
-  dynamic: Readonly<Record<string, DynamicPortState>>,
-  connected: ReadonlySet<string>,
-): readonly string[] => {
-  const missing: string[] = []
-  const visit = (inputs: readonly InputSpec[], prefix: string): void => {
-    for (const input of inputs) {
-      const spec = input.dynamic
-      if (spec === undefined) continue
-      const path = joinValuePath(prefix, input.id)
-      const selected = dynamic[path]?.selected
-      if (spec.kind === 'dynamicCombo') {
-        const effective = effectiveComboOption(spec, selected === undefined ? undefined : { selected })
-        const option = spec.options.find((candidate) => candidate.key === effective)
-        if (option !== undefined) visit(option.inputs, path)
-      } else if (spec.kind === 'dynamicSlot') {
-        if (spec.variants !== undefined && selected === undefined &&
-            (!input.optional || connected.has(path))) missing.push(path)
-        const variant = spec.variants?.find((candidate) => candidate.key === selected)
-        if (spec.materialization === 'wire15' || connected.has(path)) {
-          visit(spec.inputs, path)
-          if (variant !== undefined) visit(variant.inputs, path)
-        }
-      } else if (spec.materialization === 'wire15' && spec.naming.kind !== 'native') {
-        const members = new Set(spec.naming.kind === 'names'
-          ? (dynamic[path]?.members ?? []).filter((member) => spec.naming.kind === 'names' && spec.naming.names.includes(member))
-          : dynamic[path]?.members ?? [])
-        for (const channel of [Object.keys(dynamic), [...connected]]) {
-          for (const key of channel) {
-            if (!key.startsWith(`${path}.`)) continue
-            const member = key.slice(path.length + 1).split('.', 1)[0]!
-            if (
-              WIRE15_MEMBER_ID.test(member) &&
-              (spec.naming.kind !== 'names' || spec.naming.names.includes(member))
-            ) members.add(member)
-          }
-        }
-        for (const member of members) visit(spec.template, joinValuePath(path, member))
-      }
-    }
-  }
-  visit(inputsOf(schema), '')
-  return missing
-}
-
-const dynamicStateHasSelection = (state: DynamicPortState): boolean =>
-  state.selected !== undefined ||
-  Object.values(state.memberState ?? {}).some((constructs) =>
-    Object.values(constructs).some(dynamicStateHasSelection),
-  )
 
 const dynamicStatesHaveSelection = (
   dynamic: Readonly<Record<string, DynamicPortState>>,
-): boolean => Object.values(dynamic).some(dynamicStateHasSelection)
+): boolean => Object.values(dynamic).some((state) => state.selected !== undefined)
 
 /**
  * Resolve `rule` against one node. Pure: no mutation, no randomness. The
@@ -835,14 +695,13 @@ function planReplacementForCase(
         if (endpoint.members === undefined) return [endpoint.port]
         if (endpoint.port !== mapping.sourceTemplate!.memberPort || endpoint.members.length !== 1) return []
         historicalMemberPorts.add(mapping)
-        return [joinValuePath(mapping.sourceFamily, endpoint.members[0]!)]
+        return [`${mapping.sourceFamily}.${endpoint.members[0]!}`]
       })
-      historicalFamilyMembers.set(mapping, collectWire15MemberEvidence(
+      historicalFamilyMembers.set(mapping, memberKeysEvidenced(
         mapping.sourceFamily,
         node.dynamic?.[mapping.sourceFamily]?.members ?? [],
         [...Object.keys(node.values), ...Object.keys(node.controllers ?? {})],
         inputPorts,
-        [],
         mapping.sourceTemplate.inputs.length === 1,
       ))
     }
@@ -1019,12 +878,12 @@ function planReplacementForCase(
     if (ports === undefined) targetConnectedPorts.set(key, new Set([address.port]))
     else ports.add(address.port)
   }
-  const choiceSpecs = (
+  const choiceAt = (
     localId: string | undefined,
     path: string,
     selected: Readonly<Record<string, DynamicPortState>>,
-  ): readonly ChoiceSpec[] =>
-    declaredChoiceSpecs(
+  ): ChoiceSpec | TypeChoiceSpec | undefined =>
+    declaredChoiceAt(
       localId === undefined ? target : helperTargets.get(localId)!.schema,
       path,
       selected,
@@ -1042,9 +901,7 @@ function planReplacementForCase(
       }
       for (const path of Object.keys(candidate.slotVariants ?? {})) {
         if (path.includes(':')) continue
-        const specs = choiceSpecs(undefined, path, candidateDynamic)
-        const spec = specs[0]
-        if (specs.length !== 1 || spec?.kind !== 'dynamicCombo') continue
+        if (choiceAt(undefined, path, candidateDynamic)?.kind !== 'choice') continue
         addMigrationSelector(path.slice(path.lastIndexOf('.') + 1))
       }
     }
@@ -1074,14 +931,11 @@ function planReplacementForCase(
   }
   for (const { targetPath, address, choice } of addressedChoices) {
     const targetDynamic = address.localId === undefined ? dynamic : helperDynamic.get(address.localId)!
-    const specs = choiceSpecs(address.localId, address.port, targetDynamic)
-    if (specs.length !== 1) {
+    if (choiceAt(address.localId, address.port, targetDynamic) === undefined) {
       errors.push(diag(
         'error',
-        specs.length === 0 ? 'replace.target.dynamicInactive' : 'replace.target.dynamicAmbiguous',
-        specs.length === 0
-          ? `replace: dynamic choice '${targetPath}' does not name a declared choice construct`
-          : `replace: dynamic choice '${targetPath}' names multiple branch-local constructs`,
+        'replace.target.dynamicInactive',
+        `replace: dynamic choice '${targetPath}' does not name a declared choice construct`,
       ))
       continue
     }
@@ -1099,7 +953,7 @@ function planReplacementForCase(
   }
   const preparedInputFamilies = new Map<string, {
     targetAddress: TargetAddress
-    targetFamily: Wire15InputFamily
+    targetFamily: InputFamily
     members: readonly string[]
     sourceMembers?: readonly string[]
     sourceFamily?: { readonly id: string; readonly inputs: readonly string[]; readonly memberPort?: string }
@@ -1108,7 +962,7 @@ function planReplacementForCase(
     const familyAddress = targetAddress(targetFamilyId)
     const targetFamily = familyAddress === undefined
       ? undefined
-      : wire15InputFamily(familyAddress.schema, familyAddress.port)
+      : inputFamilyOf(familyAddress.schema, familyAddress.port)
     if (familyAddress === undefined || targetFamily === undefined) {
       errors.push(
         diag(
@@ -1126,7 +980,7 @@ function planReplacementForCase(
     if (mapping.kind === 'copy') {
       const declaredFamily = sourceSchema === undefined
         ? undefined
-        : wire15InputFamily(sourceSchema, mapping.sourceFamily)
+        : inputFamilyOf(sourceSchema, mapping.sourceFamily)
       const historical = mapping.sourceTemplate
       if (historical !== undefined && sourceSchema !== undefined && (
         declaredFamily === undefined ||
@@ -1178,25 +1032,18 @@ function planReplacementForCase(
 
     const sourceMembers = members
     if (mapping.kind === 'copy' && mapping.memberIds === 'targetPositions') {
-      const naming = targetFamily.spec.naming
+      const keys = targetFamily.group.keys
       let retainMemberIds = false
       if (historicalFamilyMembers.has(mapping)) {
         const canonicalMembers = sourceMembers.every((member) => {
-            if (naming.kind === 'names') return naming.names.includes(member)
-            if (naming.kind !== 'prefix') return false
-            const position = Number(member.slice(naming.prefix.length)) - (targetFamily.spec.ordinalOffset ?? 0)
-            return Number.isSafeInteger(position) && position >= 0 && position < autogrowBounds(targetFamily.spec).max &&
-              member === `${naming.prefix}${position + (targetFamily.spec.ordinalOffset ?? 0)}`
-          })
+          const position = keyPosition(keys, member)
+          return position !== undefined && position < memberLimitOf(targetFamily.group) && memberKeyAt(keys, position) === member
+        })
         retainMemberIds = mapping.sourceFamily === familyAddress.port && canonicalMembers &&
           !(historicalMemberPorts.has(mapping) && sourceFamily?.memberPort !== targetFamily.memberPort)
         if (!retainMemberIds) migrationEvidence = true
       }
-      if (!retainMemberIds) {
-        members = sourceMembers.map((_, index) => naming.kind === 'names'
-          ? naming.names[index] ?? ''
-          : naming.kind === 'prefix' ? `${naming.prefix}${index + (targetFamily.spec.ordinalOffset ?? 0)}` : '')
-      }
+      if (!retainMemberIds) members = sourceMembers.map((_, index) => memberKeyAt(keys, index) ?? '')
     }
     if (!familyMembersAreAdmitted(targetFamily, members)) {
       errors.push(
@@ -1213,7 +1060,7 @@ function planReplacementForCase(
       : helperDynamic.get(familyAddress.localId)!
     targetDynamic[familyAddress.port] = {
       ...targetDynamic[familyAddress.port],
-      ...familyDynamicState(members, sourceFamilyState),
+      ...familyDynamicState(targetFamily.group, members, sourceFamilyState),
       ...(mapping.kind === 'copy' && mapping.memberIds === 'targetPositions' && sourceFamilyState?.memberLabels !== undefined
         ? { memberLabels: Object.fromEntries(sourceMembers.flatMap((member, index) => {
             const label = sourceFamilyState.memberLabels![member]
@@ -1248,7 +1095,7 @@ function planReplacementForCase(
   const dynamicTargetKeys = ['', ...helperTargets.keys()].filter((key) => {
     if (choicesByTarget.has(key)) return true
     const schema = key === '' ? target : helperTargets.get(key)!.schema
-    return inputsOf(schema).some((input) => input.dynamic !== undefined)
+    return allRowsOf(schema.body).some((row) => row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice')
   })
   for (const key of dynamicTargetKeys) {
     const grouped = choicesByTarget.get(key) ?? []
@@ -1265,13 +1112,6 @@ function planReplacementForCase(
           isOutputConnected: () => false,
           inputPorts: () => [...connectedPorts],
         }
-    for (const path of missingRequiredSlotChoices(schema, targetDynamic, connectedPorts)) {
-      errors.push(diag(
-        'error',
-        'replace.target.dynamicInvalid',
-        `replace: ${schema.type}.${path} has no stored choice`,
-      ))
-    }
     const elaborated = elaborateInterface(
       schema,
       { values: targetValues, dynamic: targetDynamic },
@@ -1288,15 +1128,15 @@ function planReplacementForCase(
     const inputs = new Map<string, ElaboratedInput>()
     const activeChoices = new Set<string>()
     for (const input of elabInputsOf(elaborated)) {
+      if (input.apiName !== undefined) inputs.set(input.apiName, input)
+      // A required type choice with nothing stored is refused by elaboration;
+      // a wired optional one needs its variant too.
       if (
-        input.address.members === undefined &&
-        input.apiName !== undefined
-      ) inputs.set(input.wire15Materialization ? input.spec.id : input.apiName, input)
-      if (
-        input.origin.kind === 'selector' &&
-        input.wire15Materialization &&
-        input.spec.optional === false &&
-        input.origin.selected === undefined
+        input.origin.kind === 'slot' &&
+        input.origin.variants !== undefined &&
+        input.origin.selected === undefined &&
+        input.spec.optional &&
+        connectedPorts.has(input.origin.construct)
       ) {
         errors.push(diag(
           'error',
@@ -1336,7 +1176,7 @@ function planReplacementForCase(
       prepared.targetAddress.localId === address.localId &&
       prepared.members.some((member) =>
         prepared.targetFamily.template.some((input) =>
-          wire15FamilyInputPath(prepared.targetFamily, member, input.id) === address.port,
+          familyInputPath(prepared.targetFamily, member, input.id) === address.port,
         ),
       ),
     )
@@ -1475,9 +1315,8 @@ function planReplacementForCase(
       errors.push(diag('error', 'replace.target.inputMissing', `replace: target '${matched.to}' has no active input '${targetInput}'`))
       continue
     }
-    const storesCount = outputCountInputsOf(address.schema).includes(address.port)
     const writesValue = mapping.kind === 'constant' || mapping.kind === 'value' || mapping.kind === 'copy'
-    if (writesValue && spec.widget === undefined && !storesCount && mapping.kind !== 'copy') {
+    if (writesValue && spec.widget === undefined && mapping.kind !== 'copy') {
       errors.push(diag('error', 'replace.target.notWidget', `replace: target input '${targetInput}' has no widget; cannot write a value`))
       continue
     }
@@ -1490,22 +1329,10 @@ function planReplacementForCase(
         copyValueTo(address, mapping, mapping.input, spec.widget?.controller !== undefined)
         break
       case 'link':
-        if (storesCount) {
-          errors.push(
-            diag('error', 'replace.target.outputFamilyLinkedCount', `replace: output-family count input '${targetInput}' must store a literal`),
-          )
-          break
-        }
         moveConnectionTo(address, mapping.input)
         break
       case 'copy':
-        if (storesCount && isConnected(state, mapping.input)) {
-          errors.push(
-            diag('error', 'replace.target.outputFamilyLinkedCount', `replace: output-family count input '${targetInput}' cannot copy a connection`),
-          )
-          break
-        }
-        if (spec.widget !== undefined || storesCount || rule.migration !== undefined)
+        if (spec.widget !== undefined || rule.migration !== undefined)
           copyValueTo(address, mapping, mapping.input, spec.widget?.controller !== undefined)
         else if (state.node.values[mapping.input] !== undefined)
           warnings.push(
@@ -1518,7 +1345,7 @@ function planReplacementForCase(
 
   const applyFamilyMember = (
     familyAddress: TargetAddress,
-    family: Wire15InputFamily,
+    family: InputFamily,
     suffix: string,
     mappings: Readonly<Record<string, MappingSource>>,
     sourceInput: (mapping: Exclude<MappingSource, { kind: 'constant' }>) => string | undefined,
@@ -1528,7 +1355,7 @@ function planReplacementForCase(
       : helperValues.get(familyAddress.localId)!
     for (const slot of family.template) {
       if (slot.widget?.default !== undefined)
-        targetValues[wire15FamilyInputPath(family, suffix, slot.id)] = slot.widget.default as Json
+        targetValues[familyInputPath(family, suffix, slot.id)] = slot.widget.default as Json
     }
     for (const [targetInput, mapping] of Object.entries(mappings)) {
       const spec = family.template.find((candidate) => candidate.id === targetInput)
@@ -1545,7 +1372,7 @@ function planReplacementForCase(
       const address: TargetAddress = {
         ...(familyAddress.localId !== undefined ? { localId: familyAddress.localId } : {}),
         nodeId: familyAddress.nodeId,
-        port: wire15FamilyInputPath(family, suffix, targetInput),
+        port: familyInputPath(family, suffix, targetInput),
         schema: familyAddress.schema,
       }
       if (mapping.kind === 'constant') {
@@ -1627,8 +1454,8 @@ function planReplacementForCase(
         }
         applyFamilyMember(familyAddress, targetFamily, member, copied.inputs, (source) => {
           if (sourceFamily!.inputs.includes(source.input)) {
-            const memberPath = joinValuePath(sourceFamily!.id, sourceMember)
-            return sourceFamily!.inputs.length === 1 ? memberPath : joinValuePath(memberPath, source.input)
+            const memberPath = `${sourceFamily!.id}.${sourceMember}`
+            return sourceFamily!.inputs.length === 1 ? memberPath : `${memberPath}.${source.input}`
           }
           errors.push(
             diag(
@@ -1641,8 +1468,8 @@ function planReplacementForCase(
         })
         if (copied.memberIds === 'targetPositions') {
           for (const input of sourceFamily!.inputs) {
-            const memberPath = joinValuePath(sourceFamily!.id, sourceMember)
-            const sourceInput = sourceFamily!.inputs.length === 1 ? memberPath : joinValuePath(memberPath, input)
+            const memberPath = `${sourceFamily!.id}.${sourceMember}`
+            const sourceInput = sourceFamily!.inputs.length === 1 ? memberPath : `${memberPath}.${input}`
             const destination = connectionMoves.get(sourceInput)
             if (destination === undefined) continue
             const from: PortRef = sourceFamily!.memberPort === undefined
@@ -1761,7 +1588,6 @@ function planReplacementForCase(
     members: ReadonlySet<string>
   }>()
   const expectedTargetFamilies = new Map<string, readonly string[]>()
-  const sourceCountGuards: Record<string, Json> = {}
   const sourceInterface = (): ReturnType<typeof elaborateInterface> | undefined => {
     if (sourceSchema === undefined) return undefined
     if (sourceElaboration === undefined) {
@@ -1775,66 +1601,45 @@ function planReplacementForCase(
     return sourceElaboration
   }
   for (const [targetFamilyId, mapping] of Object.entries(matched.outputFamilies ?? {})) {
-    const targetFamily = countOutputFamily(target, targetFamilyId)
+    const targetFamily = outputFamilyOf(target, targetFamilyId)
     if (targetFamily === undefined) {
       errors.push(
         diag(
           'error',
           'replace.target.outputFamilyMissing',
-          `replace: target '${matched.to}' has no supported top-level count-bound output family '${targetFamilyId}'`,
+          `replace: target '${matched.to}' has no top-level group of output values '${targetFamilyId}'`,
         ),
       )
       continue
     }
-    const targetCountInput = targetFamily.spec.count.input
-    const countMapping = matched.inputs?.[targetCountInput]
     let members: readonly string[]
     if (mapping.kind === 'copy') {
-      const sourceFamily = sourceSchema === undefined
-        ? undefined
-        : countOutputFamily(sourceSchema, mapping.sourceFamily)
-      if (sourceSchema !== undefined && sourceFamily === undefined) {
+      if (sourceSchema !== undefined && outputFamilyOf(sourceSchema, mapping.sourceFamily) === undefined) {
         errors.push(
           diag(
             'error',
             'replace.source.outputFamilyMissing',
-            `replace: source '${node.type}' has no supported top-level count-bound output family '${mapping.sourceFamily}'`,
+            `replace: source '${node.type}' has no top-level group of output values '${mapping.sourceFamily}'`,
           ),
         )
         continue
       }
-      if (
-        countMapping === undefined ||
-        (countMapping.kind !== 'copy' && countMapping.kind !== 'value') ||
-        (sourceFamily !== undefined && countMapping.input !== sourceFamily.spec.count.input) ||
-        (countMapping.kind === 'value' && countMapping.transform !== undefined)
-      ) {
-        errors.push(
-          diag(
-            'error',
-            'replace.outputFamily.countMapping',
-            `Output family '${targetFamilyId}': '${targetCountInput}' must copy the source count unchanged`,
-          ),
-        )
-        continue
-      }
-      const sourceCountInput = countMapping.input
+      // Without the source's schema, the node's own stored state elaborates
+      // against the target, whose group has the same id.
       const elaborated = sourceSchema === undefined
-        ? elaborateInterface(target, { values, dynamic }, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+        ? elaborateInterface(target, node, EMPTY_CONNECTIVITY, { promoteGhosts: false })
         : sourceInterface()
       const sourceMembers = elaborated?.outputMembers?.[sourceSchema === undefined ? targetFamilyId : mapping.sourceFamily]
       if (
         elaborated === undefined ||
         elaborated.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
-        sourceMembers === undefined ||
-        isConnected(state, sourceCountInput) ||
-        (sourceSchema === undefined && sourceMembers.length !== node.values[sourceCountInput])
+        sourceMembers === undefined
       ) {
         errors.push(
           diag(
             'error',
             'replace.source.outputFamilyInvalid',
-            `replace: source output family '${mapping.sourceFamily}' cannot be elaborated from its stored count`,
+            `replace: source output family '${mapping.sourceFamily}' cannot be elaborated from its stored state`,
           ),
         )
         continue
@@ -1854,22 +1659,8 @@ function planReplacementForCase(
         target: { nodeId, port: targetFamilyId, schema: target },
         members: new Set(members),
       })
-      sourceCountGuards[sourceCountInput] = node.values[sourceCountInput]!
     } else {
       members = mapping.members.map((member) => member.suffix)
-      if (
-        countMapping?.kind !== 'constant' ||
-        countMapping.value !== members.length
-      ) {
-        errors.push(
-          diag(
-            'error',
-            'replace.outputFamily.countMapping',
-            `replace: explicit output family '${targetFamilyId}' requires constant count ${members.length} on '${targetCountInput}'`,
-          ),
-        )
-        continue
-      }
       for (const member of mapping.members) {
         if (sourceToTarget.has(member.output)) {
           errors.push(
@@ -1883,11 +1674,16 @@ function planReplacementForCase(
         }
         sourceToTarget.set(member.output, {
           nodeId,
-          port: targetFamilyId,
-          members: [member.suffix],
+          port: `${targetFamilyId}.${member.suffix}`,
           schema: target,
         })
       }
+    }
+    // A group grown by hand stores its members; a counted group's members
+    // follow its formula, which the mapped inputs feed. Either way the target
+    // must elaborate exactly these members (checked below).
+    if (typeof targetFamily.grows === 'string') {
+      dynamic[targetFamilyId] = { ...dynamic[targetFamilyId], ...familyDynamicState(targetFamily, members, node.dynamic?.[targetFamilyId]) }
     }
     expectedTargetFamilies.set(targetFamilyId, members)
   }
@@ -1931,7 +1727,7 @@ function planReplacementForCase(
     })),
   ]
   for (const plannedTarget of countOutputTargets) {
-    if (outputCountInputsOf(plannedTarget.schema).length === 0) continue
+    if (!scopeRowsOf(plannedTarget.schema.body).some((row) => row.kind === 'group' && row.value?.kind === 'output')) continue
     const connectedInputs = new Set<string>()
     for (const [sourceInput, address] of connectionMoves) {
       if (address.nodeId === plannedTarget.nodeId && isConnected(state, sourceInput))
@@ -2150,10 +1946,8 @@ function planReplacementForCase(
       preservedMemberLinks.add(linkId)
       outputRewires.push({
         link: linkId,
-        port: mapping.target.port,
-        members: [suffix],
-        fromPort: family,
-        fromMembers: [suffix],
+        port: `${mapping.target.port}.${suffix}`,
+        ...(state.listedMemberEnds.has(linkId) ? { fromPort: family, fromMembers: [suffix] } : { fromPort: `${family}.${suffix}` }),
       })
     }
   }
@@ -2271,10 +2065,8 @@ function planReplacementForCase(
       preservedMemberNets.add(netId)
       netSourceRewires.push({
         net: netId,
-        port: mapping.target.port,
-        members: [suffix],
-        fromPort: family,
-        fromMembers: [suffix],
+        port: `${mapping.target.port}.${suffix}`,
+        ...(state.listedMemberEnds.has(netId) ? { fromPort: family, fromMembers: [suffix] } : { fromPort: `${family}.${suffix}` }),
       })
     }
   }
@@ -2447,7 +2239,6 @@ function planReplacementForCase(
       caseIndex,
       values,
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
-      ...(Object.keys(sourceCountGuards).length > 0 ? { sourceCountGuards } : {}),
       ...(Object.values(matched.inputFamilies ?? {}).some((mapping) => mapping.kind === 'copy')
         ? { sourceStateGuard: replacementSourceStateHash(def, node) }
         : {}),

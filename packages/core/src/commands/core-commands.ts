@@ -22,7 +22,7 @@ import { canonicalJson } from '../compile/hash.js'
 import { type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import { isNodeBoundaryBinding, PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
-import { canonicalTypeIdOf, inputsOf, isImageAssetInput, type NodeSchema } from '../schema/model.js'
+import { inputsOf, isImageAssetInput, type NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elabInputsOf, elaborateInterface, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
@@ -777,10 +777,10 @@ const selectionMove: CommandDefinition = {
 // node.setValue {graphId, nodeId, inputId, value}
 // ---------------------------------------------------------------------------
 
-function nodeSetValueOf(resolve?: (type: string) => NodeSchema | undefined): CommandDefinition {
+function nodeSetValueOf(): CommandDefinition {
   return {
     id: 'node.setValue',
-    run(doc, params, tx, context) {
+    run(doc, params, tx) {
       if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.inputId !== 'string')
         return [err('params.invalid', 'node.setValue: params must be {graphId, nodeId, inputId, value}')]
       const def = graphOf(doc, params.graphId)
@@ -970,10 +970,10 @@ function nodeSetControllerOf(resolve?: (type: string) => NodeSchema | undefined)
  * the new value (canonical JSON) are skipped, so a fully-matching dispatch is
  * a no-op success with no undo entry.
  */
-function nodeSetValuesOf(resolve?: (type: string) => NodeSchema | undefined): CommandDefinition {
+function nodeSetValuesOf(): CommandDefinition {
   return {
     id: 'node.setValues',
-    run(doc, params, tx, context) {
+    run(doc, params, tx) {
       if (!isObj(params) || typeof params.nodeId !== 'string' || !isObj(params.values))
         return [err('params.invalid', 'node.setValues: params must be {graphId, nodeId, values}')]
       const def = graphOf(doc, params.graphId)
@@ -3188,8 +3188,8 @@ export function coreCommandRegistry(
       candidate.id !== 'image.applyAsset' &&
       candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
-    nodeSetValueOf(resolve),
-    nodeSetValuesOf(resolve),
+    nodeSetValueOf(),
+    nodeSetValuesOf(),
     imageApplyAssetOf(resolve),
     ...registeredExtensionCommands(resolve),
     ...extra,

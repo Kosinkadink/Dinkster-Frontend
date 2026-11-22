@@ -28,9 +28,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asNodeId, asPortId, asRerouteId } from '../ids.js'
-import type { CommandDefinition, CommandExecutionContext } from './contract.js'
-import { resolveBoundaryRoute } from '../schema/derive-boundary.js'
-import { documentNodeResolver } from '../compile/compile.js'
+import type { CommandDefinition } from './contract.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -394,10 +392,7 @@ const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding 
 
 const boundaryAddItem: CommandDefinition = {
   id: 'boundary.addItem',
-  prepareForSharedReplay(doc, params, context) {
-    return isObj(params) ? { ok: true, params } : undefined
-  },
-  run(doc, params, tx, context) {
+  run(doc, params, tx) {
     if (
       !isObj(params) || typeof params.graphId !== 'string' || !isSide(params.side) ||
       typeof params.node !== 'string' || bindingFromParams(params, params.side) === undefined ||

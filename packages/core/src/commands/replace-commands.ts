@@ -116,10 +116,6 @@ const isNetSinkEdit = (v: Json): v is JsonObject & { net: string; from: JsonObje
   (v.to === undefined || isPortRefJson(v.to))
 const isStringArray = (v: Json | undefined): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === 'string')
-const isSourceCountGuards = (v: Json): v is JsonObject =>
-  isObj(v) && Object.entries(v).every(([input, count]) =>
-    STRUCTURAL_ID.test(input) && typeof count === 'number' && Number.isSafeInteger(count) && count >= 0,
-  )
 const isTargetSchemaGuard = (v: Json): v is JsonObject & { nodeId: string; type: string; schemaHash: string } =>
   isObj(v) &&
   Object.keys(v).length === 3 &&
@@ -285,7 +281,6 @@ const nodeReplace: CommandDefinition = {
       (p.netSinkEdits !== undefined && !(Array.isArray(p.netSinkEdits) && p.netSinkEdits.every(isNetSinkEdit))) ||
       !isStringArray(p.dropNets) ||
       (p.dynamic !== undefined && !isDynamicScope(p.dynamic)) ||
-      (p.sourceCountGuards !== undefined && !isSourceCountGuards(p.sourceCountGuards)) ||
       (p.sourceStateGuard !== undefined && typeof p.sourceStateGuard !== 'string') ||
       (p.targetSchemaGuards !== undefined && !targetSchemaGuardsValid) ||
       (planHasDynamicSelection && p.targetSchemaGuards === undefined) ||
@@ -375,17 +370,6 @@ const nodeReplace: CommandDefinition = {
         canonicalJson(currentNets as unknown as Json) !== canonicalJson(archivedNets as unknown as Json) ||
         canonicalJson((doc.view.graphs[p.graphId]?.nodes[p.nodeId] ?? null) as unknown as Json) !== canonicalJson(migrationArchive.view)
       ) return [err('replace.stale', `node.replace: archived migration state for '${p.nodeId}' changed since planning`)]
-    }
-
-    for (const [input, expected] of Object.entries(p.sourceCountGuards ?? {})) {
-      const current = node.values[input]
-      const connected = Object.values(def.links).some((link) =>
-        isPortEndpoint(link.to) && link.to.node === p.nodeId && link.to.port === input,
-      ) || Object.values(def.nets).some((net) => net.sinks.some((sink) =>
-        isPortEndpoint(sink) && sink.node === p.nodeId && sink.port === input,
-      ))
-      if (current === undefined || canonicalJson(current) !== canonicalJson(expected) || connected)
-        return [err('replace.stale', `node.replace: source count '${p.nodeId}.${input}' changed since planning`)]
     }
 
     const createdNodes = (p.createdNodes ?? []) as ReadonlyArray<{

@@ -1,7 +1,7 @@
 import { boundaryBindingKey, isForwardingBinding, suppressedDeliveryKey, type BoundaryRouteLeg, type DynamicPortState, type GraphDef, type Json, type NodeData, type OccurrenceLinkEndpoint, type ParentDeliveryIdentity, type WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type OccurrenceRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
-import { memberHopsOf, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
+import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import { elabKeyOf } from '../schema/elaborate.js'
 import { buildBoundaryCrossings, crossingTargets, isSubtreeCrossing, overlayNodeDynamic, projectEditableOptions, projectCrossingValues, rekeySubtreeValues, translateThroughCrossing, type SubtreeCrossing } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'

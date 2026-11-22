@@ -23,8 +23,8 @@
  *   they map directly and carry occurrence values instead of dynamic state.
  */
 
-import { isForwardingBinding, isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
-import { asDynamicMemberId, asNodeId, asPortId, type NodeId, type PortRef } from '../ids.js'
+import { isForwardingBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
+import { asDynamicMemberId, asPortId, type NodeId, type PortRef } from '../ids.js'
 import { memberHopsOf, resolveBoundaryRoute, type BoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import { addressOfElabKey, elabKeyOf } from '../schema/elaborate.js'
 import type { NodeSchema } from '../schema/model.js'

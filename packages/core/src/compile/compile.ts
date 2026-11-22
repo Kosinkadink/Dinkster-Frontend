@@ -75,7 +75,7 @@ import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
 import { effectiveValueSourceSpec, resolvedValueSourceSpec, valueSourceWidgetSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
-import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
+import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
   buildGraphConnectivity,
   elabInputsOf,
@@ -97,7 +97,6 @@ import {
   projectCrossingValues,
   matchBoundaryItem,
   overlayNodeDynamic,
-  overlayPortDynamic,
   projectEditableOptions,
   translateThroughCrossing,
   type BoundaryCrossing,
@@ -2905,7 +2904,7 @@ function compileImpl(
     }
     return { $link: { node: localRuntimeId(value[0], scopeRegion), output } }
   }
-  const nativeInputs = (runtimeId: string, compiled: PromptNode, scopeRegion?: RegionLowering) =>
+  const nativeInputs = (compiled: PromptNode, scopeRegion?: RegionLowering) =>
     Object.fromEntries(Object.entries(compiled.inputs)
       .map(([inputId, value]) => [inputId, wireInput(value, scopeRegion)]))
   const sourceForBoundaryOutput = (
@@ -3069,7 +3068,7 @@ function compileImpl(
       if (!region) {
         nodes[nodeId] = {
           nodeType: compiled.class_type,
-          inputs: nativeInputs(fn.runtimeId, compiled, scopeRegion),
+          inputs: nativeInputs(compiled, scopeRegion),
           ...(compiled.outputMembers ? { outputMembers: compiled.outputMembers } : {}),
           ...(compiled.slotVariants ? { slotVariants: compiled.slotVariants } : {}),
         }
@@ -3114,7 +3113,7 @@ function compileImpl(
           ...(contract.elementPorts !== undefined ? { elementPorts: contract.elementPorts } : {}),
           ...(contract.statePorts !== undefined ? { statePorts: contract.statePorts } : {}),
           ...(contract.binding !== undefined ? { binding: contract.binding } : {}),
-          inputs: nativeInputs(fn.runtimeId, compiled, scopeRegion),
+          inputs: nativeInputs(compiled, scopeRegion),
           body: buildNativeGraph(region, path),
           outputs,
           ...(contract.maxIterations !== undefined ? { maxIterations: contract.maxIterations } : {}),
