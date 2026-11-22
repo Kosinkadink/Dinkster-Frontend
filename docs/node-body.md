@@ -83,7 +83,9 @@ unknown, and `linked()` is false for it; so does a group's size or a list
 across its members under such an option. An unknown count gives the group's
 `minMembers`; an unknown leader gives the choice's first option. A formula
 reads a choice's key the same whether the choice is declared before or after
-it, including a led choice or one with nothing stored yet.
+it, including a led choice or one with nothing stored yet. A field with
+nothing stored reads its default, also under the chosen option, in a stored
+member, or where a `Use` gives it another default.
 
 A new node stores the first `minMembers` members of every group that grows by
 link, filled field or button. Members the node shows but does not store (up
@@ -110,7 +112,9 @@ A choice holds a list of options, each with its own rows, and rows several
 options share. An option places a shared row with a `Use`, directly or inside
 one of its sections, and may override the row's label, tooltip, field,
 default or whether it is required; an overriding field is checked against the
-shared row's type. Without a leader it draws a dropdown of its options; changing
+shared row's type. Shared rows hold values: a Section, Row, Note, Button or
+Editor there is refused at load. Different options may each hold a section,
+note, button or editor with one id, since only one option shows. Without a leader it draws a dropdown of its options; changing
 it stores the new key (`dynamic.selectOption`) as one undo step. A choice
 with a leader formula has no dropdown: the formula over stored values and
 link state gives the key.

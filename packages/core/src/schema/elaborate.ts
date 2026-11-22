@@ -589,10 +589,49 @@ function elaboratePass(
     return hidden
   }
 
+  /**
+   * The default of each field by flattened id, under the chosen options and
+   * the members the node stores, with each Use's override, as the engine
+   * gives a formula reading a field with nothing stored.
+   */
+  const defaultsUnder = (list: readonly OptionRow[], prefix: string, found: Map<string, unknown>, shared?: ReadonlyMap<string, BodyRow>): void => {
+    for (const row of list) {
+      if (row.kind === 'use') {
+        const target = shared?.get(row.id)
+        if (target !== undefined) defaultsUnder([applyUse(target, row)], prefix, found)
+      } else if (row.kind === 'section' || row.kind === 'row') {
+        defaultsUnder(row.rows, prefix, found, shared)
+      } else if (row.kind === 'input') {
+        found.set(prefix + row.id, defaultOf(row))
+      } else if (row.kind === 'state') {
+        found.set(prefix + row.id, row.default)
+      } else if (row.kind === 'choice') {
+        const path = prefix + row.id
+        const key = chosen.has(path) ? chosen.get(path) : unsettledKey(path)
+        const option = row.options.find((item) => item.key === key)
+        if (option !== undefined) {
+          defaultsUnder(option.rows, `${path}.`, found,
+            new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item])))
+        }
+      } else if (row.kind === 'typeChoice') {
+        const path = prefix + row.id
+        const variant = row.variants?.find((item) => item.key === stateOf(path)?.selected)
+        defaultsUnder([...row.rows, ...(variant?.rows ?? [])], `${path}.`, found)
+      } else if (row.kind === 'group') {
+        const path = prefix + row.id
+        for (const key of membersFor(path)) {
+          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' ? defaultOf(row.value) : undefined)
+          else defaultsUnder(row.member ?? [], `${path}.${key}.`, found)
+        }
+      }
+    }
+  }
+
   const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
     const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
     const where = new Map<string, string>()
     const defaults = new Map<string, unknown>()
+    defaultsUnder(schema.body, '', defaults)
     const unknown = new Set<string>()
     for (const frame of scope.formulaFrames) {
       const hidden = unchosen(frame.rows, frame.prefix)
@@ -602,9 +641,11 @@ function elaboratePass(
         if (hidden.has(name)) unknown.add(name)
         else unknown.delete(name)
       }
+      // A member the node shows but does not store reads its own rows' defaults.
       for (const row of scopeRowsOf(frame.rows)) {
-        if (row.kind === 'input') defaults.set(frame.prefix + row.id, defaultOf(row))
-        else if (row.kind === 'state') defaults.set(frame.prefix + row.id, row.default)
+        if (row.kind !== 'input' && row.kind !== 'state') continue
+        const path = frame.prefix + row.id
+        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? defaultOf(row) : row.default)
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)

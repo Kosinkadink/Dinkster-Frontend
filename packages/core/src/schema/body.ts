@@ -500,15 +500,25 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
           const inner = `${where}${row.id}.`
           const choiceIds = newIds()
           const sharedRows = new Map<string, BodyRow>()
-          for (const item of row.shared) if (item.kind !== 'row') sharedRows.set(item.id, item)
+          for (const item of row.shared) {
+            const kind = item.kind[0]!.toUpperCase() + item.kind.slice(1)
+            if (item.kind === 'section' || item.kind === 'row') {
+              throw new Error(`choice ${inner.slice(0, -1)}: a ${kind} in shared is layout; write it under the option, where the Use stands, with the Use inside it`)
+            }
+            if (item.kind === 'note' || item.kind === 'button' || item.kind === 'editor') {
+              throw new Error(`choice ${inner.slice(0, -1)}: a ${kind} in shared holds no value to share; write it under each option that shows it`)
+            }
+            sharedRows.set(item.id, item)
+          }
           const choiceFrames = [...frames, choiceScopeRows(row)]
           visit(row.shared, depth + 1, inner, choiceIds, new Map(), choiceFrames)
           for (const option of row.options) {
             const used = option.rows.filter((item) => item.kind === 'use').map((item) => item.id)
             if (new Set(used).size !== used.length) throw new Error(`choice ${row.id}: option ${option.key} uses a row twice`)
-            // Different options may each hold a section with one id: only one
-            // option is shown, and they share its saved open state.
-            visit(option.rows, depth + 1, inner, { ...choiceIds, section: new Set(choiceIds.section) }, sharedRows, choiceFrames)
+            // Different options may each hold a layout row with one id: only one
+            // option is shown, and a section's saved open state is shared.
+            const layout = { section: new Set<string>(), button: new Set<string>(), note: new Set<string>(), editor: new Set<string>() }
+            visit(option.rows, depth + 1, inner, { ...choiceIds, ...layout }, sharedRows, choiceFrames)
           }
           break
         }
