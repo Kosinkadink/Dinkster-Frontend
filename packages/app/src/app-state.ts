@@ -5750,97 +5750,6 @@ export class AppState {
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
 
-  /** Capture one document's ownership before input-image decode or model-poster work. */
-  workflowAssetReader(tab: Tab, digest: string | readonly string[], holder: object = tab): {
-    readonly key: string
-    current(): boolean
-    read<T>(consume: () => Promise<T>): Promise<T>
-  } | undefined {
-    const backend = this.backendForTab(tab)
-    if (backend.protocol !== 'dinkster') return undefined
-    const document = tab.store.doc
-    const revision = tab.store.revision
-    const registry = this.registryForTab(tab)
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const project = activeProjectId()
-    const session = tab.store
-    const digests = [...new Set(typeof digest === 'string' ? [digest] : digest)].sort()
-    const cacheKey = JSON.stringify(['workflow', tab.id, backend.id, digests])
-    const held = this.cachedAssetReaders.get(holder)?.get(cacheKey)
-    if (held?.current()) return held
-    // The selected files are known even when the rest of the workflow is opaque.
-    const roots = { complete: true, digests }
-    const current = (): boolean => {
-      const live = this.tabs.get().find((candidate) => candidate.id === tab.id && candidate.store === session) ?? this.liveTabContinuing(session)
-      return !this.disposed && activeProjectId() === project && live?.id === tab.id && session.doc === document && session.revision === revision &&
-        // Promotion can replace the store without changing the document or its history.
-        (live.store === session || (live.store.revision === revision && canonicalJson(live.store.doc) === canonicalJson(document))) &&
-        this.backendForTab(live) === backend && this.registryForTab(live) === registry &&
-        generation === this.assetConnectionGenerations.get(backend.connection)
-    }
-    const reader = {
-      key: `workflow:${++this.workflowAssetReaderSequence}`,
-      current,
-      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
-    }
-    return this.cacheAssetReader(holder, cacheKey, reader)
-  }
-
-  /** Recorded file consumers borrow the captured execution, never the active tab. */
-  executionAssetReader(state: ExecutionState, digests: readonly string[], holder: object = state.outputs): ReturnType<AppState['workflowAssetReader']> {
-    const backend = this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)
-    if (backend?.protocol !== 'dinkster' || this.store.get(state.ref) !== state) return undefined
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const project = activeProjectId()
-    const roots = { complete: true, digests: [...new Set(digests)].sort() }
-    const cacheKey = JSON.stringify(['execution', state.key, roots.digests])
-    const held = this.cachedAssetReaders.get(holder)?.get(cacheKey)
-    if (held?.current()) return held
-    const sameResult = (candidate: ExecutionState | undefined): boolean => candidate !== undefined &&
-      candidate.key === state.key && candidate.queuedAt === state.queuedAt && candidate.jobRef === state.jobRef &&
-      candidate.sourceDocument === state.sourceDocument && candidate.artifact === state.artifact &&
-      candidate.outputs === state.outputs && candidate.artifacts === state.artifacts
-    const current = (): boolean => {
-      return !this.disposed && activeProjectId() === project && sameResult(this.store.get(state.ref)) &&
-        (this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)) === backend &&
-        generation === this.assetConnectionGenerations.get(backend.connection)
-    }
-    const reader = {
-      key: `execution:${++this.workflowAssetReaderSequence}`,
-      current,
-      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
-    }
-    return this.cacheAssetReader(holder, cacheKey, reader)
-  }
-
-  /** Revealed model resources borrow their execution through decode and viewer disposal. */
-  file3dAssetReaderForExecution(ref: ExecutionRef, assets: readonly Readonly<Record<string, Json>>[]): ReturnType<AppState['workflowAssetReader']> {
-    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
-    if (backend?.protocol !== 'dinkster') return undefined
-    const execution = this.store.get(ref)
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const project = activeProjectId()
-    const current = (): boolean => {
-      const latest = this.store.get(ref)
-      return !this.disposed && activeProjectId() === project && execution !== undefined && latest !== undefined &&
-        latest.queuedAt === execution.queuedAt && latest.outputs === execution.outputs &&
-        latest.artifacts === execution.artifacts && latest.artifact === execution.artifact &&
-        latest.sourceDocument === execution.sourceDocument &&
-        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) === backend &&
-        generation === this.assetConnectionGenerations.get(backend.connection)
-    }
-    if (!current()) return undefined
-    if (!assets.every((asset) => asset.verification !== 'unverified' &&
-      (validFile3dAsset(asset) || (Object.keys(asset).length === 1 && typeof asset.digest === 'string' &&
-        /^blake3:[0-9a-f]{64}$/.test(asset.digest))))) return undefined
-    const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest as string))].sort() }
-    return {
-      key: `model:${++this.workflowAssetReaderSequence}`,
-      current,
-      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
-    }
-  }
-
   /** Granted original model bytes stay bound to the execution's native owner. */
   async readFile3dAssetForExecution(ref: ExecutionRef, asset: Readonly<Record<string, Json>>, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
@@ -5851,14 +5760,24 @@ export class AppState {
       signal?.throwIfAborted()
       return bytes
     }
-    const reader = this.file3dAssetReaderForExecution(ref, [asset])
-    if (!reader) throw new Error('Original model owner is unavailable')
-    const bytes = await reader.read(() => {
-      signal?.throwIfAborted()
-      return backend.connection.fetchAssetBytes(asset.digest as string, signal)
-    })
+    const execution = this.store.get(ref)
+    if (execution === undefined || !(validFile3dAsset(asset) || (Object.keys(asset).length === 1 &&
+      typeof asset.digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(asset.digest)))) return undefined
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const current = (): boolean => {
+      const latest = this.store.get(ref)
+      return !this.disposed && activeProjectId() === project && latest !== undefined &&
+        latest.queuedAt === execution.queuedAt && latest.outputs === execution.outputs &&
+        latest.artifacts === execution.artifacts && latest.artifact === execution.artifact &&
+        latest.sourceDocument === execution.sourceDocument &&
+        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) === backend &&
+        generation === this.assetConnectionGenerations.get(backend.connection)
+    }
+    if (!current()) return undefined
+    const bytes = await backend.connection.fetchAssetBytes(asset.digest as string, signal)
     signal?.throwIfAborted()
-    return bytes
+    return current() ? bytes : undefined
   }
 
   /**
