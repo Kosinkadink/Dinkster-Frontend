@@ -8,15 +8,17 @@ import { SearchInput, SearchResultGroup, SearchResultRow, SearchState } from './
 import { recordSearchRecent, runSearchAction, searchNodeSchema, searchRecents } from './universal-search.js'
 import { SchemaPreview } from './SchemaPreview.js'
 import { useSignal } from './solid-adapter.js'
+import { useAppMessage } from './locale.js'
 
 type VisibleSearchRow =
   | { readonly kind: 'result'; readonly group: SearchGroup; readonly item: SearchResult }
   | { readonly kind: 'expand'; readonly group: SearchGroup }
 
 export function UniversalSearchTrigger(props: { readonly shortcut?: string | undefined; readonly onOpen: () => void }) {
+  const message = useAppMessage()
   return (
     <ProductWindowAction
-      label="Search Dinkster"
+      label={message('command.search.open')}
       icon={Search}
       shortcut={props.shortcut ?? ''}
       data-testid="topbar-search"

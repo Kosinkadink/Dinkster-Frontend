@@ -2,11 +2,15 @@
 
 ## Brand assets
 
-The product menu uses the outlined color wordmark, dark or light according
-to the document theme. Boot discovery uses the same wordmark and the D
-symbol; Desktop preparation and shared empty/loading cards use the symbol.
-All reference the accepted SVGs at `/branding/svg/`. Vite serves and emits
-the canonical files directly, without editable copies in the app package.
+The product menu uses `ProductWindowAction` with a theme-aware
+`ProductWordmark` expanded label and the shared compact menu icon. The
+shared toolbar's available-content breakpoint accounts for native caption
+reservations; the grouped menu controller retains command and focus ownership.
+Detached workflow redocking is the first action in the toolbar action group.
+Boot discovery uses the same wordmark and the D symbol; Desktop preparation
+and shared empty/loading cards use the symbol. Shared components import the
+canonical branding assets; the app also serves them at `/branding/svg/`.
+Vite emits the canonical files without editable copies in the app package.
 The wordmark reserves its canonical aspect ratio before the SVG loads so
 header geometry and restored editor scroll positions do not shift.
 The HTML head references the accepted ICO, 32px PNG, SVG and 256px touch
@@ -21,9 +25,10 @@ do not accrete ad hoc. The center region itself hosts EDITORS resolved
 through the editor registry - a separate vocabulary pinned in
 docs/editors.md (today's only editor kind is the graph canvas).
 
-Shell-owned actions use `ProductButton`: compact ghost controls in the
-topbar and status bar, secondary actions for redocking and output inspection,
-and a danger action for discarding a dirty tab. Menu refs, autofocus,
+The topbar uses `ProductWindowToolbar`, `ProductWindowAction` and
+`ProductIconButton`. Other shell actions use `ProductButton`: compact ghost
+controls in the status bar, secondary output-inspection actions, and a danger
+action for discarding a dirty tab. Menu refs, autofocus,
 disabled state, keyboard handling, and native button activation remain on the
 underlying button. Surface CSS supplies layout, not a separate control skin.
 

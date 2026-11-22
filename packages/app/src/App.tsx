@@ -40,8 +40,10 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductErrorBanner, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar } from '@dinkster/ui'
+import { ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
+import Menu from 'lucide-solid/icons/menu'
+import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -190,11 +192,13 @@ const APP_MENU_COMMAND_GROUPS = [
 ] as const
 
 export function DinksterAppMenu(props: {
+  theme?: 'dark' | 'light'
   commands: CommandRegistry
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
   invalidationSignals?: () => readonly ReadonlySignal<unknown>[]
 }) {
+  const message = useAppMessage()
   const [open, setOpen] = createSolidSignal(false)
   const [anchor, setAnchor] = createSolidSignal({ x: 0, y: 0 })
   let root!: HTMLDivElement
@@ -250,9 +254,11 @@ export function DinksterAppMenu(props: {
   })
   return (
     <div class="app-menu" ref={root}>
-      <ProductButton variant="ghost" size="compact"
+      <ProductWindowAction
+        label={message('shell.applicationTitle')}
+        labelContent={<><ProductWordmark theme={props.theme ?? 'dark'} /><ProductIcon icon={ChevronDown} /></>}
+        icon={Menu}
         ref={button}
-        class="brand app-menu-button"
         data-testid="dinkster-menu-button"
         aria-haspopup="menu"
         aria-expanded={open()}
@@ -268,9 +274,7 @@ export function DinksterAppMenu(props: {
             button.focus()
           }
         }}
-      >
-        <BrandMark /><span class="app-menu-caret" aria-hidden="true" />
-      </ProductButton>
+      />
       <Show when={open()}>
         <ContextMenu
           menu={{ ...anchor(), worldX: 0, worldY: 0, groups: groups() }}
@@ -2609,8 +2613,9 @@ export function App(props: {
       </Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
-        brand={<>
+        brand={
           <DinksterAppMenu
+            theme={(settingsTick(), app.settings.get<'dark' | 'light'>('dinkster.theme'))}
             commands={app.commands}
             keybindings={app.keybindings}
             invalidationSignals={() => [
@@ -2623,12 +2628,12 @@ export function App(props: {
               ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
             ]}
           />
+        }
+        search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
+        actions={<>
           <Show when={managedContext().kind === 'workflow'}>
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
-        </>}
-        search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
-        actions={<>
           <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
           <CustomizeLayoutButton commands={app.commands} />
           <ProductIconButton label={message('shell.toggle.leftPanel')} icon={() => <ShellRegionIcon region="left" active={leftOpen()} />}
