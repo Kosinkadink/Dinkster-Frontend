@@ -530,6 +530,39 @@ test('supports nested drill-in after extraction', async ({ page }) => {
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
 })
 
+test('opens a subgraph from the selection toolbar and from the node menu', async ({ page }) => {
+  await ready(page)
+  await selectNode(page)
+  await extractSelected(page)
+  const subgraphIndex = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
+  }))
+  const breadcrumbButtons = page.getByTestId('graph-breadcrumb').getByRole('button')
+
+  const subgraph = await nodePoint(page, subgraphIndex)
+  await page.mouse.click(subgraph.x, subgraph.y)
+  const openButton = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const button = renderer.getToolboxLayout()!.buttons.find((candidate) => candidate.button.id === 'core.openSubgraph')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (button.x + button.size / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (button.y + button.size / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(openButton.x, openButton.y)
+  await expect(breadcrumbButtons).toHaveCount(2)
+
+  await breadcrumbButtons.first().click()
+  await expect(page.getByTestId('graph-breadcrumb')).toHaveCount(0)
+  const returned = await nodePoint(page, subgraphIndex)
+  await page.mouse.click(returned.x, returned.y, { button: 'right' })
+  await page.locator('[data-item-id="core.node.openSubgraph"]').click()
+  await expect(breadcrumbButtons).toHaveCount(2)
+})
+
 test('flatten is one undoable and redoable operation', async ({ page }) => {
   await ready(page)
   await selectNode(page)
