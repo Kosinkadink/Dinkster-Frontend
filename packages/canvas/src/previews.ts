@@ -105,6 +105,21 @@ export interface NodeOutputText {
 /** node id -> automatic Standard-view text or scalar result surface. */
 export type OutputTextMap = Readonly<Record<string, NodeOutputText>>
 
+/**
+ * What a minimized node shows in its one-row strip: real content only. A
+ * decoded picture the canvas paints (an image or a 3D model's poster) comes
+ * before a recorded text result. A pending or unavailable preview, or a ready
+ * audio or video player (hidden while minimized), is not content to show.
+ */
+export function minimizedStripContent(
+  preview: NodePreview | undefined,
+  text: NodeOutputText | undefined,
+): 'picture' | 'text' | undefined {
+  if (preview?.image !== undefined && preview.status === undefined &&
+      !(preview.src !== undefined && (preview.kind === 'video' || preview.kind === 'audio'))) return 'picture'
+  return text === undefined ? undefined : 'text'
+}
+
 export interface PreviewRect {
   readonly x: number
   readonly y: number

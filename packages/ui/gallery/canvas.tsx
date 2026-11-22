@@ -139,7 +139,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   previews:
-    'Previews inside nodes: image, video, audio and model, and the loading, unavailable, failed, cached and estimated states.',
+    'Previews inside nodes: image, video, audio and model, the loading, unavailable, failed, cached and estimated states, and minimized nodes that show a strip only for a picture.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
   tabs: 'Tabs above a node say what it is and tabs below say what happened, drawn at 75 percent zoom; a tab is as wide as its icon and its text.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
@@ -350,6 +350,7 @@ function ExampleCard(props: {
             Image: { image, width: 320, height: 160 },
             Cached: { image, width: 320, height: 160, state: 'cached' },
             Estimate: { image, width: 320, height: 160, state: 'estimate' },
+            'Minimized image': { image, width: 320, height: 160 },
           }
         : fixture.previews,
     )
@@ -361,7 +362,7 @@ function ExampleCard(props: {
       page === 'minimap'
         ? { minX: 0, minY: 0, maxX: fixture.width, maxY: fixture.height }
         : sceneVisualBounds(
-            // The painted scene: previews and minimized badges widen nodes.
+            // The painted scene: preview regions grow nodes.
             { ...renderer.getScene(), links: [] },
             fixture.previews,
             fixture.badges,
