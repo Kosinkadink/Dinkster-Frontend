@@ -19,13 +19,13 @@ import {
   PanelBottom,
   PanelRight,
   MousePointer,
-  Menu,
   Search,
   Square,
   Plus,
   Settings,
   Trash2,
   User,
+  Users,
 } from 'lucide-solid'
 import {
   ProductAbout,
@@ -34,6 +34,8 @@ import {
   ProductWindowAction,
   ProductWordmark,
   ProductAccountMenu,
+  ProductSignInControl,
+  ProductBrandMark,
   ProductCodeBlock,
   ProductCopyValue,
   ProductDisclosure,
@@ -978,6 +980,13 @@ function WindowToolbarGallery() {
             >
               <option value="none">No account control</option>
               <option value="signed-out">Signed out</option>
+              <option value="signing-in">Signing in</option>
+              <option value="signing-in-no-url">
+                Signing in without local URL
+              </option>
+              <option value="sign-in-unavailable">
+                Sign in from engine machine
+              </option>
               <option value="signed-in">Signed in</option>
               <option value="signed-in-email">Email only</option>
               <option value="signed-in-empty">No profile</option>
@@ -1033,16 +1042,38 @@ function WindowToolbarGallery() {
                           <Show
                             when={account().startsWith('signed-in')}
                             fallback={
-                              <ProductButton
-                                onClick={() => setActivity('Sign in opened')}
-                              >
-                                Sign in
-                              </ProductButton>
+                              <ProductSignInControl
+                                pending={account().startsWith('signing-in')}
+                                unavailableReason={
+                                  account() === 'sign-in-unavailable'
+                                    ? 'Sign in from the computer that runs Dinkster.'
+                                    : ''
+                                }
+                                onSignIn={() => {
+                                  setActivity('Sign in opened')
+                                  setAccount('signing-in')
+                                }}
+                                onCancel={() => {
+                                  setAccount('signed-out')
+                                  setActivity('Sign-in cancelled')
+                                }}
+                                onOpenSignInPage={
+                                  account() === 'signing-in'
+                                    ? () => setActivity('Sign-in page opened')
+                                    : undefined
+                                }
+                              />
                             }
                           >
                             <ProductAccountMenu
-                              name={account() === 'signed-in' ? 'Alex Rivers' : null}
-                              email={account() === 'signed-in-empty' ? null : 'alex@example.test'}
+                              name={
+                                account() === 'signed-in' ? 'Alex Rivers' : null
+                              }
+                              email={
+                                account() === 'signed-in-empty'
+                                  ? null
+                                  : 'alex@example.test'
+                              }
                               onSignOut={() => setActivity('Signed out')}
                             />
                           </Show>
@@ -1054,7 +1085,8 @@ function WindowToolbarGallery() {
                           fallback={
                             <ProductMenu
                               label="Dinkster"
-                              icon={Menu}
+                              triggerName="Dinkster menu"
+                              icon={() => <ProductBrandMark />}
                               items={[
                                 {
                                   label: 'Projects',
@@ -1066,9 +1098,9 @@ function WindowToolbarGallery() {
                           }
                         >
                           <ProductWindowAction
-                            label="Dinkster"
+                            label="Dinkster menu"
                             labelContent={<ProductWordmark theme={theme} />}
-                            icon={Menu}
+                            icon={() => <ProductBrandMark />}
                             pending={state() === 'pending'}
                             onClick={() => setActivity('Dinkster opened')}
                           />
@@ -1138,8 +1170,11 @@ function WindowToolbarGallery() {
                           <ProductWindowAction
                             label={projectName()}
                             labelContent={
-                              <span class="dinkster-window-project-name">
-                                {projectName()}
+                              <span class="dinkster-window-project-label">
+                                <ProductIcon icon={FolderOpen} />
+                                <span class="dinkster-window-project-name">
+                                  {projectName()}
+                                </span>
                               </span>
                             }
                             icon={FolderOpen}
@@ -1147,7 +1182,7 @@ function WindowToolbarGallery() {
                           />
                           <ProductIconButton
                             label="Collaboration"
-                            icon={User}
+                            icon={Users}
                             onClick={() => setActivity('Collaboration opened')}
                           />
                         </>

@@ -34,6 +34,9 @@ function Menu(props: {
   items: readonly ProductMenuItem[]
   identity: MenuIdentity | undefined
   account?: boolean
+  busy?: boolean
+  title?: string
+  onTrigger?: (() => void) | undefined
   children: JSX.Element
 }) {
   const [open, setOpen] = createSignal(false)
@@ -45,6 +48,10 @@ function Menu(props: {
     setOpen(false)
     if (restoreFocus) trigger.focus()
   }
+  createEffect(() => {
+    props.busy
+    close()
+  })
   const enabledItems = () => [
     ...menu.querySelectorAll<HTMLButtonElement>(
       '[role^="menuitem"]:not(:disabled)',
@@ -124,13 +131,20 @@ function Menu(props: {
         class="dinkster-button dinkster-menu-trigger"
         data-account={props.account ? '' : undefined}
         type="button"
-        aria-haspopup="menu"
+        aria-haspopup={props.onTrigger ? undefined : 'menu'}
         aria-label={props.triggerName}
-        aria-expanded={open()}
+        aria-busy={props.busy || undefined}
+        title={props.title}
+        aria-expanded={props.onTrigger ? undefined : open()}
         aria-controls={open() ? id : undefined}
-        onClick={() => (open() ? close() : show())}
+        onClick={() =>
+          props.onTrigger ? props.onTrigger() : open() ? close() : show()
+        }
         onKeyDown={(event) => {
-          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          if (
+            !props.onTrigger &&
+            (event.key === 'ArrowDown' || event.key === 'ArrowUp')
+          ) {
             event.preventDefault()
             show(event.key === 'ArrowUp')
           }
@@ -231,13 +245,14 @@ function Menu(props: {
 
 export function ProductMenu(props: {
   label: string
+  triggerName?: string
   items: readonly ProductMenuItem[]
   identity?: MenuIdentity
   icon?: LucideIcon
 }) {
   return (
     <Menu
-      triggerName={props.label}
+      triggerName={props.triggerName ?? props.label}
       menuName={props.label}
       items={props.items}
       identity={props.identity}
@@ -247,6 +262,56 @@ export function ProductMenu(props: {
         {props.label}
       </span>
     </Menu>
+  )
+}
+
+export function ProductSignInControl(props: {
+  pending: boolean
+  unavailableReason?: string
+  onSignIn: () => void
+  onCancel: () => void
+  onOpenSignInPage?: (() => void) | undefined
+}) {
+  const strings = useProductStrings()
+  const label = () => (props.pending ? strings.signingIn : strings.signIn)
+  return (
+    <span class="dinkster-sign-in">
+      <Menu
+        onTrigger={
+          props.pending || props.unavailableReason ? undefined : props.onSignIn
+        }
+        triggerName={label()}
+        menuName={label()}
+        title={label()}
+        busy={props.pending}
+        identity={
+          props.unavailableReason && !props.pending
+            ? { name: props.unavailableReason, email: '' }
+            : undefined
+        }
+        items={
+          props.pending
+            ? [
+                ...(props.onOpenSignInPage
+                  ? [
+                      {
+                        label: strings.openSignInPage,
+                        onSelect: props.onOpenSignInPage,
+                      },
+                    ]
+                  : []),
+                { label: strings.cancelSignIn, onSelect: props.onCancel },
+              ]
+            : []
+        }
+      >
+        <span class="dinkster-sign-in-circle" aria-hidden="true">
+          <Show when={props.pending} fallback={<ProductIcon icon={User} />}>
+            <span class="dinkster-spinner" />
+          </Show>
+        </span>
+      </Menu>
+    </span>
   )
 }
 

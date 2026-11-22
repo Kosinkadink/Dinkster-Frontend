@@ -130,6 +130,153 @@ test('account menu identifies a session without a name or profile', async ({
   }
 })
 
+test('phone toolbar uses D branding and an operable circular account control', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.getByLabel('Execution state').selectOption('running')
+  await page.getByLabel('Brand presentation').selectOption('menu')
+  const bar = page
+    .getByRole('region', { name: 'custom dark linux', exact: true })
+    .locator('header')
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.getByLabel('Account state').selectOption('signed-out')
+    const trigger = bar.getByRole('button', { name: 'Sign in', exact: true })
+    await trigger.scrollIntoViewIfNeeded()
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    )
+    const signInWidth = (await trigger.boundingBox())!.width
+    expect(signInWidth).toBe(32)
+    if (width === 390) {
+      const symbol = bar
+        .getByRole('button', { name: 'Dinkster menu', exact: true })
+        .locator('img')
+      await expect(symbol).toHaveAttribute('src', /symbol-color/)
+      expect((await symbol.boundingBox())!.width).toBe(22)
+      await expect(trigger.locator('.dinkster-sign-in-circle')).toHaveCSS(
+        'width',
+        '28px',
+      )
+      await expect(trigger).toHaveText('')
+      await expect(
+        bar.getByRole('button', { name: 'Search', exact: true }),
+      ).toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
+    }
+    await page.mouse.move(0, 0)
+    await bar.screenshot({
+      path: `test-results/captures/toolbar-phone-signed-out-${width}.png`,
+    })
+    await trigger.click()
+    const pending = bar.getByRole('button', { name: 'Signing in', exact: true })
+    await expect(pending).toBeFocused()
+    await expect(pending).toBeEnabled()
+    await expect(pending).toHaveAttribute('aria-busy', 'true')
+    expect((await pending.boundingBox())!.width).toBe(signInWidth)
+    await page.mouse.move(0, 0)
+    await bar.screenshot({
+      path: `test-results/captures/toolbar-phone-pending-${width}.png`,
+    })
+    await pending.click()
+    const menu = bar.getByRole('menu', { name: 'Signing in', exact: true })
+    await expect(menu.getByRole('menuitem')).toHaveText([
+      'Open the sign-in page',
+      'Cancel sign-in',
+    ])
+    await menu
+      .getByRole('menuitem', { name: 'Open the sign-in page', exact: true })
+      .click()
+    await expect(page.getByRole('status')).toHaveText('Sign-in page opened')
+    await pending.click()
+    await menu
+      .getByRole('menuitem', { name: 'Cancel sign-in', exact: true })
+      .click()
+    await expect(trigger).toBeFocused()
+    await expect(menu).toHaveCount(0)
+    await page.getByLabel('Account state').selectOption('signing-in-no-url')
+    await bar.getByRole('button', { name: 'Signing in', exact: true }).click()
+    await expect(bar.getByRole('menuitem')).toHaveText(['Cancel sign-in'])
+    await page.keyboard.press('Escape')
+    await page.getByLabel('Account state').selectOption('sign-in-unavailable')
+    await trigger.click()
+    await expect(
+      bar.getByRole('menu', { name: 'Sign in', exact: true }),
+    ).toHaveAccessibleDescription(
+      'Sign in from the computer that runs Dinkster.',
+    )
+    await page.keyboard.press('Escape')
+    for (const state of ['signed-in', 'signed-in-empty']) {
+      await page.getByLabel('Account state').selectOption(state)
+      const account = bar.getByRole('button', {
+        name:
+          state === 'signed-in'
+            ? 'Account menu: Alex Rivers'
+            : 'Account menu: Signed in',
+        exact: true,
+      })
+      expect(
+        (await account.locator('.dinkster-avatar').boundingBox())!.width,
+      ).toBe(28)
+      await page.mouse.move(0, 0)
+      await bar.screenshot({
+        path: `test-results/captures/toolbar-phone-${state}-${width}.png`,
+      })
+    }
+  }
+})
+
+test('circular account toolbar fits its measured platform minimums', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.addStyleTag({
+    content:
+      '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
+  })
+  await page.evaluate(() => document.fonts.ready)
+  for (const state of ['running', 'pending']) {
+    await page.getByLabel('Execution state').selectOption(state)
+    for (const account of [
+      'signed-out',
+      'signing-in',
+      'signed-in',
+      'signed-in-empty',
+    ]) {
+      await page.getByLabel('Account state').selectOption(account)
+      for (const [platform, width] of [
+        ['linux', 342],
+        ['darwin', 422],
+        ['win32', 478],
+      ] as const) {
+        const bar = page
+          .getByRole('region', { name: `custom dark ${platform}`, exact: true })
+          .locator('header')
+        for (const delta of [0, -1]) {
+          await page.setViewportSize({ width: width + delta, height: 900 })
+          await expect(bar.locator('button[aria-pressed]')).toHaveCount(0)
+          const geometry = await bar.evaluate((bar) => {
+            const rect = bar.getBoundingClientRect(),
+              style = getComputedStyle(bar)
+            const buttons = [...bar.querySelectorAll('button')].map((button) =>
+              button.getBoundingClientRect(),
+            )
+            return {
+              left: rect.left + parseFloat(style.paddingLeft),
+              right: rect.right - parseFloat(style.paddingRight),
+              first: Math.min(...buttons.map((rect) => rect.left)),
+              last: Math.max(...buttons.map((rect) => rect.right)),
+            }
+          })
+          expect(geometry.first).toBe(geometry.left)
+          expect(geometry.last - geometry.right).toBe(delta === 0 ? 0 : 1)
+        }
+      }
+    }
+  }
+})
+
 test('narrow toolbar keeps region switches in the checked layout menu', async ({
   page,
 }) => {
@@ -198,6 +345,11 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
     bar.getByRole('button', { name: 'Bottom panel', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
   await page.setViewportSize({ width: 390, height: 900 })
+  await trigger.scrollIntoViewIfNeeded()
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  )
   await trigger.click()
   await menu
     .getByRole('menuitem', { name: 'Reset layout', exact: true })
@@ -312,10 +464,13 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
       await expect(bar.locator('button[aria-pressed]')).toHaveCount(
         right - left < 460 ? 0 : 3,
       )
-      const compact = right - left < 945
-      const action = bar.getByRole('button', { name: 'Dinkster', exact: true })
-      await expect(action).toHaveAttribute('title', 'Dinkster')
-      const image = action.locator('img')
+      const compact = right - left < 959
+      const action = bar.getByRole('button', {
+        name: 'Dinkster menu',
+        exact: true,
+      })
+      await expect(action).toHaveAttribute('title', 'Dinkster menu')
+      const image = action.locator('.dinkster-window-action-label img')
       const light = (await section.getAttribute('aria-label'))!.includes(
         ' light ',
       )
@@ -329,11 +484,15 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
       const bounds = (await action.boundingBox())!
       const label = action.locator('.dinkster-window-action-label')
       if (compact) {
-        await expect(action.locator('svg')).toBeVisible()
+        await expect(
+          action.locator('.dinkster-window-action-icon img'),
+        ).toBeVisible()
         await expect(label).toHaveCSS('clip-path', 'inset(50%)')
         expect(bounds.width).toBe(32)
       } else {
-        await expect(action.locator('svg')).toBeHidden()
+        await expect(
+          action.locator('.dinkster-window-action-icon img'),
+        ).toBeHidden()
         await expect(label).toHaveCSS('clip-path', 'none')
         const geometry = (await image.boundingBox())!
         expect(geometry.width).toBe(99)
@@ -353,7 +512,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
     .poll(() =>
       sections
         .first()
-        .locator('img')
+        .locator('.dinkster-window-action-label img')
         .evaluate((node: HTMLImageElement) => node.naturalWidth),
     )
     .toBeGreaterThan(0)
@@ -369,7 +528,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   }
   const action = sections
     .first()
-    .getByRole('button', { name: 'Dinkster', exact: true })
+    .getByRole('button', { name: 'Dinkster menu', exact: true })
   await action.click()
   await expect(page.getByRole('status')).toHaveText('Dinkster opened')
   await sections
@@ -384,7 +543,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   await page.keyboard.press('Enter')
   await page.keyboard.press('Space')
   await expect(page.getByRole('status')).toHaveText('Search opened')
-  await expect(action.locator('svg')).toBeHidden()
+  await expect(action.locator('.dinkster-window-action-icon img')).toBeHidden()
   await sections.first().locator('header').screenshot({
     path: 'test-results/captures/window-toolbar-wordmark-pending-512.png',
   })
@@ -394,8 +553,8 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   await expect(
     sections
       .first()
-      .getByRole('button', { name: 'Dinkster', exact: true })
-      .locator('img'),
+      .getByRole('button', { name: 'Dinkster menu', exact: true })
+      .locator('.dinkster-wordmark'),
   ).toHaveCount(0)
 })
 
@@ -422,7 +581,7 @@ for (const state of ['running', 'pending'])
         .locator('header')
       const search = bar.getByRole('button', { name: 'Search', exact: true })
       const project = bar.getByRole('button', { name, exact: true })
-      for (const contentWidth of [1045, 945, 944.5, 944, 769]) {
+      for (const contentWidth of [1059, 959, 958.5, 958, 769]) {
         // A fractional container width must not leave a gap between the two forms.
         await page.setViewportSize({
           width: Math.ceil(contentWidth + reservation),
@@ -433,8 +592,11 @@ for (const state of ['running', 'pending'])
         }, contentWidth + reservation)
         await expect(project).toHaveAttribute('title', name)
         const text = project.locator('.dinkster-window-project-name')
-        if (contentWidth >= 945) {
+        if (contentWidth >= 959) {
           await expect(search.locator('kbd')).toBeVisible()
+          await expect(
+            project.locator('.dinkster-window-project-label > svg'),
+          ).toBeVisible()
           await expect(text).toHaveCSS('text-overflow', 'ellipsis')
           expect((await text.boundingBox())!.width).toBe(160)
           expect(
@@ -443,7 +605,7 @@ for (const state of ['running', 'pending'])
           const searchBounds = (await search.boundingBox())!
           expect(searchBounds.width).toBeGreaterThanOrEqual(116)
           if (state === 'running')
-            expect(searchBounds.width).toBe(contentWidth === 945 ? 116 : 216)
+            expect(searchBounds.width).toBe(contentWidth === 959 ? 140 : 240)
           const layoutBounds = (await bar
             .getByRole('button', { name: 'Customize layout', exact: true })
             .boundingBox())!
@@ -480,7 +642,7 @@ for (const state of ['running', 'pending'])
               rect.right <= previous.left || rect.left >= previous.right,
             ).toBe(true)
         }
-        if (contentWidth === 945 || contentWidth === 769)
+        if (contentWidth === 959 || contentWidth === 769)
           await bar.screenshot({
             path: `test-results/captures/toolbar-expanded-${platform}-${contentWidth}-${state}.png`,
           })
@@ -528,7 +690,7 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
           right - left < 460 ? 0 : 3,
         )
         const search = bar.getByRole('button', { name: 'Search', exact: true })
-        const compact = right - left < 945
+        const compact = right - left < 959
         await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
         await expect(search).toHaveAccessibleDescription('Search (Ctrl+K)')
         if (compact) {
@@ -601,7 +763,7 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
         }
         if (fixtureWidth === 390 || width === 1440)
           for (const label of [
-            'Dinkster',
+            'Dinkster menu',
             'Search',
             'Sample project',
             'Collaboration',
@@ -658,7 +820,10 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
   await expect(page.getByRole('status')).toHaveText('Search opened')
   await first.getByRole('button', { name: 'Cancel run' }).click()
   await expect(page.getByRole('status')).toHaveText('Run cancelled')
-  const trigger = first.getByRole('button', { name: 'Dinkster', exact: true })
+  const trigger = first.getByRole('button', {
+    name: 'Dinkster menu',
+    exact: true,
+  })
   await trigger.click()
   await expect(first.getByRole('menu')).toBeVisible()
   await page.keyboard.press('Escape')

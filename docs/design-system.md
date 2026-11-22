@@ -954,12 +954,12 @@ optional rightmost account slot separate from actions. It has a fixed 44px
 height and 32px controls. Wordmarks and avatars retain their drawn dimensions;
 the site account trigger is a borderless, unpadded 32px circle. The 2px focus
 outline and 2px offset fit inside the bar's 6px vertical clearance.
-Below the fixed 945px available-content `toolbarExpandedRowWidth`, a container
+Below the fixed 959px available-content `toolbarExpandedRowWidth`, a container
 query compacts `ProductWindowAction` labels to icons. This boundary holds across
 execution, account and project-name changes. In the expanded row Search takes
 spare grid width and gives it back first. Project labels compose
-`.dinkster-window-project-name` through `labelContent`, limiting visible text to
-160px with an end ellipsis; the required full `label` retains the accessible
+`.dinkster-window-project-label` through `labelContent`, with a folder icon and
+`.dinkster-window-project-name` limiting visible text to 160px with an end ellipsis; the required full `label` retains the accessible
 name and tooltip. Service and development become a single
 bold warning-colored marking after actions, before the account slot: QA, Custom,
 Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
@@ -987,6 +987,27 @@ row the three panel switches stay in the bar and are not repeated in the menu.
 `ProductMenuItem.checked` draws the shared checkmark and exposes
 `menuitemcheckbox` with `aria-checked`; checkbox and ordinary items share keyboard
 navigation and dismissal. The host owns visibility and commands in either place.
+Compact and narrow brand triggers show the bundled 22px color D symbol inside
+32px controls, with the accessible name Dinkster menu. Toolbar icon buttons are
+unboxed at rest; hover and pressed use shared interaction fills. Cancel run
+retains its coral outline. Collaboration uses the two-person Users icon.
+`ProductMenu.triggerName` separates the accessible trigger name from its drawn
+label and menu name when needed.
+
+`ProductSignInControl` starts sign-in through its host callback. Every row uses
+a 28px outlined circle with a person icon inside the same 32px trigger, with
+Sign in as its tooltip and accessible name and no drawn text. Pending retains
+the trigger and focus, replaces the person icon with the shared spinner, and
+exposes Signing in as its
+accessible name and tooltip. It remains operable: its menu offers Open the
+sign-in page only when the host holds a local authorization URL callback, then
+Cancel sign-in. Changing pending state closes the menu. A host-provided
+`unavailableReason` instead opens an informational menu without starting sign-in.
+The host supplies authoritative account availability and owns all network,
+start/cancel/popup and error handling. ProductButton pending activation remains
+unchanged. Signed-in account triggers use the shared 28px filled avatar in this
+toolbar, with existing name/email/person fallbacks.
+
 The gallery's Window toolbar page demonstrates plain menu and rich brand
 presentations across production and QA/custom services, all three platforms,
 both app themes and idle/running/pending states. Supply an icon-bearing brand

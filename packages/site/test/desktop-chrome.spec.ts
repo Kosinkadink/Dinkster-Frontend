@@ -39,7 +39,11 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
   const bar = page.locator('header')
   for (const platform of ['win32', 'linux', 'darwin'] as const) {
     for (const theme of ['dark', 'light'] as const) {
-      for (const width of [1100, 390]) {
+      for (const width of [1200, 1100, 390]) {
+        const compact =
+          width -
+            (platform === 'win32' ? 160 : platform === 'darwin' ? 104 : 24) <
+          959
         await page.setViewportSize({ width, height: 300 })
         await page.evaluate(
           ({ platform, theme }) =>
@@ -56,16 +60,20 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
         await expect(page.locator('.dinkster-window-fallback')).toHaveCount(0)
         await expect(bar.locator('.dinkster-window-identity')).toHaveCount(1)
         await expect(
-          bar.locator('.dinkster-window-toolbar .dinkster-window-identity-wide'),
+          bar.locator(
+            '.dinkster-window-toolbar .dinkster-window-identity-wide',
+          ),
         ).toHaveText('[QA]Development')
         const bounds = (await bar.boundingBox())!
         expect(bounds.height).toBe(44)
         const identity = (await bar
           .locator('.dinkster-window-identity')
           .boundingBox())!
-        const service = (await (width === 390
-          ? bar.locator('.dinkster-window-identity-compact')
-          : bar.getByText('QA services', { exact: true })).boundingBox())!
+        const service = (await (
+          compact
+            ? bar.locator('.dinkster-window-identity-compact')
+            : bar.getByText('QA services', { exact: true })
+        ).boundingBox())!
         const action = (await bar
           .getByRole('button', { name: 'Action', exact: true })
           .boundingBox())!
@@ -78,11 +86,17 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
           expect(rect.y).toBeGreaterThanOrEqual(bounds.y)
           expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + 44)
         }
-        if (width === 390) {
-          await expect(bar.getByText('QA services', { exact: true })).toBeHidden()
-          await expect(bar.getByRole('note')).toHaveAccessibleName('QA services, Development project - unpublished sources')
+        if (compact) {
+          await expect(
+            bar.getByText('QA services', { exact: true }),
+          ).toBeHidden()
+          await expect(bar.getByRole('note')).toHaveAccessibleName(
+            'QA services, Development project - unpublished sources',
+          )
           expect(identity.y).toBeGreaterThanOrEqual(action.y)
-          expect(identity.y + identity.height).toBeLessThanOrEqual(action.y + action.height)
+          expect(identity.y + identity.height).toBeLessThanOrEqual(
+            action.y + action.height,
+          )
         } else {
           expect(service.x + service.width).toBeLessThanOrEqual(identity.x)
           expect(identity.y + identity.height).toBeGreaterThan(action.y)
@@ -98,7 +112,9 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
             grid.outerHTML = content
           }, content)
         await expect(
-          bar.locator('.dinkster-window-toolbar .dinkster-window-identity-wide'),
+          bar.locator(
+            '.dinkster-window-toolbar .dinkster-window-identity-wide',
+          ),
         ).toHaveText('[QA]Development')
       }
     }
@@ -113,7 +129,7 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
   }, content)
   await expect(page.locator('.dinkster-window-fallback')).toHaveCount(0)
   await expect(
-    page.locator('.dinkster-window-toolbar .dinkster-window-identity'),
+    page.locator('.dinkster-window-toolbar .dinkster-window-identity-wide'),
   ).toHaveText('[QA]Development')
   await expect(page.locator('main')).toHaveText('Original content')
   expect(requests).toEqual([])
@@ -174,9 +190,12 @@ for (const existing of [false, true]) {
             'padding-left',
             platform === 'darwin' ? '92px' : '12px',
           )
-          await expect(bar.locator('.dinkster-window-identity')).toHaveText(
-            '[QA]Development',
-          )
+          await expect(
+            bar.locator('.dinkster-window-identity-wide'),
+          ).toHaveText('[QA]Development')
+          await expect(
+            bar.locator('.dinkster-window-identity-compact'),
+          ).toBeHidden()
           const bounds = (await bar.boundingBox())!
           const identity = (await bar
             .locator('.dinkster-window-identity')
@@ -232,9 +251,12 @@ for (const existing of [false, true]) {
     await page.locator('.topbar').evaluate((bar) => {
       bar.textContent = 'Updated application bar'
     })
-    await expect(page.locator('.topbar .dinkster-window-identity')).toHaveText(
-      '[QA]Development',
-    )
+    await expect(
+      page.locator('.topbar .dinkster-window-identity-wide'),
+    ).toHaveText('[QA]Development')
+    await expect(
+      page.locator('.topbar .dinkster-window-identity-compact'),
+    ).toBeHidden()
     await page.screenshot({
       path: `test-results/captures/chrome-late-${existing ? 'existing' : 'fallback'}.png`,
     })
