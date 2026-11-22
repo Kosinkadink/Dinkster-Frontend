@@ -106,7 +106,7 @@ export interface NodeOutputText {
 export type OutputTextMap = Readonly<Record<string, NodeOutputText>>
 
 /**
- * What a minimized node shows in its one-row strip: real content only. A
+ * What a minimized node shows in its folded caption row: real content only. A
  * decoded picture the canvas paints (an image or a 3D model's poster) comes
  * before a recorded text result. A pending or unavailable preview, or a ready
  * audio or video player (hidden while minimized), is not content to show.
