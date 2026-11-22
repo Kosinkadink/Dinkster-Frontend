@@ -433,8 +433,11 @@ The 76 px activity rail stacks each centered label beneath its thin 20 px
 glyph in a 56 px tall action. Default labels stay whole on one line; longer
 pack-panel labels truncate with an ellipsis. Every action participates in the rail's custom tooltip
 session: an unselected item shows its description, or its title when it has no
-description, without a modifier key. Selected items suppress the tooltip on
-hover and keyboard focus. Buttons retain normal document tab order,
+description, without a modifier key. When the label is cut off, its tooltip
+starts with the full title, then the description on a new line;
+a title without a description appears only once. Labels that fit keep their
+ordinary help. Selected items suppress the tooltip on hover and keyboard
+focus. Buttons retain normal document tab order,
 explicit accessible names, pressed state for panel toggles, hover feedback,
 and a visible keyboard focus ring. Left-region panel toggles occupy a
 scrolling placement-driven stack. Settings is a separate labeled gear button
