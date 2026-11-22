@@ -121,7 +121,18 @@ export const canvasPaintTokens = {
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
+    /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
+    /** Rows an open text result shows at least. */
+    textOutputMinRows: 2,
+    /**
+     * The bar on the bottom edge of a node whose preview is open: the text
+     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
+     * edge so it sits on the edge, and a band around the edge that drags it.
+     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
+     * result steps one row.
+     */
+    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
@@ -365,9 +376,17 @@ export const canvasPaintTokens = {
     provenancePosition: 0.25,
     metadataPosition: 0.75,
     outputPadding: canvasSemanticTokens.space[4],
-    outputMaxLines: 6,
     staleStroke: 1,
     staleUnderlineOffset: 1,
+    /** The "Preview" caption row over a preview or text result. */
+    caption: {
+      padLeft: 6,
+      padRight: canvasSemanticTokens.space[8],
+      gap: 6,
+      thumbHeight: canvasSemanticTokens.space[16],
+      thumbMaxWidth: 28,
+      radius: canvasSemanticTokens.space[4],
+    },
   },
   lensAffordance: {
     rowMinSize: 10,
@@ -452,6 +471,24 @@ export const canvasPaintTokens = {
     },
     chevron: { stroke: 1.5, topOffset: -2, bottomOffset: 1 },
     scrollbarMinThumbRatio: 2,
+    /**
+     * The short bar on a text box's bottom edge, measured from the row's
+     * bottom. The bar widens under the pointer, while dragged and with
+     * keyboard focus; the hit band spans the box's full width.
+     */
+    textBoxEdge: {
+      width: 22,
+      hotWidth: 34,
+      height: 3,
+      radius: 1.5,
+      bottomOffset: 5,
+      hitAbove: 7,
+      hitBelow: 3,
+      /** A box is 2 to 16 lines tall; an arrow key steps one line. */
+      minLines: 2,
+      maxLines: 16,
+      keyStepLines: 1,
+    },
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
@@ -598,6 +635,11 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
+    /**
+     * Left inset of the text: 2 less than the label over it, so the text
+     * starts just left of its label and labels stay in one column.
+     */
+    readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
     readonly scrollbarWidth: number
@@ -607,6 +649,8 @@ export interface DesignTokens {
   readonly colors: {
     readonly canvasBackground: string
     readonly gridDot: string
+    readonly pendingOutline: string
+    readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
     /** Face of a raised opener row, lighter than the node body. */
@@ -764,6 +808,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
+    textInset: 4,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,
@@ -771,13 +816,13 @@ export const defaultTokens: DesignTokens = {
   colors: canvasColorsForTheme('dark'),
   ...canvasTypePaintForTheme('dark'),
   stateColors: {
-    pending: '#5c5c5c',
+    pending: canvasSemanticTokens.border.pending,
     running: canvasSemanticTokens.meaning.info.border,
     cached: '#9575cd',
     done: canvasSemanticTokens.meaning.success.border,
     error: canvasSemanticTokens.meaning.danger.border,
     // Normal non-error state (first-class absence), visually calm - never red.
-    skipped: canvasSemanticTokens.text.muted,
+    skipped: canvasSemanticTokens.border.skipped,
   },
   progressBar: canvasSemanticTokens.meaning.info.border,
 }
@@ -788,7 +833,7 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
     typeColors: {
       ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
-        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A',
       } : {
         CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
         IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
@@ -812,6 +857,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
   return {
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
+    pendingOutline: tokens.border.pending,
+    skippedOutline: tokens.border.skipped,
     // The dark theme's flat-title look: the darker surface is the body and
     // the title bar, raised rows take the lighter one. The light theme
     // keeps its original surfaces.
@@ -831,7 +878,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     swatchChecker: tokens.checker.dark,
     swatchCheckerAlt: tokens.checker.light,
     value: tokens.text.primary,
-    widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
+    widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,

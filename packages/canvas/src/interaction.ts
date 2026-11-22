@@ -67,9 +67,9 @@ import {
 import { hitTestBadge, SUBGRAPH_BADGE, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
 import { controllerChipContains } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
-import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, type LayoutRow, type PinLayout } from './layout.js'
+import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -97,6 +97,7 @@ import {
   portEndKey,
   selectorBadgeRect,
   selectorOutPinPosition,
+  previewFoldedOf,
   valueSourceBadgeRect,
   valueSourcePinPosition,
   type Scene,
@@ -133,6 +134,10 @@ const isMoveFamilyKind = (kind: Gesture['kind']): boolean =>
   kind === 'group' ||
   kind === 'group-resize' ||
   kind === 'resize'
+
+/** Whole lines a text box shows now, counting any resize surplus it was given. */
+const visibleTextBoxLines = (row: Extract<LayoutRow, { kind: 'widget' }>, tokens: DesignTokens): number =>
+  Math.max(row.rows, Math.floor((row.height - multilineWidgetHeight(0, tokens)) / tokens.multilineText.lineHeight))
 
 export interface ResizeBounds {
   readonly x: number
@@ -743,7 +748,18 @@ type Gesture =
   /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
   | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
+  | {
+      /** Dragging a text box's bottom edge: its height follows in whole lines. */
+      readonly kind: 'text-box-lines'
+      readonly nodeId: string
+      readonly valueKey: string
+      readonly startWY: number
+      readonly startLines: number
+      lines: number
+      moved: boolean
+    }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -877,6 +893,16 @@ export class InteractionController {
   private focusedPinWidgetTap: true | undefined
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
+  /** Text box edge under the idle pointer, and the one arrow keys size. */
+  private hoveredTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  private hoveredPreviewCaption: string | undefined
+  /** Node whose preview bar (its bottom edge) is under the idle pointer. */
+  private hoveredPreviewEdge: string | undefined
+  private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  /** The node whose preview bar was pressed last; arrow keys step its height. */
+  private focusedPreviewEdge: string | undefined
+  /** A box a double-click fitted to its text, with the height it had before. */
+  private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
   private hoveredMinimize: string | undefined
   private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredToolboxButton: string | undefined
@@ -955,6 +981,9 @@ export class InteractionController {
       this.setHover(undefined, undefined, undefined)
       this.setAffordanceHover(undefined)
       this.setLinkMidpointHover(undefined)
+      this.setHoveredTextEdge(undefined)
+      this.setHoveredPreviewCaption(undefined)
+      this.setHoveredPreviewEdge(undefined)
     }
     // Space is tracked at the window so it works without canvas focus, but
     // never while typing in a field (space must stay a space there).
@@ -964,7 +993,23 @@ export class InteractionController {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isEditable(e.target)) this.spaceDown = true
       // Escape aborts the gesture in place: no dispatch, ghosts dropped.
-      if (e.code === 'Escape') this.cancelGesture('escape')
+      if (e.code === 'Escape') {
+        this.cancelGesture('escape')
+        this.setFocusedTextEdge(undefined)
+        this.setFocusedPreviewEdge(undefined)
+      }
+      // A focused text box edge steps the box one line per arrow press, unless
+      // keyboard focus has since moved to another control.
+      const otherControl = e.target instanceof HTMLElement && e.target !== canvas && e.target !== e.target.ownerDocument.body
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedTextEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedPreviewEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepPreviewEdge(this.focusedPreviewEdge, e.key === 'ArrowDown')
+      }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') this.spaceDown = false
@@ -1765,6 +1810,8 @@ export class InteractionController {
       }),
     )
     this.capturePointer(e)
+    if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
+    this.setFocusedPreviewEdge(hit.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
 
     if (hit.kind === 'widget' && this.widgetRowAffordanceContains(hit)) {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
@@ -1783,7 +1830,8 @@ export class InteractionController {
       this.gesture = { kind: 'title-press', node: hit.node, startWX: w.x, startWY: w.y }
       return
     }
-    if ((hit.kind === 'body' || hit.kind === 'header') && this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
+    if ((hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'preview-caption') &&
+        this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
       this.gesture = { kind: 'preview-affordance', node: hit.node, moved: false }
       return
     }
@@ -1801,8 +1849,21 @@ export class InteractionController {
       case 'widget':
         this.gesture = { kind: 'widget', hit, moved: false }
         return
+      case 'text-box-edge': {
+        const lines = visibleTextBoxLines(hit.row, this.renderer.getDesignTokens())
+        this.gesture = {
+          kind: 'text-box-lines', nodeId: hit.node.id, valueKey: hit.row.valueKey,
+          startWY: w.y, startLines: lines, lines, moved: false,
+        }
+        this.focusedTextEdge = { nodeId: hit.node.id, valueKey: hit.row.valueKey }
+        this.pushOverlay()
+        return
+      }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
+        return
+      case 'preview-caption':
+        this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
@@ -2956,7 +3017,8 @@ export class InteractionController {
 
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize'
+      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'preview-caption'
       ? hit.node
       : undefined
   }
@@ -3157,11 +3219,16 @@ export class InteractionController {
       ...(badge !== undefined ? { badge: { nodeId: badge.node.id, badgeId: badge.badge.id } } : {}),
     })
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
-    this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
+    this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
+    this.setHoveredPreviewCaption(hit?.kind === 'preview-caption' ? hit.node.id : undefined)
+    this.setHoveredPreviewEdge(hit?.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
+    this.canvas.style.cursor = hit?.kind === 'resize' && hit.handle === 's'
+      ? 'ns-resize'
+      : hit?.kind === 'resize' || hit?.kind === 'group-resize'
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
         : 'nesw-resize'
-      : ''
+      : hit?.kind === 'text-box-edge' ? 'ns-resize' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
     this.host.onHoverTarget?.(toolboxButton
@@ -3353,9 +3420,19 @@ export class InteractionController {
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
+      case 'preview-caption':
       case 'growth':
         if (passed) g.moved = true
         return
+      case 'text-box-lines': {
+        if (!passed && !g.moved) return
+        g.moved = true
+        const w = this.renderer.toWorld(sx, sy)
+        const step = this.renderer.getDesignTokens().multilineText.lineHeight
+        g.lines = clampTextBoxLines(g.startLines + Math.round((w.y - g.startWY) / step))
+        this.pushOverlay({ textBoxLines: { nodeId: g.nodeId, valueKey: g.valueKey, lines: g.lines } })
+        return
+      }
       case 'title-press':
         // Dragging a title-bar control moves the node like the rest of the title bar.
         if (!passed) return
@@ -3602,6 +3679,15 @@ export class InteractionController {
         }
         return
       }
+      case 'preview-caption':
+        this.pushOverlay()
+        if (!g.moved) {
+          this.host.dispatch({
+            command: 'view.setPreviewFolded',
+            params: { graphId: scene.graphId, nodeId: g.node.id, folded: !previewFoldedOf(g.node) },
+          })
+        }
+        return
       case 'section':
         this.pushOverlay()
         if (!g.moved) {
@@ -3827,6 +3913,13 @@ export class InteractionController {
         this.pushOverlay()
         return
       }
+      case 'text-box-lines':
+        if (g.moved) {
+          this.textBoxFit = undefined
+          this.commitTextBoxLines(scene, g.nodeId, g.valueKey, g.lines)
+        }
+        this.pushOverlay() // drop the preview; scene rebuild follows commit
+        return
       case 'resize': {
         // Same-graph rebuilds mid-drag keep the gesture alive, so the node
         // may have been deleted underneath it: commit only if it survived
@@ -4525,6 +4618,7 @@ export class InteractionController {
       case 'widgetTap':
         return j('widgetTap', hit.node.id, hit.input)
       case 'widget':
+      case 'text-box-edge':
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
@@ -4532,6 +4626,7 @@ export class InteractionController {
         return j('growth', hit.node.id, hit.row.construct)
       case 'header':
       case 'body':
+      case 'preview-caption':
         return j('node', hit.node.id)
       case 'resize':
         return j('resize', hit.node.id, hit.handle)
@@ -4598,6 +4693,8 @@ export class InteractionController {
       case 'body':
       case 'resize':
       case 'widget':
+      case 'text-box-edge':
+      case 'preview-caption':
       case 'section':
       case 'growth':
       case 'pin':
@@ -4778,6 +4875,8 @@ export class InteractionController {
     if (this.minimizeArrowContains(hit, w.x, w.y)) return
     if (hit.kind === 'header') {
       this.toggleMinimized(scene, hit.node)
+    } else if (hit.kind === 'text-box-edge') {
+      this.fitTextBox(scene, hit.node, hit.row)
     } else if (hit.kind === 'boundary-pin' && hit.item !== BOUNDARY_ADD_SLOT && !hit.regionIndex) {
       // Double-click a boundary slot: rename its exposed port.
       this.host.onBoundaryRenameRequest?.(hit.bnode.side, hit.item, e.clientX, e.clientY)
@@ -4833,6 +4932,7 @@ export class InteractionController {
       dropTargets?: ReadonlySet<string>
       marquee?: { x1: number; y1: number; x2: number; y2: number }
       resizePreview?: { nodeId: string; x: number; y: number; width: number; height: number }
+      textBoxLines?: { nodeId: string; valueKey: string; lines: number }
       groupDragOffset?: { groupId: string; dx: number; dy: number }
       groupResizeGhost?: { groupId: string; x: number; y: number; width: number; height: number }
       bodyDropNode?: string
@@ -4870,6 +4970,9 @@ export class InteractionController {
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
+      ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.hoveredPreviewCaption !== undefined ? { hoveredPreviewCaption: this.hoveredPreviewCaption } : {}),
+      ...(this.activePreviewEdge() !== undefined ? { previewEdge: this.activePreviewEdge()! } : {}),
       ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
       ...(this.hoveredBadge !== undefined ? { hoveredBadge: this.hoveredBadge } : {}),
       ...extra,
@@ -4975,6 +5078,127 @@ export class InteractionController {
     this.hoveredLinkMidpoint = linkId
     this.pushOverlay()
   }
+
+  /** The edge drawn hot: the one being dragged, else the focused one, else the hovered one. */
+  private activeTextEdge(): { readonly nodeId: string; readonly valueKey: string } | undefined {
+    const g = this.gesture
+    if (g.kind === 'text-box-lines') return { nodeId: g.nodeId, valueKey: g.valueKey }
+    return this.focusedTextEdge ?? this.hoveredTextEdge
+  }
+
+  private setHoveredTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.hoveredTextEdge?.nodeId && edge?.valueKey === this.hoveredTextEdge?.valueKey) return
+    this.hoveredTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /** The node whose preview bar is drawn hot: the one being dragged, else the hovered one. */
+  private activePreviewEdge(): string | undefined {
+    const g = this.gesture
+    if (g.kind === 'resize' && g.handle === 's') return g.nodeId
+    return this.focusedPreviewEdge ?? this.hoveredPreviewEdge
+  }
+
+  private setFocusedPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.focusedPreviewEdge) return
+    this.focusedPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  /** Step the height of a node's open preview from its bar: a picture by `keyStep`, a text result by one row. */
+  private stepPreviewEdge(nodeId: string, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined || !previewEdgeShown(node)) {
+      this.setFocusedPreviewEdge(undefined)
+      return
+    }
+    const l = node.layout
+    const step = l.textOutput !== undefined ? this.renderer.getDesignTokens().rowHeight : canvasPaintTokens.node.previewEdge.keyStep
+    const height = Math.max(l.minHeight, l.height + (down ? step : -step))
+    if (height === l.height) return
+    this.host.dispatch({
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: Math.round(l.width), height: Math.round(height - (l.resizeHeightOffset ?? 0)) },
+      },
+    })
+  }
+
+  private setHoveredPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewEdge) return
+    this.hoveredPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  private setHoveredPreviewCaption(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewCaption) return
+    this.hoveredPreviewCaption = nodeId
+    this.pushOverlay()
+  }
+
+  private setFocusedTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.focusedTextEdge?.nodeId && edge?.valueKey === this.focusedTextEdge?.valueKey) return
+    this.focusedTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /**
+   * Store one text box's height in lines. Every other row, the preview, and
+   * the text output keep their heights: a node with a manual size moves its
+   * stored height by the same amount in the same undo step, and the node's
+   * resize surplus on this box gives way to the whole lines it now has.
+   */
+  private commitTextBoxLines(scene: Scene, nodeId: string, valueKey: string, lines: number): void {
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    const projected = projectTextBoxLines(node.layout, valueKey, lines, this.renderer.getDesignTokens())
+    if (projected === node.layout) return
+    const setLines: CommandInvocation = {
+      command: 'view.setTextBoxLines',
+      params: { graphId: scene.graphId, nodeId, inputId: valueKey, lines },
+    }
+    const size = node.layout.sizeOverride
+    this.host.dispatch(composeBatch(scene.graphId, [], size === undefined ? [setLines] : [setLines, {
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: size.width, height: Math.max(0, Math.round(size.height + projected.height - node.layout.height)) },
+      },
+    }]))
+  }
+
+  private stepTextBox(edge: { readonly nodeId: string; readonly valueKey: string }, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const row = scene.nodes.find((node) => node.id === edge.nodeId)?.layout.rows.find((candidate) =>
+      candidate.kind === 'widget' && candidate.viewId === 'core.text' && candidate.valueKey === edge.valueKey)
+    if (row?.kind !== 'widget') {
+      this.setFocusedTextEdge(undefined)
+      return
+    }
+    this.textBoxFit = undefined
+    const step = canvasPaintTokens.widget.textBoxEdge.keyStepLines
+    this.commitTextBoxLines(scene, edge.nodeId, edge.valueKey,
+      clampTextBoxLines(visibleTextBoxLines(row, this.renderer.getDesignTokens()) + (down ? step : -step)))
+  }
+
+  /** Fit a box to its wrapped text; the same double-click again restores the height before. */
+  private fitTextBox(scene: Scene, node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): void {
+    const current = visibleTextBoxLines(row, this.renderer.getDesignTokens())
+    const fit = this.textBoxFit
+    if (fit !== undefined && fit.nodeId === node.id && fit.valueKey === row.valueKey && fit.fitted === current) {
+      this.textBoxFit = undefined
+      this.commitTextBoxLines(scene, node.id, row.valueKey, fit.before)
+      return
+    }
+    const fitted = clampTextBoxLines(this.renderer.textBoxContentLines(node, row))
+    this.textBoxFit = { nodeId: node.id, valueKey: row.valueKey, fitted, before: current }
+    this.commitTextBoxLines(scene, node.id, row.valueKey, fitted)
+  }
+
 
   /** Whether a header hit lands on the minimize arrow, at a zoom where the title bar takes clicks. */
   private minimizeArrowContains(hit: Hit | undefined, wx: number, wy: number): boolean {

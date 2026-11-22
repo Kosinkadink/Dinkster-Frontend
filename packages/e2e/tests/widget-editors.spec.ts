@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest as base, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as base, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, { option: true }] })
 
@@ -203,7 +203,7 @@ test.beforeEach(async ({ page, widgetDocument }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,

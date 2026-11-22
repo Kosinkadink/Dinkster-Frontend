@@ -671,6 +671,11 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   if (v['views'] !== undefined && c.obj(v['views'], `${path}.views`)) {
     for (const [k, view] of Object.entries(v['views'])) c.str(view, `${path}.views.${k}`)
   }
+  if (v['textLines'] !== undefined && c.obj(v['textLines'], `${path}.textLines`)) {
+    for (const [k, lines] of Object.entries(v['textLines'])) c.num(lines, `${path}.textLines.${k}`)
+  }
+  c.optBool(v['previewFolded'], `${path}.previewFolded`)
+  c.optBool(v['minimizedPreviewOpen'], `${path}.minimizedPreviewOpen`)
   if (v['sections'] !== undefined && c.obj(v['sections'], `${path}.sections`)) {
     for (const [k, s] of Object.entries(v['sections'])) {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)

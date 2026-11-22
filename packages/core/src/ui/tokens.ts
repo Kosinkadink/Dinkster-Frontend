@@ -47,6 +47,8 @@ export interface SemanticDesignTokens {
     }
   }
   readonly surface: {
+    readonly frame: string
+    readonly field: string
     readonly canvas: string
     readonly panel: string
     readonly inset: string
@@ -69,6 +71,8 @@ export interface SemanticDesignTokens {
     readonly onSelected: string
   }
   readonly border: {
+    readonly pending: string
+    readonly skipped: string
     readonly subtle: string
     /** Between subtle and strong: a quiet line under the pointer, such as a scrollbar thumb. */
     readonly hover: string
@@ -107,6 +111,7 @@ export interface SemanticDesignTokens {
     readonly pressedOverlay: string
     readonly selectedOverlay: string
     readonly disabledOpacity: number
+    readonly unfocusedOpacity: number
   }
   readonly motion: {
     readonly fast: number
@@ -133,12 +138,14 @@ export const semanticTokensForTheme = (
     space: components.space,
     type: components.type as SemanticDesignTokens['type'],
     surface: {
+      frame: colors.bg.frame,
+      field: colors.bg.field,
       canvas: colors.bg.canvas,
       panel: colors.bg.surface,
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
       selected: colors.bg.hover,
-      fieldOpen: theme === 'dark' ? '#0D0F11' : colors.bg.canvas,
+      fieldOpen: colors.bg.fieldOpen,
     },
     checker: { dark: '#8D97A1', light: '#E8E8E8' },
     text: {
@@ -150,14 +157,16 @@ export const semanticTokensForTheme = (
       onSelected: colors.text.primary,
     },
     border: {
+      pending: colors.border.pending,
+      skipped: colors.border.skipped,
       subtle: colors.border.default,
       hover: colors.border.hover,
       strong: colors.text.muted,
       focus: colors.status.info,
       selected: colors.text.primary,
       // Looks are decided in the dark theme; the light theme keeps its border.
-      divider: theme === 'dark' ? '#2A2F35' : colors.border.default,
-      group: theme === 'dark' ? '#4A5058' : colors.border.default,
+      divider: colors.border.divider,
+      group: colors.border.group,
     },
     meaning: {
       accent: meaning(colors.status.info),
@@ -285,6 +294,8 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.type.weight.regular,
     ),
     '--dinkster-weight-bold': String(semanticDesignTokens.type.weight.bold),
+    '--dinkster-surface-frame': semanticDesignTokens.surface.frame,
+    '--dinkster-surface-field': semanticDesignTokens.surface.field,
     '--dinkster-surface-canvas': semanticDesignTokens.surface.canvas,
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
@@ -351,6 +362,9 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.interaction.selectedOverlay,
     '--dinkster-interaction-disabled-opacity': String(
       semanticDesignTokens.interaction.disabledOpacity,
+    ),
+    '--dinkster-interaction-unfocused-opacity': String(
+      semanticDesignTokens.interaction.unfocusedOpacity,
     ),
     '--dinkster-motion-fast': ms(semanticDesignTokens.motion.fast),
     '--dinkster-motion-standard': ms(semanticDesignTokens.motion.standard),

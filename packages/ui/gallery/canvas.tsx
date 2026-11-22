@@ -78,6 +78,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widget-companions',
         'widget-taps',
         'widget-states',
+        'text-boxes',
       ],
     ],
     ['Wires', ['types', 'structure']],
@@ -140,7 +141,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   previews:
-    'Previews inside nodes: image, video, audio and model, the loading, unavailable, failed, cached and estimated states, and minimized nodes that show a strip only for a picture.',
+    'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
   tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
@@ -170,6 +171,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
+  'text-boxes':
+    'Each text box keeps its own height, set by dragging the short bar on its bottom edge; text that does not fit shows the quiet scrollbar. The middle node shows the bar under the pointer; the right one was made taller by its own edge, which sizes only its last box.',
   types: 'The color of each data type on its pins and wires.',
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
@@ -339,12 +342,15 @@ function ExampleCard(props: {
         ? {
             ...fixture.previews,
             Image: { image, width: 320, height: 160 },
+            Folded: { image, width: 320, height: 160 },
             Cached: { image, width: 320, height: 160, state: 'cached' },
             Estimate: { image, width: 320, height: 160, state: 'estimate' },
             'Minimized image': { image, width: 320, height: 160 },
+            'Minimized opened': { image, width: 320, height: 160 },
           }
         : fixture.previews,
     )
+    renderer.setNodeOutputTexts(fixture.outputTexts)
     renderer.setViewport({ x: 0, y: 0, scale })
     const measure = canvas.getContext('2d')!
     measure.font = `${tokens.fontSize}px ${tokens.fontFamily}`
@@ -565,10 +571,16 @@ export function CanvasGallery() {
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
+      const colors = canvasColorsForTheme(currentTheme)
       const base: DesignTokens = {
         ...defaultTokens,
+        stateColors: {
+          ...defaultTokens.stateColors,
+          pending: colors.pendingOutline,
+          skipped: colors.skippedOutline,
+        },
         ...canvasTypePaintForTheme(currentTheme),
-        colors: canvasColorsForTheme(currentTheme),
+        colors,
       }
       const measureContext = document.createElement('canvas').getContext('2d')!
       const widgetMeasure: WidgetMeasure = (spec) => {

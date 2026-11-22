@@ -743,6 +743,9 @@ export const WORKFLOW_SCHEMA = {
         },
         collapsed: { type: 'boolean' },
         views: { type: 'object', additionalProperties: { type: 'string' } },
+        textLines: { type: 'object', additionalProperties: { type: 'number' } },
+        previewFolded: { type: 'boolean' },
+        minimizedPreviewOpen: { type: 'boolean' },
         sections: {
           type: 'object',
           additionalProperties: {

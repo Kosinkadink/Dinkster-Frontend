@@ -22,7 +22,7 @@ interface DockingTestApp {
 }
 
 const zoneTab = (page: Page, zone: DockZone, id: string): Locator =>
-  page.getByTestId(`dock-zone-${zone}`).locator(`.product-tab[data-tab-id="${id}"]`)
+  page.getByTestId(`dock-zone-${zone}`).locator(`${zone === 'left' ? '[data-panel-title]' : '.product-tab'}[data-tab-id="${id}"]`)
 
 const rightTab = (page: Page, id: string): Locator => zoneTab(page, 'right', id)
 
@@ -162,7 +162,7 @@ test('right-zone tab drag previews from one geometry snapshot and persists on re
 })
 
 test('a dragged panel tab shows a cursor-following ghost with its title, icon, and refusal state', async ({ page }) => {
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const logs = zoneTab(page, 'bottom', 'logs')
   await expect(logs).toBeVisible()
   const from = await center(logs)
@@ -383,7 +383,7 @@ test('hidden bottom target reveals, commits once, and completes a cross-zone mov
 test('left and bottom tab strips start durable cross-zone drags', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const bottomLogs = zoneTab(page, 'bottom', 'logs')
   const fromBottom = await center(bottomLogs)
   const body = (await page.getByTestId('dock-zone-left').locator('.product-tabpanel:not([hidden])').boundingBox())!

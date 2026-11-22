@@ -1,7 +1,6 @@
 import { defaultRenditionOf, type ExecutionState, type RenditionResult, type ValueDescriptor } from '@dinkster/client'
 import { parseAssetTypeId } from '@dinkster/core'
 import { imageBatchCount, type PeekValues } from './peek-preview.js'
-import type { PreviewSource } from './node-previews.js'
 
 export interface ExecutedImageBatch {
   readonly count: number
@@ -20,7 +19,6 @@ export interface ExecutedImage {
   readonly listPath?: readonly number[]
   readonly batchIndex?: number
   readonly load?: (signal: AbortSignal) => Promise<RenditionResult>
-  readonly assetReader?: (holder: object) => PreviewSource['assetReader']
   readonly name?: string
   readonly digest?: string
   readonly virtualPath?: string
@@ -72,22 +70,11 @@ export function executedImageInventory(
   options: {
     readonly runtimeIds?: readonly string[]
     readonly assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
-    readonly executionAssetReader?: (execution: ExecutionState, digests: readonly string[], holder: object) => PreviewSource['assetReader']
     readonly values?: PeekValues | undefined
-    readonly readAsset?: (ref: ExecutionState['ref'], digest: string, signal: AbortSignal) => Promise<ArrayBuffer | undefined>
   },
 ): readonly ExecutedImage[] {
   const allowed = options.runtimeIds === undefined ? undefined : new Set(options.runtimeIds)
-  const assetReader = options.executionAssetReader
   const images: ExecutedImage[] = []
-  const assetLoad = (digest: string, mime: string): Pick<ExecutedImage, 'load'> => {
-    const read = options.readAsset
-    return read === undefined ? {} : { load: async (signal) => {
-      const bytes = await read(execution.ref, digest, signal)
-      if (bytes === undefined) throw new Error('Image asset is unavailable')
-      return { available: true, bytes, mime, kind: 'asset', fingerprint: digest }
-    } }
-  }
   for (const runtimeId of Object.keys(execution.outputs).sort()) {
     if (allowed !== undefined && !allowed.has(runtimeId)) continue
     const outputs = execution.outputs[runtimeId]!
@@ -127,8 +114,6 @@ export function executedImageInventory(
           kind: 'asset',
           mediaType: ref.mediaType,
           digest: ref.digest,
-          ...assetLoad(ref.digest, ref.mediaType),
-          ...(assetReader === undefined ? {} : { assetReader: (holder: object) => assetReader(execution, [ref.digest], holder) }),
           ...(ref.name === undefined ? {} : { name: ref.name }),
           ...(ref.virtualPath === undefined ? {} : { virtualPath: ref.virtualPath }),
         })
@@ -144,8 +129,6 @@ export function executedImageInventory(
       runtimeId: artifact.nodeId, outputId: 'saved file', descriptorIndex: index,
       url: options.assetUrlForExecution(execution.ref, artifact.digest),
       kind: 'artifact', mediaType: artifact.mediaType, digest: artifact.digest,
-      ...assetLoad(artifact.digest, artifact.mediaType),
-      ...(assetReader === undefined ? {} : { assetReader: (holder: object) => assetReader(execution, [artifact.digest], holder) }),
       name: artifact.name, virtualPath: artifact.virtualPath,
     })
   }

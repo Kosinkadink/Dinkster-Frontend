@@ -778,6 +778,18 @@ export interface NodeViewState {
   /** Chosen schema widget representation id per input/value key. */
   readonly views?: Readonly<Record<string, string>>
   /**
+   * Height in whole lines of each multiline text box the user resized, by
+   * input/value key. Absent = the height the widget declares.
+   */
+  readonly textLines?: Readonly<Record<string, number>>
+  /** The open node's preview is folded to its caption row. */
+  readonly previewFolded?: boolean
+  /**
+   * A minimized node's preview was opened by its caption. Minimized nodes
+   * start folded; minimizing or restoring clears this.
+   */
+  readonly minimizedPreviewOpen?: boolean
+  /**
    * Per-section collapse OVERRIDES by section id. Absent = the schema's
    * collapsedByDefault. An override record (not a plain collapsed list) so a
    * default-collapsed section can also be explicitly expanded.

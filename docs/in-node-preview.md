@@ -1,21 +1,17 @@
 # In-node output previews
 
-Image, video, and audio previews render inside a node body. Before execution,
-a preview-capable node reserves one compact row that identifies the preview
-surface and its App View promotion action.
+Image, video, and audio previews render inside a node body under a "Preview"
+caption row. Every node that can show a preview has that row, before its first
+picture too, so a node that can preview always says so; a node that cannot
+shows nothing.
 
 Recorded string outputs also render automatically inside the producing node
 in the Standard view. This makes short text results visible immediately after
 execution without switching to the Data lens.
 
-Live compositor state waits for independent complete preview ownership, including
-the document digest and every external resource, before replacing the visible
-state. Hidden and unused resources remain roots. Refused or obsolete admission
-preserves the prior state. Latest stills and ring slots keep their captured owner
-while any slot still names that generation; replacement and budget eviction
-retire only that owner's exact revision on the admitting connection lifetime.
-Terminal stills remain held. Unknown structured previews stay explicitly
-incomplete and journaled; inline binary frames introduce no CAS identities.
+Live compositor state and recorded previews load directly from their captured
+backend. No file list is recorded and no cleanup acknowledgment delays display.
+Changed sources, cancellation and disposed viewers still prevent stale publication.
 
 ## Source precedence
 
@@ -64,49 +60,13 @@ Disposing a preview loader aborts its pending recorded-file and associated-image
 response bodies without stopping another loader's reads. A disposed loader no
 longer accepts source loads or live-frame decodes, including stale callers that
 still hold its sources. This closes loader admission but does not settle already
-admitted shared renderers or release retained owners.
+started shared renderers.
 
-Recorded artifacts, their associated images and recorded image outputs wait for
-an independent complete preview-owner acknowledgment before fetching or decoding.
-The inventory names the selected CAS bytes, including both an artifact and its
-associated preview, not the execution's opaque runtime values. Canvas and App
-View cache separate reader generations, scoped to the exact document or result
-and backend; the same digest in another tab or loader never borrows that owner. Changed
-output inventories or observed connection transitions reject stale decoded cache
-entries and late publication. Model orbit viewers borrow the same captured
-reader independently, covering every declared external sidecar. Browser library
-thumbnails likewise register their selected bytes; opaque source-document reads
-remain incomplete until the parsed document has its own admission. Closing a
-viewer, evicting decoded pixels, or unmounting a renderer does not release durable
-ownership. Prior acknowledged generations stay protected through replacements.
-Captured model-byte readers accept canonical digest-only identities as well as
-full resource references; presentation metadata is not needed to protect bytes.
-Malformed digests and opaque resource fields cannot certify a complete inventory.
-
-Public value-peek readers keep their own acknowledged result owners while the
-execution is live, persisted or being restored. Once those references are gone,
-reader admission closes and pending body/decode work drains before the exact
-receipt retires. Cached bytes cannot reopen an ended reader. Closing a workflow
-tab also retires its locally admitted editor drafts, including drafts whose
-renderer already left or whose document continued through a shared/local
-session replacement. A tab switch, editor unmount or read completion alone
-never releases these owners; project and connection generations still gate
-retirement. Retirement acknowledgments and recovery reads use the backend's
-current receipt metadata; a prior source token cannot survive a token-free
-next-revision tombstone.
-
-Saved image tiles in the output rail, Canvas and App View viewers admit their
-own preview owners before fetching CAS bytes. Each mounted tile holds its own
-reader through browser decode, even when compare sides show the same digest.
-Refused or obsolete admission publishes no image URL. Unmounting aborts local
-work and revokes blob URLs without releasing durable owners.
-
-Saved Painter masks, mask-editor sources, recorded audio and Load3D resources
-also scope their readers to the mounted editor, not its workflow tab. Two
-editors of the same asset wait for separate acknowledgments.
-Picker preview reads also acquire independent complete preview owners before
-consuming staged selection bytes. Selection handoff waits for pending reads,
-but retiring that selection never retires a decoded consumer's preview owner.
+Recorded artifacts, associated images, native renditions, model resources and
+picker thumbnails read directly from the selected source backend. Viewers and
+editors abort pending requests and revoke their own Blob URLs on disposal.
+Byte decoding does not acquire a cleanup receipt. File availability is checked
+by the actual read, not by a separately recorded file list.
 
 ## Video inspection
 
@@ -208,16 +168,32 @@ so the menu truthfully reflects that no previews will arrive.
 ## States and geometry
 
 The region is appended after the node's final row with the normal body inset.
-Before content exists, it is one 24-unit row. Right-click that row and choose
-**Promote to App View** to expose it before running the workflow. Active
-previews reserve a 180 world-unit media area plus a 22 world-unit caption strip.
-Images are centered and contain-fit without upscaling inside the media area;
-the caption never covers image pixels. The caption is always painted when a
-preview is present. Its first line shows expected provenance (`last resolved`
-or `estimated`) and `i/N` for lists; its second line shows decoded dimensions.
-Pending decodes show `loading preview...`;
-failed asset decodes show `preview unavailable`. Clearing the selected asset
-returns a capable node to its compact row. Stored AssetRefs naturally survive
+It starts with a 22 world-unit caption row: the word "Preview" in the label
+color, and at its right end, in the quieter color, what the region holds.
+Before content exists the row says `no picture yet`; while the first picture
+loads it says `loading`, and after a failure `failed` (or the loader's own
+reason). Such a row has no arrow, nothing under it, and is ordinary node body.
+Right-click the caption row (or anywhere on the region) and choose **Promote to
+App View** to expose the preview, before running the workflow too.
+
+With a picture or a ready player, the caption row has an arrow before the word,
+the same disclosure arrow as a section row and the title bar's minimize arrow,
+and shows expected provenance (`last resolved` or `estimated`), `i/N` for
+lists, and decoded dimensions, joined by `|`. The picture's 180 world-unit
+media area sits under it; images are centered and contain-fit without
+upscaling, and the caption never covers image pixels. An executed output with
+host controls keeps its media area while it loads or after a failure, with the
+word centered in it, so a list's paging controls and a saved file's download
+stay.
+
+The whole caption row folds the preview: it highlights under the pointer like
+a closed box's row, and a click (a press and release without moving) folds or
+opens it. Folded, the row stays, with the arrow pointing right and a small
+picture before the size. Folding is view state with the node's layout
+(`view.setPreviewFolded`, `previewFolded`): it changes no value, run or cache
+key, undo treats it like any other layout change, and the stored size request
+opens the picture at the same size again. Clearing the selected asset returns a
+capable node to its "no picture yet" row. Stored AssetRefs naturally survive
 save, reload, and import because no separate preview state is persisted.
 
 An editable selected-input preview also has a passive screen-reader equivalent.
@@ -226,14 +202,19 @@ one, and reports loading, unavailable, or decoded natural dimensions. The
 equivalent is not focusable and is omitted when execution imagery wins source
 precedence or when the selected asset is cleared.
 
-The region is ordinary node body for selection, drag, resize, and hit testing.
-Only the executed-output paging controls add image-specific actions.
+Apart from the caption row's click, the region is ordinary node body for
+selection, drag, resize, and hit testing. Only the executed-output paging
+controls add image-specific actions.
 
-A minimized node shows a one-row strip only while it has real content: a
-picture to paint, contain-fit into that row, or else the first line of a
-recorded text result. Without either (no preview yet, loading, unavailable,
-or a ready video or audio player) the node is only its title bar, with no
-strip and no label.
+A minimized node keeps the caption row, folded, while it has real content: a
+picture to paint, shown as the small picture and its size, or else a recorded
+text result, shown as the start of its first line. Without either (no preview
+yet, loading, unavailable, or a ready video or audio player) the node is only
+its title bar, with no second row. Clicking the caption opens the picture
+under it at the height it has on the open node, without restoring the node;
+again folds it. Minimized previews start folded: minimizing or restoring the
+node forgets an opened one (`minimizedPreviewOpen`), and restoring brings back
+the open node's own choice.
 Video/audio DOM transports and paging controls are omitted while minimized.
 Restoring the node returns its full preview and stored expanded size. See
 [Node minimization](node-minimization.md).
@@ -243,7 +224,7 @@ zoom. Audio uses a centered 64px transport row and starts paused. At zoom 0.75
 and above audio play/seek controls are interactive. From 0.5 through 0.75 audio
 becomes a noninteractive type/duration summary. Below 0.5 the canvas paints only the
 media type/count badge. At detail zoom, media DOM is confined to the media area
-while the canvas paints count and cached state in the caption below.
+while the canvas paints count and cached state in the caption row above.
 Media DOM is clipped to the canvas and removed when its node or projected region
 is offscreen. At most 24 visible audio/video roots and 24 output-pager roots are
 mounted; focused, playing, selected, and open-viewer roots receive retention
@@ -253,17 +234,26 @@ activation is consumed.
 Media loading and failure labels identify video or audio. Only 404, 406, and
 410 rendition refusals enter the bounded negative cache; transport and other
 HTTP failures remain retryable. A definitive miss from explicit preview
-intent retains the region as `Preview unavailable`. Disposing the host pauses
+intent leaves the caption row saying why the preview is unavailable. Disposing the host pauses
 media and revokes generated object URLs.
 
 ## Resizing
 
-Existing multiline `core.text` rows retain first claim on user-resize surplus.
-The compact row and active preview map the same stored size request, so preview
-appearance, removal, and zoom do not change multiline editor height. The media
-area grows beyond 180 only when there is no active `core.text` row; the 22-unit
-caption remains reserved in both cases. This preserves the existing preview
-budgets and multiline resize contract.
+The node's bottom edge sizes the preview. While the preview is open, a short
+bar in the middle of that edge marks it, the same bar a text box has: it takes
+the accent color under the pointer and while dragged, and dragging anywhere
+along the edge between the corners changes only the node's height. The
+corners still resize both ways. Once pressed, the bar takes Arrow Up and Arrow
+Down: each press makes the picture 10 units shorter or taller, or an open text
+result one row, until Escape or a press elsewhere. A folded preview, a preview
+that is only its caption row, and a minimized node have no bar. An open text
+result has the same bar; it sizes the text region in whole rows, at least two.
+Multiline `core.text` rows keep their
+own heights in lines (see "Text box height" in `docs/widget-editors.md`), so
+the preview takes all of the node's resize surplus, down to its 40-unit floor
+plus the 22-unit caption. The caption-only row and the open preview map the same
+stored size request, so preview appearance, removal, and zoom change neither
+the text boxes nor the size the panel opens at.
 
 ## Local expression estimates
 
@@ -309,9 +299,15 @@ list, image, and arbitrary object values do not activate this region. Nodes
 with two or more string outputs are deliberately deferred because choosing one
 would be ambiguous. The full value remains available in the Data lens.
 
-Text uses the same measured wrapping as multiline canvas text. A short result
-uses one row; wrapped results grow to their content and stop at six rows. When
-wrapping produces more rows, the final visible row is a `+N more` marker. A
+The result sits under the same "Preview" caption row as a picture, with the
+number of the string's own lines where a picture has its size (line breaks plus one, a final line break adding none, and "empty" for an empty string; like a size, it does not change with the node's width); the row folds it the
+same way, and folded it shows the start of the first line in place of a
+picture, upright and in the caption's quieter text color.
+Text uses the same measured wrapping as multiline canvas text. Without a size
+request the region fits the result, at least two rows and at most six. The
+node's bottom edge (see "Resizing") sizes it past that in whole rows, never
+below two; the text boxes keep their own heights. When the result has more
+rows than the region shows, the final visible row is a `+N more` marker. A
 live value that is no longer proven current after a document edit uses the
 existing stale companion vocabulary: semantic light blue text with a dotted
 underline. Frozen or currently proven values use the normal companion value

@@ -309,16 +309,17 @@ describe('registry painter label/value split', () => {
     expect(painted.fills.some((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)).toBe(false)
   })
 
-  it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for hovered overflow', () => {
+  it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for overflow', () => {
+    const fits = paintMultilineDetails(74, 160, 'one\ntwo')
     const idle = paintMultilineDetails(74, 160)
-    const hovered = paintMultilineDetails(74, 160, 'one\ntwo\nthree\nfour\nfive', true)
-    const scrollbar = hovered.roundedFills.find((fill) =>
+    const scrollbar = idle.roundedFills.find((fill) =>
       fill.fillStyle === defaultTokens.colors.widgetAffordance && fill.width === defaultTokens.multilineText.scrollbarWidth,
     )
 
-    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 6 })
+    // The text starts 2 left of the label over it, which is at 6.
+    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 4 })
     expect(idle.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
-    expect(idle.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
+    expect(fits.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
     expect(scrollbar).toMatchObject({ x: 152, y: 19, width: 6, radius: 3 })
     expect(scrollbar!.y + scrollbar!.height).toBeLessThanOrEqual(72)
   })
@@ -326,7 +327,7 @@ describe('registry painter label/value split', () => {
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
-    expect(placeholder).toMatchObject({ x: 6, y: 35, fill: defaultTokens.colors.label })
+    expect(placeholder).toMatchObject({ x: 4, y: 35, fill: defaultTokens.colors.label })
     expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 

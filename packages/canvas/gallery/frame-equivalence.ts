@@ -53,6 +53,11 @@ export async function compareCanvasFrames(
   registerCoreWidgets(widgetRegistrationDoors(registry))
   const tokens = {
     ...defaultTokens,
+    stateColors: {
+      ...defaultTokens.stateColors,
+      pending: canvasColorsForTheme(theme).pendingOutline,
+      skipped: canvasColorsForTheme(theme).skippedOutline,
+    },
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
   }
@@ -88,9 +93,11 @@ export async function compareCanvasFrames(
     fixture.previews = {
       ...fixture.previews,
       Image: { image, width: 320, height: 160 },
+      Folded: { image, width: 320, height: 160 },
       Cached: { image, width: 320, height: 160, state: 'cached' },
       Estimate: { image, width: 320, height: 160, state: 'estimate' },
       'Minimized image': { image, width: 320, height: 160 },
+      'Minimized opened': { image, width: 320, height: 160 },
     }
   }
   const node =
@@ -139,7 +146,16 @@ export async function compareCanvasFrames(
     host.append(canvas)
     const renderer = new CanvasRenderer(
       canvas,
-      { ...tokens, ...typePaint, colors },
+      {
+        ...tokens,
+        ...typePaint,
+        colors,
+        stateColors: {
+          ...tokens.stateColors,
+          pending: colors.pendingOutline,
+          skipped: colors.skippedOutline,
+        },
+      },
       createRegistryPainter(registry),
     )
     renderer.setReducedMotion(true)
@@ -152,6 +168,7 @@ export async function compareCanvasFrames(
     renderer.setCompanions(fixture.companions)
     renderer.setToolbox(fixture.toolbox)
     renderer.setNodePreviews(fixture.previews)
+    renderer.setNodeOutputTexts(fixture.outputTexts)
     renderer.setViewport(viewport)
     return { canvas, renderer }
   }

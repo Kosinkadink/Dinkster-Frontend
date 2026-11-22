@@ -5,7 +5,7 @@
  * History exercises search-over-corpus, activation (frozen view), and the
  * grid/list mode toggle.
  */
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function selectSource(page: Page, source: string): Promise<void> {
   const library = page.getByTestId('library-overlay')
@@ -21,7 +21,7 @@ test.beforeEach(async ({ page }) => {
   })
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 /** Queue the active tab and wait for the newest execution row to complete. */

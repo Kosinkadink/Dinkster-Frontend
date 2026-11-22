@@ -31,9 +31,18 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--dinkster-surface-inset);
+  /* The fill the canvas paints a field with, so opening the box keeps it. */
+  background: var(--dinkster-surface-field);
+  border-radius: inherit;
+}
+/* The outline is drawn over the masks and the bar inside the box. */
+.widget-editor-in-node-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   border-radius: inherit;
   box-shadow: inset 0 0 0 1px var(--dinkster-accent-border);
+  pointer-events: none;
 }
 
 .widget-editor-in-node-label {
@@ -66,12 +75,71 @@
   scrollbar-width: auto;
 }
 
+/* The box's own outline marks it open; the shared field focus ring would
+   show as a line under the label. */
+.widget-editor.widget-editor-in-node textarea,
+.widget-editor.widget-editor-in-node textarea:focus-visible {
+  box-shadow: none;
+}
+
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar {
   width: var(--multiline-scrollbar-width, 6px);
   height: var(--multiline-scrollbar-width, 6px);
 }
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-thumb {
   min-height: calc(var(--multiline-scrollbar-width, 6px) + var(--multiline-scrollbar-width, 6px));
+}
+/* The box draws its own scrollbar as the canvas draws it; the native one
+   stays over it, unseen, so it still drags. */
+.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-track,
+.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+/* The open box keeps what the canvas paints around its text: the padding
+   that clips scrolled text, the scrollbar, and the bar near the bottom edge.
+   The editor sets their geometry in screen pixels. */
+.widget-editor-in-node-mask {
+  position: absolute;
+  left: 0;
+  right: calc(var(--box-scrollbar-width) + var(--box-scrollbar-inset));
+  height: var(--box-padding);
+  background: inherit;
+  pointer-events: none;
+}
+.widget-editor-in-node-mask-top {
+  top: var(--box-label);
+}
+.widget-editor-in-node-mask-bottom {
+  bottom: 0;
+}
+.widget-editor-in-node-track,
+.widget-editor-in-node-thumb {
+  position: absolute;
+  right: var(--box-scrollbar-inset);
+  width: var(--box-scrollbar-width);
+  border-radius: calc(var(--box-scrollbar-width) / 2);
+  pointer-events: none;
+}
+.widget-editor-in-node-track {
+  top: var(--box-label);
+  height: var(--box-track-height);
+  background: var(--dinkster-surface-canvas);
+}
+.widget-editor-in-node-thumb {
+  top: calc(var(--box-label) + var(--box-thumb-top));
+  height: var(--box-thumb-height);
+  background: var(--dinkster-text-disabled);
+}
+.widget-editor-in-node-edge {
+  position: absolute;
+  left: var(--box-edge-left);
+  top: var(--box-edge-top);
+  width: var(--box-edge-width);
+  height: var(--box-edge-height);
+  border-radius: var(--box-edge-radius);
+  background: var(--dinkster-text-disabled);
+  pointer-events: none;
 }
 
 .suggestion-surface {
@@ -181,11 +249,6 @@
 }
 
 .widget-editor.floating-surface { padding: var(--dinkster-space-12); }
-
-.redock-workflow {
-  margin-left: var(--dinkster-space-8);
-  white-space: nowrap;
-}
 
 .native-panel-window {
   box-sizing: border-box;

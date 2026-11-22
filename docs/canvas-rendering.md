@@ -1,5 +1,19 @@
 # Canvas rendering
 
+Canvas surfaces and text project the shared dark/light palette from
+`branding/tokens/dinkster-colors.json` through the semantic tokens. The dark
+theme uses cyan-tinted greys for its background, node body, header, inset
+fields and outlines; wire/type colors and status hues are unchanged.
+Node value fields use the dedicated `bg.field` palette entry (`#0B1111` in
+dark, the unchanged light canvas color in light), leaving other inset
+surfaces on `bg.canvas`. Queued and skipped outlines use `border.pending`
+and `border.skipped`, preserving light values `#5C5C5C` and `#7D8792`.
+Data heatmaps keep their data colors. Muted text on a dark panel has 4.64:1
+contrast. Canvas layers receive the current background and grid colors in
+their draw context. Grid patterns repaint when the theme changes; light grid
+dots use the light `border.default` (`#D3D9DE`), not the dark constructor
+palette.
+
 The canvas keeps the graph scene separate from the camera. On browsers with
 transferable offscreen bitmaps, graph paint is retained in device-pixel tiles.
 A camera-only move reuses visible tiles when the scale and backing density
@@ -62,8 +76,8 @@ the bottom the 1px border, drawn inside the node's box, comes on top of that
 space. A preview or text output after the rows ends the node as a boxed row
 does. In the
 dark theme the body and the 26px title bar share the darker surface
-(`#1c1f23`), a 1px `#2a2f35` rule closes the title bar, and fields use
-`#121417`. Raised opener rows take the lighter surface. The light theme takes
+(`bg.surface`), a 1px `border.divider` rule closes the title bar, and fields
+use `bg.field`. Raised opener rows take the lighter surface. The light theme takes
 the same sizes and keeps its original colors.
 
 At 100 percent zoom, with a node at whole-number coordinates, every edge falls
@@ -125,10 +139,8 @@ subgraph mark `boxes`. A pack's badge has an icon when the pack names one.
 Static numeric widget edits reuse scene geometry when the effective interface
 is unchanged. Dynamic interfaces, subgraphs, conditional rows, sections and
 layout changes retain the full scene-build path. Each increment still commits
-its own document command and history entry. Existing finite numeric literals
-in static, concretely typed graphs also avoid repeating the asset-identity
-census. Dynamic or unresolved interfaces, value sources, subgraphs and asset
-changes keep the full ownership/admission path.
+its own document command and history entry. Document edits do not enumerate
+cleanup file lists or wait for cleanup acknowledgments.
 
 Canvas-only compilation for resident availability and preview recipe comparison
 waits until after a painted frame and a 100 ms editing pause. New edits replace

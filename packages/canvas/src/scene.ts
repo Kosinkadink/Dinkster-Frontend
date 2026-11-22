@@ -148,7 +148,8 @@ const onlyNodePositionsChanged = (
     const after = next.nodes[id]!
     return before === after || (
       before.size === after.size && before.collapsed === after.collapsed && before.views === after.views &&
-      before.sections === after.sections && before.color === after.color && before.ext === after.ext
+      before.textLines === after.textLines && before.previewFolded === after.previewFolded &&
+      before.minimizedPreviewOpen === after.minimizedPreviewOpen && before.sections === after.sections && before.color === after.color && before.ext === after.ext
     )
   })
 }
@@ -241,6 +242,11 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
   }
 }
 
+/** Whether a node's preview shows only its caption row. */
+export function previewFoldedOf(node: SceneNode): boolean {
+  return node.layout.minimized === true ? node.minimizedPreviewOpen !== true : node.previewFolded === true
+}
+
 export interface SceneNode {
   readonly id: string
   readonly x: number
@@ -252,6 +258,10 @@ export interface SceneNode {
   readonly elaborated?: ElaboratedInterface
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
+  /** The open node's preview is folded to its caption row. */
+  readonly previewFolded?: true
+  /** A minimized node's preview was opened by its caption; minimized previews start folded. */
+  readonly minimizedPreviewOpen?: true
   /** Optional user-selected identity color projected from node view state. */
   readonly color?: string
   /** '#<defId>' instance nodes get the subgraph badge. */
@@ -1306,6 +1316,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           // Subgraph instances resolve to boundary-derived schemas, so a
           // forwarded family's suffix ghost elaborates here like any node's.
@@ -1586,6 +1597,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
         : {}),
+      ...(view?.previewFolded === true ? { previewFolded: true as const } : {}),
+      ...(view?.collapsed === true && view.minimizedPreviewOpen === true ? { minimizedPreviewOpen: true as const } : {}),
       ...(view?.color !== undefined ? { color: view.color } : {}),
       isSubgraph: subgraphDefIdOf(node.type) !== undefined,
       ...(node.region !== undefined ? { regionKind: node.region.kind } : {}),

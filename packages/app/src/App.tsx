@@ -40,7 +40,10 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductErrorBanner, ProductToast } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
+import PanelTop from 'lucide-solid/icons/panel-top'
+import Menu from 'lucide-solid/icons/menu'
+import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -189,11 +192,13 @@ const APP_MENU_COMMAND_GROUPS = [
 ] as const
 
 export function DinksterAppMenu(props: {
+  theme?: 'dark' | 'light'
   commands: CommandRegistry
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
   invalidationSignals?: () => readonly ReadonlySignal<unknown>[]
 }) {
+  const message = useAppMessage()
   const [open, setOpen] = createSolidSignal(false)
   const [anchor, setAnchor] = createSolidSignal({ x: 0, y: 0 })
   let root!: HTMLDivElement
@@ -249,9 +254,11 @@ export function DinksterAppMenu(props: {
   })
   return (
     <div class="app-menu" ref={root}>
-      <ProductButton variant="ghost" size="compact"
+      <ProductWindowAction
+        label={message('shell.applicationTitle')}
+        labelContent={<><ProductWordmark theme={props.theme ?? 'dark'} /><ProductIcon icon={ChevronDown} /></>}
+        icon={Menu}
         ref={button}
-        class="brand app-menu-button"
         data-testid="dinkster-menu-button"
         aria-haspopup="menu"
         aria-expanded={open()}
@@ -267,9 +274,7 @@ export function DinksterAppMenu(props: {
             button.focus()
           }
         }}
-      >
-        <BrandMark /><span class="app-menu-caret" aria-hidden="true" />
-      </ProductButton>
+      />
       <Show when={open()}>
         <ContextMenu
           menu={{ ...anchor(), worldX: 0, worldY: 0, groups: groups() }}
@@ -435,6 +440,7 @@ export function App(props: {
   const tabs = useSignal(app.tabs)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
+  const tabResultClears = useSignal(app.clearedTabResults)
   const collabTabs = useSignal(app.collabTabs)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
@@ -711,6 +717,26 @@ export function App(props: {
     if (!pending || !pendingCloseStillCurrent(pending)) return
     requestTabClose(pending, true)
   }
+
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
+  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+    const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
+    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+      setPendingCloseOthers(others)
+      return
+    }
+    for (const other of others) requestTabClose(other, false)
+  }
+  const confirmCloseOthers = (): void => {
+    const pending = pendingCloseOthers()
+    setPendingCloseOthers(undefined)
+    if (!pending || !pending.every(pendingCloseStillCurrent)) return
+    for (const tab of pending) requestTabClose(tab, false)
+  }
+  createEffect(() => {
+    const pending = pendingCloseOthers()
+    if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
+  })
 
   const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
@@ -1202,15 +1228,6 @@ export function App(props: {
     {(label) => <span class="services-badge" data-testid="services-badge">{label()}</span>}
   </Show>
 
-  /** The active live tab's target backend (drives the topbar selector). */
-  const activeTarget = (): Backend | undefined => {
-    backendsTick()
-    tabTargets()
-    const tab = activeTab()
-    return tab && !tab.execution ? app.backendForTab(tab) : undefined
-  }
-
-  /** One rail row; captures the App closures (overlay role, live tab). */
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
     return <ExecutionActivityCard
@@ -1820,7 +1837,6 @@ export function App(props: {
   const bottomZonePanels = () => bottomView().panels
   const bottomActiveId = () => bottomView().activeId
   const dockPanels = leftPanels
-  const bottomPanels = bottomZonePanels
   const railPanels = () => railView().panels
   // Aggregate rail-panel indicators onto the region toggle, so attention
   // stays discoverable while the rail is collapsed or the panel's tab is
@@ -1831,14 +1847,19 @@ export function App(props: {
   const leftOpen = () => zoneOpen('left') && leftPanels().length > 0
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
-  const [sideSpace, setSideSpace] = createSolidSignal<number>()
+  const [sideSpace, setSideSpace] = createSolidSignal<{ single: number; both: number }>()
   onMount(() => {
     if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
     const measure = (): void => {
+      const style = getComputedStyle(bodyElement)
+      const gap = Number.parseFloat(style.columnGap) || 0
+      const sidebarWidth = sidebar.getBoundingClientRect().width
+      const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
+        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
-        : Math.max(0, bodyElement.clientWidth - sidebar.getBoundingClientRect().width - 320))
+        : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
@@ -1846,13 +1867,13 @@ export function App(props: {
     measure()
     onCleanup(() => observer.disconnect())
   })
-  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace() ?? dockWidth()))
-  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace() ?? railWidth()))
+  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace()?.single ?? dockWidth()))
+  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace()?.single ?? railWidth()))
   let previousRailOpen = railOpen()
   createEffect(() => {
     const right = railOpen()
     const left = leftOpen()
-    const space = sideSpace()
+    const space = sideSpace()?.both
     const openedRail = right && !previousRailOpen
     previousRailOpen = right
     if (space !== undefined && left && right && dockWidth() + railWidth() > space) {
@@ -1890,7 +1911,7 @@ export function App(props: {
         const section = Number.parseInt(element.dataset['section'] ?? '', 10)
         const tabStrip = element.querySelector<HTMLElement>('.product-tablist')
         const body = element.querySelector<HTMLElement>('.product-tabpanel:not([hidden])')
-        const overflowButton = element.querySelector<HTMLElement>('[data-testid="dock-zone-overflow-button"]')
+        const overflowButton = element.querySelector<HTMLElement>('[data-panel-title], [data-testid="dock-zone-overflow-button"]')
         if (Number.isNaN(section) || tabStrip === null || body === null) continue
         sections.push({
           section,
@@ -1923,7 +1944,7 @@ export function App(props: {
   }
   const beginPanelDrag = (down: PointerEvent): void => {
     const target = down.target instanceof Element
-      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id]')
+      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id], .dock-zone [data-panel-title][data-tab-id]')
       : null
     if (target === null || down.button !== 0) return
     const pointerId = down.pointerId
@@ -2078,8 +2099,9 @@ export function App(props: {
               })
         if (moved && destinationZone !== undefined) {
           queueMicrotask(() => {
-            bodyElement.querySelector<HTMLButtonElement>(
-              `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
+            const handle = destinationZone === 'left' && activityBarVisible() ? '[data-panel-title]' : '.product-tab'
+            bodyElement.querySelector<HTMLElement>(
+              `.dock-zone[data-zone="${destinationZone}"] ${handle}[data-tab-id="${CSS.escape(panelId)}"]`,
             )?.focus({ preventScroll: true })
           })
         }
@@ -2190,7 +2212,8 @@ export function App(props: {
   const closeZone = (zone: Extract<DockZoneId, 'left' | 'bottom'>): void => {
     const activeId = zoneView(zone).activeId
     app.dock.setOpen(zone, false)
-    if (activeId !== undefined) focusPanelToggle(activeId)
+    if (zone === 'left' && activityBarVisible() && activeId !== undefined) focusPanelToggle(activeId)
+    else queueMicrotask(() => shellEl.querySelector<HTMLButtonElement>(`[data-testid="${zone === 'bottom' ? 'bottom' : 'left'}-panel-toggle"]`)?.focus())
   }
   const closeRail = (): void => {
     app.dock.setOpen('right', false)
@@ -2276,6 +2299,12 @@ export function App(props: {
       })
     }
     const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTarget = (): Backend | undefined => {
+      backendsTick()
+      tabTargets()
+      const tab = paneActiveTab()
+      return tab && !tab.execution ? app.backendForTab(tab) : undefined
+    }
     const host: EditorHostContext = {
       tabId: () => group().activeTabId,
       focused: () => paneFocused(),
@@ -2347,6 +2376,11 @@ export function App(props: {
     const focusPane = (): void => {
       if (!paneFocused()) updateSplitLayout((layout) => focusGroup(layout, p.groupId))
     }
+    onMount(() => {
+      // Minimap gestures stop propagation; focus before any control handles them.
+      sectionElement.addEventListener('pointerdown', focusPane, true)
+      onCleanup(() => sectionElement.removeEventListener('pointerdown', focusPane, true))
+    })
     return (
       <section
         class="editor-group"
@@ -2355,7 +2389,7 @@ export function App(props: {
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
         style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
-        onPointerDown={focusPane}
+        onFocusIn={focusPane}
         ref={sectionElement}
       >
         <div class="tab-strip">
@@ -2364,6 +2398,11 @@ export function App(props: {
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            runState={(tab) => {
+              executions()
+              tabResultClears()
+              return app.tabRunState(tab)
+            }}
             isDirty={(tab) => dirtyTabs().has(tab.id)}
             isFrozen={(tab) => tab.execution !== undefined}
             isShared={(tab) => collabTabs().has(tab.id)}
@@ -2380,6 +2419,17 @@ export function App(props: {
             }}
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
+            onRename={(tab, title) => app.renameTab(tab.id, title)}
+            onDuplicate={(tab) => {
+              void app.duplicateTab(tab.id).then((copy) => {
+                if (!copy) return
+                updateSplitLayout((layout) => {
+                  const source = findGroup(layout, p.groupId)
+                  return source ? moveTabToGroup(layout, copy.id, p.groupId, source.tabIds.indexOf(tab.id) + 1) : layout
+                })
+              })
+            }}
+            onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
             canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
@@ -2403,13 +2453,22 @@ export function App(props: {
               : undefined}
             canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
+            targets={backends()}
+            targetId={(tab) => {
+              tabTargets()
+              return app.backendForTab(tab).id
+            }}
+            onSetTarget={(tab, id) => {
+              const backend = backends().find((candidate) => candidate.id === id)
+              if (backend) app.setTabTarget(tab.id, backend.id)
+            }}
             previews={(tab) => tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
               if (tab.execution !== undefined) return
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
-          <Show when={paneFocused() && multiBackend() && activeTarget()}>
+          <Show when={multiBackend() && paneTarget()}>
             {(target) => (
               <ProductSelect
                 class="tab-target"
@@ -2419,7 +2478,7 @@ export function App(props: {
                 selectedId={target().id}
                 options={backends().map((backend) => ({ id: backend.id, label: backend.label, value: backend.id }))}
                 onSelect={(option) => {
-                  const tab = activeTab()
+                  const tab = paneActiveTab()
                   if (tab) app.setTabTarget(tab.id, option.value)
                 }}
               />
@@ -2600,16 +2659,36 @@ export function App(props: {
               <p>{message('shell.close.confirm', { title: pending.title })}</p>
               <ProductActionFooter>
                 <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <ProductButton variant="danger" type="button" onClick={confirmPendingClose}>{message('shell.close.discard')}</ProductButton>
+                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
               </ProductActionFooter>
             </div>
           </ModalSurface>
         )}
       </Show>
-      <header class="topbar" aria-label={message('shell.applicationControls')}>
-        <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
-        <div class="topbar-group topbar-group-left">
+      <Show when={pendingCloseOthers()} keyed>{(pending) => (
+        <ModalSurface
+          title={message('shell.workflowTabs.closeOthers')}
+          ariaLabel={message('shell.workflowTabs.closeOthers')}
+          modalId="close-other-tabs"
+          testId="close-other-tabs-dialog"
+          closeLabel={message('shell.close.cancel')}
+          onRequestClose={() => setPendingCloseOthers(undefined)}
+        >
+          <div class="close-tab-confirm">
+            <p>{message('shell.close.othersConfirm')}</p>
+            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
+            <ProductActionFooter>
+              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
+              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
+            </ProductActionFooter>
+          </div>
+        </ModalSurface>
+      )}</Show>
+      <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
+      <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
+        brand={
           <DinksterAppMenu
+            theme={(settingsTick(), app.settings.get<'dark' | 'light'>('dinkster.theme'))}
             commands={app.commands}
             keybindings={app.keybindings}
             invalidationSignals={() => [
@@ -2622,54 +2701,42 @@ export function App(props: {
               ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
             ]}
           />
-          <ServicesBadge />
+        }
+        search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
+        actions={<>
           <Show when={managedContext().kind === 'workflow'}>
-            <ProductButton size="compact" class="redock-workflow" data-testid="redock-workflow" onClick={redockCurrentWindow}>{message('shell.window.moveToMain')}</ProductButton>
+            <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
-        </div>
-        <UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />
-        <div class="topbar-group topbar-group-right">
-          <CancelExecutionButton app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
+          <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
           <CustomizeLayoutButton commands={app.commands} />
-          <ProductButton variant="ghost" size="compact"
-            class="shell-region-toggle"
+          <ProductIconButton label={message('shell.toggle.leftPanel')} icon={() => <ShellRegionIcon region="left" active={leftOpen()} />}
             data-testid="left-panel-toggle"
             data-tooltip-label={message('shell.toggle.leftPanel')}
-            aria-label={message('shell.toggle.leftPanel')}
             aria-pressed={leftOpen()}
             disabled={leftPanels().length === 0}
             onClick={toggleLeftRegion}
-          >
-            <ShellRegionIcon region="left" active={leftOpen()} />
-          </ProductButton>
-          <ProductButton variant="ghost" size="compact"
-            class="shell-region-toggle"
+          />
+          <ProductIconButton label={message('shell.toggle.bottomPanel')} icon={() => <ShellRegionIcon region="bottom" active={bottomOpen()} />}
             data-testid="bottom-panel-toggle"
             data-tooltip-label={message('shell.toggle.bottomPanel')}
-            aria-label={message('shell.toggle.bottomPanel')}
             aria-pressed={bottomOpen()}
             disabled={bottomZonePanels().length === 0}
             onClick={toggleBottomRegion}
-          >
-            <ShellRegionIcon region="bottom" active={bottomOpen()} />
-          </ProductButton>
-          <ProductButton variant="ghost" size="compact"
-            class="shell-region-toggle"
+          />
+          <ProductIconButton
+            label={railIndicator() === undefined ? message('shell.toggle.rightRail') : message('shell.toggle.rightRailWithStatus', { status: railIndicator()!.label })}
+            icon={() => <><ShellRegionIcon region="right" active={railOpen()} /><Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show></>}
             data-testid="rail-toggle"
             data-tooltip-label={message('shell.toggle.rightRail')}
-            aria-label={railIndicator() === undefined ? message('shell.toggle.rightRail') : message('shell.toggle.rightRailWithStatus', { status: railIndicator()!.label })}
             aria-pressed={railOpen()}
             onClick={() => app.dock.setOpen('right', !railOpen())}
-          >
-            <ShellRegionIcon region="right" active={railOpen()} />
-            <Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
-          </ProductButton>
+          />
           <Show when={managedContext().kind === 'primary'}>
-            <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></ProductButton>
+            <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => app.modalPanel.set('projects')} />
           </Show>
-          <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></ProductButton>
-        </div>
-      </header>
+          <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
+        </>}
+      />
       <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
@@ -2762,22 +2829,6 @@ export function App(props: {
                 )}
               </For>
             </div>
-            <div class="sidebar-toggle-group sidebar-toggle-group-bottom" data-testid="bottom-toggle-group">
-              <For each={bottomPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
-                    icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
-                    pressed={sidebarPressed(panel.id)}
-                    panelId={panel.id}
-                    testId={panel.toggleTestId}
-                    onActivate={() => toggleSidebarPanel(panel.id)}
-                  />
-                )}
-              </For>
-            </div>
           </div>
           <ActivityBarButton
             icon={Settings}
@@ -2801,6 +2852,7 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
               split={zoneSplit('left')}
@@ -3134,9 +3186,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
     setLoaded(new Set<string>())
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
-    readAsset: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4
@@ -3169,8 +3219,8 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
       detail: props.execution.errors.map((error) => error.message).join(' ') || 'The execution reported an error before producing inspectable images.',
     }
     if (!provenance().backendAvailable) return {
-      state: 'owner-unavailable', title: 'Output owner unavailable',
-      detail: 'The execution backend was removed or disconnected. Retained output media cannot be confirmed.',
+      state: 'owner-unavailable', title: 'Output backend unavailable',
+      detail: 'The execution backend was removed or disconnected. Output media may no longer be available.',
     }
     if (props.execution.status === 'queued' || props.execution.status === 'running') return {
       state: 'waiting', title: 'Waiting for image outputs',
@@ -3194,7 +3244,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
         <div><span>Execution</span><strong>{provenance().executionId}</strong></div>
         <div><span>Status</span><strong>{provenance().executionStatus}</strong></div>
         <Show when={!provenance().backendAvailable && images().length > 0}>
-          <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
+          <p role="status">{message('outputs.backendDisconnected')}</p>
         </Show>
         <Show when={props.execution.errors.length > 0 && images().length > 0}>
           <p class="output-execution-error" role="alert">{props.execution.errors.map((error) => error.message).join(' ')}</p>

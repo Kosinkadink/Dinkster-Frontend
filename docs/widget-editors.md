@@ -85,39 +85,24 @@ Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.
 
-Native asset pickers confirm an independent complete owner for validated selections
-on open and before publishing a newly selected reference or starting its server
-preview. Apply stays disabled during initial admission and after refusal until a
-selection is admitted; Cancel remains available. Picks are processed
-in invocation order; Apply is disabled while a pick is pending. Refusal preserves
-the previous selection and reports the failure inline. Removing or clearing a
-selection also admits its replacement inventory. After publication, the previous
-locally admitted owner retires only after its in-flight body reads finish, while
-independent owners remain untouched. Cancel discards the local
-draft without releasing acknowledged owners. The staged selection keeps its
-acknowledged reader across a planned stream resume and a semantically equivalent
-registry replacement. Any real change to the complete admission catalog, including
-an unrelated node's schema or widget fields, invalidates that reader; locale-only
-labels do not. A changed project, document, revision, connection generation,
-backend, or closed session also refuses further staging and Apply until the picker
-is reopened. Apply still confirms the document command separately. This does not
-enable backend cleanup eligibility.
+Native asset pickers stage validated references directly, without recording a
+file list or waiting for cleanup checks. Apply commits the staged selection as
+a document command; Cancel leaves the stored value unchanged. A changed
+project, document, revision, backend or closed session prevents a stale
+selection from being applied until the picker is reopened.
 
 Missing model selections say "Not on disk" and explain that download is offered
 when the workflow runs. The picker does not start downloads or show a disabled
 download control. Download approval belongs to the pre-run approval dialog;
 local matching, selection, Cancel and Undo retain their usual behavior.
 
-The registered audio-recording editor uses the same independent ownership
-before replacing its draft or fetching playback bytes for a saved recording.
-While acknowledgement is pending, Use asset stays disabled and Cancel remains
-available. A refused recording keeps the previous draft and the local clip for
-retry; an acknowledged recording still needs Use asset to change the document.
+The audio-recording editor uploads a saved recording and stages the returned
+reference for playback. Use asset changes the document; Cancel does not. A
+failed upload keeps the previous draft and the local clip for retry.
 
 Selected-image and recorded-audio preview byte reads are cancelled when their
-preview is replaced, removed or closed. Late results are still ignored if a
-transport completes after cancellation. Cancellation alone does not retire asset owners or
-prove that queued model posters and other consumers have finished reading.
+preview is replaced, removed or closed. Late results are ignored if a
+transport completes after cancellation.
 Closing Painter or Load3d also cancels pending saved-source byte reads,
 including verified digests and granted local bindings. Load3d uses the same
 signal for its primary model and named sidecars; stale results remain refused.
@@ -144,10 +129,9 @@ uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
 dialog leaves the stored value unchanged. Camera errors retain the browser's
 named error (for example NotFoundError when no camera is available).
-A captured draft and its preview wait for independent complete asset admission.
-Replacement keeps the previous draft and owner until acknowledgment and
-publication; failed or obsolete admission leaves that draft unchanged. Closing
-the dialog revokes its local preview URL but does not release its retained owner.
+A captured frame is staged after its upload completes, without cleanup checks.
+A failed upload leaves the prior draft unchanged. Closing the dialog revokes
+its local preview URL.
 With capture_on_queue enabled, queue captures and saves a fresh frame for each
 included camera before submitting. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
@@ -839,16 +823,68 @@ The overlay derives its position from the widget's world rectangle and the
 renderer viewport signal. Camera pan and zoom update its screen position and
 dimensions while it remains open. Its 18px label band, 14px content font, 20px
 line height, 6px padding, 8px reserved gutter, and corner radius scale with
-zoom and match the Canvas2D field. The editor stays inside the shared 2px
-top/bottom chrome inset, has no resize handle or browser outline, and uses a
+zoom and match the Canvas2D field. The editor covers the same field box the
+canvas paints, inset by the `fieldInsetY` token, has no resize handle or
+browser outline, and uses a
 6px product-themed scrollbar with bounded vertical scrolling. Generic widget
 field rules exclude Product fields without raising selector specificity, so
 the in-node borderless geometry overrides ordinary popover field chrome.
 The scrollbar
 starts at the content-box top, not below it. Overflowing painted content uses
-the same gutter while idle and hover; hover paints a proportional scrollbar
-indicator inside the rounded chrome. The painted indicator is deliberately
-non-interactive because canvas rows have no scroll interaction.
+the same gutter and paints a proportional scrollbar indicator inside the
+rounded chrome. The painted indicator is deliberately non-interactive because
+canvas rows have no scroll interaction; the open editor scrolls. The box never
+grows while typing.
+
+Clicking into a text box moves no pixel of its label or text: only the box's
+outline and the cursor appear. The canvas places its bitmap and its text
+baselines on whole device pixels, while DOM layout rounds font metrics and
+centering its own way, so a computed offset lands a pixel off at some zooms.
+The editor therefore places itself on the canvas's device pixel grid, measures
+where the browser lays out the label's and the first line's baselines, and
+moves each onto the row the canvas painted it on
+(`canvasBaselineRow` and `domFirstBaseline` in
+`packages/app/src/widget-editor-position.ts`). It measures again when the
+camera moves while the box is open.
+
+The open box also keeps everything else the canvas paints in it, so nothing
+appears or disappears except the outline, the cursor and a selection. It
+opens scrolled to its top, as the canvas paints it, with the cursor where the
+click landed. It keeps the bar near the bottom edge, and it masks the top and
+bottom padding so scrolled text is clipped where the canvas clips it. Its
+scrollbar is drawn with the canvas's track and thumb formula and follows the
+scroll; the browser's scrollbar stays over it, unseen, so it can still be
+dragged. `packages/e2e/tests/in-row-field-still.spec.ts` compares the ink of
+the label, each line, the bar and the scrollbar closed and open at 100, 150
+and 200 percent, for a default box, a box made taller and a box that scrolls.
+
+### Text box height
+
+A text box's text starts 2 units left of the label over it (the label at 6,
+the text at 4), so the box's text reads apart from the labels, which stay in
+one column down the node; the open editor uses the same inset.
+
+Each multiline text box has its own height, in whole lines, from 2 to 16. A
+new node starts at the height the widget declares. A short bar in the middle
+of the box's bottom edge sizes it: dragging the edge changes the height one
+line at a time with a live preview and stores it on release; the bar takes the
+accent color and widens under the pointer, while dragged, and while focused.
+Pressing the bar focuses it, and Arrow Up and Arrow Down then step one line
+until Escape or a press elsewhere. Double-clicking the bar fits the box to its
+wrapped text within the limits; double-clicking again returns it to the
+height it had before.
+
+The height is view state, stored per node and value key in the node's
+`textLines` through `view.setTextBoxLines`: it changes no value, wire, run, or
+cache key, and undo treats it like any other layout change. Group members,
+sections, and subgraph instances each keep their own height, and switching a
+field's representation away and back keeps it. Other rows, the preview, and
+the text output keep their heights when one box changes; on a node with a
+manual size, the stored height moves by the same amount in the same undo step.
+
+The node's own bottom edge sizes its preview when it has one. On a node
+without a preview it sizes only the last text box; every other box keeps its
+height.
 
 Ctrl+Enter commits through the existing widget command path.
 Escape cancels. An outside pointer explicitly blurs the field before the same
