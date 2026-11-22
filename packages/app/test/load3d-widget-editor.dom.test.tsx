@@ -66,6 +66,37 @@ it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('op
   dispose()
 })
 
+it.each(['viewer-close-mount', 'viewer-mounted-close'] as const)('releases 3D URLs when %s resolves', async (scenario) => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mount')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  const schema = parseDinksterSchema('MountPauseFixture', { interface: [
+    { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
+    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+  ] }).schema!
+  const model = { digest: `blake3:${'e'.repeat(64)}`, name: 'scene.glb', size: 1, mediaType: 'model/gltf-binary', virtualPath: 'scene.glb' }
+  const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [model, {}] }], links: [] }, () => schema).document!
+  const store = new DocumentStore(doc, coreCommandRegistry())
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'model_file', value: model } })
+  let release!: () => void
+  fixtures.mount = () => new Promise<void>((resolve) => { release = resolve })
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { fetchAssetBytes: async () => new Uint8Array([1]) } }),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{ tab: { store } as unknown as Tab, graphId: 'g0',
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
+    declaredType: inputsOf(schema)[1]!.type, multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: {},
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  await vi.waitFor(() => expect(fixtures.loads).toHaveLength(1))
+  if (scenario === 'viewer-close-mount') dispose()
+  release()
+  if (scenario === 'viewer-mounted-close') dispose()
+  await vi.waitFor(() => expect(fixtures.disposed).toBe(1))
+  await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1))
+})
+
 it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-success', 'capture-rejected', 'recording-close', 'recording-stop-close', 'recording-error-close', 'recording-start-failed', 'recording-success'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
