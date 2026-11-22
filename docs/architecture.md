@@ -430,9 +430,10 @@ unknown commands remain incomplete and keep known roots; clearing a recipe does
 not discard document identities still present in history. Synchronous dispatch
 also compares recipe contents, so changed commands with an unchanged document
 digest still require admission. Save and sharing resolve before publication.
-Metadata and unknown schemas remain
-incomplete. Known canonical references in opaque stored values are retained, but
-the owner explicitly declares `complete: false`, even for an empty known set.
+Metadata and unknown node schemas remain incomplete. Stored values for inputs
+removed by a pack stay inert and do not make ownership incomplete. Recognizable
+canonical asset references in those values are retained; other leftover values
+are preserved without interpretation.
 Unresolved filename strings in asset widgets also keep ownership incomplete,
 so resolving an imported filename can preserve its undo state without inventing
 a digest. Unmarked asset filename strings and malformed AssetRef objects still refuse.
@@ -464,10 +465,13 @@ A key read from its exact state table is verified even when the dormant walk
 stops before it. Wire-15 sibling branches can share a stored selector path:
 a choice validated by the active branch is not rejected against a dormant
 sibling's different option set. That exception is bound to the same state
-object and construct; invalid active choices and unvalidated dormant choices
-still refuse. Keys read by neither walk remain unknown-state errors; dormant
-diagnostics still make ownership incomplete. Active elaboration errors still
-refuse admission. Dormant wire-15 combo and slot dependents are enumerated from
+object and construct. Removed option and variant keys use the construct's normal
+unset behavior. State for removed groups or choices stays stored and is ignored
+for ownership, as are their leftover values. Opening, saving, exporting and sharing
+preserve these leftovers and their recognizable asset references without refusal.
+A required slot without a variant blocks running, not document ownership.
+Malformed dynamic state still refuses admission and publication. Other dormant
+diagnostics still make ownership incomplete. Dormant wire-15 combo and slot dependents are enumerated from
 their declared branch paths; their active interface and stored keys are unchanged.
 Custom dynamic handlers read root constructs through `ctx.stateOf` and nested
 constructs through `ctx.memberScope(...).stateOf`; raw state-table access is not

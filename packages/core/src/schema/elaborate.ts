@@ -496,7 +496,7 @@ export interface ElabContext {
   recordOutputMembers(family: string, members: readonly string[]): void
   /** Record a non-port value the graph submission must carry. */
   submitValue(path: string, apiPath: string, value: Json): void
-  report(severity: Severity, code: string, message: string, port?: string): void
+  report(severity: Severity, code: string, message: string, port?: string, data?: Readonly<Record<string, unknown>>): void
 }
 
 /**
@@ -1189,13 +1189,20 @@ const dynamicComboHandler: DynamicKindHandler = {
     const wire15State = spec.materialization === 'wire15' ? scope.stateOf(construct) : undefined
     const wire15Choice = wire15State?.selected
     if (!ctx.acceptsDynamicChoice(wire15State, construct, keys)) {
-      ctx.report(
-        'error',
-        'prompt.bad_dynamic_choice',
-        `${ctx.nodeType}.${construct}: dynamic choice must be one of ${keys.join(', ') || '(none)'}, received ${String(wire15Choice)}`,
-        construct,
-      )
-      return
+      if (typeof wire15Choice !== 'string') {
+        ctx.report(
+          'error',
+          'prompt.bad_dynamic_choice',
+          `${ctx.nodeType}.${construct}: dynamic choice must be one of ${keys.join(', ') || '(none)'}, received ${String(wire15Choice)}`,
+          construct,
+        )
+        return
+      }
+      ctx.report('warning', 'elab.combo.removedOption',
+        `option '${wire15Choice}' of '${item.displayName ?? item.id}' is no longer in the pack. It is now '${effectiveComboOption(spec, undefined) ?? ''}'. The old values are kept.`, construct, {
+          construct, selected: effectiveComboOption(spec, undefined),
+          ancestors: scope.ancestry.map(({ construct, member }) => ({ construct, member })),
+        })
     }
 
     if (ctx.includeDormant) {
@@ -1232,7 +1239,7 @@ const dynamicComboHandler: DynamicKindHandler = {
           origin: {
             kind: 'selector',
             construct,
-            ...(typeof requested === 'string' ? { selected: requested } : {}),
+            ...(typeof requested === 'string' && selected !== undefined ? { selected } : {}),
           },
           ...(selected !== undefined ? { derivedValue: selected } : {}),
         },
@@ -1263,7 +1270,9 @@ const dynamicComboHandler: DynamicKindHandler = {
       ctx.report(
         'warning',
         'elab.combo.unknownOption',
-        `${ctx.nodeType}.${construct}: selected option '${requested}' is not in the schema; falling back to '${selected ?? ''}'`,
+        `option '${requested}' of '${item.displayName ?? item.id}' is no longer in the pack. It is now '${selected ?? ''}'. The old values are kept.`,
+        construct,
+        { construct, selected, ancestors: scope.ancestry.map(({ construct, member }) => ({ construct, member })) },
       )
     }
 
@@ -1316,14 +1325,20 @@ const dynamicSlotHandler: DynamicKindHandler = {
     const spec = dyn as DynamicSlotSpec
     const construct = joinValuePath(scope.valuePrefix, item.id)
     const constructApi = apiJoin(scope.apiPrefix, item.id)
-    const state = scope.stateOf(construct)
+    let state = scope.stateOf(construct)
     const selectedVariant = spec.variants?.find((variant) => variant.key === state?.selected)
 
     if (spec.materialization === 'wire15' && spec.variants !== undefined &&
       !ctx.acceptsDynamicChoice(state, construct, spec.variants.map((variant) => variant.key))) {
-      ctx.report('error', 'prompt.bad_dynamic_choice',
-        `${ctx.nodeType}.${construct}: dynamic choice must name a declared variant, received ${String(state?.selected)}`, construct)
-      return
+      if (typeof state?.selected !== 'string') {
+        ctx.report('error', 'prompt.bad_dynamic_choice',
+          `${ctx.nodeType}.${construct}: dynamic choice must name a declared variant, received ${String(state?.selected)}`, construct)
+        return
+      }
+      ctx.report('warning', 'elab.slot.removedVariant',
+        `variant '${state.selected}' of '${item.displayName ?? item.id}' is no longer in the pack. ${item.optional === false ? 'Pick a variant before running.' : 'Nothing is selected now.'} The old values are kept.`,
+        construct, { construct, selected: null, ancestors: scope.ancestry.map(({ construct, member }) => ({ construct, member })) })
+      state = undefined
     }
 
     if (ctx.includeDormant) {
@@ -1835,8 +1850,9 @@ function elaborateWithStateReads(
       submittedApiPaths.add(apiPath)
       submissionValues.push({ path, apiPath, value })
     },
-    report: (severity, code, message, port) => {
+    report: (severity, code, message, port, data) => {
       diagnostics.push(diag(severity, 'schema', code, message, {
+        ...(data !== undefined ? { data } : {}),
         ...(options.nodeId !== undefined && port !== undefined
           ? { anchor: { port: { node: options.nodeId, port: asPortId(port) } } }
           : {}),
@@ -2039,7 +2055,7 @@ function elaborateWithStateReads(
       }
       for (const [construct, state] of Object.entries(states)) {
         if (!readStateKeys?.get(states)?.has(construct)) {
-          ctx.report('error', 'elab.dynamic.unknownState', `${schema.type}: unknown stored dynamic state '${construct}'`, construct)
+          ctx.report('error', 'elab.dynamic.unknownState', `'${construct}' is no longer part of this node. What was stored for it is kept in the file.`, construct, { construct })
         }
         for (const nested of Object.values(state.memberState ?? {})) checkStateKeys(nested, depth + 1)
       }
