@@ -100,6 +100,8 @@ describe('ConnectionProfilesSection removal', () => {
     const { root } = mount(bridge)
     await flush()
     ;(root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
+    expect(listConnectionProfiles()).toEqual([profile])
+    ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
     expect(calls).toEqual([profile.id])
     expect(listConnectionProfiles()).toEqual([])
@@ -114,6 +116,8 @@ describe('ConnectionProfilesSection removal', () => {
     const { root } = mount(bridge)
     await flush()
     ;(root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
+    expect(listConnectionProfiles()).toEqual([profile])
+    ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
     expect(listConnectionProfiles()).toEqual([profile])
     expect(root.querySelector('[data-testid="profile-row"]')).not.toBeNull()
@@ -134,6 +138,8 @@ describe('ConnectionProfilesSection removal', () => {
     const { root } = mount(bridge)
     await flush()
     ;(root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
+    expect(listConnectionProfiles()).toEqual([profile])
+    ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
     const clear = root.querySelector('[data-testid="profile-token-clear"]') as HTMLButtonElement
     expect(clear.disabled).toBe(true)
@@ -215,6 +221,7 @@ describe('ConnectionProfilesSection removal', () => {
       // Window A starts removing the profile; its credential clear stalls
       // while holding the lock.
       ;(windowA.root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
+      ;(windowA.root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
       await flush()
 
       // Window B saves a replacement token for the same profile meanwhile.

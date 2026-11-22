@@ -3589,6 +3589,7 @@ export class DinksterConnection {
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')

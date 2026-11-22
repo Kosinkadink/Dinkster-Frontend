@@ -66,17 +66,17 @@ Blob URLs that are revoked when their preview is disposed.
 
 ## Runtime controls
 
-Native Dinkster backends expose their effective memory and process controls in
-the same card. Expand **Runtime settings** under a native backend. Settings
-belong to that server; each backend has an independent section. The section
-fetches when opened and can be updated with **Refresh**. It does not poll, and
-a refresh leaves previously loaded values visible if the new request fails.
+Open a native backend's **Settings** jump for its process controls and Agent
+permissions. Settings belong to that server; each backend has an independent
+category. Memory budgets, memory headroom and Aimdo policy belong to Resources
+Limits. Runtime sections fetch when opened and can be updated with **Refresh**.
+They do not poll, and a refresh leaves previously loaded values visible if the
+new request fails.
 
-Native backend cards also provide **Saved image location**. Choose any
-read-write library mount to change where Save Image writes when its target is
-not set. Applying the selection persists it in the backend's `mounts.toml`.
-Execution output details show the mounted path immediately after a save. The
-Desktop app can reveal that path in the operating system's file browser.
+Storage provides the default save folder. Choose any read-write project folder
+to change where Save Image writes when its target is not set. Execution output
+details show the mounted path immediately after a save. The Desktop app can
+reveal that path in the operating system's file browser.
 
 Every category displays its effective JSON value, source, and server-reported
 mutability. `on-worker-restart` means an edit applies to workers started after

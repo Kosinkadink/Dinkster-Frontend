@@ -35,7 +35,7 @@ function BackendRow(props: {
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setBusy(false) }
   }
-  const title = () => `${props.backend.label} - ${message(props.backend.protocol === 'dinkster' ? 'backendsPanel.protocol.dinkster' : 'backendsPanel.protocol.comfyUi')}${registry() ? `, ${message('backendsPanel.schema.available', { count: registry()!.schemas.size })}` : ''}`
+  const title = () => `${message(`backendsPanel.connection.${status()}`)} - ${props.backend.label} - ${message(props.backend.protocol === 'dinkster' ? 'backendsPanel.protocol.dinkster' : 'backendsPanel.protocol.comfyUi')}${registry() ? `, ${message('backendsPanel.schema.available', { count: registry()!.schemas.size })}` : ''}`
   return <article class="backend-server" data-testid="backend-row" data-connection={props.backend.id} data-status={status()}>
     <Show when={error()}><ProductErrorBanner onDismiss={() => setError('')}>{error()}</ProductErrorBanner></Show>
     <Show when={removing()} fallback={<>
@@ -52,6 +52,7 @@ function BackendRow(props: {
             <ProductButton onClick={() => props.onOpenResources?.(props.backend)}>{message('backendsPanel.resources')}</ProductButton>
             <Show when={props.backend.protocol === 'dinkster'}><ProductButton onClick={() => props.onOpenSettings?.(props.backend)}>{message('shell.panel.settings.title')}</ProductButton></Show>
           </div>
+          <ConnectionProfilesSection app={props.app} compact backendUrl={props.backend.baseUrl} />
         </ProductDisclosure>
         <Show when={props.backend !== props.defaultBackend}><ProductMenu label={message('backendsPanel.aria.actions', { backend: props.backend.label })}
           items={[{ label: message('backendsPanel.action.remove'), intent: 'remove', onSelect: () => setRemoving(true) }]} /></Show>
@@ -108,7 +109,7 @@ export function BackendsPanel(props: {
     <div class="backend-list" aria-live="polite">
       <For each={backends()}>{(backend) => <BackendRow app={props.app} backend={backend} defaultBackend={backends()[0]!} activeBackendId={props.activeBackendId} tick={tick}
         onOpenStorage={props.onOpenStorage} onOpenResources={props.onOpenResources} onOpenSettings={props.onOpenSettings} />}</For>
-      <ConnectionProfilesSection app={props.app} compact />
+      <ConnectionProfilesSection app={props.app} compact showCreate={adding()} />
     </div>
   </section>
 }

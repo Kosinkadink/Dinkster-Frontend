@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import { ProductDisclosure } from '@dinkster/ui'
+import { ProductConfirmation, ProductDisclosure, ProductErrorBanner } from '@dinkster/ui'
 import { useSignal } from './solid-adapter.js'
 import type { MessageParams } from '@dinkster/core'
 import { canonicalBackendUrl, type AppState } from './app-state.js'
@@ -30,8 +30,8 @@ interface ConnectionProfileError {
  * desktop bridge; they are never rendered back and never enter storage the
  * renderer can read.
  */
-export function ConnectionProfilesSection(props: { readonly app: AppState; readonly compact?: boolean }) {
-  const backends = useSignal(props.app.backends)
+export function ConnectionProfilesSection(props: { readonly app: AppState; readonly compact?: boolean; readonly backendUrl?: string; readonly showCreate?: boolean }) {
+  const backends = props.compact ? useSignal(props.app.backends) : () => []
   const bridge = desktopBridge()
   const message = useAppMessage()
   const [profiles, setProfiles] = createSignal<readonly ConnectionProfile[]>(listConnectionProfiles())
@@ -41,12 +41,16 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
   const [token, setToken] = createSignal('')
   const [error, setError] = createSignal<ConnectionProfileError>({ key: '' })
   const [busyProfile, setBusyProfile] = createSignal<string | undefined>(undefined)
+  const [removing, setRemoving] = createSignal<ConnectionProfile>()
   const errorMessage = (): string => {
     const current = error()
     return current.key ? message(current.key, current.params) : ''
   }
 
-  const refreshProfiles = (): void => { setProfiles(listConnectionProfiles()) }
+  const refreshProfiles = (): void => {
+    setProfiles(listConnectionProfiles())
+    globalThis.dispatchEvent?.(new Event('connection-profiles-changed'))
+  }
   const refreshCredentials = (): void => {
     if (!bridge) return
     void bridge.connectionCredentials().then(setCredentials).catch(() => {})
@@ -58,8 +62,13 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
     const onStorage = (event: StorageEvent): void => {
       if (event.key === storageKey) refreshProfiles()
     }
+    const onProfilesChanged = (): void => { setProfiles(listConnectionProfiles()); refreshCredentials() }
     globalThis.addEventListener?.('storage', onStorage)
-    onCleanup(() => globalThis.removeEventListener?.('storage', onStorage))
+    globalThis.addEventListener?.('connection-profiles-changed', onProfilesChanged)
+    onCleanup(() => {
+      globalThis.removeEventListener?.('storage', onStorage)
+      globalThis.removeEventListener?.('connection-profiles-changed', onProfilesChanged)
+    })
   })
 
   const custody = (): boolean => credentials().custody
@@ -145,6 +154,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
         }
         refreshProfiles()
         refreshCredentials()
+        setRemoving(undefined)
       })
     } finally {
       setCredentialBusy(false)
@@ -203,7 +213,9 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
 
   return (
     <section class="connection-profiles" data-testid="connection-profiles" aria-label={message('connectionProfiles.title')}>
-      <Show when={!props.compact}><div>
+      <Show when={errorMessage()}>{(text) => <ProductErrorBanner onDismiss={() => setError({ key: '' })}>{text()}</ProductErrorBanner>}</Show>
+      <Show when={removing()} keyed>{(profile) => <ProductConfirmation title={message('connectionProfiles.action.remove')} consequence={message('backendsPanel.removeNotice', { backend: profile.name })} actionLabel={message('connectionProfiles.action.remove')} intent="remove" pending={credentialBusy()} onConfirm={() => { void remove(profile) }} onCancel={() => setRemoving(undefined)} />}</Show>
+      <Show when={!props.compact || props.showCreate}><div>
         <h2>{message('connectionProfiles.title')}</h2>
         <p>
           {message('connectionProfiles.description')}
@@ -261,13 +273,12 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
         <ProductButton size="compact" data-testid="profile-add" type="submit" disabled={url().trim() === '' || credentialBusy()}>
           {message('connectionProfiles.action.saveProfile')}
         </ProductButton>
-        <Show when={errorMessage()}>{(text) => <ProductNotice tone="error">{text()}</ProductNotice>}</Show>
       </form></Show>
 
       <ul class="connection-profile-list">
-        <For each={profiles().filter((profile) => !props.compact || !backends().some((backend) => canonicalBackendUrl(backend.baseUrl) === profile.url))}>{(profile) => (
+        <For each={profiles().filter((profile) => props.backendUrl !== undefined ? canonicalBackendUrl(props.backendUrl) === profile.url : !props.compact || !backends().some((backend) => canonicalBackendUrl(backend.baseUrl) === profile.url))}>{(profile) => (
           <li data-testid="profile-row" data-profile={profile.id}>
-            <ProductDisclosure title={`${profile.name} - ${message('backendsPanel.savedDisconnected')}`} open={!props.compact}>
+            <ProductDisclosure title={props.backendUrl === undefined ? `${profile.name} - ${message('backendsPanel.savedDisconnected')}` : message('connectionProfiles.title')} open={!props.compact}>
             <ProductListRow primary={
               <span class="backend-title-line">
                 <strong>{profile.name}</strong>
@@ -313,7 +324,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
                   data-testid="profile-remove"
                   aria-label={message('connectionProfiles.action.removeAriaLabel', { name: profile.name })}
                   disabled={credentialBusy()}
-                  onClick={() => void remove(profile)}
+                  onClick={() => setRemoving(profile)}
                 >
                   {message('connectionProfiles.action.remove')}
                 </ProductButton>

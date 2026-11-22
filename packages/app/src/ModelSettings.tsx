@@ -14,6 +14,7 @@ export function ModelSettings(props: {
   readonly backendLabel: string
   readonly backendUrl?: string
   readonly onChanged?: () => void
+  readonly editLocation?: string | undefined
 }) {
   const message = useAppMessage()
   const [state, setState] = createSignal<ModelSettingsState>()
@@ -28,6 +29,15 @@ export function ModelSettings(props: {
   let editRevision = ''
   const [nativeChoice, setNativeChoice] = createSignal(false)
   const resetForm = () => { setEditing(undefined); setId(''); setPath(''); setKind(''); setWritable(false) }
+  const startEdit = (location: ModelLocation, revision: string) => {
+    setEditing(location.id)
+    editRevision = revision
+    setId(location.id)
+    setPath(location.path)
+    setKind(location.kind ?? '')
+    setWritable(location.mode === 'readwrite')
+    setRemoving(undefined)
+  }
   let generation = 0
   let read = 0
   const load = async (): Promise<void> => {
@@ -36,6 +46,10 @@ export function ModelSettings(props: {
     try {
       const next = await props.connection.fetchModelSettings()
       if (owner !== generation || request !== read) return
+      if (state() === undefined && typeof props.editLocation === 'string') {
+        const location = next.settings.locations.find((row) => row.id === props.editLocation)
+        if (location) startEdit(location, next.revision)
+      }
       setState(next)
       setError('')
     } catch (cause) {
@@ -139,17 +153,22 @@ export function ModelSettings(props: {
     catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
   }
   const disabled = () => busy() || state()?.changesAllowed !== true
+  const changed = () => {
+    const previous = state()?.settings.locations.find((row) => row.id === editing())
+    return previous === undefined || previous.path !== path().trim() || (previous.kind ?? '') !== kind().trim() || (previous.mode === 'readwrite') !== writable()
+  }
   const visibilityOptions = () => (['always-on', 'default-on', 'opt-in'] as const).map((value) => ({ id: value, value, label: message(`modelSettings.${value}`) }))
 
   return <section class="runtime-settings project-folder-settings" data-testid="model-settings">
     <div class="runtime-settings-body">
       <div class="runtime-settings-toolbar">
         <div><h3>{message('modelSettings.title')}</h3><p>{message('modelSettings.description', { machine: props.backendLabel })}</p></div>
-        <ProductButton disabled={busy()} onClick={() => { resetForm(); void load() }}>{message('projectFolders.refresh')}</ProductButton>
+        <Show when={props.editLocation === undefined}><ProductButton disabled={busy()} onClick={() => { resetForm(); void load() }}>{message('projectFolders.refresh')}</ProductButton></Show>
       </div>
       <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
       <Show when={props.providerConnection}>{(connection) => <ModelProvider connection={connection()} {...(props.backendUrl === undefined ? {} : { backendUrl: props.backendUrl })} onChanged={() => props.onChanged?.()} />}</Show>
       <Show when={state()}>{(current) => <>
+        <Show when={props.editLocation === undefined}>
         <p>{message('modelSettings.project', { project: current().project })}</p>
         <Show when={props.visibilityConnection}>
           <section data-testid="hidden-models">
@@ -198,6 +217,7 @@ export function ModelSettings(props: {
             <ProductButton variant="danger" disabled={disabled()} onClick={remove}>{message('modelSettings.remove')}</ProductButton>
           </div>
         </div></Show>
+        </Show>
         <Show when={current().changesAllowed}><form class="model-location-form" onSubmit={(event) => { event.preventDefault(); void add() }}>
           <h4>{message(editing() ? 'modelSettings.edit' : 'modelSettings.add')}</h4>
           <Show when={editing()}><ProductNotice tone="warning">{message('modelSettings.editNotice')}</ProductNotice></Show>
@@ -206,7 +226,7 @@ export function ModelSettings(props: {
           <ProductField controlId="model-location-path" label={message('modelSettings.path')} layout="stack"><ProductTextInput id="model-location-path" value={path()} disabled={disabled()} required onInput={(event) => setPath(event.currentTarget.value)} /></ProductField>
           <ProductField controlId="model-location-kind" label={message('projectFolders.purpose')} description={message('modelSettings.kindHint')} layout="stack"><ProductTextInput id="model-location-kind" aria-describedby="model-location-kind-description" value={kind()} disabled={disabled()} onInput={(event) => setKind(event.currentTarget.value)} /></ProductField>
           <label class="project-folder-shared"><ProductCheckbox checked={writable()} disabled={disabled()} ariaLabel={message('modelSettings.writable')} onChange={setWritable} />{message('modelSettings.writable')}</label>
-          <ProductButton type="submit" variant="primary" disabled={disabled() || !id().trim() || !path().trim()}>{message(editing() ? 'modelSettings.save' : 'modelSettings.add')}</ProductButton>
+          <ProductButton type="submit" variant="primary" disabled={disabled() || !id().trim() || !path().trim() || !changed()}>{message(editing() ? 'modelSettings.save' : 'modelSettings.add')}</ProductButton>
           <Show when={editing()}><ProductButton type="button" disabled={busy()} onClick={resetForm}>{message('projectFolders.cancel')}</ProductButton></Show>
         </form></Show>
       </>}</Show>
