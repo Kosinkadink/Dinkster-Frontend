@@ -889,7 +889,7 @@
   "mediaInspector.metadata.yes": "Yes",
   "mediaInspector.status.loading": "Loading metadata...",
   "mediaInspector.status.notReportedForKind": "Not reported for this value kind",
-  "mediaInspector.status.ownerUnavailable": "Execution owner unavailable.",
+  "mediaInspector.status.ownerUnavailable": "Execution backend unavailable.",
   "mediaInspector.summary.inspect": "Inspect {nodeId} / {outputId}",
   "outputs.pages.label": "Output image pages",
   "outputs.pages.previous": "Previous output page",
