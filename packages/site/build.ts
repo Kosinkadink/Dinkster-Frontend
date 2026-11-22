@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import type { Manifest } from 'vite'
+import { build, type Manifest } from 'vite'
+import solid from 'vite-plugin-solid'
+import postcss from 'postcss'
+import components from '@dinkster/branding/components' with { type: 'json' }
+import { semanticTokensForTheme } from '@dinkster/core/tokens'
 
 const dist = new URL('./dist/', import.meta.url)
 const styles = (await readdir(new URL('assets/', dist))).filter((file) =>
@@ -45,15 +49,15 @@ await writeFile(
 const { callbackTemplate } = await import(
   new URL('.callback/callback.js', dist).href
 )
-let callbackCss = await readFile(
+let embeddedCss = await readFile(
   new URL('../ui/dist/dinkster.css', import.meta.url),
   'utf8',
 )
-for (const match of callbackCss.matchAll(/url\('\.\/fonts\/([^']+)'\)/g)) {
+for (const match of embeddedCss.matchAll(/url\('\.\/fonts\/([^']+)'\)/g)) {
   const font = await readFile(
     new URL(`../ui/dist/fonts/${match[1]}`, import.meta.url),
   )
-  callbackCss = callbackCss.replaceAll(
+  embeddedCss = embeddedCss.replaceAll(
     match[0],
     `url('data:font/woff2;base64,${font.toString('base64')}')`,
   )
@@ -68,12 +72,96 @@ const callbackMarkup = (callbackTemplate() as string).replace(
   /src="[^"]+"/,
   `src="data:image/svg+xml;base64,${wordmark.toString('base64')}"`,
 )
-const callbackCsp = `default-src 'none'; script-src 'none'; connect-src 'none'; style-src 'sha256-${createHash('sha256').update(callbackCss).digest('base64')}'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'`
+const callbackCsp = `default-src 'none'; script-src 'none'; connect-src 'none'; style-src 'sha256-${createHash('sha256').update(embeddedCss).digest('base64')}'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'`
 await writeFile(
   new URL('callback.html', dist),
-  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${callbackCsp}"><title>__CALLBACK_HEADING__ | Dinkster</title><style>${callbackCss}</style></head><body class="dinkster-root" data-density="site" data-theme="dark">${callbackMarkup}</body></html>\n`,
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${callbackCsp}"><title>__CALLBACK_HEADING__ | Dinkster</title><style>${embeddedCss}</style></head><body class="dinkster-root" data-density="site" data-theme="dark">${callbackMarkup}</body></html>\n`,
 )
 await rm(new URL('.callback/', dist), { recursive: true })
+await build({
+  configFile: false,
+  plugins: [solid()],
+  build: {
+    outDir: dist.pathname,
+    emptyOutDir: false,
+    lib: {
+      entry: new URL('src/desktop-chrome.tsx', import.meta.url).pathname,
+      name: 'DinksterDesktopChrome',
+      formats: ['iife'],
+      fileName: () => 'desktop-chrome.js',
+    },
+  },
+})
+const chromeCss = postcss.root()
+for (const node of postcss.parse(embeddedCss).nodes) {
+  if (node.type === 'atrule' && node.name === 'font-face')
+    chromeCss.append(node.clone())
+  if (
+    node.type === 'atrule' &&
+    node.name === 'container' &&
+    node.nodes?.some(
+      (child) =>
+        child.type === 'rule' &&
+        child.selector.includes('.dinkster-window-toolbar'),
+    )
+  )
+    chromeCss.append(node.clone())
+  if (node.type !== 'rule') continue
+  if (node.selector === ':root')
+    chromeCss.append(
+      node.clone({
+        selector: ':is(.dinkster-desktop-bar, [data-desktop-chrome])',
+      }),
+    )
+  else if (node.selector === '[data-theme="light"]')
+    chromeCss.append(
+      node.clone({
+        selector:
+          ':is(.dinkster-desktop-bar, [data-desktop-chrome])[data-theme="light"]',
+      }),
+    )
+  else if (
+    /\.dinkster-(?:desktop-bar|window-(?:chrome|identity|fallback|toolbar|action))\b/.test(
+      node.selector,
+    )
+  )
+    chromeCss.append(node.clone())
+  else if (node.selector === '.dinkster-brand-title')
+    chromeCss.append(
+      node.clone({ selector: '.dinkster-desktop-bar .dinkster-brand-title' }),
+    )
+}
+await writeFile(
+  new URL('desktop-chrome.json', dist),
+  `${JSON.stringify(
+    {
+      format: 'dinkster.desktop-chrome/1',
+      installer: 'desktop-chrome.js',
+      css: chromeCss.toString(),
+      native: {
+        overlay: Object.fromEntries(
+          (['dark', 'light'] as const).map((theme) => {
+            const tokens = semanticTokensForTheme(theme)
+            return [
+              theme,
+              {
+                color: tokens.surface.panel,
+                symbolColor: tokens.text.primary,
+                height: components.layout.topBarHeight,
+              },
+            ]
+          }),
+        ),
+        trafficLightPosition: {
+          x: components.layout.macWindowControlsX,
+          y: components.layout.macWindowControlsY,
+        },
+      },
+    },
+    null,
+    2,
+  )}\n`,
+)
 const files: Record<string, string> = {}
 async function collect(directory: URL, prefix = '') {
   for (const entry of await readdir(directory, { withFileTypes: true })) {

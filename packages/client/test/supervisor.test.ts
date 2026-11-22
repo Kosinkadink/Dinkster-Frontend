@@ -57,8 +57,8 @@ describe('restartSupervisorEngine', () => {
   })
 })
 
-describe('fetchSchemas behind a pre-ready supervisor', () => {
-  it('throws EngineNotReadyError on the 503 engine-not-ready gate', async () => {
+describe('project startup behind a pre-ready supervisor', () => {
+  it.each(['schemas', 'registration'])('%s throws EngineNotReadyError on the 503 engine-not-ready gate', async (operation) => {
     const fetchFn: FetchLike = async () =>
       jsonResponse(503, { error: 'engine-not-ready', state: 'starting', status: '/supervisor/status' })
     const conn = new DinksterConnection({
@@ -67,7 +67,8 @@ describe('fetchSchemas behind a pre-ready supervisor', () => {
       clientId: 'cid',
       fetchFn,
     })
-    const error = await conn.fetchSchemas().catch((e: unknown) => e)
+    const request = operation === 'schemas' ? conn.fetchSchemas() : conn.registerProject('p-film', 'Film')
+    const error = await request.catch((e: unknown) => e)
     expect(error).toBeInstanceOf(EngineNotReadyError)
     expect((error as EngineNotReadyError).state).toBe('starting')
   })

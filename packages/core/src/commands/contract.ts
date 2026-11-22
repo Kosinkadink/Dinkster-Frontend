@@ -76,6 +76,8 @@ export type SharedReplayPreparation =
  */
 export interface CommandDefinition {
   readonly id: string
+  /** Recorded history patches already contain their complete view changes. */
+  readonly replaysHistory?: true
   /**
    * Called once before a shared session accepts a new local intention. The
    * returned params are retained only in that session's pending intention so

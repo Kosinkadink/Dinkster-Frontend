@@ -18,14 +18,18 @@ import {
   asSelectorCandidateId,
   asSelectorId,
   documentResolver,
+  createLocalSession,
+  connectSharedSession,
+  coreCommandRegistry,
   occurrenceDynamicView,
   loadDocument,
+  type Json,
   type NodeProgress,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
+import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -1509,6 +1513,62 @@ describe('groups', () => {
 })
 
 describe('boundary pseudo-nodes', () => {
+  it.each(['local', 'shared'] as const)('keeps %s panels fixed through graph edits and undo without changing an opened document', async (kind) => {
+    const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
+    const options = {
+      boundaryPositionsFor: (document: WorkflowDocument, graphId: string) => boundaryPositions({
+        document, graphId,
+        resolve: documentResolver(document, (type) => schemas.get(type)),
+        tokens: defaultTokens, measure, widgetMeasure,
+      }),
+    }
+    const session = kind === 'local'
+      ? createLocalSession(doc, coreCommandRegistry(), options)
+      : await connectSharedSession({
+        sessionId: 'panels',
+        fetchSnapshot: async () => ({ revision: 0, document: doc }),
+        fetchOps: async () => ({ kind: 'ops', ops: [] }),
+        postOp: () => new Promise(() => {}),
+        putSnapshot: async () => ({ kind: 'ok' }),
+        sendPresence: () => {}, onEvent: () => () => {}, close: () => {},
+      }, coreCommandRegistry(), { ...options, actorId: 'panels' })
+    const panels = () => buildScene({
+      document: session.doc, graphId: 'g1',
+      resolve: documentResolver(session.doc, (type) => schemas.get(type)),
+      tokens: defaultTokens, measure, widgetMeasure,
+    }).boundaryNodes.map(({ side, x, y }) => ({ side, x, y }))
+    const original = panels()
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+    expect(session.dispatch({ command: 'node.move', params: {
+      graphId: 'g1', positions: { n0: { x: -300, y: -100 } },
+    } }).ok).toBe(true)
+    expect(panels()).toEqual(original)
+    expect(session.undo()).toBe(true)
+    expect(session.doc.view.graphs.g1!.nodes.n0!.position).toEqual({ x: 100, y: 100 })
+    expect(panels()).toEqual(original)
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(panels()).toEqual(original)
+    expect(session.dispatch({ command: 'subgraph.import', params: {
+      graphs: { g2: { ...doc.graphs.g1!, id: 'g2' } },
+      view: { g2: doc.view.graphs.g1! },
+    } as unknown as Json }).ok).toBe(true)
+    expect(session.doc.view.graphs.g2!.boundary).toEqual(session.doc.view.graphs.g1!.boundary)
+    expect(session.undo()).toBe(true)
+    expect(session.doc.graphs.g2).toBeUndefined()
+    while (session.canUndo) expect(session.undo()).toBe(true)
+    expect(session.dispatch({ command: 'view.moveBoundaryNode', params: {
+      graphId: 'g1', side: 'inputs', position: { x: 200, y: 300 },
+    } }).ok).toBe(true)
+    expect(panels().find(({ side }) => side === 'inputs')).toEqual({ side: 'inputs', x: 200, y: 300 })
+    expect(session.undo()).toBe(true)
+    expect(panels()).toEqual(original)
+    expect(session.redo()).toBe(true)
+    expect(panels().find(({ side }) => side === 'inputs')).toEqual({ side: 'inputs', x: 200, y: 300 })
+    if ('close' in session && typeof session.close === 'function') session.close()
+  })
+
   /** exec-subgraph fixture, optionally with saved boundary view positions. */
   function g1SceneWith(boundary?: {
     inputs?: { position: { x: number; y: number } }

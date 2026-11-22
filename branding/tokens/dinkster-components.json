@@ -40,9 +40,12 @@
     "emptyStateMaxWidth": 480,
     "aboutWordmarkMaxWidth": 360,
     "macWindowControlsInset": 80,
+    "macWindowControlsX": 14,
+    "macWindowControlsY": 16,
     "iconSize": 16,
     "railIconSize": 20,
-    "menuRowHeight": 28
+    "menuRowHeight": 28,
+    "scrollbarSize": 8
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

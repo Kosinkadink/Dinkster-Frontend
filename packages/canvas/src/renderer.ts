@@ -3387,7 +3387,8 @@ export class CanvasRenderer {
           if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
           const companionAlpha = ctx.globalAlpha
           if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
-          const hovered = this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
+          const hovered = row.viewId !== 'core.compositor' &&
+            this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
             this.overlay.hoveredWidget.valueKey === row.valueKey
           this.paintWidget({
             ctx,

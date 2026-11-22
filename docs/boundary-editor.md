@@ -46,6 +46,17 @@ acceptance clears the draft. Navigating away clears transient drafts and
 notices without cancelling a submitted command. Its later completion cannot
 clear a newer draft or report a refusal in another view.
 
+## Canvas panel positions
+
+The Inputs and Outputs panels inside a subgraph keep their own saved positions.
+Moving, adding, removing or resizing other graph items does not move them. Drag a
+panel, alone or in a selection, to reposition it.
+
+New definitions store their initial content-bound positions during extraction,
+paste or import. Opening an older document does not change it: the first command
+that edits a definition stores its previously drawn panel positions in that same
+undo step. Undo restores the edited items and the panels' original places.
+
 ## Groups and choices
 
 A boundary item forwards one inner input or output by its flattened id, such

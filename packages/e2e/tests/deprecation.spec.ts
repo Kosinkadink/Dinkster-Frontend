@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function badgePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
   return page.evaluate((nodeId) => {

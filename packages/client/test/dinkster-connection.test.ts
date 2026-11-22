@@ -169,6 +169,14 @@ function preparedReview(result: unknown) {
 it.each([
   { format: 'dinkster.plan/1', base: null },
   { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
+  { format: 'dinkster.project-pack-plan/1', packChanges: null },
+  { format: 'dinkster.project-pack-plan/1', packChanges: [] },
+  { format: 'dinkster.project-pack-plan/1', packChanges: [
+    { pack: 'image', kind: 'changed', sourceChanged: true, dependenciesChanged: false },
+    { pack: 'shared', kind: 'changed', sourceChanged: false, dependenciesChanged: true },
+    { pack: 'old', kind: 'removed', sourceChanged: true, dependenciesChanged: false },
+    { pack: 'new', kind: 'added', sourceChanged: true, dependenciesChanged: true },
+  ] },
 ])('plans exact pack selections with an opaque host plan and applies only confirmation', async (hostPlan) => {
   const plan = { confirmation: 'opaque-review-token', plan: hostPlan,
     review: 'Install sampling 2.1 and image 3.2', expiresInSeconds: 900 }
@@ -192,6 +200,48 @@ it.each([
   expect(await connection.applyPackInstall(reviewed.confirmation)).toEqual({ generation: 3,
     activation: { epoch: 7, added: ['sampling', 'image'], removed: [], reloaded: ['models'], unchanged: ['base'] } })
   expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
+})
+
+it.each(['every-project', 'only-project'] as const)('retains explicit %s consent in preparation, not status or Apply', async (scope) => {
+  const packs = [{ pack: 'image', version: '3.2' }]
+  const plan = { confirmation: 'retained-scope-token', plan: { format: 'dinkster.project-pack-plan/1' },
+    review: 'Reviewed project scope', expiresInSeconds: 900 }
+  const calls: { action: string; body: unknown }[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async (url, init) => {
+      const action = url.split('/install/')[1]!
+      calls.push({ action, body: JSON.parse(init!.body as string) })
+      if (action === 'prepare') return jsonResponse(202, { preparation: 'preparation-1', state: 'preparing',
+        progress: { sequence: 1, stage: 'resolving', completed: 0, total: 1 } })
+      if (action === 'preparation/status') return jsonResponse(200, preparedReview(plan))
+      return jsonResponse(200, { generation: 3, activation: { generation: 3, epoch: 7, added: ['image'],
+        removed: [], reloaded: [], unchanged: [], failed: {}, rolledBack: false } })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const reviewed = await connection.planPackInstall(packs, undefined, undefined, scope)
+  expect(reviewed).toEqual(plan)
+  if (reviewed.commands !== undefined) throw new Error('Expected a gateway confirmation')
+  expect((await connection.applyPackInstall(reviewed.confirmation)).activation.added).toEqual(['image'])
+  expect(calls).toEqual([
+    { action: 'prepare', body: { packs, scope } },
+    { action: 'preparation/status', body: { preparation: 'preparation-1' } },
+    { action: 'apply', body: { confirmation: 'retained-scope-token' } },
+  ])
+})
+
+it.each([
+  {}, 'unknown', [null],
+  [{ pack: '', kind: 'added', sourceChanged: true, dependenciesChanged: false }],
+  [{ pack: 'image', kind: 'unchanged', sourceChanged: false, dependenciesChanged: false }],
+  [{ pack: 'image', kind: ['changed'], sourceChanged: true, dependenciesChanged: false }],
+  [{ pack: 'image', kind: 'changed', sourceChanged: true }],
+  [{ pack: 'image', kind: 'changed', sourceChanged: 'true', dependenciesChanged: false }],
+  Array(2).fill({ pack: 'image', kind: 'changed', sourceChanged: true, dependenciesChanged: false }),
+])('refuses malformed retained impact rather than claiming no affected projects: %j', async (packChanges) => {
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async () => jsonResponse(200, preparedReview({ confirmation: 'token',
+      plan: { format: 'dinkster.project-pack-plan/1', packChanges }, review: 'Review', expiresInSeconds: 900 })),
+    webSocketFactory: () => ({}) as WebSocketLike })
+  await expect(connection.planPackInstall([{ pack: 'image', version: '3.2' }])).rejects.toThrow('Malformed pack installation impact')
 })
 
 it('retains terminal-only installation commands without granting HTTP confirmation', async () => {
@@ -268,21 +318,22 @@ it('bounds install planning and forwards cancellation without retrying apply', a
 
 it('cancels a late preparation acknowledgement after the caller stops waiting', async () => {
   let acknowledge!: (response: Response) => void
-  const calls: string[] = []
-  const fetchFn: FetchLike = async (url) => {
-    calls.push(url)
+  const calls: { url: string; body: unknown }[] = []
+  const fetchFn: FetchLike = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init!.body as string) })
     if (url.endsWith('/prepare')) return new Promise((resolve) => { acknowledge = resolve })
     return jsonResponse(200, { state: 'cancelled' })
   }
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
     webSocketFactory: () => ({}) as WebSocketLike })
   const controller = new AbortController()
-  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal)).rejects.toThrow('Aborted')
+  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal, undefined, 'only-project')).rejects.toThrow('Aborted')
   controller.abort(new Error('Aborted'))
   await stopped
   acknowledge(jsonResponse(202, { preparation: 'late-preparation', state: 'preparing' }))
   await vi.waitFor(() => expect(calls).toEqual([
-    '/selected/api/packs/install/prepare', '/selected/api/packs/install/preparation/cancel',
+    { url: '/selected/api/packs/install/prepare', body: { packs: [{ pack: 'image', version: '1' }], scope: 'only-project' } },
+    { url: '/selected/api/packs/install/preparation/cancel', body: { preparation: 'late-preparation' } },
   ]))
 })
 
@@ -1564,6 +1615,11 @@ describe('worker catalog', () => {
 })
 
 describe('fetchSchemas wire contract', () => {
+  it.each([undefined, 'default', 'p-film'])('keeps schema requests in the configured project %s', async (project) => {
+    const { conn, requests } = submitHarness(nodesRoute, project)
+    await conn.fetchSchemas()
+    expect(requests[0]?.url).toBe(`http://test/api/nodes${project === undefined ? '' : `?project=${project}`}`)
+  })
 
   it('refuses a backend selecting another wire version', async () => {
     const { conn } = submitHarness((url) => url.includes('/api/nodes')
@@ -3438,8 +3494,35 @@ describe('workflow library wire', () => {
     await expect(cancelled.fetchLocalAssetBytes('cancelled', abort.signal)).rejects.toThrow()
   })
 
-  it('reads paginated engine projects and preserves library authority during registration and rename', async () => {
-    const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+  it('reads explicit managed identity without caching and preserves standalone null', async () => {
+    const environment = { id: '0123456789abcdef'.repeat(2), snapshot: '17' }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { environment }))
+    const controller = new AbortController()
+    expect(await conn.activeEnvironment(controller.signal)).toEqual(environment)
+    expect(requests[0]).toEqual({ url: 'http://test/api/environment', init: { cache: 'no-store', signal: controller.signal } })
+    const { conn: standalone } = submitHarness(() => jsonResponse(200, { environment: null }))
+    expect(await standalone.activeEnvironment()).toBeNull()
+    const { conn: denied } = submitHarness(() => jsonResponse(403, {}))
+    await expect(denied.activeEnvironment()).rejects.toThrow('403')
+  })
+
+  it.each([
+    {}, { environment: [] }, { environment: { id: 'main', snapshot: '1' } },
+    { environment: { id: 'a'.repeat(32), snapshot: '0' } },
+    { environment: { id: 'a'.repeat(32), snapshot: 2 } },
+  ])('rejects malformed managed identity rather than treating it as standalone', async (body) => {
+    const { conn } = submitHarness(() => jsonResponse(200, body))
+    await expect(conn.activeEnvironment()).rejects.toThrow('Malformed active environment')
+  })
+
+  it.each([
+    undefined,
+    null,
+    { id: 'stable-environment', lastSnapshot: '17', lastRunAt: '2026-11-19T15:00:00Z' },
+    { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
+  ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
+    const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
+      ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3458,9 +3541,58 @@ describe('workflow library wire', () => {
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
   })
 
+  it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
+    const { conn, requests } = submitHarness((url, init) => {
+      if (url.endsWith('/needs')) return jsonResponse(200, needs)
+      return jsonResponse(200, { project: { ...project, revision: init?.method === 'PATCH' ? 8 : 7 } })
+    })
+    const controller = new AbortController()
+    expect(await conn.getProject('p-film', controller.signal)).toEqual(project)
+    expect(await conn.projectNeeds('p-film', controller.signal)).toEqual(needs)
+    expect(requests[1]?.url).toBe('http://test/api/projects/p-film/needs')
+    expect(requests[1]?.init?.cache).toBe('no-store')
+    expect(requests[1]?.init?.signal).toBe(controller.signal)
+    expect(await conn.setProjectExtraPacks('p-film', ['extra-c', 'tools-b'], 7, controller.signal)).toEqual({ ...project, revision: 8 })
+    expect(requests[2]?.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { packs: { extra: ['extra-c', 'tools-b'] } } })
+    const { conn: stale, requests: rejected } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.setProjectExtraPacks('p-film', ['tools-b'], 6)).rejects.toThrow('changed elsewhere')
+    expect(rejected).toHaveLength(1)
+  })
+
+  it.each([
+    { packs: [{ pack: 'tools-a', version: 2 }], installed: [], extra: [], unknown: [] },
+    { packs: [], installed: [], extra: [null], unknown: [] },
+    { packs: [], installed: [], extra: [], unknown: [{ scope: 'local' }] },
+    { packs: [], installed: [], extra: [] },
+    { packs: [], extra: [], unknown: [] },
+    { packs: [], installed: [{ pack: 'tools-a', version: 2 }], extra: [], unknown: [] },
+    { packs: [], installed: [{ pack: 'tools-a', version: null }, { pack: 'tools-a', version: '1.0' }], extra: [], unknown: [] },
+  ])('rejects malformed needs rather than assuming the project needs nothing', async (needs) => {
+    const { conn } = submitHarness(() => jsonResponse(200, needs))
+    await expect(conn.projectNeeds('p-film')).rejects.toThrow('Malformed project needs')
+  })
+
+  it('refuses deleted or mismatched project reads instead of supplying an enablement revision', async () => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: true }
+    const { conn } = submitHarness(() => jsonResponse(200, { project }))
+    await expect(conn.getProject('p-film')).rejects.toThrow('unavailable')
+    await expect(conn.getProject('p-other')).rejects.toThrow('another project')
+  })
+
   it.each([
     { items: [{ id: 'p-film', name: 'Film', created: 'invalid', revision: 1, deleted: false }], cursor: null },
     { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 0, deleted: false }], cursor: null },
+    ...[
+      { id: 'another-environment', lastSnapshot: '3' },
+      { id: 'another-environment', lastSnapshot: null, lastRunAt: '2026-11-19T15:00:00Z' },
+      { id: 'another-environment', lastSnapshot: '3', lastRunAt: null },
+      { id: '', lastSnapshot: null, lastRunAt: null },
+      { id: 'another-environment', lastSnapshot: '', lastRunAt: '2026-11-19T15:00:00Z' },
+    ].map((environment) => ({ items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      environment }], cursor: null })),
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))
@@ -3737,7 +3869,11 @@ describe('memory telemetry transport', () => {
 
 })
 
-it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {
+it.each([
+  [undefined, {}],
+  ['default', { project: 'default' }],
+  ['p-film', { project: 'p-film' }],
+] as const)('reads workflow plans for project %s without a hardware guess or acquisition consent', async (project, scope) => {
   const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document
   expect(workflow).toBeDefined()
   const plan = {
@@ -3746,9 +3882,9 @@ it('reads workflow plans without sending a hardware guess or acquisition consent
     errors: [],
   }
   let payload: unknown = plan
-  const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
+  const { conn, requests } = submitHarness(() => jsonResponse(200, payload), project)
   await expect(conn.planWorkflowRequirements(workflow!)).resolves.toEqual(plan)
-  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow] })
+  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow], ...scope })
   payload = { ...plan, packs: [{ pack: 'tools-a', version: 123 }] }
   await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
   payload = { ...plan, assets: [{ ...plan.assets[0], sources: 'not-a-list' }] }

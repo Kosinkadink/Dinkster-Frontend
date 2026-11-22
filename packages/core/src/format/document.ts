@@ -740,8 +740,8 @@ export type BoundarySide = 'inputs' | 'outputs'
  * Geometry of one boundary pseudo-node (the node-like Inputs/Outputs panels
  * shown while editing a subgraph definition). Pure view state: the panels
  * themselves are derived from `GraphDef.boundary` at scene-build time and
- * are never NodeData. Absent = a deterministic default position derived
- * from the graph's content bounds.
+ * are never NodeData. Older documents can omit positions: their content-bound
+ * defaults are stored with the first graph edit, never merely by opening.
  */
 export interface BoundaryNodeViewState {
   readonly position: Vec2

@@ -18,9 +18,10 @@ import {
   canonicalTypeIdOf,
   companionSourcesOf,
   compile,
-  compositorStateOf,
   documentResolver,
   coreCommandRegistry,
+  initializeBoundaryViews,
+  type BoundaryPositionResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
@@ -132,6 +133,7 @@ import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
   EngineNotReadyError,
+  PackInstallError,
   ExecutionStore,
   RetentionClient,
   retainedAssetAcknowledgment,
@@ -145,6 +147,10 @@ import {
   type ExecutionState,
   type ExecutionStatus,
   type LibraryRecord,
+  type LibraryProject,
+  type ProjectNeeds,
+  type PackInstallPlan,
+  type PackPreparationProgress,
   type BackendDiscovery,
   type DinksterSubmitResult,
   type DinksterJobRecord,
@@ -171,7 +177,8 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { canvasMeasures } from './canvas-measures.js'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
@@ -203,11 +210,10 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
-import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
-import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
+import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, resultReceiptCurrent, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged, workflowNodeTitlesOnlyChanged } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
@@ -1178,7 +1184,6 @@ export interface CanvasBridge {
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
-  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean | Promise<boolean>
   /** Extracts the captured selection and group contents with the default name. */
   readonly extractSubgraph?: () => boolean | Promise<boolean>
   /** Flattens the sole selected subgraph occurrence by one level. */
@@ -1295,15 +1300,6 @@ export interface Tab {
   readonly execution?: ExecutionRef
 }
 
-/** Session-only destination for the registry-resolved image editor. */
-export interface ImageEditorTarget {
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly sourceRef: AssetRef
-}
-
 export interface CurveEditorTarget {
   readonly tabId: string
   readonly graphId: string
@@ -1326,23 +1322,8 @@ export interface GlslEditorTarget {
   readonly openedValue: string
 }
 
-/** Session-only destination for the compositor mode of the image editor. */
-export interface CompositorEditorTarget {
-  readonly mode: 'compositor'
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly instancePath: readonly string[]
-  readonly openedStoredValue: Json | undefined
-}
-
-export const isCompositorEditorTarget = (
-  target: ImageEditorTarget | CompositorEditorTarget,
-): target is CompositorEditorTarget => 'mode' in target && target.mode === 'compositor'
-
 const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === IMAGE_EDITOR_KIND || kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
+  kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -2447,6 +2428,25 @@ interface BackendBase {
  */
 export type Backend = BackendBase & { readonly protocol: 'dinkster'; readonly connection: DinksterConnection }
 
+export interface ProjectPackInstallationReview {
+  readonly installation: PackInstallPlan
+  readonly expiresAt: number
+  readonly affectedProjects: readonly LibraryProject[] | null
+  readonly scope?: 'every-project' | 'only-project'
+}
+
+export interface ProjectNeedsReview {
+  readonly backend: Backend
+  readonly project: LibraryProject
+  readonly needs: ProjectNeeds
+  readonly enable: readonly string[]
+  readonly changes: ProjectNeeds['packs']
+  readonly errors: readonly string[]
+  readonly current: () => boolean
+  /** Document and project ownership survives an expected registry replacement. */
+  readonly owned: () => boolean
+}
+
 /** A live socket alone does not make the backend's required HTTP metadata usable. */
 export function backendConnectionStatus(backend: Backend): ConnectionStatus {
   const status = backend.connection.status.get()
@@ -2584,6 +2584,15 @@ export class AppState {
   readonly searchOpen = createSignal(false)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
+  readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
+  private readonly projectNeedsChecks = new WeakMap<Backend, object>()
+  private readonly projectPackReviews = new WeakMap<ProjectPackInstallationReview, {
+    readonly review: ProjectNeedsReview
+    readonly environment: { readonly id: string; readonly snapshot: string }
+    readonly recheck: () => Promise<void>
+  }>()
+  readonly projectPackInstallations = new Map<Backend, 'applying' | 'uncertain'>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
   readonly templateGalleryOpen = createSignal(false)
@@ -2916,9 +2925,6 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
-  /** Never serialized: identifies the active mask or graph-compositor image editing session. */
-  readonly imageEditorTarget: Signal<ImageEditorTarget | CompositorEditorTarget | undefined> =
-    createSignal<ImageEditorTarget | CompositorEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the one input projected by the curve editor. */
   readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the first-party GLSL source editor session. */
@@ -3303,13 +3309,6 @@ export class AppState {
       run: () => this.canvasBridge.get()?.createEmptySubgraph?.(),
       enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createEmptySubgraph !== undefined,
     })
-    for (const kind of ['map', 'fold', 'while'] as const) {
-      this.frontendDoors.command(`region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`, {
-        get label() { return t(`command.region.create.${kind}`) },
-        run: () => this.canvasBridge.get()?.createRegion?.(kind),
-        enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createRegion !== undefined,
-      })
-    }
     register(
       'subgraph.extract',
       'command.subgraph.extract',
@@ -3585,17 +3584,13 @@ export class AppState {
       this.workflowOpenIntent += 1
       this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
-      const imageTarget = this.imageEditorTarget.get()
       const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (imageTarget && imageTarget.tabId !== activeId) this.imageEditorTarget.set(undefined)
       if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
       if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
-      if ((imageTarget && imageTarget.tabId !== activeId) ||
-          (curveTarget && curveTarget.tabId !== activeId) ||
+      if ((curveTarget && curveTarget.tabId !== activeId) ||
           (glslTarget && glslTarget.tabId !== activeId)) {
         this.tabs.update((list) => list.map((tab) =>
-          (tab.id === imageTarget?.tabId && tab.editorKind === IMAGE_EDITOR_KIND) ||
           (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
           (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
             ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
@@ -4628,6 +4623,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
+          boundaryPositionsFor: this.boundaryPositionResolver(resolve),
           validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, resolve, retainedDocuments),
           beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
             const owner = this.tabs.get().find((candidate) => candidate.store === (session ?? tab.store))
@@ -5463,14 +5459,14 @@ export class AppState {
             this.schemaRequests.set(nativeBackend, request)
             base.schemaState.set({ status: 'loading' })
             this.loadComfyTranslations(nativeBackend, () => gen === staleGen)
+            await migrateBrowserProjects(connection, globalThis.localStorage, undefined, () => current() && gen === staleGen)
+            if (gen < staleGen) continue
+            if (!current()) return targetEpoch
             const fresh = await connection.fetchSchemas()
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
             // and refetch under the current generation instead.
-            if (gen < staleGen) continue
-            if (!current()) return targetEpoch
-            await this.migrateProjectsForBackend(nativeBackend, () => current() && gen === staleGen)
             if (gen < staleGen) continue
             if (!current()) return targetEpoch
             await this.prepareExtensionWorld(nativeBackend, fresh)
@@ -5495,6 +5491,7 @@ export class AppState {
             // Older backend without epochs: one refetch is the best we can do.
             if (fresh.epoch === undefined || fresh.epoch >= targetEpoch || targetEpoch === goal) {
               base.schemaState.set({ status: 'ready' })
+              void this.checkProjectNeeds(nativeBackend)
               return targetEpoch
             }
           }
@@ -6466,7 +6463,6 @@ export class AppState {
     editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
-    if (editorKind !== IMAGE_EDITOR_KIND && this.imageEditorTarget.get()?.tabId === tabId) this.imageEditorTarget.set(undefined)
     if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
     if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
@@ -6491,54 +6487,6 @@ export class AppState {
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || (tab.appArrange === true) === appArrange) return
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
-  }
-
-  /** Resolve the bounded selected-node entry. Ambiguous, driven, frozen, and non-image inputs refuse. */
-  imageTargetForSelection(tab: Tab, graphId: string, selectedNodeIds: readonly string[]): ImageEditorTarget | undefined {
-    if (tab.execution !== undefined || selectedNodeIds.length !== 1) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[selectedNodeIds[0]!]
-    if (!graph || !node) return undefined
-    const resolve = this.registryForTab(tab)?.resolve
-    const candidates = imageInputCandidates({
-      schema: resolve?.(node.type),
-      nodeId: node.id,
-      values: node.values,
-      drivenInputIds: new Set([
-        ...Object.values(graph.links).flatMap((link) =>
-          'node' in link.to && 'port' in link.to && link.to.node === node.id ? [link.to.port] : []),
-        ...Object.values(graph.nets).flatMap((net) => net.sinks.flatMap((sink) =>
-          sink.node === node.id ? [sink.port] : [])),
-      ]),
-    })
-    const candidate = candidates.length === 1 ? candidates[0] : undefined
-    return candidate ? { tabId: tab.id, graphId, ...candidate } : undefined
-  }
-
-  /** Explicit image-ASSET row entry, revalidated against the current document and schema. */
-  imageTargetForInput(tab: Tab, graphId: string, nodeId: string, inputId: string): ImageEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const schema = node ? this.registryForTab(tab)?.resolve(node.type) : undefined
-    const driven = graph && (Object.values(graph.links).some((link) =>
-      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === nodeId && sink.port === inputId)))
-    const candidate = node && !driven
-      ? imageInputCandidates({ schema, nodeId, values: node.values }).find((item) => item.inputId === inputId)
-      : undefined
-    return candidate ? { tabId: tab.id, graphId, ...candidate } : undefined
-  }
-
-  /** Re-resolve a target against current schema, topology, and the complete source ref. */
-  validateImageTarget(target: ImageEditorTarget): ImageEditorTarget | undefined {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    if (!tab) return undefined
-    const current = this.imageTargetForInput(tab, target.graphId, target.nodeId, target.inputId)
-    if (!current) return undefined
-    const left = current.sourceRef, right = target.sourceRef
-    return left.digest === right.digest && left.name === right.name && left.size === right.size &&
-      left.mediaType === right.mediaType && left.virtualPath === right.virtualPath ? current : undefined
   }
 
   /** Clipboard text and external source-node references outlive their source tab. */
@@ -6594,7 +6542,7 @@ export class AppState {
     const destinationCurrent = (): boolean => !this.disposed && activeProjectId() === project &&
       session.doc === document && session.revision === revision &&
       generation === this.assetConnectionGenerations.get(backend.connection) &&
-      this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
+      this.backendFor(backend.id) === backend && this.registryUnchanged(registry, backend.registry.get()) &&
       this.tabs.get().some((candidate) => candidate.store === session && !candidate.execution &&
         this.backendForTab(candidate) === backend)
     const current = (): boolean => active && destinationCurrent()
@@ -6634,7 +6582,7 @@ export class AppState {
     const before = this.pickerAssetOwners.get(previous)
     const after = this.pickerAssetOwners.get(replacement)
     if (previous === replacement || !before || !after || !previous.current() || !replacement.current() ||
-      before.session !== after.session || before.backend !== after.backend || before.registry !== after.registry ||
+      before.session !== after.session || before.backend !== after.backend || !this.registryUnchanged(before.registry, after.registry) ||
       before.project !== after.project || before.generation !== after.generation || !publish() ||
       !replacement.current() || this.pickerAssetOwners.get(previous) !== before) return false
     before.invalidate()
@@ -6643,178 +6591,6 @@ export class AppState {
     // Closing admission waits for every reader before retiring its exact receipt.
     await before.owned.close()
     if (before.current() && after.current()) await this.retireAssetOwner(before.backend.connection, before.owned.retained)
-    return true
-  }
-
-  private readonly editorAssetRequests = new WeakMap<ImageEditorTarget | CompositorEditorTarget, object>()
-  private readonly endedEditorDocuments = new WeakSet<DocumentSession>()
-  private readonly editorDocumentContinuations = new WeakMap<DocumentSession, DocumentSession>()
-  private readonly editorAssetOwners = new Map<RetainedAssets, {
-    readonly target: ImageEditorTarget | CompositorEditorTarget
-    readonly session: DocumentSession
-    readonly backend: Backend
-    readonly project: string
-    readonly registry: ReturnType<Backend['registry']['get']>
-    readonly generation: number | undefined
-  }>()
-
-  private retireEndedEditorOwners(): void {
-    for (const [retained, owner] of this.editorAssetOwners) {
-      let session = owner.session
-      for (let next = this.editorDocumentContinuations.get(session); next; next = this.editorDocumentContinuations.get(session)) {
-        session = next
-      }
-      if (!this.endedEditorDocuments.has(session) || this.disposed ||
-        activeProjectId() !== owner.project || this.backendFor(owner.backend.id) !== owner.backend ||
-        this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
-        this.tabs.get().some((tab) => tab.store === session)) continue
-      this.editorAssetOwners.delete(retained)
-      void this.retireAssetOwner(owner.backend.connection, retained)
-    }
-  }
-
-  async retainEditorAssets(
-    target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown, publish: () => boolean,
-  ): Promise<void> {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const registry = backend.registry.get()
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const request = {}
-    this.editorAssetRequests.set(target, request)
-    let unchanged = true
-    const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
-    const current = (): boolean => unchanged && !this.disposed && activeProjectId() === project && tab !== undefined &&
-      this.editorAssetRequests.get(target) === request && generation === this.assetConnectionGenerations.get(backend.connection) &&
-      this.imageEditorTarget.get() === target && this.backendFor(backend.id) === backend &&
-      backend.registry.get() === registry && this.tabs.get().some((candidate) =>
-        candidate.id === tab.id && candidate.store === tab.store && this.backendForTab(candidate) === backend) &&
-      (isCompositorEditorTarget(target) ? this.validateCompositorTarget(target) : this.validateImageTarget(target)) !== undefined
-    try {
-      if (tab === undefined || !current() || backend.protocol !== 'dinkster') throw new Error('Editor source is no longer available')
-      let digests: readonly string[]
-      if (isCompositorEditorTarget(target)) {
-        const state = compositorStateOf(value)
-        if (state === undefined) throw new Error('Editor resource inventory is invalid')
-        // Every external resource belongs to the editable document, including
-        // hidden layers, masks and resources not referenced by the current recipe.
-        digests = [...new Set([state.documentDigest, ...Object.values(state.document.resources)
-          .filter((resource) => resource.inline === undefined).map((resource) => resource.digest)])].sort()
-      } else {
-        if (!isAssetRef(value) || value.digest !== target.sourceRef.digest) throw new Error('Editor resource inventory is invalid')
-        digests = [value.digest]
-      }
-      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision,
-        { complete: true, digests }, undefined, undefined, false, [4])
-      const previous = [...this.editorAssetOwners].filter(([, owner]) => owner.target === target)
-      this.editorAssetOwners.set(retained, { target, session: tab.store, backend, project, registry, generation })
-      this.retireEndedEditorOwners()
-      if (!current()) throw new Error('Editor source changed during asset admission')
-      if (!publish() || !current()) return
-      // A canceled view does not transfer ownership. Only publishing the
-      // acknowledged replacement on this exact lifetime can retire its draft.
-      for (const [receipt, owner] of previous) {
-        if (current() && owner.backend === backend && owner.project === project &&
-          owner.registry === registry && owner.generation === generation) {
-          this.editorAssetOwners.delete(receipt)
-          await this.retireAssetOwner(backend.connection, receipt)
-        }
-      }
-    } finally { unsubscribe() }
-  }
-
-  openImageEditor(target: ImageEditorTarget): boolean {
-    const validated = this.validateImageTarget(target)
-    const tab = validated ? this.tabs.get().find((candidate) => candidate.id === validated.tabId) : undefined
-    if (!tab || !validated) return false
-    const previous = this.imageEditorTarget.get()
-    if (previous && previous.tabId !== validated.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === IMAGE_EDITOR_KIND ? { ...candidate, editorKind: GRAPH_EDITOR_KIND } : candidate))
-    }
-    this.imageEditorTarget.set(validated)
-    this.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
-    return this.tabs.get().some((candidate) => candidate.id === tab.id && candidate.editorKind === IMAGE_EDITOR_KIND)
-  }
-
-  closeImageEditor(target: ImageEditorTarget | CompositorEditorTarget): void {
-    if (this.imageEditorTarget.get() !== target) return
-    this.imageEditorTarget.set(undefined)
-    this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
-  }
-
-  compositorTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-    instancePath: readonly string[] = [],
-  ): CompositorEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const resolver = this.registryForTab(tab)?.resolve
-    const inputSchema = node ? resolver?.(node.type) : undefined
-    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
-    const definitionDriven = graph && (Object.values(graph.links).some((link) =>
-      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
-        'port' in sink && sink.node === nodeId && sink.port === inputId)))
-    let occurrenceDriven = false
-    if (instancePath.length > 0 && graph && resolver) {
-      const owner = {
-        instancePath: instancePath.slice(0, -1).map(asNodeId),
-        node: asNodeId(instancePath.at(-1)!),
-      }
-      const effective = effectiveOccurrenceTopology(tab.store.doc, resolver, owner)
-      if (effective.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
-      occurrenceDriven = effectiveTopologyDrivesPort(
-        effective,
-        graph.id,
-        instancePath.map(asNodeId),
-        { node: asNodeId(nodeId), port: asPortId(inputId) },
-      )
-    }
-    return !definitionDriven && !occurrenceDriven &&
-      input?.kind === 'input' && input.widget?.widgetType === 'COMPOSITOR'
-      ? {
-          mode: 'compositor',
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: node?.values[inputId],
-        }
-      : undefined
-  }
-
-  validateCompositorTarget(target: CompositorEditorTarget): CompositorEditorTarget | undefined {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const current = tab && this.compositorTargetForInput(
-      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
-    )
-    if (!current || (current.openedStoredValue === undefined) !== (target.openedStoredValue === undefined)) return undefined
-    if (current.openedStoredValue !== undefined && target.openedStoredValue !== undefined &&
-        canonicalJson(current.openedStoredValue) !== canonicalJson(target.openedStoredValue)) return undefined
-    return current
-  }
-
-  openCompositorEditor(target: CompositorEditorTarget): boolean {
-    const current = this.validateCompositorTarget(target)
-    const tab = current ? this.tabs.get().find((candidate) => candidate.id === current.tabId) : undefined
-    if (!tab || !current) return false
-    const previous = this.imageEditorTarget.get()
-    if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === IMAGE_EDITOR_KIND
-          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-          : candidate))
-    }
-    this.imageEditorTarget.set(current)
-    this.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
     return true
   }
 
@@ -6981,6 +6757,26 @@ export class AppState {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
+  private boundaryPositionResolver(resolve: SchemaResolver): BoundaryPositionResolver {
+    return (document, graphId) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
+      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
+      const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
+      const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
+      return boundaryPositions({
+        document, graphId, resolve: resolver,
+        tokens: defaultTokens, ...measurements,
+        seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
+        renderVirtualNode: (node) => this.virtualNodeKinds.get(node.type)?.render(node),
+        occurrenceView: occurrenceDynamicView(document, resolver, path, path.length === 0 ? graphId : document.root),
+        ...(path.length > 0 ? { occurrence: {
+          owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
+          plannerAvailable: false,
+        } } : {}),
+      })
+    }
+  }
+
   private makeTab(
     document: WorkflowDocument,
     title: string,
@@ -7008,6 +6804,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
+        boundaryPositionsFor: this.boundaryPositionResolver(resolve),
         validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
@@ -7492,13 +7289,11 @@ export class AppState {
         const recoveryStartedByClose = tab === closing && !priorRecovery?.pending &&
           this.documentRecoveryStages.get(tab.store) !== priorRecovery
         this.captureClosedWorkflow(tab, this.workspaceTabRevision + 1, recoveryStartedByClose)
-        this.endedEditorDocuments.add(tab.store)
       }
     }
     const remaining = this.tabs.get().filter((t) => t.id !== id)
     this.tabs.set(remaining)
     this.cleanupClosedTab(id)
-    this.retireEndedEditorOwners()
     if (this.activeTabId.get() === id) this.activeTabId.set(remaining[0]?.id ?? '')
   }
 
@@ -7531,7 +7326,6 @@ export class AppState {
 
   private cleanupClosedTab(id: string): void {
     this.dismissMigrationNotice(id)
-    if (this.imageEditorTarget.get()?.tabId === id) this.imageEditorTarget.set(undefined)
     if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
@@ -7787,6 +7581,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
+        boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, sessionResolver, retainedDocuments),
         beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
           const live = this.tabs.get().find((tab) => tab.store === session)
@@ -8180,16 +7975,6 @@ export class AppState {
     if (this.disposed || !stillWanted()) return undefined
     const registry = backend.registry.get()
     const destinationRegistry = destination.registry.get()
-    const registryUnchanged = (before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean => {
-      before = before && (this.packLocaleSources.get(before) ?? before)
-      after = after && (this.packLocaleSources.get(after) ?? after)
-      if (before === after) return true
-      if (before === undefined || after === undefined) return false
-      // A refetch can replace the registry without changing its admission contract.
-      const content = (value: SchemaRegistry) => ({ ...value, resolve: undefined,
-        schemas: Object.fromEntries(value.schemas), packs: value.packs && Object.fromEntries(value.packs) })
-      return canonicalJson(content(before)) === canonicalJson(content(after))
-    }
     const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(destination.connection)
     let connectionChanged = false
@@ -8200,8 +7985,8 @@ export class AppState {
         this.resolverWithVirtualNodes(destinationRegistry?.resolve ?? (() => undefined)), [], 'admission')
       const retained = await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
       if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
-        !this.backends.get().includes(destination) || !registryUnchanged(registry, backend.registry.get()) ||
-        !registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
+        !this.backends.get().includes(destination) || !this.registryUnchanged(registry, backend.registry.get()) ||
+        !this.registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
       const previous = this.tabs.get().find((tab) => !tab.execution && tab.id === prepared.document.lineage)
       const tab = prepared.publish(target ?? undefined)
       this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation, previous?.store ?? tab.store)
@@ -8211,7 +7996,7 @@ export class AppState {
       const intent = this.workflowOpenIntent
       if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
       if (this.disposed || intent !== this.workflowOpenIntent || connectionChanged ||
-        !this.backends.get().includes(destination) || !registryUnchanged(destinationRegistry, destination.registry.get())) return undefined
+        !this.backends.get().includes(destination) || !this.registryUnchanged(destinationRegistry, destination.registry.get())) return undefined
       const current = this.liveTabContinuing(tab.store)
       return current && this.backendForTab(current) === destination ? current : undefined
     } catch {
@@ -8301,7 +8086,243 @@ export class AppState {
     } }
   }
 
+  async checkProjectNeeds(backend: Backend): Promise<void> {
+    if (backend.connection.status.get() !== 'connected' || this.projectPackInstallations.get(backend) === 'applying') return
+    const projectId = activeProjectId()
+    const registry = backend.registry.get()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const request = {}
+    this.projectNeedsChecks.set(backend, request)
+    const documents = this.tabs.get().filter((tab) => this.backendForTab(tab) === backend)
+      .map((tab) => ({ store: tab.store, revision: tab.store.revision, document: tab.store.doc }))
+    const owned = (): boolean => !this.disposed && activeProjectId() === projectId &&
+      this.backends.get().includes(backend) &&
+      documents.every(({ store, revision, document }) => {
+        const tab = this.liveTabContinuing(store)
+        return tab !== undefined && this.backendForTab(tab) === backend && tab.store.revision === revision &&
+          (tab.store.doc === document || tab.store !== store && canonicalJson(tab.store.doc) === canonicalJson(document))
+      })
+    const current = (): boolean => owned() && backend.connection.status.get() === 'connected' &&
+      this.projectPackInstallations.get(backend) !== 'applying' && this.assetConnectionGenerations.get(backend.connection) === generation && backend.registry.get() === registry &&
+      this.projectNeedsChecks.get(backend) === request
+    if (this.projectNeedsReview.get()?.backend === backend) this.projectNeedsReview.set(undefined)
+    try {
+      const project = await backend.connection.getProject(projectId)
+      const needs = await backend.connection.projectNeeds(projectId)
+      if (!current()) return
+      const required = new Map<string, { pack: string; version: string | null }>()
+      const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
+      for (const pack of needs.packs) add(pack.pack, pack.version)
+      for (const pack of needs.extra) add(pack, null)
+      const errors = new Set(needs.unknown.map(({ scope, id }) => `${scope}/${id}`))
+      for (const { document } of documents) {
+        for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+          if (node.virtual === true || node.type.startsWith('#')) continue
+          const saved = document.environment?.nodes[node.type]
+          const schema = registry?.resolve(node.type)
+          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? undefined : 'core')
+          if (pack === undefined) { errors.add(node.type); continue }
+          const provenance = saved?.pack !== undefined ? document.environment?.packs[pack] : registry?.packs?.get(pack)
+          if (pack !== 'core') add(pack, provenance?.version ?? null)
+        }
+      }
+      const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
+      const enabled = new Set([...needs.extra, ...needs.packs.map(({ pack }) => pack)])
+      const changes = [...required.values()].filter(({ pack, version }) =>
+        !installed.has(pack) || version !== null && installed.get(pack) !== version)
+      const changing = new Set(changes.map(({ pack }) => pack))
+      const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
+        .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
+      if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
+      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned })
+    } catch (error) {
+      if (!current()) return
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
+        `Project needs unavailable: ${error instanceof Error ? error.message : String(error)}`)])
+    }
+  }
+
+  async enableReviewedProjectPacks(review: ProjectNeedsReview): Promise<void> {
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (this.projectNeedsReview.get() !== review || !review.current() || review.project.uid === undefined) {
+      throw new Error('Project changed. Review its needs again.')
+    }
+    const project = await review.backend.connection.getProject(review.project.id)
+    const needs = await review.backend.connection.projectNeeds(review.project.id)
+    if (this.projectPackInstallations.has(review.backend) || this.projectNeedsReview.get() !== review || !review.current() || project.uid !== review.project.uid ||
+      project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs)) {
+      throw new Error('Project or installed packs changed. Review its needs again.')
+    }
+    await review.backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...review.enable])].sort(), project.revision)
+    if (!review.current()) return
+    this.projectNeedsReview.set(undefined)
+    this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+    await this.refreshBackendSchemas(review.backend)
+  }
+
+  async reviewProjectPackInstallation(review: ProjectNeedsReview, signal: AbortSignal,
+    onProgress: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<ProjectPackInstallationReview> {
+    const current = (): void => {
+      signal.throwIfAborted()
+      if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+      if (this.projectNeedsReview.get() !== review || !review.current() || scope !== undefined && review.project.uid === undefined) {
+        throw new Error(t('projectNeeds.changed'))
+      }
+    }
+    const recheck = async (): Promise<void> => {
+      current()
+      const project = await review.backend.connection.getProject(review.project.id, signal)
+      const needs = await review.backend.connection.projectNeeds(review.project.id, signal)
+      const running = await review.backend.connection.activeEnvironment(signal)
+      current()
+      if (project.uid !== review.project.uid || project.revision !== review.project.revision || JSON.stringify(needs) !== JSON.stringify(review.needs) ||
+        running?.id !== environment?.id || running?.snapshot !== environment?.snapshot ||
+        project.environment != null && project.environment.id !== running?.id) {
+        throw new Error(t('projectNeeds.changed'))
+      }
+    }
+    current()
+    if (review.errors.length > 0 || review.changes.length === 0 ||
+      review.changes.some(({ version }) => version === null) ||
+      new Set(review.changes.map(({ pack }) => pack)).size !== review.changes.length) {
+      throw new Error(t('projectNeeds.exactVersionsRequired'))
+    }
+    const environment = await review.backend.connection.activeEnvironment(signal)
+    await recheck()
+    const packs = review.changes.map(({ pack, version }) => ({ pack, version: version! }))
+    const plan = await review.backend.connection.planPackInstall(packs, signal, (progress) => {
+      current()
+      onProgress(progress)
+    }, scope)
+    const expiresAt = performance.now() + plan.expiresInSeconds * 1000
+    await recheck()
+    if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
+    const prepared = { installation: plan, expiresAt, ...(scope === undefined ? {} : { scope }) }
+    const retain = (affectedProjects: readonly LibraryProject[] | null): ProjectPackInstallationReview => {
+      const result = { ...prepared, affectedProjects }
+      if (scope !== undefined && environment !== null && plan.confirmation !== undefined && plan.plan['format'] === 'dinkster.project-pack-plan/1') {
+        this.projectPackReviews.set(result, { review, environment, recheck })
+      }
+      return result
+    }
+    const impact = plan.plan['format'] === 'dinkster.project-pack-plan/1' ? plan.plan.packChanges : undefined
+    if (impact == null || environment === null) return retain(null)
+    const changed = new Set(impact.map(({ pack }) => pack))
+    const readProjects = async (): Promise<readonly LibraryProject[]> => {
+      const projects = new Map<string, LibraryProject>()
+      const cursors = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await review.backend.connection.listProjects(cursor, signal)
+        current()
+        for (const project of page.items) {
+          if (projects.has(project.id)) throw new Error(t('projectNeeds.changed'))
+          projects.set(project.id, project)
+        }
+        cursor = page.cursor ?? undefined
+        if (cursor !== undefined && cursors.has(cursor)) throw new Error(t('projectNeeds.changed'))
+        if (cursor !== undefined) cursors.add(cursor)
+      } while (cursor !== undefined)
+      return [...projects.values()].sort((a, b) => a.id.localeCompare(b.id))
+    }
+    const projects = await readProjects()
+    if (!projects.some(({ id, uid, revision }) => id === review.project.id && uid === review.project.uid && revision === review.project.revision)) {
+      throw new Error(t('projectNeeds.changed'))
+    }
+    const affected: LibraryProject[] = []
+    const observedNeeds = new Map<string, ProjectNeeds>()
+    let known = true
+    for (const project of projects) {
+      if (project.deleted || project.id === review.project.id || changed.size === 0) continue
+      if (project.environment == null) { known = false; continue }
+      if (project.environment.id !== environment.id) continue
+      const needs = await review.backend.connection.projectNeeds(project.id, signal)
+      current()
+      observedNeeds.set(project.id, needs)
+      if (needs.unknown.length > 0) known = false
+      if (needs.packs.some(({ pack }) => changed.has(pack)) || needs.extra.some((pack) => changed.has(pack))) {
+        affected.push(project)
+      }
+    }
+    for (const [id, needs] of observedNeeds) {
+      const latest = await review.backend.connection.projectNeeds(id, signal)
+      current()
+      if (JSON.stringify(latest) !== JSON.stringify(needs)) throw new Error(t('projectNeeds.changed'))
+    }
+    if (JSON.stringify(await readProjects()) !== JSON.stringify(projects)) throw new Error(t('projectNeeds.changed'))
+    await recheck()
+    if (performance.now() >= expiresAt) throw new Error(t('search.installExpired'))
+    return retain(known ? affected : null)
+  }
+
+  async applyReviewedProjectPacks(review: ProjectNeedsReview, prepared: ProjectPackInstallationReview): Promise<void> {
+    const retained = this.projectPackReviews.get(prepared)
+    this.projectPackReviews.delete(prepared)
+    if (retained?.review !== review || prepared.installation.confirmation === undefined || prepared.scope === undefined ||
+      review.project.uid === undefined) throw new Error(t('projectNeeds.changed'))
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (performance.now() >= prepared.expiresAt) throw new Error(t('search.installExpired'))
+    await retained.recheck()
+    if (this.projectPackInstallations.has(review.backend)) throw new Error(t('search.installUnknown'))
+    if (performance.now() >= prepared.expiresAt) throw new Error(t('search.installExpired'))
+    const backend = review.backend
+    let acknowledged = false
+    this.projectPackInstallations.set(backend, 'applying')
+    try {
+      const result = await backend.connection.applyPackInstall(prepared.installation.confirmation)
+      acknowledged = true
+      if (backend.connection.status.get() !== 'connected') {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            unsubscribe()
+            reject(new Error(t('projectNeeds.activationReconnect')))
+          }, 15_000)
+          const unsubscribe = backend.connection.status.subscribe((status) => {
+            if (status !== 'connected') return
+            clearTimeout(timer)
+            unsubscribe()
+            resolve()
+          })
+        })
+      }
+      const project = await backend.connection.getProject(review.project.id)
+      const environment = await backend.connection.activeEnvironment()
+      const needs = await backend.connection.projectNeeds(review.project.id)
+      const latest = await backend.connection.getProject(review.project.id)
+      const running = await backend.connection.activeEnvironment()
+      const expected = new Map(review.needs.installed.map(({ pack, version }) => [pack, version]))
+      for (const { pack, version } of review.changes) expected.set(pack, version!)
+      const selected = [...new Set([...review.enable, ...review.changes.map(({ pack }) => pack)])]
+      const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
+      if (this.projectNeedsReview.get() !== review || !review.owned() || backend.connection.status.get() !== 'connected' || project.deleted ||
+        project.uid !== review.project.uid || latest.uid !== project.uid || latest.revision !== project.revision ||
+        JSON.stringify(latest.environment) !== JSON.stringify(project.environment) ||
+        environment === null || running?.id !== environment.id || running.snapshot !== environment.snapshot ||
+        environment.snapshot !== String(result.generation) || project.environment?.id !== environment.id ||
+        (prepared.scope === 'every-project' ? environment.id !== retained.environment.id : environment.id === retained.environment.id) ||
+        needs.unknown.length > 0 || selected.some((pack) => !expected.has(pack) || installed.get(pack) !== expected.get(pack))) {
+        throw new Error(t('projectNeeds.activationChanged'))
+      }
+      await backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...selected])].sort(), latest.revision)
+      if (!review.owned()) return
+      if (this.projectNeedsReview.get() === review) this.projectNeedsReview.set(undefined)
+      this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+    } catch (error) {
+      const rejected = error instanceof PackInstallError && ([400, 401, 403, 404].includes(error.status) ||
+        error.status === 409 && ['invalid-confirmation', 'plan-stale', 'install-in-progress', 'composition-in-progress'].includes(String(error.body?.['error'])))
+      if (!acknowledged && !rejected) {
+        this.projectPackInstallations.set(backend, 'uncertain')
+        throw new Error(t('search.installUnknown'))
+      }
+      throw error
+    } finally {
+      if (this.projectPackInstallations.get(backend) === 'applying') this.projectPackInstallations.delete(backend)
+    }
+    await this.refreshBackendSchemas(backend)
+  }
+
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
+    void this.checkProjectNeeds(backend)
     const document = tab.store.doc
     const revision = tab.store.revision
     const bytes = JSON.stringify(document)
@@ -8711,7 +8732,6 @@ export class AppState {
   }>()
 
   private continueWorkflowAssetOwner(previous: DocumentSession, session: DocumentSession): void {
-    this.editorDocumentContinuations.set(previous, session)
     const owner = this.workflowAssetOwners.get(previous)
     if (owner === undefined || this.workflowAssetOwners.has(session) || this.disposed ||
       activeProjectId() !== owner.project || !this.backends.get().includes(owner.backend) ||
@@ -9393,8 +9413,12 @@ export class AppState {
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
     ])
-    if (!unavailable) return result
-    return { ...result, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
+    const imported = result.document === undefined ? result : {
+      ...result,
+      document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
+    }
+    if (!unavailable) return imported
+    return { ...imported, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
       ? { ...entry, code: 'import.registry.unreachable', message: `registry could not be reached; ${entry.message}`, data: { detail: entry.message } }
       : entry) }
   }
@@ -9413,6 +9437,7 @@ export class AppState {
       if (reg) {
         backend.registry.set(this.layerExtraSchemas(reg))
         backend.invalidateRemoteChoices()
+        if (backend.protocol === 'dinkster') void this.checkProjectNeeds(backend)
       }
     }
   }
@@ -9435,6 +9460,17 @@ export class AppState {
 
   /** Locale labels do not change the schema snapshot used for asset admission. */
   private readonly packLocaleSources = new WeakMap<SchemaRegistry, SchemaRegistry>()
+
+  private registryUnchanged(before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean {
+    before = before && (this.packLocaleSources.get(before) ?? before)
+    after = after && (this.packLocaleSources.get(after) ?? after)
+    if (before === after) return true
+    if (before === undefined || after === undefined) return false
+    // A refetch can replace the registry without changing its admission contract.
+    const content = (value: SchemaRegistry) => ({ ...value, resolve: undefined,
+      schemas: Object.fromEntries(value.schemas), packs: value.packs && Object.fromEntries(value.packs) })
+    return canonicalJson(content(before)) === canonicalJson(content(after))
+  }
 
   private async refreshPackLocaleOverlay(
     backend: Backend & { readonly protocol: 'dinkster' },
@@ -9894,18 +9930,6 @@ export class AppState {
     )
   }
 
-  private async migrateProjectsForBackend(backend: Backend, current: () => boolean): Promise<void> {
-    try {
-      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
-    } catch (cause) {
-      if (!current()) return
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [{
-        severity: 'error', origin: 'schema', code: 'projects.registrationFailed',
-        message: `[${backend.label}] browser project registration failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      }])
-    }
-  }
-
   /** Fetch schemas (+ native diagnostics); failures land in Problems - except
    * the supervisor's engine-not-ready gate, which the supervisor poll narrates
    * (and retries on ready) instead of a scary fetch-failed problem. */
@@ -9920,9 +9944,9 @@ export class AppState {
       this.settings.get<string>('search.registryUrl') === catalogPrefix
     try {
       this.loadComfyTranslations(backend, current)
-      const registry = await backend.connection.fetchSchemas()
+      await migrateBrowserProjects(backend.connection, globalThis.localStorage, undefined, current)
       if (!current()) return
-      await this.migrateProjectsForBackend(backend, current)
+      const registry = await backend.connection.fetchSchemas()
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
@@ -9937,6 +9961,7 @@ export class AppState {
       if (backend.protocol === 'dinkster') {
         void this.refreshPackLocaleOverlay(backend, registry)
         await this.restoreExecutionResults(backend, layered, current)
+        if (current()) void this.checkProjectNeeds(backend)
       }
     } catch (e) {
       if (!current()) return

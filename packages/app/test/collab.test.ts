@@ -1440,7 +1440,13 @@ describe('lifecycle races', () => {
     expect(tabB.store.doc.graphs[root]!.nodes[winnerNodeId]?.type).toBe(`#${fixedGraphId}`)
     expect(tabB.store.doc.graphs[root]!.nodes[loserNodeId]).toBeUndefined()
     expect(tabB.store.doc.graphs[fixedGraphId]).toEqual(tabA.store.doc.graphs[fixedGraphId])
-    expect(tabB.store.doc.view.graphs[fixedGraphId]).toEqual({ nodes: {} })
+    expect(tabB.store.doc.view.graphs[fixedGraphId]).toEqual({
+      nodes: {},
+      boundary: {
+        inputs: { position: { x: -260, y: 0 } },
+        outputs: { position: { x: 440, y: 0 } },
+      },
+    })
     expect(tabB.graphStack.get()).toEqual([root])
     expect(tabB.instancePath.get()).toEqual([])
     expect(appB.problems.get()).toContainEqual(expect.objectContaining({

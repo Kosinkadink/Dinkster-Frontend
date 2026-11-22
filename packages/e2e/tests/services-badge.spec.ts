@@ -1,5 +1,5 @@
 import { DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 for (const panel of [false, true]) {
   test(`services badge follows the engine in ${panel ? 'panel' : 'main'} windows`, async ({ page }) => {

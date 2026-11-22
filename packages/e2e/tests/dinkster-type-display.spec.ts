@@ -1,7 +1,7 @@
 /**
  * Native built-in pins display their canonical identities and palette colors.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const schema = {
   type: 'TypeDisplayNative',

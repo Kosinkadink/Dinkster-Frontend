@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const concrete = (type: string) => ({ kind: 'concrete', types: [type] })
 const combo = (id: string, options: readonly string[], value: string) => ({

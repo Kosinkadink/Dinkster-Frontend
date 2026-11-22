@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { WebSocketRoute } from '@playwright/test'
-import { expect, test, type Locator, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Locator, type Page } from './fixtures.js'
 
 const PRIMARY = 'http://memory.test'
 const SECONDARY = 'http://memory-secondary.test'

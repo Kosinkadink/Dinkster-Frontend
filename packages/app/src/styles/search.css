@@ -135,12 +135,8 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: var(--dinkster-space-8);
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
   scrollbar-gutter: stable;
 }
-.search-results::-webkit-scrollbar { width: var(--dinkster-space-8); }
-.search-results::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
-.search-results::-webkit-scrollbar-thumb { background: var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); }
 .search-result-preview {
   min-width: 0;
   overflow: auto;

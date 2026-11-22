@@ -623,6 +623,11 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   const toggle = page.getByRole('button', { name: 'Toggle navigation' })
   await toggle.click()
   await expect(page.getByRole('navigation')).toBeVisible()
+  const toggleBounds = (await toggle.boundingBox())!
+  const navigationBounds = (await page
+    .locator('.dinkster-sidebar')
+    .boundingBox())!
+  expect(navigationBounds.y - (toggleBounds.y + toggleBounds.height)).toBe(4)
   await expect(page).toHaveScreenshot('mobile-navigation.png', {
     fullPage: true,
   })

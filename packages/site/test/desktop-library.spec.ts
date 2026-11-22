@@ -115,6 +115,9 @@ test('browse projects and separately paged workflows and files without network a
     'Film grain tests',
   )
   await expect(
+    page.getByRole('button', { name: 'Open project', exact: true }),
+  ).toHaveCount(0)
+  await expect(
     page.getByRole('list', { name: 'Saved workflows' }),
   ).toContainText('Portrait workflow')
   await expect(
@@ -217,7 +220,9 @@ test('leaving a slow project list immediately ignores its late failure', async (
   })
   await page.goto('/desktop-library.html')
   await page.getByRole('button', { name: 'View projects', exact: true }).click()
-  await expect(page.getByRole('status')).toHaveText('Loading projects')
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Loading projects' }),
+  ).toHaveText('Loading projects')
   await page.screenshot({
     path: 'test-results/captures/desktop-library-loading.png',
     fullPage: true,
@@ -230,4 +235,128 @@ test('leaving a slow project list immediately ignores its late failure', async (
     page.getByRole('list', { name: 'Local installations' }),
   ).toBeVisible()
   await expect(page.getByRole('note')).toHaveCount(0)
+})
+
+test('open the selected project once, retain failures and allow a successful retry', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const calls: [string, string][] = []
+    Object.assign(window, {
+      openingCalls: calls,
+      dinksterLibrary: {
+        installations: async () => [
+          { id: 'saved-studio', name: 'Local studio' },
+        ],
+        projects: async () => ({
+          items: [{ id: 'grain', name: 'Film grain tests' }],
+          cursor: null,
+        }),
+        workflows: async () => ({ items: [], cursor: null }),
+        assets: async () => ({ items: [], cursor: null }),
+        open: (installation: string, project: string) => {
+          calls.push([installation, project])
+          return new Promise<void>((resolve, reject) =>
+            Object.assign(window, {
+              finishOpening: (success: boolean) =>
+                success
+                  ? resolve()
+                  : reject(
+                      new Error(
+                        'The environment changed. Open the project again.',
+                      ),
+                    ),
+            }),
+          )
+        },
+      },
+    })
+  })
+  await page.goto('/desktop-library.html')
+  await page.getByRole('button', { name: 'View projects', exact: true }).click()
+  await page.getByRole('button', { name: 'View assets', exact: true }).click()
+  const open = page.getByRole('button', { name: 'Open project', exact: true })
+  await expect(open).toHaveAttribute('data-role', 'neutral')
+  await expect(open).toHaveAttribute('data-fill', 'solid')
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-open.png',
+    fullPage: true,
+  })
+  await open.click()
+  await expect(open).toHaveAttribute('aria-busy', 'true')
+  await expect(
+    page.getByRole('button', { name: 'Projects', exact: true }),
+  ).toBeDisabled()
+  await expect(
+    page.getByRole('button', { name: 'Installations', exact: true }),
+  ).toBeDisabled()
+  await open.press('Enter')
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { openingCalls: string[][] }).openingCalls,
+      ),
+    )
+    .toEqual([['saved-studio', 'grain']])
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-opening.png',
+    fullPage: true,
+  })
+  const finish = (success: boolean) =>
+    page.evaluate(
+      (value) =>
+        (
+          window as unknown as { finishOpening: (value: boolean) => void }
+        ).finishOpening(value),
+      success,
+    )
+  await finish(false)
+  await expect(page.getByRole('alert')).toHaveText(
+    'The environment changed. Open the project again.',
+  )
+  await expect(open).toBeEnabled()
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-open-error.png',
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-open-error-narrow.png',
+    fullPage: true,
+  })
+  await expect(
+    page.getByRole('button', { name: 'Dismiss error', exact: true }),
+  ).toBeVisible()
+  await open.click()
+  await expect(page.getByRole('alert')).toHaveText(
+    'The environment changed. Open the project again.',
+  )
+  await finish(true)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveText('Project opened.')
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { openingCalls: string[][] }).openingCalls,
+      ),
+    )
+    .toEqual([
+      ['saved-studio', 'grain'],
+      ['saved-studio', 'grain'],
+    ])
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'Film grain tests',
+  )
+  await expect(
+    page.getByRole('button', { name: 'Projects', exact: true }),
+  ).toBeEnabled()
+  await page.screenshot({
+    path: 'test-results/captures/desktop-library-open-success-narrow.png',
+    fullPage: true,
+  })
 })

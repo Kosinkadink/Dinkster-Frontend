@@ -13,25 +13,13 @@ the loop boundary: Element is one item from an input list, Capture is reused
 unchanged on every iteration, Gather collects one result per iteration, and
 State carries a value to the next iteration.
 
-## Create a region
+## Open a saved region
 
-Use **Map region**, **Fold region**, or **While region** from the node palette,
-universal search, or the empty-canvas context menu. Creation imports a fresh
-definition, adds and selects one occurrence as one undoable operation. Double
-click the selected occurrence to drill into its body through the ordinary
-subgraph path. Frozen execution views disable these actions.
-
-Selection waits for final creation acceptance; refusal does not select a
-predicted occurrence. A delayed result does not replace selection after tab
-or graph navigation changes, or after the originating canvas unmounts.
-Creation uses ordinary application dispatch, which selects retained admission
-when its candidate requires it.
-
-The starter body is valid immediately:
-
-- Map passes each element through the served Float primitive and gathers its output.
-- Fold adds each element to the integer state using the served Math Expression node (`a + b`, integer output).
-- While passes its state through the served Float primitive. Its Boolean primitive starts false, so an untouched body terminates rather than looping indefinitely.
+The node palette, universal search and canvas menu offer no entries to create
+Map, Fold or While regions. Saved regions still load, render, copy, edit and
+run. Double click an existing occurrence to drill into its body through the
+ordinary subgraph path. See [Rework queue](rework-queue.md#regions-rework) for
+the parked creation entries and their return condition.
 
 ## Edit roles and configuration
 

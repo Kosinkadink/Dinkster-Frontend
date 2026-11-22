@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { Page } from '@playwright/test'
 import catalog from '../../core/fixtures/dinkster-nodes-comfy.json' with { type: 'json' }
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 function preparedReview(result: unknown) {
   return { preparation: 'preparation-1', state: 'ready', progress: { sequence: 2, stage: 'retaining-review', completed: 1, total: 1 }, result }

@@ -140,111 +140,14 @@ const isJsonObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /**
- * Rewrite retired pre-release shapes into the current canonical form.
- * Pre-release, v1 is revised in place (no version bump, no parallel native
- * representations); documents saved under a retired shape are translated
- * here, once, on load - nothing downstream ever sees the old shape.
- *
- * Current rewrites:
- * - Port references: scalar `member` (retired) becomes the member-id path
- *   array `members: [member]`. A ref carrying BOTH fields is ambiguous and
- *   rejected ('doc.member.ambiguous'). Covers every PortRef-bearing document
- *   position: link `from`/`to` (port endpoints), net `source`/`sinks`, and
- *   boundary `binds`.
- * - Boundary bindings: a `binds` lacking the explicit `kind` discriminant
- *   (retired) becomes
- *   `kind: 'port'`. Every pre-`kind` binding WAS a concrete port binding,
- *   so this is a translation, not a guess. Nothing downstream accepts an
- *   untagged binding.
- *
+ * Normalize current occurrence overlays and node-relative tag geometry.
  * The input is never mutated; rewrites happen on a clone. Malformed JSON is
  * left as-is for shape validation to diagnose with proper paths.
  */
 export function canonicalizeJson(raw: JsonObject): CanonicalizeResult {
   const diags: Diagnostic[] = []
-  let rewritten = 0
-  let bindsRewritten = 0
-
   // Clone lazily: untouched documents pass through unchanged.
   let doc = raw
-
-  const canonRef = (
-    owner: Record<string, unknown> | unknown[],
-    key: string | number,
-    path: string,
-    pos: 'ref' | 'bind',
-  ): void => {
-    const v = (owner as Record<string | number, unknown>)[key]
-    if (!isJsonObj(v)) return
-    if (pos === 'bind' && v['kind'] === undefined && typeof v['port'] === 'string') {
-      if (doc === raw) doc = structuredClone(raw)
-      bindsRewritten++
-    }
-    const member = v['member']
-    if (member === undefined) return
-    if (v['members'] !== undefined) {
-      diags.push(
-        diag('error', 'import', 'doc.member.ambiguous', `${path}: carries both the retired scalar 'member' and canonical 'members'; cannot canonicalize`),
-      )
-      return
-    }
-    if (typeof member !== 'string' || member.length === 0) {
-      diags.push(
-        diag('error', 'import', 'doc.member.invalid', `${path}.member: retired scalar member must be a non-empty string`),
-      )
-      return
-    }
-    if (doc === raw) doc = structuredClone(raw)
-    rewritten++
-  }
-
-  // Two passes over the same walk: first detect (and diagnose) on the raw
-  // document, then apply to the clone. One walker, two visitors; the apply
-  // visitor re-checks the exact conditions the detect pass counted.
-  const walk = (root: JsonObject, visit: typeof canonRef): void => {
-    const graphs = root['graphs']
-    if (!isJsonObj(graphs)) return
-    for (const [gid, g] of Object.entries(graphs)) {
-      if (!isJsonObj(g)) continue
-      const base = `$.graphs.${gid}`
-      const links = g['links']
-      if (isJsonObj(links)) {
-        for (const [lid, l] of Object.entries(links)) {
-          if (!isJsonObj(l)) continue
-          // Only PORT endpoints are PortRefs; reroute/value-source endpoints
-          // carry no member identity (discriminator precedence matches
-          // validation - a stray 'member' key on them is not ours to touch).
-          for (const side of ['from', 'to'] as const) {
-            const e = l[side]
-            if (isJsonObj(e) && e['reroute'] === undefined && e['valueSource'] === undefined) {
-              visit(l, side, `${base}.links.${lid}.${side}`, 'ref')
-            }
-          }
-        }
-      }
-      const nets = g['nets']
-      if (isJsonObj(nets)) {
-        for (const [nid, n] of Object.entries(nets)) {
-          if (!isJsonObj(n)) continue
-          visit(n, 'source', `${base}.nets.${nid}.source`, 'ref')
-          const sinks = n['sinks']
-          if (Array.isArray(sinks)) sinks.forEach((_, i) => visit(sinks, i, `${base}.nets.${nid}.sinks[${i}]`, 'ref'))
-        }
-      }
-      const boundary = g['boundary']
-      if (isJsonObj(boundary)) {
-        for (const side of ['inputs', 'outputs'] as const) {
-          const items = boundary[side]
-          if (!Array.isArray(items)) continue
-          items.forEach((item, i) => {
-            if (isJsonObj(item)) visit(item, 'binds', `${base}.boundary.${side}[${i}].binds`, 'bind')
-          })
-        }
-      }
-    }
-  }
-
-  walk(raw, canonRef)
 
   // Occurrence topology is a prerelease v1-in-place addition. Its negative
   // overlay is set-like: suppressions sort/deduplicate by structural identity
@@ -353,29 +256,7 @@ export function canonicalizeJson(raw: JsonObject): CanonicalizeResult {
     }
   }
 
-  if (doc !== raw) {
-    walk(doc, (owner, key, _path, pos) => {
-      const v = (owner as Record<string | number, unknown>)[key]
-      if (!isJsonObj(v)) return
-      if (pos === 'bind' && v['kind'] === undefined && typeof v['port'] === 'string') v['kind'] = 'port'
-      const member = v['member']
-      if (typeof member !== 'string' || member.length === 0 || v['members'] !== undefined) return
-      v['members'] = [member]
-      delete v['member']
-    })
-    if (rewritten > 0) {
-      diags.push(
-        diag('info', 'import', 'doc.member.retired', `canonicalized ${rewritten} port reference(s) from the retired scalar 'member' field to member-id paths`),
-      )
-    }
-    if (bindsRewritten > 0) {
-      diags.push(
-        diag('info', 'import', 'doc.binds.retired', `canonicalized ${bindsRewritten} boundary binding(s) lacking the explicit 'kind' discriminant to kind 'port'`),
-      )
-    }
-  }
-
-  // Net view geometry: an absolute `position` (retired) becomes an `offset`
+  // Net view geometry: an absolute `position` becomes an `offset`
   // relative to the owning node's stored view position, so a manually placed
   // Set/Get tag follows its node (#176). The rewrite reproduces the same
   // on-screen point (node position + offset == old absolute position), so
@@ -432,7 +313,7 @@ export function canonicalizeJson(raw: JsonObject): CanonicalizeResult {
         entry['offset'] = offset
       }
       diags.push(
-        diag('info', 'import', 'doc.netViews.retired', `canonicalized ${rewrites.length} net view(s) from the retired absolute position to node-relative offsets`),
+        diag('info', 'import', 'doc.netViews.retired', `canonicalized ${rewrites.length} net view(s) from absolute positions to node-relative offsets`),
       )
     }
   }
