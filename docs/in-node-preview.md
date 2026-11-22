@@ -217,7 +217,8 @@ reason). Such a row has no arrow, nothing under it, and is ordinary node body.
 Right-click the caption row (or anywhere on the region) and choose **Promote to
 App View** to expose the preview, before running the workflow too.
 
-With a picture or a ready player, the caption row has an arrow before the word
+With a picture or a ready player, the caption row has an arrow before the word,
+the same disclosure arrow as a section row and the title bar's minimize arrow,
 and shows expected provenance (`last resolved` or `estimated`), `i/N` for
 lists, and decoded dimensions, joined by `|`. The picture's 180 world-unit
 media area sits under it; images are centered and contain-fit without

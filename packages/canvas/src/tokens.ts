@@ -377,8 +377,6 @@ export const canvasPaintTokens = {
     caption: {
       padLeft: 6,
       padRight: canvasSemanticTokens.space[8],
-      arrowWidth: 6,
-      arrowLength: 4,
       gap: 6,
       thumbHeight: canvasSemanticTokens.space[16],
       thumbMaxWidth: 28,

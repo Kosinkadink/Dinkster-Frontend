@@ -729,7 +729,7 @@ const modeDash = (mode: 'active' | 'muted' | 'bypassed', scale: number): number[
   return screenAwareDash(dash.world, dash.screen, scale)
 }
 
-/** The disclosure triangle shared by section rows and the title-bar minimize arrow. */
+/** The disclosure triangle shared by section rows, the title-bar minimize arrow and the preview caption's fold arrow. */
 function paintDisclosureArrow(ctx: CanvasRenderingContext2D, cx: number, cy: number, open: boolean): void {
   const paint = canvasPaintTokens.node.section
   ctx.beginPath()
@@ -1437,21 +1437,10 @@ export class CanvasRenderer {
     const ink = caption.arrow === undefined ? t.colors.valueMark : caption.hovered ? t.colors.title : t.colors.label
     let x = rect.x + paint.padLeft
     if (caption.arrow !== undefined) {
+      const arrowWidth = canvasPaintTokens.node.section.arrowHalfWidth * 2
       ctx.fillStyle = ink
-      ctx.beginPath()
-      if (caption.arrow === 'open') {
-        ctx.moveTo(x, cy - paint.arrowLength / 2)
-        ctx.lineTo(x + paint.arrowWidth, cy - paint.arrowLength / 2)
-        ctx.lineTo(x + paint.arrowWidth / 2, cy + paint.arrowLength / 2)
-      } else {
-        const left = x + (paint.arrowWidth - paint.arrowLength) / 2
-        ctx.moveTo(left, cy - paint.arrowWidth / 2)
-        ctx.lineTo(left + paint.arrowLength, cy)
-        ctx.lineTo(left, cy + paint.arrowWidth / 2)
-      }
-      ctx.closePath()
-      ctx.fill()
-      x += paint.arrowWidth + paint.gap
+      paintDisclosureArrow(ctx, x + arrowWidth / 2, cy, caption.arrow === 'open')
+      x += arrowWidth + paint.gap
     }
     const right = rect.x + rect.width - paint.padRight
     ctx.font = `${t.fontSize}px ${t.fontFamily}`
