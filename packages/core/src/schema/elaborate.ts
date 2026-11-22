@@ -544,6 +544,13 @@ const nextMemberBase = (state: DynamicPortState | undefined): number =>
 
 interface AutogrowNames {
   readonly nameOf: (ordinal: number) => string
+  /**
+   * The label of the member a family offers next: the name it will have once
+   * added. A prefix family counts positions from 1 after a space ("image 3"
+   * after two images), never the generated id; an empty prefix shows the
+   * position alone. A names family offers its next name.
+   */
+  readonly offeredLabelOf: (ordinal: number) => string
   readonly min: number
   readonly max: number
 }
@@ -557,13 +564,18 @@ const autogrowNames = (spec: AutogrowSpec): AutogrowNames => {
   // local index is correct as-is. min/max stay LOCAL bounds.
   const offset = spec.ordinalOffset ?? 0
   if (naming.kind === 'names') {
-    return { nameOf: (i) => naming.names[i]!, min, max }
+    return { nameOf: (i) => naming.names[i]!, offeredLabelOf: (i) => naming.names[i]!, min, max }
   }
   if (naming.kind === 'native') {
     // Native suffix state is not materialized, so this arm has zero capacity.
-    return { nameOf: () => '', min, max }
+    return { nameOf: () => '', offeredLabelOf: () => '', min, max }
   }
-  return { nameOf: (i) => `${naming.prefix}${i + offset}`, min, max }
+  return {
+    nameOf: (i) => `${naming.prefix}${i + offset}`,
+    offeredLabelOf: (i) => naming.prefix === '' ? `${i + offset + 1}` : `${naming.prefix} ${i + offset + 1}`,
+    min,
+    max,
+  }
 }
 
 /** Template InputSpec reshaped for the output side (family carries isList). */
@@ -765,7 +777,8 @@ function elaborateWire15Family(
         address: { port: memberPath },
         ...(memberApi !== undefined ? { apiName: memberApi } : {}),
         spec: {
-          ...slot, id: memberPath, displayName: apiSegment,
+          ...slot, id: memberPath,
+          displayName: ghost && spec.naming.kind === 'prefix' ? autogrowNames(spec).offeredLabelOf(ordinal) : apiSegment,
           ...(spec.optionalAfterMinimum ? { optional: ghost || !!slot.optional || ordinal >= min } : {}),
         },
         origin,
@@ -982,7 +995,9 @@ function elaborateAutogrowFamily(
   const emitMember = (memberId: string, ghost: boolean, synthetic: boolean): boolean => {
     if (!ctx.countMember()) return false
     const total = ordinal + ordinalOffset
-    const generatedName = ordinal < names.max ? names.nameOf(ordinal) : `${item.id}[${total}]`
+    const generatedName = ordinal >= names.max
+      ? `${item.id}[${total}]`
+      : ghost ? names.offeredLabelOf(ordinal) : names.nameOf(ordinal)
     const bare = !ghost && !synthetic ? state?.memberLabels?.[memberId] ?? generatedName : generatedName
     const base = displayJoin(scope.displayPrefix, bare)
     const memberApi =
