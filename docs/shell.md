@@ -66,7 +66,13 @@ The selected left bar item uses the panel fill and a 3 px cyan outer mark;
 its title is one line with an ellipsis and a full-title tooltip. Dock tabs
 use primary text and a 2 px underline without a box. Each split editor group
 is rounded; its selected tab uses primary text only in the focused group,
-secondary text otherwise. Search keeps its outline with no fill.
+secondary text otherwise. An unfocused group's canvas controls and notices
+are dimmed to half strength, not its nodes or wires. Hover brightens the
+control under the pointer; clicking it focuses the group and acts in one
+click. Queue and jobs are hidden without moving the other controls until
+the group is focused. A single group's controls remain at full strength.
+Search keeps its outline with no fill. The workflow tab strip is frame-colored;
+the selected workflow tab joins the canvas-colored surface without a border.
 
 The minimap and its control bar share one width. The controls are minimap,
 view options, minus, zoom level, plus, and fit to view, in that order.
@@ -383,29 +389,24 @@ The status-bar `Backends` button and the sidebar icon toggle the same dock
 panel; both reflect pressed state via `aria-pressed`.
 
 The 72 px activity rail stacks each centered label beneath its thin 20 px
-glyph in a full-width 72 px action. Labels may wrap to two lines without
-widening the rail, and every action
-participates in the rail's custom tooltip session so the full descriptor text
-remains available. Buttons retain normal document tab order, explicit
-accessible names, pressed state for panel toggles, hover feedback, and a
-visible keyboard focus ring. Its panel toggles occupy a scrolling
-placement-driven stack, while Settings is a separate labeled gear button
-pinned below that stack at the rail bottom and dispatches the existing
-`settings.open` command.
-Toggles whose descriptor's effective
-placement is `dock` stay at the top; toggles effectively placed in `bottom`
-anchor at the bottom. Runtime registrations and placement moves use the same
-registry queries, so their icons join the cluster for the region they open.
-Within either cluster there are no visual gaps or button boundaries between
-adjacent items. Once one delayed tooltip has appeared, pointer travel between
-targets in the same rail session replaces it immediately without a hidden
-frame. A visible tooltip may bridge empty rail space for 300 ms so crossing
-between clusters remains forgiving, then hides if no target is reached.
-Leaving the rail boundary hides immediately, so a later re-entry uses the
-configured delay again.
-Opening a dock panel dismisses its toggle's tooltip. While that panel is open,
-the pressed toggle suppresses its tooltip, including while keyboard focus
-remains there, so help does not obscure the panel toolbar.
+glyph in a full-width 56 px action. Labels stay on one line and truncate
+with an ellipsis. Every action participates in the rail's custom tooltip
+session: the full title is the label and the description is its detail,
+including while selected. Buttons retain normal document tab order,
+explicit accessible names, pressed state for panel toggles, hover feedback,
+and a visible keyboard focus ring. Left-region panel toggles occupy a
+scrolling placement-driven stack. Settings is a separate labeled gear button
+pinned below that stack and dispatches `settings.open`. Bottom-region panels
+have no activity rail items; their region switch and tab row provide access.
+Runtime registrations and placement moves use the same registry query, so
+every left-region panel has an item.
+
+Once one delayed tooltip has appeared, pointer travel between targets in
+the same rail session replaces it immediately without a hidden frame. A
+visible tooltip may bridge empty rail space for 300 ms, then hides if no
+target is reached. Leaving the rail boundary hides immediately, so a later
+re-entry uses the configured delay again. Opening a dock panel dismisses
+the shown tooltip; hovering or focusing its selected toggle can show it again.
 
 ## The bottom panel
 

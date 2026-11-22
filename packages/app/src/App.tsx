@@ -1202,14 +1202,6 @@ export function App(props: {
     {(label) => <span class="services-badge" data-testid="services-badge">{label()}</span>}
   </Show>
 
-  /** The active live tab's target backend (drives the topbar selector). */
-  const activeTarget = (): Backend | undefined => {
-    backendsTick()
-    tabTargets()
-    const tab = activeTab()
-    return tab && !tab.execution ? app.backendForTab(tab) : undefined
-  }
-
   /** One rail row; captures the App closures (overlay role, live tab). */
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
@@ -2277,6 +2269,12 @@ export function App(props: {
       })
     }
     const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTarget = (): Backend | undefined => {
+      backendsTick()
+      tabTargets()
+      const tab = paneActiveTab()
+      return tab && !tab.execution ? app.backendForTab(tab) : undefined
+    }
     const host: EditorHostContext = {
       tabId: () => group().activeTabId,
       focused: () => paneFocused(),
@@ -2348,6 +2346,11 @@ export function App(props: {
     const focusPane = (): void => {
       if (!paneFocused()) updateSplitLayout((layout) => focusGroup(layout, p.groupId))
     }
+    onMount(() => {
+      // Minimap gestures stop propagation; focus before any control handles them.
+      sectionElement.addEventListener('pointerdown', focusPane, true)
+      onCleanup(() => sectionElement.removeEventListener('pointerdown', focusPane, true))
+    })
     return (
       <section
         class="editor-group"
@@ -2356,7 +2359,7 @@ export function App(props: {
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
         style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
-        onPointerDown={focusPane}
+        onFocusIn={focusPane}
         ref={sectionElement}
       >
         <div class="tab-strip">
@@ -2410,7 +2413,7 @@ export function App(props: {
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
-          <Show when={paneFocused() && multiBackend() && activeTarget()}>
+          <Show when={multiBackend() && paneTarget()}>
             {(target) => (
               <ProductSelect
                 class="tab-target"
@@ -2420,7 +2423,7 @@ export function App(props: {
                 selectedId={target().id}
                 options={backends().map((backend) => ({ id: backend.id, label: backend.label, value: backend.id }))}
                 onSelect={(option) => {
-                  const tab = activeTab()
+                  const tab = paneActiveTab()
                   if (tab) app.setTabTarget(tab.id, option.value)
                 }}
               />

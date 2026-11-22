@@ -16,7 +16,8 @@
     "primaryInputHeight": 40,
     "canvasInputHeight": 24,
     "focusRingWidth": 2,
-    "disabledOpacity": 0.45
+    "disabledOpacity": 0.45,
+    "unfocusedOpacity": 0.5
   },
   "motion": {
     "fast": 120,

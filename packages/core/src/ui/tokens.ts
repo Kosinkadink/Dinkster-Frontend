@@ -96,6 +96,7 @@ export interface SemanticDesignTokens {
     readonly pressedOverlay: string
     readonly selectedOverlay: string
     readonly disabledOpacity: number
+    readonly unfocusedOpacity: number
   }
   readonly motion: {
     readonly fast: number
@@ -332,6 +333,9 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.interaction.selectedOverlay,
     '--dinkster-interaction-disabled-opacity': String(
       semanticDesignTokens.interaction.disabledOpacity,
+    ),
+    '--dinkster-interaction-unfocused-opacity': String(
+      semanticDesignTokens.interaction.unfocusedOpacity,
     ),
     '--dinkster-motion-fast': ms(semanticDesignTokens.motion.fast),
     '--dinkster-motion-standard': ms(semanticDesignTokens.motion.standard),
