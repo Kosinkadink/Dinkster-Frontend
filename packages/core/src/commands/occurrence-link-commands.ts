@@ -232,8 +232,9 @@ function applyMaterializeFrames(
     const state = scope[frame.construct] ?? {}
     const members = [...(state.members ?? [])]
     for (const member of frame.members) if (!members.includes(member)) members.push(member)
-    const suffixes = members.map((member) => /^m(\d{1,15})$/.exec(member)?.[1]).filter((value): value is string => value !== undefined)
-    scope = { ...scope, [frame.construct]: { ...state, members, seq: Math.max(state.seq ?? 0, 0, ...suffixes.map((value) => Number(value) + 1)) } }
+    // The frame carries the group's counter past its members, so a removed key is never offered again.
+    const seq = Math.max(state.seq ?? 0, frame.seq ?? 0)
+    scope = { ...scope, [frame.construct]: { ...state, members, ...(seq > 0 ? { seq } : {}) } }
   }
   return scope
 }

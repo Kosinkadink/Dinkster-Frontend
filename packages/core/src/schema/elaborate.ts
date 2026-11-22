@@ -441,6 +441,9 @@ function formulaValueOf(raw: unknown, kind: FormulaNameKind): FormulaValue | Unk
 
 const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.['default']
 
+/** Passes a node's choice keys take to settle; a longer chain of formulas is refused. */
+const MAX_CHOICE_PASSES = 8
+
 /**
  * Elaborate one node's effective interface. Pure and deterministic over
  * (schema, node.values/node.dynamic/node.additionalInputs, connectivity).
@@ -451,6 +454,33 @@ export function elaborateInterface(
   connectivity: Connectivity = EMPTY_CONNECTIVITY,
   options: ElaborateOptions = {},
 ): ElaboratedInterface {
+  // A formula may read a choice the walk has not reached yet, such as a led
+  // choice declared later. Such a read takes the key the previous pass
+  // settled, and the passes repeat until every key read is the key settled,
+  // so declaration order does not change the result.
+  let settled: ReadonlyMap<string, string | null> = new Map()
+  for (let pass = 1; ; pass++) {
+    const result = elaboratePass(schema, node, connectivity, options, settled)
+    const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
+    if (unsettled.length === 0) return result.elaborated
+    if (pass === MAX_CHOICE_PASSES) {
+      return {
+        ...result.elaborated,
+        diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
+          `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+      }
+    }
+    settled = result.chosen
+  }
+}
+
+function elaboratePass(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  connectivity: Connectivity,
+  options: ElaborateOptions,
+  settled: ReadonlyMap<string, string | null>,
+): { readonly elaborated: ElaboratedInterface; readonly chosen: ReadonlyMap<string, string | null>; readonly early: ReadonlySet<string> } {
   const budget: ElabBudget = { ...DEFAULT_ELAB_BUDGET, ...options.budget }
   const view = options.promoteGhosts ?? true
   const census = options.includeDormant ?? false
@@ -480,6 +510,15 @@ export function elaborateInterface(
   const derived = new Map(Object.entries(schema.derived ?? {}))
   /** Choice keys this elaboration settled, which formulas read before the run stores them. */
   const chosen = new Map<string, string | null>()
+  /** Choices a formula read before the walk settled them. */
+  const early = new Set<string>()
+  /** The key of a choice the walk has not settled: the stored one, else the previous pass's. */
+  const unsettledKey = (path: string): string | null | undefined => {
+    const selected = stateOf(path)?.selected
+    if (selected !== undefined) return selected
+    early.add(path)
+    return settled.get(path)
+  }
   let depth = 0
   let membersVisited = 0
   let halted = false
@@ -518,7 +557,10 @@ export function elaborateInterface(
   /** The value a formula reads for one flattened id, and whether a wire feeds it. */
   const valueFor = (path: string, kind: FormulaNameKind, fallback: unknown): FormulaValue | Unknown => {
     if (chosen.has(path)) return chosen.get(path)!
-    if (kind === 'choice' && stateOf(path)?.selected !== undefined) return stateOf(path)!.selected!
+    if (kind === 'choice') {
+      const key = unsettledKey(path)
+      if (key !== undefined) return key
+    }
     if (linked(path)) return UNKNOWN
     return formulaValueOf(Object.hasOwn(node.values, path) ? node.values[path] : fallback, kind)
   }
@@ -535,7 +577,7 @@ export function elaborateInterface(
     for (const row of scopeRowsOf(rows)) {
       if (row.kind === 'choice') {
         const path = prefix + row.id
-        const key = chosen.has(path) ? chosen.get(path) : stateOf(path)?.selected
+        const key = chosen.has(path) ? chosen.get(path) : unsettledKey(path)
         const live = key === undefined || key === null ? [] : optionRows(row, key)
         const kept = scopeNamesOf(live).names
         for (const name of scopeNamesOf(choiceScopeRows(row)).names.keys()) if (!kept.has(name)) hidden.add(`${row.id}.${name}`)
@@ -571,7 +613,11 @@ export function elaborateInterface(
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
-      if (kind === 'group') {
+      if (unknown.has(name)) {
+        // A group's size with no entry in `sizes` reads unknown.
+        if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
+        if (names.inputs.has(name)) wired.set(name, false)
+      } else if (kind === 'group') {
         sizes.set(name, membersFor(path).length)
       } else if (kind.endsWith('[]')) {
         const dot = path.lastIndexOf('.')
@@ -585,9 +631,6 @@ export function elaborateInterface(
           else list.push(value as bigint | number | boolean | string | null)
         }
         values.set(name, unknown ? UNKNOWN : list)
-      } else if (unknown.has(name)) {
-        if (kind !== 'opaque') values.set(name, UNKNOWN)
-        if (names.inputs.has(name)) wired.set(name, false)
       } else {
         if (kind !== 'opaque') values.set(name, valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
@@ -1281,7 +1324,7 @@ export function elaborateInterface(
       items[index] = { ...item, spec }
     }
   }
-  return {
+  const elaborated: ElaboratedInterface = {
     items,
     submissionValues: [],
     ...(chunkSafe && covered ? { chunkSafe: {
@@ -1294,6 +1337,7 @@ export function elaborateInterface(
     constructs: [...constructs],
     diagnostics,
   }
+  return { elaborated, chosen, early }
 }
 
 // ---------------------------------------------------------------------------

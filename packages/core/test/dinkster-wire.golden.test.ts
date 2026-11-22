@@ -64,6 +64,29 @@ describe('Dinkster schema wire', () => {
       .map((input) => [input.spec.id, input.spec.widget?.default, input.spec.section])).toEqual([['format.quality', 75, 'format.advanced']])
   })
 
+  it('decodes a Use field override against the type of the shared row it places', () => {
+    const { schema, diagnostics } = parseDinksterSchema('SaveVideo', { body: [{
+      kind: 'choice', id: 'codec', default: 'h264',
+      shared: [
+        { kind: 'input', id: 'crf', type: concrete('INT'), default: 23, widget: { type: 'NUMBER', min: 0, max: 51, step: 1 } },
+        { kind: 'input', id: 'preset', type: concrete('COMBO'), default: 'medium', widget: { type: 'COMBO', options: ['fast', 'medium'] } },
+      ],
+      options: [
+        { key: 'h264', rows: [{ kind: 'use', id: 'crf' }, { kind: 'use', id: 'preset' }] },
+        { key: 'av1', rows: [
+          { kind: 'use', id: 'crf', default: 31, widget: { type: 'NUMBER', min: 0, max: 63, step: 1 } },
+          { kind: 'use', id: 'preset', default: 'p4', widget: { type: 'COMBO', options: ['p4', 'p7'] } },
+        ] },
+      ],
+    }] } as never)
+    expect(diagnostics).toEqual([])
+    const fields = (selected: string) => elabInputsOf(elaborateInterface(schema!, { values: {}, dynamic: { codec: { selected } } }))
+      .filter((input) => input.origin.kind !== 'selector')
+      .map((input) => [input.spec.id, input.spec.widget?.default, input.spec.widget?.options['max'] ?? input.spec.widget?.options['options']])
+    expect(fields('av1')).toEqual([['codec.crf', 31, 63], ['codec.preset', 'p4', ['p4', 'p7']]])
+    expect(fields('h264')).toEqual([['codec.crf', 23, 51], ['codec.preset', 'medium', ['fast', 'medium']]])
+  })
+
   it('preserves native asset-selection schemas and imported source names', () => {
     for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
       const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]

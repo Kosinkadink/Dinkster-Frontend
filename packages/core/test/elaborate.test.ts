@@ -907,6 +907,47 @@ describe('groups of outputs', () => {
 // Connectivity facts
 // ---------------------------------------------------------------------------
 
+describe('formulas', () => {
+  const int = { kind: 'concrete', types: ['INT'] }
+  const outputsUnder = (body: unknown[], values: Record<string, unknown> = {}, dynamic: Record<string, unknown> = {}) => {
+    const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+    expect(diagnostics).toEqual([])
+    const elaborated = elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    return elabOutputsOf(elaborated).map((output) => output.spec.id)
+  }
+  const counted = (count: string) => ({
+    kind: 'group', id: 'a', grows: { count }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 5,
+    value: { kind: 'output', id: 'v', type: int },
+  })
+
+  it('reads a led choice the same whether it is declared before or after the formula', () => {
+    const led = { kind: 'choice', id: 'b', leader: '"x"', options: [
+      { key: 'x', rows: [{ kind: 'input', id: 'n', type: int, pin: false, default: 3 }] },
+      { key: 'y', rows: [] },
+    ] }
+    for (const count of ['b.n', '3 if b == "x" else 1']) {
+      expect(outputsUnder([counted(count), led], { 'b.n': 3 })).toEqual(['a.1', 'a.2', 'a.3'])
+      expect(outputsUnder([led, counted(count)], { 'b.n': 3 })).toEqual(['a.1', 'a.2', 'a.3'])
+    }
+  })
+
+  it('reads the size of a group under an option that is not chosen as unknown', () => {
+    // Unknown counts fall back to the minimum (1), not to the 2 members stored under the unchosen option.
+    const c = { kind: 'choice', id: 'c', options: [
+      { key: 'a', rows: [{ kind: 'group', id: 'g', keys: { numbered: { prefix: '', start: 1, pad: 0 } },
+        member: [{ kind: 'input', id: 's', type: int, required: false }] }] },
+      { key: 'b', rows: [] },
+    ] }
+    const size = { ...counted('len(c.g)'), id: 'o', minMembers: 1 }
+    const sum = { ...counted('sum(c.g.s)'), id: 'p', minMembers: 1 }
+    expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'b' }, 'c.g': { members: ['1', '2'] } }))
+      .toEqual(['o.1', 'p.1'])
+    expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'a' }, 'c.g': { members: ['1', '2'] } }))
+      .toEqual(['o.1', 'o.2', 'p.1', 'p.2', 'p.3', 'p.4', 'p.5'])
+  })
+})
+
 describe('buildGraphConnectivity', () => {
 
   it('indexes links and nets once by flattened id, ignoring reroute endpoints', () => {
