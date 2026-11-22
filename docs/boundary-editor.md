@@ -76,6 +76,15 @@ each as a row of Inputs. A choice whose options are edited on the node
 itself (editable choices, family members) stays a name and a pin. A field
 row is renamed in the Boundary panel, not by double-clicking it.
 
+A dropdown that leads options is a field too, whichever binding forwards
+it: forwarded alone it is the dropdown, and forwarded with its options
+(a `dynamicCombo` binding) it brings the fields of the chosen option,
+which change when the choice does. Both are the rows of the node that owns
+the choice, edited there; the input's pin sits on the dropdown. An option's
+field that node has not set shows the value the inner node receives, which
+is the value a run uses. The inner node's own dropdown stays its editor of
+the same choice.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become

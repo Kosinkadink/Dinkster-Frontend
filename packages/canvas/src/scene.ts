@@ -285,6 +285,8 @@ export interface SceneBoundaryNode {
     readonly node: NodeData
     /** Rows wired outside the subgraph: dimmed and not editable, with the arriving value when the document fixes it. */
     readonly wired: Readonly<Record<string, { readonly value?: Json }>>
+    /** Boundary item id -> value key of its first row, the one its pin and wire belong to. */
+    readonly heads: Readonly<Record<string, string>>
   }
 }
 
@@ -2042,9 +2044,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       id: asNodeId(boundarySceneId('inputs')),
       type: `#${def.id}`,
       values: fieldValues,
-      ...(Object.keys(fieldControllers).length > 0 ? { controllers: fieldControllers } : {}),
+      controllers: fieldControllers,
     }
-    const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>>()
+    const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>[]>()
     if (derived !== undefined && fieldOwners.size > 0) {
       // The entered node's chosen views, so a field drawn as a slider there
       // is a slider here too.
@@ -2061,19 +2063,79 @@ export function buildScene(input: BuildSceneInput): Scene {
         // family members) stay pins: those edits target the node itself.
         if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.address.members !== undefined ||
           row.optionsTarget !== undefined || row.inputFamilyOwner !== undefined) continue
-        outsideRows.set(row.inputId, { ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } })
+        outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
       }
+    }
+    // A dropdown that leads options reaches the subgraph node as a forwarded
+    // choice: the dropdown alone (a port binding) or with the fields of its
+    // chosen option (a dynamicCombo binding). The panel shows the rows of
+    // the node that owns the choice, as that node shows them, and edits
+    // them there: the occurrence's owner, the entered node, or with no node
+    // entered the inner node, whose choice is the default.
+    for (const item of def.boundary.inputs) {
+      const binds = item.binds
+      if ((binds.kind !== 'port' && binds.kind !== 'dynamicCombo') || binds.members !== undefined || binds.viaReroute !== undefined) continue
+      const inner = def.nodes[binds.node]
+      const bound = inner === undefined ? undefined : resolveNode(def.id, inner, sourcePath)?.items.find((candidate) => candidate.kind === 'input' && candidate.id === binds.port)
+      if (inner === undefined || bound?.kind !== 'input' || bound.dynamic?.kind !== 'dynamicCombo') continue
+      const port = binds.port as string
+      const selectorOwner = input.occurrenceView?.selectorOwners.get(inner.id)?.get(port)
+      const subtreeOwners = (input.occurrenceView?.subtreeOwners?.get(inner.id) ?? []).flatMap((candidate) => {
+        const key = occurrenceSubtreeKey(candidate, port)
+        const address = key === undefined ? undefined : addressOfElabKey(key, true)
+        return address === undefined || address.members !== undefined ? [] : [{ graphId: candidate.graphId, nodeId: candidate.nodeId, construct: address.port as string, subtree: candidate }]
+      })
+      const owner = selectorOwner !== undefined
+        ? { graphId: selectorOwner.graphId, nodeId: selectorOwner.nodeId, construct: selectorOwner.boundaryId }
+        : subtreeOwners.length === 1 ? subtreeOwners[0]!
+        : ownerNode !== undefined && ownerGraph !== undefined ? { graphId: ownerGraph.id, nodeId: ownerNode.id, construct: item.id }
+        : { graphId: def.id, nodeId: inner.id, construct: port }
+      const choiceNode = input.document.graphs[owner.graphId]?.nodes[owner.nodeId]
+      const schema = choiceNode === undefined ? undefined
+        : owner.graphId === def.id ? resolveNode(def.id, choiceNode, sourcePath) : resolveNode(owner.graphId, choiceNode)
+      if (choiceNode === undefined || schema === undefined) continue
+      // An option's field the owner has not set takes the value the inner
+      // node receives in this occurrence, which is what a run uses.
+      const received: Record<string, Json> = {}
+      const subtree = selectorOwner === undefined && subtreeOwners.length === 1 ? subtreeOwners[0]!.subtree : undefined
+      if (subtree !== undefined) {
+        for (const [key, value] of Object.entries(input.occurrenceView?.values?.get(inner.id) ?? inner.values)) {
+          const ownerKey = occurrenceSubtreeKey(subtree, key)
+          if (ownerKey !== undefined) received[ownerKey] = value
+        }
+      }
+      const views = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views
+      const choiceLayout = layoutNode(schema, choiceNode, input.tokens, measure, input.widgetMeasure, {
+        ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+        ...(views !== undefined ? { widgetRepresentations: views } : {}),
+      })
+      const rows: Extract<LayoutRow, { kind: 'widget' }>[] = []
+      for (const row of choiceLayout.rows) {
+        if (row.kind !== 'widget' || row.optionsTarget !== undefined || row.inputFamilyOwner !== undefined) continue
+        const head = row.address.port === owner.construct && row.selector?.construct === owner.construct && row.selector.ancestors.length === 0
+        if (rows.length === 0 ? !head : binds.kind !== 'dynamicCombo' || !(row.address.port as string).startsWith(`${owner.construct}.`)) continue
+        if (Object.hasOwn(choiceNode.values, row.valueKey)) fieldValues[row.valueKey] = choiceNode.values[row.valueKey]!
+        else if (Object.hasOwn(received, row.valueKey)) fieldValues[row.valueKey] = received[row.valueKey]!
+        if (choiceNode.controllers !== undefined && Object.hasOwn(choiceNode.controllers, row.valueKey)) fieldControllers[row.valueKey] = choiceNode.controllers[row.valueKey]!
+        rows.push({
+          ...row,
+          familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.address.port as string, valueKey: row.valueKey },
+          ...(row.selector !== undefined ? { selector: { ...row.selector, owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.selector.construct, ancestors: row.selector.ancestors } } } : {}),
+        })
+      }
+      if (rows.length > 0) outsideRows.set(item.id, rows)
     }
     // A value the owner receives by a wire outside the subgraph is not
     // edited here; a document literal on that wire is shown instead.
     const wiredFields: Record<string, { value?: Json }> = {}
     const drivenByGraph = new Map<string, ReturnType<typeof companionSourcesOf>>()
-    for (const [itemId, owner] of fieldOwners) {
+    for (const row of [...outsideRows.values()].flat()) {
+      const owner = row.familyOwner!
       const graph = input.document.graphs[owner.graphId]
-      if (!outsideRows.has(itemId) || owner.graphId === def.id || graph === undefined) continue
+      if (owner.graphId === def.id || graph === undefined || owner.valueKey === undefined) continue
       if (!drivenByGraph.has(graph.id)) drivenByGraph.set(graph.id, companionSourcesOf(graph, undefined, undefined, input.resolve))
       const driven = drivenByGraph.get(graph.id)!.get(owner.nodeId)?.get(owner.valueKey)
-      if (driven !== undefined) wiredFields[itemId] = driven.kind === 'literal' ? { value: driven.value } : {}
+      if (driven !== undefined) wiredFields[row.valueKey] = driven.kind === 'literal' ? { value: driven.value } : {}
     }
     const fieldsSubtitle = outsideRows.size === 0
       ? undefined
@@ -2104,7 +2166,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           label: boundaryLabel(item, spec?.displayName, defaults, roles),
           ...(spec !== undefined ? { type: spec.type } : {}),
           ...(item.binds.kind === 'family' ? { family: true as const } : {}),
-          ...(side === 'inputs' && outsideRows.has(item.id) ? { field: outsideRows.get(item.id)! } : {}),
+          ...(side === 'inputs' && outsideRows.has(item.id) ? { fields: outsideRows.get(item.id)! } : {}),
         }
       })
     }
@@ -2153,7 +2215,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outputsPos = viewBoundary?.outputs?.position ?? { x: maxX + BOUNDARY_GAP, y: minY }
     const inputsNode: SceneBoundaryNode = {
       side: 'inputs', x: inputsPos.x, y: inputsPos.y, layout: inputsLayout,
-      ...(outsideRows.size > 0 ? { fields: { node: fieldNode, wired: wiredFields } } : {}),
+      ...(outsideRows.size > 0 ? { fields: { node: fieldNode, wired: wiredFields,
+        heads: Object.fromEntries([...outsideRows].map(([itemId, rows]) => [itemId, rows[0]!.valueKey])) } } : {}),
     }
     const outputsNode: SceneBoundaryNode = { side: 'outputs', x: outputsPos.x, y: outputsPos.y, layout: outputsLayout }
     boundaryNodes.push(inputsNode, outputsNode)

@@ -1346,10 +1346,12 @@ export interface BoundarySlotInfo {
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
   /**
-   * Inputs panel only: the field row the subgraph node outside shows for
-   * this input. The panel shows the same field, with its pin on the right.
+   * Inputs panel only: the field rows the subgraph node outside shows for
+   * this input (a dropdown that leads options brings its option's fields).
+   * The panel shows the same fields, with the input's pin on the right of
+   * the first.
    */
-  readonly field?: Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>
+  readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
 }
 
 /**
@@ -1386,12 +1388,13 @@ export function layoutBoundaryNode(
   let y = tokens.headerHeight
   for (const slot of slots) {
     const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
-    if (slot.field !== undefined && direction === 'out') {
-      const field = slot.field
-      const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
-      rows.push({ ...field, kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
+    if (slot.fields !== undefined && slot.fields.length > 0 && direction === 'out') {
       pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type })
-      y += height
+      for (const [index, field] of slot.fields.entries()) {
+        const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
+        rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
+        y += height
+      }
       continue
     }
     const height = tokens.rowHeight

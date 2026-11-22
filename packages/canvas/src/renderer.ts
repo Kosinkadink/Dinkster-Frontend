@@ -1837,11 +1837,14 @@ export class CanvasRenderer {
     const panel = this.scene.boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
     for (const link of panel === undefined ? [] : this.scene.links) {
       if (link.from.kind !== 'boundary' || link.from.side !== 'inputs' || link.to.kind !== 'port') continue
-      const item = link.from.item
-      const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === item)
-      if (row?.kind !== 'widget') continue
+      const key = panel!.fields!.heads[link.from.item]
+      const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
+      // A dropdown that leads options stays the inner node's editor of the
+      // occurrence's choice, as a selector row bound to the boundary does.
+      if (row?.kind !== 'widget' || row.selector !== undefined) continue
       const wired = panel!.fields!.wired
-      const value: Json | undefined = Object.hasOwn(wired, item) ? wired[item]!.value : panel!.fields!.node.values[item] ?? effectiveWidgetDefault(row.spec)
+      const value: Json | undefined = Object.hasOwn(wired, row.valueKey) ? wired[row.valueKey]!.value
+        : panel!.fields!.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
       if (value !== undefined) panelFieldValues.set(`${link.to.node}\u0000${portEndKey(link.to)}`, value)
     }
     this.panelFieldValues = panelFieldValues
