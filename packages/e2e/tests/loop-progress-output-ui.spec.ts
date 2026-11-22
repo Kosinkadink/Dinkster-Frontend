@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from '../visual.js'
+import { expect, mockProjectPacks, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_LOOP_UI_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -11,15 +11,24 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'loop-proof', schemaWire: 1 }, nodes: {},
   } }))
-  await page.route('**/api/assets/*', (route) => {
+  await page.route('**/api/assets/*', async (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
     const filename = digest === `blake3:${'a'.repeat(64)}` ? 'item-1.png'
       : digest === `blake3:${'b'.repeat(64)}` ? 'item-2.png' : 'nested-item.png'
     const color = filename === 'item-1.png' ? '#2563eb' : '#9333ea'
-    void route.fulfill({
-      contentType: 'image/svg+xml',
-      body: `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640"><rect width="960" height="640" fill="${color}"/><text x="480" y="330" text-anchor="middle" fill="white" font-size="72">${filename}</text></svg>`,
-    })
+    const png = await page.evaluate(({ color, filename }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 960
+      canvas.height = 640
+      const context = canvas.getContext('2d')!
+      context.fillStyle = color
+      context.fillRect(0, 0, 960, 640)
+      context.fillStyle = 'white'
+      context.font = '72px sans-serif'
+      context.fillText(filename, 40, 330)
+      return canvas.toDataURL('image/png').split(',')[1]!
+    }, { color, filename })
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') })
   })
 }
 
@@ -78,10 +87,15 @@ async function installLoopExecution(page: Page): Promise<void> {
 
 test('loop progress and outputs render per item', async ({ page }) => {
   await mockBackend(page)
+  await mockProjectPacks(page)
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  await waitForStartupOwnership(page)
   await installLoopExecution(page)
+  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
 
   const progress = page.getByLabel('Loop iteration progress')
   await expect(progress).toContainText('map mapImages - item 1completed')
@@ -91,18 +105,22 @@ test('loop progress and outputs render per item', async ({ page }) => {
     await page.screenshot({ path: join(proofDir, 'loop-queue-progress.png'), animations: 'disabled', fullPage: true })
   }
 
-  await page.getByRole('tab', { name: 'Outputs' }).click()
-  const outputs = page.getByTestId('outputs-panel')
+  await page.getByRole('tab', { name: 'Runs', exact: true }).click()
+  const outputs = page.getByTestId('runs-panel')
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 1', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
-  ).toContainText('item-1.png')
+    outputs.getByRole('region', { name: 'mapImages - item 1', exact: true }).locator('.output-thumbnail'),
+  ).toHaveAccessibleName(/item-1.png/)
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 2', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
-  ).toContainText('item-2.png')
+    outputs.getByRole('region', { name: 'mapImages - item 2', exact: true }).locator('.output-thumbnail'),
+  ).toHaveAccessibleName(/item-2.png/)
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 1 / nested - item 3', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
-  ).toContainText('nested-item.png')
+    outputs.getByRole('region', { name: 'mapImages - item 1 / nested - item 3', exact: true }).locator('.output-thumbnail'),
+  ).toHaveAccessibleName(/nested-item.png/)
   await expect(outputs.locator('.output-thumbnail')).toHaveCount(3)
+  await expect(outputs.locator('.output-thumbnail img')).toHaveCount(3)
+  for (const image of await outputs.locator('.output-thumbnail img').all()) {
+    await expect(image).toHaveJSProperty('naturalWidth', 960)
+  }
   if (proofDir !== undefined) {
     await page.setViewportSize({ width: 1440, height: 1600 })
     await page.screenshot({ path: join(proofDir, 'loop-grouped-outputs.png'), animations: 'disabled', fullPage: true })

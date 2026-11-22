@@ -30,6 +30,9 @@ import {
   effectiveOccurrenceTopology,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
+  elaborateInterface,
+  buildGraphConnectivity,
+  documentNodeResolver,
   detectFormat,
   diag,
   createLocalSession,
@@ -2622,7 +2625,7 @@ export class AppState {
       runtimeNodeIds,
       token: ++this.executionLogFocusToken,
     })
-    setPanelOpen(this.panels, this.dock, 'execution-log', 'bottom', true)
+    setPanelOpen(this.panels, this.dock, 'logs', 'bottom', true)
   }
 
   /** The panel applied this focus request; stop it from replaying. */
@@ -2999,6 +3002,8 @@ export class AppState {
    * rebinding per backend). Same pattern as CanvasHost's docTick.
    */
   readonly backendsTick: Signal<number> = createSignal(0)
+  /** Confirmed-deleted history rows stay out of run lists without clearing canvas results. */
+  readonly hiddenHistoryExecutions: Signal<ReadonlySet<string>> = createSignal(new Set<string>())
 
   /**
    * Tabs currently joined to a shared session, keyed by tab id. Session-only
@@ -6199,6 +6204,53 @@ export class AppState {
     })
   }
 
+  private adjustRemovedPartsOnOpen(tab: Tab): Promise<void> | undefined {
+    const registry = this.registryForTab(tab)
+    if (registry === undefined) return
+    const document = tab.store.doc
+    const resolve = documentNodeResolver(document, this.resolverWithVirtualNodes(registry.resolve))
+    const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
+    for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+      const child = subgraphDefIdOf(node.type)
+      if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+    }
+    const invocations: CommandInvocation[] = []
+    const entries: Diagnostic[] = []
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const schema = resolve(graph.id, node)
+      if (schema === undefined || node.dynamic === undefined) continue
+      const connectivity = buildGraphConnectivity(graph)(node.id)
+      const diagnostics = [
+        ...elaborateInterface(schema, node, connectivity, { promoteGhosts: false }).diagnostics,
+        ...elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }).diagnostics,
+      ]
+      const changes = [...new Map(diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
+        'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
+        .map((entry) => [JSON.stringify([entry.code, entry.data]), entry])).values()]
+      if (changes.length === 0) continue
+      for (const entry of changes) {
+        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
+        const { construct, selected, ancestors } = entry.data
+        if (typeof selected !== 'string' && selected !== null) continue
+        invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
+          graphId: graph.id, nodeId: node.id, construct, ancestors,
+          ...(selected === null ? { variant: null } : { option: selected }),
+        } as Json })
+      }
+      const instancePath = paths.get(graph.id)
+      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+        }))
+    }
+    if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
+      { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
+        if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+      })
+    if (entries.length > 0 && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+  }
+
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.reviewReplacements.get()) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
@@ -6278,7 +6330,12 @@ export class AppState {
       this.schemaDiagnosticsPending.delete(tab.id)
       this.reportEnvironmentDrift(tab)
       const store = tab.store
-      const upgrade = this.upgradeOnOpen(tab)
+      const adjustment = this.adjustRemovedPartsOnOpen(tab)
+      const upgrade = adjustment === undefined
+        ? this.upgradeOnOpen(tab)
+        : adjustment.then(() => {
+          if (this.tabs.get().includes(tab) && tab.store === store) return this.upgradeOnOpen(tab)
+        })
       if (upgrade === undefined) this.reportUnresolvedTypes(tab)
       else void upgrade.then(() => {
         if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
@@ -9379,6 +9436,21 @@ export class AppState {
     return true
   }
 
+  private async confirmRemovedHistoryExecutions(backend: Extract<Backend, { protocol: 'dinkster' }>, runId?: string): Promise<void> {
+    const candidates = this.executionList().filter((execution) => execution.ref.connection === backend.id &&
+      execution.status !== 'queued' && execution.status !== 'running' && execution.jobRef !== undefined &&
+      (runId === undefined || execution.jobRef === runId))
+    const removed = await Promise.all(candidates.map(async (execution) => {
+      try {
+        return await backend.connection.getHistoryRun(execution.jobRef!, LIBRARY_SCOPE) === undefined ? execution.key : undefined
+      } catch {
+        return undefined
+      }
+    }))
+    if (!this.ownerStillLive(backend)) return
+    this.hiddenHistoryExecutions.update((keys) => new Set([...keys, ...removed.filter((key) => key !== undefined)]))
+  }
+
   /**
    * Delete ONE durable run record (never asset bytes or library records,
    * by contract). False on miss - already gone elsewhere is not an error.
@@ -9391,7 +9463,6 @@ export class AppState {
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
         this.retireUnusedResultOwners()
-        this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
     } catch (e) {
@@ -9399,6 +9470,9 @@ export class AppState {
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return false
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend, runId)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -9414,13 +9488,15 @@ export class AppState {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
       this.retireUnusedResultOwners()
-      if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return 0
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 

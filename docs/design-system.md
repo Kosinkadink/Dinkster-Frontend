@@ -32,6 +32,14 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 
 ## Source of truth
 
+The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
+raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
+is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+Light-theme colors remain unchanged. The app grid uses the light palette's
+`#D3D9DE` dots rather than retaining the dark constructor color. Queued and
+skipped node outlines keep their existing light values through dedicated
+palette entries.
+
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
 identity values. `dinkster-components.json` beside it owns spacing, typography,
 regular/bold weights, shape, motion, interaction and layout values. The private
@@ -272,9 +280,10 @@ Primary actions use cyan with ink text, never white text on
 cyan. Semantic danger reads the theme's danger entry, not identity coral.
 Status foregrounds use their semantic status colors on panel surfaces.
 Muted text on raised surfaces retains the brand guide's documented contrast
-exception (dark 3.85:1, light 4.19:1); normal body copy uses secondary text.
-Dark-theme danger text on the hover background retains the brand guide's second
-exception (4.40:1) while a danger item is hovered or holds keyboard focus.
+exception (dark 4.01:1, light 4.19:1); normal body copy uses secondary text.
+Muted text on panel surfaces meets 4.5:1 (dark 4.64:1, light 4.82:1).
+Dark-theme danger text on the hover background meets 4.80:1 while a danger item
+is hovered or holds keyboard focus.
 
 Deliberate literal-color exceptions are color-picker spectrum ramps and
 editable color presets/defaults, user-authored media/GLSL/mask colors, calculated
@@ -338,8 +347,8 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
-The Focused panel uses ProductEmptyState for an absent document and a context
-without problems. Context selection, problem filtering and canvas navigation
+The Problems panel uses ProductEmptyState when Selection only has no selected
+entity or no matching problems. Selection filtering and canvas navigation
 remain independent of the empty presentation.
 
 Badge popovers use ProductEmptyState when error, log or problem details are

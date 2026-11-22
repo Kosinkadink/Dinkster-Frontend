@@ -1,5 +1,19 @@
 # Canvas rendering
 
+Canvas surfaces and text project the shared dark/light palette from
+`branding/tokens/dinkster-colors.json` through the semantic tokens. The dark
+theme uses cyan-tinted greys for its background, node body, header, inset
+fields and outlines; wire/type colors and status hues are unchanged.
+Node value fields use the dedicated `bg.field` palette entry (`#0B1111` in
+dark, the unchanged light canvas color in light), leaving other inset
+surfaces on `bg.canvas`. Queued and skipped outlines use `border.pending`
+and `border.skipped`, preserving light values `#5C5C5C` and `#7D8792`.
+Data heatmaps keep their data colors. Muted text on a dark panel has 4.64:1
+contrast. Canvas layers receive the current background and grid colors in
+their draw context. Grid patterns repaint when the theme changes; light grid
+dots use the light `border.default` (`#D3D9DE`), not the dark constructor
+palette.
+
 The canvas keeps the graph scene separate from the camera. On browsers with
 transferable offscreen bitmaps, graph paint is retained in device-pixel tiles.
 A camera-only move reuses visible tiles when the scale and backing density
