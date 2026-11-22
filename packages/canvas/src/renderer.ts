@@ -3527,7 +3527,7 @@ export class CanvasRenderer {
             const barWidth = hot ? edge.hotWidth : edge.width
             const edgeAlpha = ctx.globalAlpha
             ctx.globalAlpha = rowAlpha
-            ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.nodeIdleOutline
+            ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
             ctx.beginPath()
             ctx.roundRect(node.x + row.inset + (widgetWidth - barWidth) / 2, rowY + row.height - edge.bottomOffset,
               barWidth, edge.height, edge.radius)
