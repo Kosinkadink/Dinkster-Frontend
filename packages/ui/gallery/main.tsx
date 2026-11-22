@@ -44,6 +44,7 @@ import {
   ProductField,
   ProductForm,
   ProductIcon,
+  ProductRunIcon,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -300,6 +301,14 @@ function Gallery() {
                   />
                   <ProductSpinner label="Pending work" />
                   <ProductIcon icon={Settings} />
+                </div>
+              </Section>
+              <Section title="Run icons" components="ProductRunIcon">
+                <div class="dinkster-actions">
+                  <span>Idle <ProductRunIcon icon={Settings} /></span>
+                  <span>Running <ProductRunIcon icon={Settings} running /></span>
+                  <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
+                  <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>
                 </div>
                 <p class="dinkster-description">
                   A sentence can carry a{' '}
