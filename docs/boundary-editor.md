@@ -46,6 +46,14 @@ acceptance clears the draft. Navigating away clears transient drafts and
 notices without cancelling a submitted command. Its later completion cannot
 clear a newer draft or report a refusal in another view.
 
+## Subgraph field values
+
+A subgraph node displays the value a run sends: a value set on the instance
+wins, otherwise a forwarded option field inherits the inner node's stored
+value. Scene construction derives this state when no occurrence view is
+supplied, including gallery and standalone canvas callers, without writing
+inherited values into the document.
+
 ## Canvas panel positions
 
 The Inputs and Outputs panels inside a subgraph keep their own saved positions.
