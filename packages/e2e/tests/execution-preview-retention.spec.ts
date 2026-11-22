@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
 const proofDir = '/tmp/preview-retention-whole-run'
@@ -198,16 +198,13 @@ test('history: entry admitted from mid-run chatter is labeled unconfirmed', asyn
       runtimeNodeId: 'widgets', channel: 'image/png', payload,
     })
   })
-  await page.getByTestId('library-toggle').click()
-  const library = page.getByTestId('library-overlay')
-  await expect(library).toBeVisible()
-  const sourceTab = library.locator('[data-testid=collection-source][data-source=history]')
-  if (await sourceTab.isVisible()) await sourceTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'history')
-  const entry = library.getByTestId('collection-entry')
+  await openRailPanel(page, 'Runs')
+  const runs = page.getByTestId('runs-panel')
+  await selectProductOption(page, runs.getByTestId('runs-scope'), 'all')
+  const entry = runs.getByTestId('execution-row')
   await expect(entry).toHaveCount(1)
-  await expect(entry.locator('.collection-badges')).toContainText('unconfirmed')
-  await expect(entry.locator('.collection-badges')).not.toContainText('queued')
+  await expect(entry.locator('.execution-status')).toHaveText('Unconfirmed')
+  await expect(entry.locator('.execution-status')).not.toHaveText('Queued')
   await page.screenshot({ path: `${proofDir}/3-history-unconfirmed-row.png` })
 })
 
