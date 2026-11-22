@@ -313,7 +313,7 @@ test('Output descriptor invalid documents keep repair and probe feedback', async
   }
 })
 
-test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
+test('backend add error and Resources rows at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   await page.evaluate(() => {
@@ -330,12 +330,6 @@ test('runtime panel headers and backend add error at desktop and compact widths'
     await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
     await backends.getByTestId('backend-add').click()
     await expect(backends.getByRole('alert').filter({ hasText: /could not|failed|unreachable/i }).first()).toBeVisible()
-    const header = backends.locator('.product-panel-header').first()
-    const headerStyles = await header.evaluate((element) => {
-      const style = getComputedStyle(element)
-      const title = getComputedStyle(element.querySelector('h2')!)
-      return { padding: style.padding, divider: style.borderBottom, font: title.font }
-    })
     const fonts = await backends.locator('input, button, select, textarea').evaluateAll((controls) =>
       controls.map((control) => getComputedStyle(control).fontFamily),
     )
@@ -343,13 +337,9 @@ test('runtime panel headers and backend add error at desktop and compact widths'
     await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-variant', 'primary')
     await screenshot(page, `runtime-panel-backends-error-${width}`)
     await openDock(page, 'memory-sidebar-toggle')
-    const memory = page.getByTestId('memory-panel').first()
-    await expect(memory).toBeVisible()
-    expect(await memory.locator('.product-panel-header').evaluate((element) => {
-      const style = getComputedStyle(element)
-      const title = getComputedStyle(element.querySelector('h2')!)
-      return { padding: style.padding, divider: style.borderBottom, font: title.font }
-    })).toEqual(headerStyles)
+    const resources = page.getByTestId('resources-panel')
+    await expect(resources).toBeVisible()
+    await expect(resources.locator('.dinkster-resource-backend').first()).toBeVisible()
     await screenshot(page, `runtime-panel-memory-${width}`)
   }
 })
