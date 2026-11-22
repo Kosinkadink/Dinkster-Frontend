@@ -477,6 +477,19 @@ describe('VIDEO_EDIT', () => {
 })
 
 describe('compact views', () => {
+  it('COMPOSITOR displays stored recipe state without offering an editor', () => {
+    const view = registry().viewsFor('COMPOSITOR').find((item) => item.id === 'core.compositor')!
+    for (const [value, label] of [
+      [{ version: 2, documentDigest: null, commands: [] }, 'Run to load layers'],
+      [{ version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, '1 document edit'],
+    ] as const) {
+      const { builder, ops } = recordingBuilder()
+      view.drawCompact(builder, value, spec('COMPOSITOR'), { focused: false, connected: false, readonly: false })
+      expect(ops).toContainEqual(expect.objectContaining({ op: 'text', args: expect.arrayContaining([label]) }))
+      expect(ops.filter((op) => op.op === 'hitRegion' || op.op === 'rect')).toEqual([])
+    }
+  })
+
   it('all representative compact views satisfy shared layout invariants across widths', () => {
     const long = 'a value long enough to require measured truncation'
     expectCompactLayout('INT', 123456789)

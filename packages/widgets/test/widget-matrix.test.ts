@@ -213,8 +213,7 @@ describe('compact display through the real registered views', () => {
   ] as const)('%s (%s) displays %j as %j', (viewId, widgetType, value, options, expected) => {
     const rec = draw(viewId, widgetType, value as Json, options as Record<string, unknown>)
     expect(displayed(rec.texts)).toEqual(Array.isArray(expected) ? expected : [expected])
-    // An editable row offers exactly the edit action; the display never eats it.
-    expect(rec.actions).toEqual(['widget.edit'])
+    expect(rec.actions).toEqual(viewId === 'core.compositor' ? [] : ['widget.edit'])
   })
 
   it('marks only the empty ASSET compact value as a placeholder', () => {

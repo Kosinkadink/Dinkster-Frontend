@@ -97,6 +97,7 @@ export async function compareCanvasFrames(
       Image: { image, width: 320, height: 160 },
       Cached: { image, width: 320, height: 160, state: 'cached' },
       Estimate: { image, width: 320, height: 160, state: 'estimate' },
+      'Minimized image': { image, width: 320, height: 160 },
     }
   }
   const node =
