@@ -27,10 +27,11 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
-import { asDynamicMemberId, asNodeId, asPortId, asRerouteId } from '../ids.js'
-import type { CommandDefinition, CommandExecutionContext } from './contract.js'
-import { resolveBoundaryRoute } from '../schema/derive-boundary.js'
-import { documentNodeResolver } from '../compile/compile.js'
+import { asDynamicMemberId, asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
+import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
+import { deriveBoundarySchema, familyStateAt, resolveBoundaryRoute } from '../schema/derive-boundary.js'
+import type { InputSpec } from '../schema/model.js'
+import { documentNodeResolver, documentResolver } from '../compile/compile.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -384,24 +385,36 @@ const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding 
   }
 }
 
+/**
+ * First-run schema facts an inputs-side exposure records in its params, so a
+ * shared replay writes the same item without a schema: a dropdown that leads
+ * options forwards as a 'dynamicCombo' subtree, and a field (a widget-backed
+ * port reached directly, not through a junction) is promoted so the subgraph
+ * node shows it as a field instead of a pin.
+ */
 const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: CommandExecutionContext): JsonObject => {
-  if (params.bindingKind !== undefined || params.viaReroute !== undefined || params.side !== 'inputs' || context.kind !== 'initial') return params
+  if (params.side !== 'inputs' || context.kind !== 'initial') return params
   const binding = bindingFromParams(params, 'inputs')
   const graph = typeof params.graphId === 'string' ? doc.graphs[params.graphId] : undefined
   const node = binding && graph?.nodes[binding.node]
   const resolve = context.schemaResolverFor?.(doc)
   const schema = node && graph && resolve && documentNodeResolver(doc, resolve)(graph.id, node)
   const route = schema && binding && resolveBoundaryRoute(schema, binding, 'input')
-  return route?.ok && route.route.terminal.kind === 'port' && route.route.terminal.slot.dynamic?.kind === 'dynamicCombo'
-    ? { ...params, bindingKind: 'dynamicCombo' } : params
+  const slot = route?.ok && route.route.side === 'input' && route.route.terminal.kind === 'port' ? route.route.terminal.slot as InputSpec : undefined
+  if (slot === undefined || params.viaReroute !== undefined) return params
+  if (slot.dynamic?.kind === 'dynamicCombo')
+    return params.bindingKind === undefined ? { ...params, bindingKind: 'dynamicCombo' } : params
+  return (params.bindingKind ?? 'port') === 'port' && params.promoted === undefined && slot.widget !== undefined && slot.dynamic === undefined
+    ? { ...params, promoted: true } : params
 }
 
 // ---------------------------------------------------------------------------
-// boundary.addItem {graphId, side, node, port?, tap?, members?, itemId?, displayName?}
+// boundary.addItem {graphId, side, node, port?, tap?, members?, itemId?, displayName?, promoted?}
 //
 // Appends one endpoint exposure. IDs are allocated deterministically from the
 // target when omitted. Input targets are globally unique across primary and
-// fan-out bindings; outputs may re-expose a source.
+// fan-out bindings; outputs may re-expose a source. Exposing the primary
+// target of an input drawn without its wire draws the wire instead.
 // ---------------------------------------------------------------------------
 
 const boundaryAddItem: CommandDefinition = {
@@ -414,7 +427,8 @@ const boundaryAddItem: CommandDefinition = {
       !isObj(params) || typeof params.graphId !== 'string' || !isSide(params.side) ||
       typeof params.node !== 'string' || bindingFromParams(params, params.side) === undefined ||
       (params.itemId !== undefined && (typeof params.itemId !== 'string' || params.itemId.length === 0)) ||
-      (params.displayName !== undefined && typeof params.displayName !== 'string')
+      (params.displayName !== undefined && typeof params.displayName !== 'string') ||
+      (params.promoted !== undefined && (params.side !== 'inputs' || typeof params.promoted !== 'boolean'))
     ) return [err('params.invalid', "boundary.addItem: params must identify one port binding, or one outputs-side widget tap")]
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `boundary.addItem: unknown graph '${params.graphId}'`)]
@@ -423,34 +437,204 @@ const boundaryAddItem: CommandDefinition = {
     const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
     if (params.itemId !== undefined && allItems.some((item) => item.id === params.itemId))
       return [err('boundary.duplicateId', `boundary.addItem: boundary item '${params.itemId}' already exists in graph '${params.graphId}'`)]
-    const binding = bindingFromParams(newBindingParams(doc, params, context), params.side)!
+    const prepared = newBindingParams(doc, params, context)
+    const binding = bindingFromParams(prepared, params.side)!
+    const pinless = params.side === 'inputs'
+      ? items.findIndex((item) => item.wireHidden === true && bindingMatchesEndpoint(item.binds, binding))
+      : -1
+    if (pinless !== -1) {
+      tx.remove(['graphs', params.graphId, 'boundary', 'inputs', pinless, 'wireHidden'])
+      return []
+    }
     if (params.side === 'inputs' && items.some((item) =>
       [item.binds, ...(item.alsoBinds ?? [])].some((candidate) => bindingMatchesEndpoint(candidate, binding))))
       return [err('boundary.duplicateBind', `boundary.addItem: inner input '${params.node}/${params.port}' is already bound by another boundary input`)]
-    let id = params.itemId as string | undefined
-    if (id === undefined) {
-      const base = binding.kind === 'widgetTap'
-        ? binding.tap
-        : binding.members?.length ? `${binding.port}_${binding.members.join('_')}` : binding.port
-      id = base
-      // Allocate against BOTH sides: derivation treats boundary item ids
-      // as one global namespace, so a generated input id must not collide
-      // with an existing output id either.
-      for (let suffix = 2; allItems.some((item) => item.id === id); suffix++) id = `${base}_${suffix}`
-    }
-    const item = {
-      id,
+    appendItem(tx, def, params.side, binding, {
+      ...(typeof params.itemId === 'string' ? { itemId: params.itemId } : {}),
       ...(typeof params.displayName === 'string' && params.displayName.length > 0 ? { displayName: params.displayName } : {}),
-      binds: binding,
+      ...(prepared.promoted === true ? { promoted: true } : {}),
+    })
+    return []
+  },
+}
+
+/**
+ * Append one boundary item at the end of a side, allocating its id from the
+ * target when none is given. Ids are allocated against BOTH sides: derivation
+ * treats boundary item ids as one global namespace, so a generated input id
+ * must not collide with an existing output id either.
+ */
+function appendItem(
+  tx: TransactionBuilder,
+  def: GraphDef,
+  side: Side,
+  binding: NodeBoundaryBinding,
+  fields: { readonly itemId?: string; readonly displayName?: string; readonly promoted?: true; readonly wireHidden?: true },
+): void {
+  const items = def.boundary?.[side] ?? []
+  const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+  let id = fields.itemId
+  if (id === undefined) {
+    const base = binding.kind === 'widgetTap'
+      ? binding.tap
+      : binding.members?.length ? `${binding.port}_${binding.members.join('_')}` : binding.port
+    id = base
+    for (let suffix = 2; allItems.some((item) => item.id === id); suffix++) id = `${base}_${suffix}`
+  }
+  const { itemId: _itemId, ...rest } = fields
+  const item = { id, ...(rest.displayName !== undefined ? { displayName: rest.displayName } : {}), binds: binding,
+    ...(rest.promoted ? { promoted: true } : {}), ...(rest.wireHidden ? { wireHidden: true } : {}) }
+  if (!def.boundary) {
+    tx.set(['graphs', def.id, 'boundary'], {
+      inputs: side === 'inputs' ? [item] : [],
+      outputs: side === 'outputs' ? [item] : [],
+    } as unknown as Json)
+  } else {
+    tx.set(['graphs', def.id, 'boundary', side], [...items, item] as unknown as Json)
+  }
+}
+
+/**
+ * The boundary input that drives an inner field, and whether that input is
+ * shown on the subgraph node as a field (a promoted 'port' binding or a
+ * 'dynamicCombo' subtree). `driven` without `item` means something else
+ * already delivers the input: a link, a named net, or a forwarded family or
+ * construct that contains it.
+ */
+export function boundaryFieldState(
+  def: GraphDef,
+  target: PortRef,
+): { readonly driven: boolean; readonly item?: BoundaryItem; readonly primary?: boolean; readonly field?: boolean } {
+  const end: BoundaryBinding = { kind: 'port', node: target.node, port: target.port, ...(target.members?.length ? { members: target.members } : {}) }
+  for (const item of def.boundary?.inputs ?? []) {
+    const bindings = [item.binds, ...(item.alsoBinds ?? [])]
+    const index = bindings.findIndex((binding) => isNodeBoundaryBinding(binding) && binding.kind !== 'family' && binding.kind !== 'slot' &&
+      bindingMatchesEndpoint(binding, end))
+    if (index !== -1) {
+      const field = item.binds.kind === 'port' ? item.promoted === true : item.binds.kind === 'dynamicCombo'
+      return { driven: true, item, primary: index === 0, field }
     }
-    if (!def.boundary) {
-      tx.set(['graphs', params.graphId, 'boundary'], {
-        inputs: params.side === 'inputs' ? [item] : [],
-        outputs: params.side === 'outputs' ? [item] : [],
-      } as unknown as Json)
-    } else {
-      tx.set(['graphs', params.graphId, 'boundary', params.side], [...items, item] as unknown as Json)
-    }
+    const forwards = bindings.some((binding) => (binding.kind === 'family' || binding.kind === 'slot' || binding.kind === 'dynamicCombo') &&
+      binding.node === target.node && target.port.startsWith(`${binding.port}.`) &&
+      (binding.members ?? []).every((member, i) => target.members?.[i] === member))
+    if (forwards) return { driven: true }
+  }
+  const linked = Object.values(def.links).some((link) => isPortEndpoint(link.to) && samePortRef(link.to, target)) ||
+    Object.values(def.nets).some((net) => net.sinks.some((sink) => samePortRef(sink, target)))
+  return { driven: linked }
+}
+
+const showParamsInvalid = (): Diagnostic[] => [err('params.invalid', 'boundary.showOnSubgraphNode: params must be {graphId, node, port, members?: string[]}')]
+
+/**
+ * Validate a "Show on subgraph node" request. The first run also reads the
+ * schema: the target must be a stored field the format can show on the
+ * subgraph node, and the binding kind it needs is recorded in the params so
+ * a shared replay writes the same row without a schema.
+ */
+function prepareShowParams(doc: WorkflowDocument, params: Json, context: CommandExecutionContext): SharedReplayPreparation {
+  if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.node !== 'string' || typeof params.port !== 'string' ||
+      !validMembers(params.members) || (params.bindingKind !== undefined && params.bindingKind !== 'port' && params.bindingKind !== 'dynamicCombo'))
+    return { ok: false, diagnostics: showParamsInvalid() }
+  const graphId = params.graphId
+  const def = doc.graphs[graphId]
+  if (!def) return { ok: false, diagnostics: [err('graph.missing', `boundary.showOnSubgraphNode: unknown graph '${graphId}'`)] }
+  if (graphId === doc.root)
+    return { ok: false, diagnostics: [err('boundary.topLevel', 'boundary.showOnSubgraphNode: the top-level workflow has no subgraph node')] }
+  const node = def.nodes[params.node]
+  if (!node) return { ok: false, diagnostics: [err('node.missing', `boundary.showOnSubgraphNode: no node '${params.node}' in graph '${graphId}'`)] }
+  const members = params.members as string[] | undefined
+  const target: PortRef = { node: asNodeId(params.node), port: asPortId(params.port), ...(members?.length ? { members: members.map(asDynamicMemberId) } : {}) }
+  const state = boundaryFieldState(def, target)
+  if (state.item !== undefined)
+    return { ok: false, diagnostics: [err('boundary.duplicateBind', `boundary.showOnSubgraphNode: '${params.node}/${params.port}' is already bound by boundary input '${state.item.id}'`)] }
+  if (state.driven)
+    return { ok: false, diagnostics: [err('boundary.inputDriven', `boundary.showOnSubgraphNode: '${params.node}/${params.port}' already has a wire coming in`)] }
+  const resolve = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
+  if (resolve === undefined) return { ok: true, params }
+  const notField = (why: string): SharedReplayPreparation =>
+    ({ ok: false, diagnostics: [err('boundary.notField', `boundary.showOnSubgraphNode: '${params.node}/${params.port}' ${why}`)] })
+  const schema = documentNodeResolver(doc, resolve)(graphId, node)
+  if (schema === undefined) return notField('has no known schema')
+  const route = resolveBoundaryRoute(schema, { kind: 'port', ...target }, 'input')
+  if (!route.ok || route.route.side !== 'input' || route.route.terminal.kind !== 'port') return notField('is not an input field')
+  const missingMember = route.route.hops.some((hop, i) => hop.kind === 'member' &&
+    familyStateAt(node, route.route.hops.slice(0, i), hop.familyPath)?.members?.includes(hop.member) !== true)
+  if (missingMember) return notField('has no stored value yet')
+  const slot = route.route.terminal.slot as InputSpec
+  const combo = slot.dynamic?.kind === 'dynamicCombo'
+  const bindingKind = (params.bindingKind ?? (combo ? 'dynamicCombo' : 'port')) as 'port' | 'dynamicCombo'
+  if (!combo && (slot.widget === undefined || slot.dynamic !== undefined)) return notField('is not a field')
+  // The format's own refusals (a forwarded construct, a selector, a slot
+  // that is not connected inside) come from derivation: refuse when adding
+  // the row brings an error the definition does not already have.
+  const item: BoundaryItem = { id: 'show_on_subgraph_node', binds: { kind: bindingKind, ...target }, ...(bindingKind === 'port' ? { promoted: true } : {}) }
+  const withItem: GraphDef = { ...def, boundary: { inputs: [...(def.boundary?.inputs ?? []), item], outputs: def.boundary?.outputs ?? [] } }
+  const schemas = documentResolver(doc, resolve)
+  const resolveNode = (inner: typeof node) => documentNodeResolver(doc, resolve)(graphId, inner)
+  const errorsOf = (graph: GraphDef): Set<string> => new Set(
+    deriveBoundarySchema(graph, schemas, undefined, resolveNode).diagnostics.filter((d) => d.severity === 'error').map((d) => JSON.stringify([d.code, d.message])))
+  const before = def.boundary === undefined ? new Set<string>() : errorsOf(def)
+  const added = [...errorsOf(withItem)].filter((key) => !before.has(key))
+  if (added.length > 0) {
+    const [code, message] = JSON.parse(added[0]!) as [string, string]
+    return { ok: false, diagnostics: [err(code, `boundary.showOnSubgraphNode: ${message}`)] }
+  }
+  return { ok: true, params: { ...params, bindingKind } }
+}
+
+// ---------------------------------------------------------------------------
+// boundary.showOnSubgraphNode {graphId, node, port, members?}
+//
+// Puts an inner field on the subgraph node without drawing a wire: appends an
+// input bound to the field (promoted, or the 'dynamicCombo' subtree for a
+// dropdown that leads options) marked wireHidden, in one undo step.
+// ---------------------------------------------------------------------------
+
+const boundaryShowOnSubgraphNode: CommandDefinition = {
+  id: 'boundary.showOnSubgraphNode',
+  prepareForSharedReplay(doc, params, context) {
+    return prepareShowParams(doc, params, context)
+  },
+  run(doc, params, tx, context) {
+    const prepared = prepareShowParams(doc, params, context)
+    if (!prepared.ok) return [...prepared.diagnostics]
+    const p = prepared.params as JsonObject
+    const def = doc.graphs[p.graphId as string]!
+    const kind = p.bindingKind === 'dynamicCombo' ? 'dynamicCombo' : 'port'
+    const members = p.members as string[] | undefined
+    appendItem(tx, def, 'inputs', {
+      kind,
+      node: asNodeId(p.node as string),
+      port: asPortId(p.port as string),
+      ...(members?.length ? { members: members.map(asDynamicMemberId) } : {}),
+    }, { ...(kind === 'port' ? { promoted: true } : {}), wireHidden: true })
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
+// boundary.setWireHidden {graphId, itemId, hidden}
+//
+// Draws or hides the wire of a boundary input shown on the subgraph node as a
+// field. The row keeps its id, so every subgraph node keeps its value.
+// ---------------------------------------------------------------------------
+
+const boundarySetWireHidden: CommandDefinition = {
+  id: 'boundary.setWireHidden',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.itemId !== 'string' || typeof params.hidden !== 'boolean')
+      return [err('params.invalid', 'boundary.setWireHidden: params must be {graphId, itemId, hidden: boolean}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `boundary.setWireHidden: unknown graph '${params.graphId}'`)]
+    const found = findItem(def, 'inputs', params.itemId)
+    if (!found) return [err('boundary.itemMissing', `boundary.setWireHidden: no boundary input '${params.itemId}' in graph '${params.graphId}'`)]
+    const field = found.item.binds.kind === 'port' ? found.item.promoted === true : found.item.binds.kind === 'dynamicCombo'
+    if (!field) return [err('boundary.notField', `boundary.setWireHidden: boundary input '${params.itemId}' is not shown as a field on the subgraph node`)]
+    const path = ['graphs', params.graphId, 'boundary', 'inputs', found.index, 'wireHidden']
+    if (params.hidden === (found.item.wireHidden === true)) return []
+    if (params.hidden) tx.set(path, true)
+    else tx.remove(path)
     return []
   },
 }
@@ -557,6 +741,8 @@ export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
   boundaryAddBinding,
   boundaryRemoveBinding,
   boundaryAddItem,
+  boundaryShowOnSubgraphNode,
+  boundarySetWireHidden,
   boundaryRenameItem,
   boundarySetBinding,
   boundaryUnbind,

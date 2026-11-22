@@ -605,6 +605,14 @@ export interface BoundaryItem {
    * inner stored value to fall back on), so `promoted` is invalid there.
    */
   readonly promoted?: boolean
+  /**
+   * Presentation only: the input still drives its bound fields exactly as a
+   * wired one does, but no wire is drawn from the Inputs panel and the panel
+   * row has no pin. Valid only on an input the instance shows as a field (a
+   * promoted 'port' binding or a 'dynamicCombo' binding). Never semantic:
+   * compile and the cache key ignore it.
+   */
+  readonly wireHidden?: true
   readonly ext?: ExtData
 }
 

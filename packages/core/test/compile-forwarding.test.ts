@@ -1013,6 +1013,22 @@ describe('cumulative and occurrence-local behavior', () => {
     )
     expect(prompt['s.i.n']!.inputs).toEqual({ 'weights.w0': 3 })
   })
+
+  it('a field shown without a wire takes the value set on each subgraph node, as a wired one does', () => {
+    const promptFor = (wireHidden: boolean) => okPrompt(docOf({
+      g0: { nodes: { a: { type: '#sub', values: { value: 5 } }, b: { type: '#sub' } } },
+      sub: {
+        nodes: { n: { type: 'IntValue', values: { value: 2 } } },
+        boundary: {
+          inputs: [{ id: 'value', binds: { kind: 'port', node: 'n', port: 'value' }, promoted: true, ...(wireHidden ? { wireHidden: true } : {}) }],
+        },
+      },
+    }))
+    const hidden = promptFor(true)
+    expect(hidden['a.n']!.inputs).toEqual({ value: 5 })
+    expect(hidden['b.n']!.inputs).toEqual({ value: 2 })
+    expect(hidden).toEqual(promptFor(false))
+  })
 })
 
 describe('failure safety', () => {
