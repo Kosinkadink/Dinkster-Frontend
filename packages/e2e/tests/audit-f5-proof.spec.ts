@@ -20,6 +20,9 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('/api/assets/catalog?*', (route) => route.fulfill({ json: { assets: [] } }))
+  await page.route('/api/principals', (route) => route.fulfill({ json: [] }))
+  await page.route('/api/mounts/locations', (route) => route.fulfill({ json: { version: 1, downloadLocation: null, locations: [] } }))
   await page.route('/api/docs?kind=guide&limit=1', (route) => route.fulfill({ json: { docs: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
@@ -60,7 +63,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
   const pack = page.locator('[data-pack="proof.blocked"]')
   await expect(pack.getByTestId('extension-pack-toggle')).toBeDisabled()
   await expect(pack.getByTestId('extension-contribution-toggle')).toBeDisabled()
-  await expect(pack.getByTestId('extension-pack-toggle')).toHaveAttribute('aria-checked', 'true')
+  await expect(pack.getByTestId('extension-pack-toggle')).toBeChecked()
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any

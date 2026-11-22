@@ -337,6 +337,7 @@ test('fixture WidgetView opens a bounded host-rendered editor and dispatches dec
   await expect(page.getByTestId('graph-canvas')).toBeFocused()
 
   await page.getByRole('button', { name: 'Toggle right rail' }).click()
+  await page.getByTestId('extensions-toggle').click()
   await page.setViewportSize({ width: 360, height: 640 })
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: -120, y: 80, scale: 1 }))
   await page.mouse.click(...xy(await widgetPoint(page, 'n0', 'stars')))

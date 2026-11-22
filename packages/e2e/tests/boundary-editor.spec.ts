@@ -58,6 +58,7 @@ async function widenRail(page: Page): Promise<void> {
 
 async function drillIntoOccurrence(page: Page): Promise<void> {
   await identityViewport(page)
+  await runsTab(page).click()
   const activeRailTabId = await page.getByTestId('dock-zone-right')
     .locator('[role="tab"][aria-selected="true"]')
     .getAttribute('data-tab-id')

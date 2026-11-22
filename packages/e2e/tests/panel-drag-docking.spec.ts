@@ -224,7 +224,21 @@ test('a dragged panel tab shows a cursor-following ghost with its title, icon, a
   expect(await zoneOrder(page, 'right')).not.toContain('refusal-proof')
 })
 
+async function addOverflowPanels(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as DockingTestApp
+    for (let index = 0; index < 3; index += 1) {
+      app.panels.register({
+        id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
+        placement: 'rail', order: 100 + index,
+        component: () => document.createElement('div'),
+      })
+    }
+  })
+}
+
 test('the all-tabs overflow button appends after hidden tabs', async ({ page }) => {
+  await addOverflowPanels(page)
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('Home')
   const overflow = page.getByTestId('dock-zone-overflow-button')
@@ -248,6 +262,7 @@ test('the all-tabs overflow button appends after hidden tabs', async ({ page }) 
 })
 
 test('the hidden-tab tail of a strip appends without reading hidden tab boxes as slots', async ({ page }) => {
+  await addOverflowPanels(page)
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('Home')
   const host = page.getByTestId('dock-zone-right')
