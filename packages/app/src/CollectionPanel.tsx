@@ -81,6 +81,10 @@ export function CollectionPanel(props: {
   readonly variant?: 'tabs' | 'select'
   /** First-render mode when no persisted preference applies. */
   readonly defaultMode?: CollectionViewMode
+  /** Hosts with a row-only contract omit the grid switch and stored view preference. */
+  readonly listOnly?: boolean
+  /** Replace row contents while retaining selection, paging, keyboard navigation and guarded actions. */
+  readonly entryContent?: (entry: CollectionEntry, selected: () => boolean, actions: JSX.Element) => JSX.Element
   /**
    * localStorage key persisting the grid/list mode. Scope is the host's
    * decision: a shared key makes the same surface feel the same across
@@ -138,7 +142,7 @@ export function CollectionPanel(props: {
   const storage = safeLocalStorage()
   const [sourceId, setSourceId] = createSolidSignal(props.sources[0]?.id ?? '')
   const [mode, setModeSignal] = createSolidSignal<CollectionViewMode>(
-    props.modeKey !== undefined
+    props.listOnly === true ? 'list' : props.modeKey !== undefined
       ? readCollectionViewMode(storage, props.modeKey, props.defaultMode ?? 'list')
       : props.defaultMode ?? 'list',
   )
@@ -580,6 +584,7 @@ export function CollectionPanel(props: {
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
     >
+      <Show when={props.entryContent} fallback={<>
       <Thumb entry={p.entry} />
       <div class="collection-text">
         <span class="collection-title">{p.entry.title}</span>
@@ -592,6 +597,9 @@ export function CollectionPanel(props: {
           </span>
         </Show>
       </div>
+      </>}>
+        {(render) => render()(p.entry, () => p.entry.id === selectedId(), <Actions entry={p.entry} />)}
+      </Show>
       <Show when={(p.entry.children ?? []).length > 0}>
         <button
           type="button"
@@ -608,10 +616,10 @@ export function CollectionPanel(props: {
           {message(expandedIds().has(p.entry.id) ? 'collection.action.hideRuns' : 'collection.action.showRuns')}
         </button>
       </Show>
-      <Show when={p.entry.id === selectedId() && (p.entry.details ?? []).length > 0}>
+      <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.details ?? []).length > 0}>
         <Details entry={p.entry} />
       </Show>
-      <Show when={p.entry.id === selectedId() && (p.entry.actions ?? []).length > 0}>
+      <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.actions ?? []).length > 0}>
         <Actions entry={p.entry} />
       </Show>
     </div>
@@ -796,7 +804,7 @@ export function CollectionPanel(props: {
             </button>
           )}
         </For>
-        <button
+        <Show when={props.listOnly !== true}><button
           class="collection-mode"
           data-testid="collection-mode"
           data-tooltip-label={message(mode() === 'list' ? 'collection.mode.grid' : 'collection.mode.list')}
@@ -806,7 +814,7 @@ export function CollectionPanel(props: {
           <Show when={mode() === 'list'} fallback={<Icon icon={List} />}>
             <Icon icon={Grid2X2} />
           </Show>
-        </button>
+        </button></Show>
       </div>
 
       <Show when={source()?.folders === true}>

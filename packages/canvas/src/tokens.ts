@@ -644,6 +644,8 @@ export interface DesignTokens {
   readonly colors: {
     readonly canvasBackground: string
     readonly gridDot: string
+    readonly pendingOutline: string
+    readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
     /** Face of a raised opener row, lighter than the node body. */
@@ -809,13 +811,13 @@ export const defaultTokens: DesignTokens = {
   colors: canvasColorsForTheme('dark'),
   ...canvasTypePaintForTheme('dark'),
   stateColors: {
-    pending: '#5c5c5c',
+    pending: canvasSemanticTokens.border.pending,
     running: canvasSemanticTokens.meaning.info.border,
     cached: '#9575cd',
     done: canvasSemanticTokens.meaning.success.border,
     error: canvasSemanticTokens.meaning.danger.border,
     // Normal non-error state (first-class absence), visually calm - never red.
-    skipped: canvasSemanticTokens.text.muted,
+    skipped: canvasSemanticTokens.border.skipped,
   },
   progressBar: canvasSemanticTokens.meaning.info.border,
 }
@@ -826,7 +828,7 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
     typeColors: {
       ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
-        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A',
       } : {
         CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
         IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
@@ -850,6 +852,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
   return {
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
+    pendingOutline: tokens.border.pending,
+    skippedOutline: tokens.border.skipped,
     // The dark theme's flat-title look: the darker surface is the body and
     // the title bar, raised rows take the lighter one. The light theme
     // keeps its original surfaces.
@@ -869,7 +873,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     swatchChecker: tokens.checker.dark,
     swatchCheckerAlt: tokens.checker.light,
     value: tokens.text.primary,
-    widgetBackground: theme === 'dark' ? '#121417' : tokens.surface.inset,
+    widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,

@@ -1386,6 +1386,14 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
     expect(dotXs(calls)).toHaveLength(0)
     expect(calls.filter((c) => c.method === 'fillRect' && c.fillStyle === 'checkerboard')).toHaveLength(1)
+    for (const [theme, color] of [['light', '#D3D9DE'], ['dark', '#324143']] as const) {
+      calls.length = 0
+      renderer.setColors(canvasColorsForTheme(theme))
+      renderer.renderNow()
+      const tileCalls = calls.filter((call) => call.method === 'createPattern').flatMap((call) =>
+        (call.args[0] as { recording: { calls: PaintCall[] } }).recording.calls)
+      expect(tileCalls.some((call) => call.method === 'fill' && call.fillStyle === color)).toBe(true)
+    }
     renderer.dispose()
 
     // Preference off: no grid paint at all.
@@ -1678,6 +1686,8 @@ describe('node chrome paint on the live renderer', () => {
       ['light', '#4F8EC1', '#B770B2'],
     ] as const) {
       renderer.setColors(canvasColorsForTheme(theme), canvasTypePaintForTheme(theme))
+      expect(renderer.getTokens().stateColors.pending).toBe(theme === 'light' ? '#5C5C5C' : '#4F6265')
+      expect(renderer.getTokens().stateColors.skipped).toBe(theme === 'light' ? '#7D8792' : '#74888B')
       calls.length = 0
       renderer.renderNow()
       expect(calls.some((call) => call.method === 'fill' && call.fillStyle === imageColor)).toBe(true)
@@ -2118,8 +2128,8 @@ describe('node chrome paint on the live renderer', () => {
     const bodyIdx = calls.findIndex(
       (c) => c.method === 'roundRect' && c.args[0] === n.x && c.args[1] === n.y && c.args[3] === n.layout.height,
     )
-    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#493031')
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')).toBe(true)
+    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#432e2c')
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#663b37')).toBe(true)
     expect(nodeBorder(calls, n)).toMatchObject({
       strokeStyle: defaultTokens.colors.error,
       lineWidth: 3.75,
@@ -2127,7 +2137,7 @@ describe('node chrome paint on the live renderer', () => {
   })
 
   it.each([
-    ['dark', '#3B4148'],
+    ['dark', '#324143'],
     ['light', '#D3D9DE'],
   ] as const)('a recognized idle node uses the quiet %s outline without error paint', (theme, outline) => {
     const scene = fixtureScene('clean')

@@ -17,6 +17,14 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 
 ## Source of truth
 
+The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
+raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
+is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+Light-theme colors remain unchanged. The app grid uses the light palette's
+`#D3D9DE` dots rather than retaining the dark constructor color. Queued and
+skipped node outlines keep their existing light values through dedicated
+palette entries.
+
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
 identity values. `dinkster-components.json` beside it owns spacing, typography,
 regular/bold weights, shape, motion, interaction and layout values. The private
@@ -105,7 +113,9 @@ every core tab once.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
-  same attributes. `pending` shows the spinner and ignores presses under a
+  same attributes. It uses the label as a native title unless a nonempty
+  `data-tooltip-label` assigns hover/focus wording to the host tooltip.
+  `pending` shows the spinner and ignores presses under a
   stable name. A pending button, and a button that becomes disabled while it
   holds keyboard focus, stays focusable and is announced as unavailable, so
   focus is never dropped to the page. `ProductLink` is the text link.
@@ -150,6 +160,11 @@ every core tab once.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
   `ProductEmptyState` centers the approved D mark with a sentence and optional
   action in its column. `ProductLoading` is one status region with its label;
+  `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
+  breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
+  and cyan. Queued work stays cyan without motion. Its optional
+  `finished`/`failed` result adds a lower-right cyan or
+  coral dot, hidden while running. Tabs and the status bar use this same export.
   `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
   icon anatomy.
 - `ProductFacts` renders labeled account facts as a definition list; values may
@@ -260,9 +275,10 @@ Primary actions use cyan with ink text, never white text on
 cyan. Semantic danger reads the theme's danger entry, not identity coral.
 Status foregrounds use their semantic status colors on panel surfaces.
 Muted text on raised surfaces retains the brand guide's documented contrast
-exception (dark 3.85:1, light 4.19:1); normal body copy uses secondary text.
-Dark-theme danger text on the hover background retains the brand guide's second
-exception (4.40:1) while a danger item is hovered or holds keyboard focus.
+exception (dark 4.01:1, light 4.19:1); normal body copy uses secondary text.
+Muted text on panel surfaces meets 4.5:1 (dark 4.64:1, light 4.82:1).
+Dark-theme danger text on the hover background meets 4.80:1 while a danger item
+is hovered or holds keyboard focus.
 
 Deliberate literal-color exceptions are color-picker spectrum ramps and
 editable color presets/defaults, user-authored media/GLSL/mask colors, calculated
@@ -326,8 +342,8 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
-The Focused panel uses ProductEmptyState for an absent document and a context
-without problems. Context selection, problem filtering and canvas navigation
+The Problems panel uses ProductEmptyState when Selection only has no selected
+entity or no matching problems. Selection filtering and canvas navigation
 remain independent of the empty presentation.
 
 Badge popovers use ProductEmptyState when error, log or problem details are
@@ -991,9 +1007,17 @@ the expanded action label; compact mode hides the hint but retains it in the
 button's title and accessible description without changing its action name.
 Changing or removing the shortcut updates both presentations. The hint is
 informational: the caller still owns shortcut registration and activation.
-Pending actions reuse the shared disabled/focus and spinner behavior. The gallery's Window toolbar page demonstrates production,
-QA/custom services, all three platforms, both app themes and idle/running/pending
-states. Supply a brand menu with an icon and the fixed QA/custom service labels;
+An optional `labelContent` replaces only the expanded visible label, for example
+`ProductWordmark` with the host's `theme`. The required string `label` still owns
+the accessible name and title; rich content must be non-interactive. Compact
+mode clips that content and shows the action's icon without changing activation
+or menu ownership. Toolbar wordmarks reserve their shared token width and height
+before the image loads. `ProductWordmark` defaults to dark artwork when no theme
+is supplied. Pending actions reuse the shared disabled/focus and spinner behavior.
+The gallery's Window toolbar page demonstrates plain menu and rich brand
+presentations across production and QA/custom services, all three platforms,
+both app themes and idle/running/pending states. Supply an icon-bearing brand
+menu or action and the fixed QA/custom service labels;
 arbitrary environment names are outside this toolbar contract. These are shared
 patterns, not app adoption or OS-input acceptance.
 
