@@ -1,4 +1,9 @@
 {
+  "shell.panel.log.title": "日志",
+  "shell.panel.log.description": "运行记录和应用活动",
+  "log.field.scope": "日志范围",
+  "log.scope.run": "本次运行",
+  "log.scope.app": "应用",
   "projectsDialog.description": "项目保存在此引擎的库中。标签页、后端连接和布局仅保存在此设备上。",
   "projectsDialog.loading": "正在加载项目",
   "projectNeeds.title": "项目需求",

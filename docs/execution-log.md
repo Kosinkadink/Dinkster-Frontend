@@ -1,9 +1,11 @@
-# Execution log
+# Log
 
-The Execution log is the per-run structured feed of what a workflow execution
-reported while it ran. It is a bottom-zone registered panel, separate from the
-app Activity panel: Activity records frontend and connection events, while the
-Execution log shows one selected run's backend log records and errors.
+Log is the bottom-zone panel for run records and app activity. Its scope
+selector opens on This run when an execution is selected, or App otherwise.
+This run shows one execution's backend log records and errors; App shows
+frontend and connection events. Clear is available only for App and keeps its
+two-press confirmation. Opening a node's log badge selects This run and applies
+that node's filter.
 
 Each row keeps a UTC timestamp, a level, the originating node when the record
 carries one, and the message. Rows come from two sources and only two. Log

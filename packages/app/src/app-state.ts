@@ -2622,7 +2622,7 @@ export class AppState {
       runtimeNodeIds,
       token: ++this.executionLogFocusToken,
     })
-    setPanelOpen(this.panels, this.dock, 'execution-log', 'bottom', true)
+    setPanelOpen(this.panels, this.dock, 'logs', 'bottom', true)
   }
 
   /** The panel applied this focus request; stop it from replaying. */

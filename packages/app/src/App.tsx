@@ -12,22 +12,21 @@ import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Images from 'lucide-solid/icons/images'
+import Blocks from 'lucide-solid/icons/blocks'
 import Library from 'lucide-solid/icons/library'
 import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
-import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
-import { ActivityLog } from './ActivityLog.js'
+import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
 import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard } from './ExecutionActivityCard.js'
-import { ExecutionLogPanel } from './ExecutionLogPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
@@ -1290,7 +1289,6 @@ export function App(props: {
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
     }}
   </Show>
-  const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
    * Best-effort display title for a runtime node id: resolve through compile
    * provenance (region iteration suffixes and inner path segments included)
@@ -1318,8 +1316,11 @@ export function App(props: {
     }))
   }
   const executionLogFocus = useSignal(app.executionLogFocus)
-  const ExecutionLogBody = () => (
-    <ExecutionLogPanel
+  const LogsBody = () => (
+    <LogPanel
+      entries={logs}
+      clearArmed={logsClearArmed}
+      onClear={requestLogsClear}
       executions={workflowExecutions}
       active={activeExecution}
       nodeTitle={runtimeNodeTitle}
@@ -1425,7 +1426,7 @@ export function App(props: {
     registerBuiltinPanel({
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 12,
+      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
       when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
         return <LearnPanel
@@ -1442,26 +1443,12 @@ export function App(props: {
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 15,
       toggleTestId: 'assets-toggle', component: AssetsPanelBody,
     }),
-    // Logs live in the BOTTOM panel by default: a wide, short surface suits
-    // streaming rows, and it gives the bottom region its first resident
-    // (promises.md "Shell layout"). Dock stays an allowed placement.
     registerBuiltinPanel({
-      id: 'logs', get title() { return message('shell.panel.activity.title') }, icon: ScrollText,
-      get description() { return message('shell.panel.activity.description') }, get ariaLabel() { return message('shell.panel.activity.title') },
+      id: 'logs', get title() { return message('shell.panel.log.title') }, icon: ScrollText,
+      get description() { return message('shell.panel.log.description') }, get ariaLabel() { return message('shell.panel.log.title') },
       placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       toggleTestId: 'logs-toggle',
-      headerAction: { get label() { return message('shell.action.clear') }, testId: 'logs-clear', run: requestLogsClear },
       component: LogsBody,
-    }),
-    // The Execution log is the per-run structured feed (node output,
-    // warnings, error reports), deliberately separate from the app-level
-    // Activity panel above (Dinkster issue #368).
-    registerBuiltinPanel({
-      id: 'execution-log', get title() { return message('shell.panel.executionLog.title') }, icon: Terminal,
-      get description() { return message('shell.panel.executionLog.description') }, get ariaLabel() { return message('shell.panel.executionLog.title') },
-      placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
-      toggleTestId: 'execution-log-toggle',
-      component: ExecutionLogBody,
     }),
     registerBuiltinPanel({
       id: 'backends', get title() { return message('shell.panel.backends.title') }, icon: Server,
@@ -1490,14 +1477,20 @@ export function App(props: {
       component: OutputsPanel,
     }),
     registerBuiltinPanel({
-      id: 'extensions', get title() { return message('shell.panel.extensions.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
+      id: 'extensions', get title() { return message('shell.panel.extensions.title') }, icon: Blocks,
+      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
+      toggleTestId: 'extensions-toggle',
       component: () => <ExtensionsPanel host={app.extensions} />,
     }),
     registerBuiltinPanel({
       id: 'boundary', get title() { return message('shell.panel.boundary.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
       indicator: boundaryIndicator,
+      when: () => {
+        boundaryStateTick()
+        const tab = activeTab()
+        return tab !== undefined && currentGraphId(tab) !== tab.store.doc.root
+      },
       component: () => <BoundaryPanel app={app} />,
     }),
     // The Focused tab shows the focused entity and only its problems
@@ -1521,12 +1514,12 @@ export function App(props: {
       id: 'node-help', get title() { locale(); return t('nodeHelp.panel.title') },
       get description() { locale(); return t('nodeHelp.panel.description') },
       get ariaLabel() { locale(); return t('nodeHelp.panel.ariaLabel') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 57,
+      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
       component: () => <NodeHelpPanel app={app} locale={locale().tag} />,
     }),
     registerBuiltinPanel({
       id: 'problems', get title() { return message('shell.panel.problems.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
+      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
         importedNodes={importedNodes}
@@ -2763,7 +2756,7 @@ export function App(props: {
               </For>
             </div>
             <div class="sidebar-toggle-group sidebar-toggle-group-bottom" data-testid="bottom-toggle-group">
-              <For each={bottomPanels()}>
+              <For each={bottomPanels().filter((panel) => panel.id !== 'logs')}>
                 {(panel) => (
                   <ActivityBarButton
                     icon={panel.icon}

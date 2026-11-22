@@ -1,4 +1,9 @@
 {
+  "shell.panel.log.title": "Log",
+  "shell.panel.log.description": "Run records and app activity",
+  "log.field.scope": "Log scope",
+  "log.scope.run": "This run",
+  "log.scope.app": "App",
   "projectsDialog.description": "Projects are saved in this engine's library. Tabs, backend connections, and layout stay on this device.",
   "projectsDialog.loading": "Loading projects",
   "projectNeeds.title": "Project needs",
