@@ -157,7 +157,6 @@ import {
   type PackPreparationProgress,
   type BackendDiscovery,
   type DinksterSubmitResult,
-  type DinksterJobRecord,
   type DinksterValuesClient,
   type PreviewMode,
   type PrepareExecutionHydration,
@@ -10516,158 +10515,32 @@ export class AppState {
   private readonly hydrated = new Set<string>()
   private pendingExecutionHydrations = 0
 
-  private async retainTerminalExecutionAssets(
-    backend: Backend,
-    state: Pick<ExecutionState, 'ref' | 'artifact' | 'jobRef' | 'sourceDocument'>,
-    job: DinksterJobRecord,
-    resolve: SchemaResolver,
-    current: () => boolean,
-    replacing: readonly RetainedAssets[] = [],
-  ): Promise<readonly RetainedAssets[] | undefined> {
-    if (state.jobRef === undefined || job.jobRef !== state.jobRef || job.sourceDocument !== state.sourceDocument) return undefined
-    const connection = backend.connection
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(connection)
-    const terminal = await connection.fetchTerminalResultAssets(state.jobRef, state.ref.prompt)
-    if (!current() || terminal === undefined || terminal.state !== job.state || terminal.attemptId !== job.attemptId) return undefined
-    const outputs = job.outputs ?? {}
-    if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return undefined
-    const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
-      Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId])))
-    const offeredKeys = new Set(terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
-      [JSON.stringify([offer.nodeId, offer.outputId])]))
-    // The seal also retains intermediate outputs omitted from job.outputs.
-    // Every published output needs a source; all sealed sources are claimed.
-    if (outputKeys.some((key) => !offeredKeys.has(key)) ||
-      terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return undefined
-    for (const offer of terminal.offers) {
-      if (offer.artifact !== undefined) {
-        const { index, ...artifact } = offer.artifact
-        if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return undefined
-      }
-    }
-    // Runtime source claims certify the outputs, not the producing document.
-    const roots = state.artifact === undefined
-      ? executionAssetRoots({ ...state, outputs: outputs as ExecutionState['outputs'], artifacts: job.artifacts ?? [] }, resolve)
-      : workflowAssetRoots(state.artifact.snapshot, { revision: state.artifact.revision, undo: [], redo: [] },
-        resolve, [], 'publication', state.sourceDocument)
-    // Reject unsupported replacements before admitting new owners on each retry.
-    // The release tombstone itself never supplies source authority.
-    if (replacing.some((receipt) => receipt.sourceToken === undefined
-      ? !receipt.digests.every((digest) => [...terminal.offers, roots].some((owner) => owner.complete && owner.digests.includes(digest)))
-      : !terminal.offers.some((offer) => offer.complete && offer.token === receipt.sourceToken &&
-        receipt.digests.every((digest) => offer.digests.includes(digest))))) {
-      throw new Error('Persisted result replacement is incomplete')
-    }
-    const retained: RetainedAssets[] = []
-    let complete = false
-    try {
-      for (const offer of terminal.offers) {
-        retained.push(await retainExecutionAssets(connection, state.ref, offer))
-        if (!current()) return undefined
-      }
-      retained.push(await retainExecutionAssets(connection, state.ref, roots))
-      if (!current()) return undefined
-      complete = true
-      return retained
-    } finally {
-      // Cancelled publication does not end claims already admitted locally.
-      // Keep them through ordinary replacement and result-lifetime checks.
-      if (!complete && !this.disposed && activeProjectId() === project && this.backendFor(backend.id) === backend &&
-        this.assetConnectionGenerations.get(connection) === generation) {
-        for (const receipt of retained) this.resultAssetOwners.set(receipt.ownerId, {
-          backend, retained: receipt, project, generation, execution: executionKey(state.ref),
-          interim: true, observed: this.store.get(state.ref) !== undefined,
-        })
-        this.retireUnusedResultOwners()
-      }
-    }
-  }
-
-  private readonly terminalHydrations = new WeakMap<Backend, Map<string, {
-    readonly job: string
-    readonly current: () => boolean
-    readonly promise: Promise<boolean>
-  }>>()
-
   private prepareExecutionHydration(backend: Backend): PrepareExecutionHydration {
     const connection = backend.connection
     return (ref) => {
       const generation = this.assetConnectionGenerations.get(connection)
       const held = this.store.get(ref)
       if (held === undefined) return async () => false
-      const backendRegistry = backend.registry.get()
-      const executionRegistry = this.registryForExecution(ref)
       const project = activeProjectId()
-      const storage = globalThis.localStorage
-      const current = (): boolean => !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
-        generation === this.assetConnectionGenerations.get(connection) &&
-        this.backendFor(backend.id) === backend && backend.registry.get() === backendRegistry &&
-        this.registryForExecution(ref) === executionRegistry &&
-        this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
-        this.store.get(ref)?.jobRef === held.jobRef &&
-        this.store.get(ref)?.sourceDocument === held.sourceDocument
+      const current = (): boolean => {
+        const state = this.store.get(ref)
+        return !this.disposed && activeProjectId() === project &&
+          generation === this.assetConnectionGenerations.get(connection) &&
+          this.backendFor(backend.id) === backend && state !== undefined &&
+          state.artifact === held.artifact && state.jobRef === held.jobRef &&
+          state.sourceDocument === held.sourceDocument
+      }
       return async (job) => {
         if (!current()) return false
         if (job === undefined) return true
         if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
-        if (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') {
-          if (held.jobRef === undefined) return false
-          let admissions = this.terminalHydrations.get(backend)
-          if (admissions === undefined) this.terminalHydrations.set(backend, (admissions = new Map()))
-          for (const [key, admission] of admissions) if (!admission.current()) admissions.delete(key)
-          const key = executionKey(ref)
-          const jobBytes = canonicalJson(job)
-          const existing = admissions.get(key)
-          if (existing?.job === jobBytes) return await existing.promise && existing.current() && current()
-          let receipts: readonly RetainedAssets[] | undefined
-          const admission = {
-            job: jobBytes,
-            current: () => current() && (receipts === undefined || receipts.every((receipt) =>
-              receipt.complete && this.store.get(ref)?.assetRetentions?.some((held) => held.ownerId === receipt.ownerId) &&
-              this.mayAdoptResult(receipt))),
-            promise: Promise.resolve(false),
-          }
-          // Completion events, store notifications and reconnect reads share
-          // one local admission; repeated publication must not append owners.
-          admission.promise = (async () => {
-            const retained = await this.retainTerminalExecutionAssets(backend, held, job,
-              this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)), current)
-            if (retained === undefined) return false
-            for (const receipt of retained) this.trackResultOwner(backend, receipt)
-            this.store.recordAssetRetentions(ref, retained)
-            receipts = retained
-            return true
-          })().then((accepted) => {
-            if (!accepted && admissions.get(key) === admission) admissions.delete(key)
-            return accepted
-          }, (error: unknown) => {
-            if (admissions.get(key) === admission) admissions.delete(key)
-            throw error
-          })
-          admissions.set(key, admission)
-          return admission.promise
-        }
-        const outputs = workspaceRecord(job.outputs)
-          ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
-        const resolve = this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined))
-        const existing = executionAssetRoots(held, resolve)
-        const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
-          ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
-        const retained = await retainExecutionAssets(connection, ref, { complete: false,
-          digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
-        if (!current()) return false
-        this.trackResultOwner(backend, retained, ref)
-        this.store.recordAssetRetentions(ref, [retained])
-        return true
+        if (job.sourceDocument !== held.sourceDocument) return false
+        return current()
       }
     }
   }
 
-  /**
-   * Completion admits the sealed result inventory even when live events
-   * already supplied descriptors. Cached runs also fetch their outputs here.
-   */
+  /** Cached runs fetch their output descriptors after reconnect. */
   private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
     if (this.disposed) return
     for (const state of execs.values()) {
