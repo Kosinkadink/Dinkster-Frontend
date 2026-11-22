@@ -21,14 +21,15 @@ async function rowPoint(page: Page, nodeId: string, port: string, at: 'mark' | '
   return page.evaluate(({ nodeId, port, at }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.address.port === port)!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.address?.port === port)!
     const tokens = renderer.getDesignTokens()
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const width = (row as { width?: number }).width ?? node.layout.width - row.inset * 2
+    const inset = row.inset ?? 0
+    const width = row.width ?? node.layout.width - inset * 2
     const x = at === 'mark'
       ? tokens.rowGeometry.stepperZone + tokens.rowGeometry.stepperLabelInset + 6
       : width - tokens.rowGeometry.stepperZone - 20
-    return { x: rect.left + node.x + row.inset + x, y: rect.top + node.y + row.y + tokens.rowHeight / 2 }
+    return { x: rect.left + node.x + inset + x, y: rect.top + node.y + row.y + tokens.rowHeight / 2 }
   }, { nodeId, port, at })
 }
 
@@ -112,7 +113,7 @@ test('a field shown on the subgraph node has no wire inside, carries the mark, a
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
   const outside = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .find((candidate) => candidate.id === 'soften')!.layout.rows
-    .flatMap((row) => row.kind === 'widget' ? [{ port: row.address.port, marked: row.subgraphMark !== undefined }] : []))
+    .flatMap((row) => row.kind === 'widget' ? [{ port: row.address?.port, marked: row.subgraphMark !== undefined }] : []))
   expect(outside).toContainEqual({ port: 'strength', marked: false })
   await capture(page, 'outside-subgraph-node')
 })

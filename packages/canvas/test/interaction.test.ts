@@ -4016,7 +4016,7 @@ describe('a wire dragged from the Inputs panel to a field', () => {
     const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
     const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget')! as Extract<LayoutRow, { kind: 'widget' }>
     const width = row.width ?? panel.layout.width - row.inset * 2
-    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, false)
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, false, true)
     const markX = panel.x + row.inset + mark.x + mark.size / 2
     const rowY = panel.y + row.y + mark.y + mark.size / 2
     const hovers: CanvasHoverTarget[] = []

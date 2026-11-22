@@ -60,7 +60,8 @@ const subgraphMarkReserve = (row: WidgetRow): number =>
 /**
  * Row-local square of the cyan subgraph icon before the name of a field
  * shown on the subgraph node without a wire. Shared by painting and pointer
- * hit testing; `companion` is whether the row shows a value arriving by wire.
+ * hit testing; `companion` is whether the row shows a value arriving by wire,
+ * `numeric` whether it is a number row with steppers.
  */
 export function subgraphMarkRect(
   row: WidgetRow,
@@ -68,9 +69,9 @@ export function subgraphMarkRect(
   rowHeight: number,
   tokens: DesignTokens,
   companion: boolean,
+  numeric: boolean,
 ): { readonly x: number; readonly y: number; readonly size: number } {
   const geometry = tokens.rowGeometry
-  const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const size = paint.subgraphMark.size
   if (companion) {
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
@@ -86,10 +87,10 @@ export function subgraphMarkRect(
   }
 }
 
-function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean): void {
+function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: boolean): void {
   const { ctx, row, x, y, width, rowHeight, tokens } = args
   if (row.subgraphMark === undefined) return
-  const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion)
+  const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion, numeric)
   const alpha = ctx.globalAlpha
   // The mark keeps its full color on a dimmed (driven) row.
   if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
@@ -127,7 +128,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const lead = subgraphMarkReserve(row)
       const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
       ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
-      paintSubgraphMark(args, true)
+      paintSubgraphMark(args, true, numeric)
       paintCompanionValue(args)
       return
     }
@@ -219,7 +220,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
       )
-      paintSubgraphMark(args, false)
+      paintSubgraphMark(args, false, numeric)
     }
     const sliderMin = row.spec.options['min']
     const sliderMax = row.spec.options['max']
