@@ -22,7 +22,7 @@ const schemaOf = (items: InterfaceItem[]): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 const intInput = (id: string, extra: Partial<InputSpec> = {}): InputSpec => ({
@@ -131,7 +131,7 @@ describe('static schemas', () => {
     const closed = elaborateInterface(schemaOf([socketInput('choice', 'COMBO')]), { values, additionalInputs: ['index'] })
     expect(closed.diagnostics.map((diag) => diag.code)).toContain('elab.additionalInput.closed')
     expect(elabInputsOf(closed).map((input) => input.apiName)).toEqual(['choice'])
-    const collision = elaborateInterface({ ...schema, items: [...schema.items, autogrowFamily('items')] }, {
+    const collision = elaborateInterface({ ...schema, body: [...schema.body, autogrowFamily('items')] }, {
       values, additionalInputs: ['choice', 'items.inactive', 'items'],
     })
     expect(collision.diagnostics.filter((diag) => diag.code === 'elab.additionalInput.reserved')).toHaveLength(3)
@@ -177,7 +177,7 @@ describe('static schemas', () => {
       ['mode.other', { kind: 'concrete', name: 'AUDIO' }, undefined],
     ])
     expect(elaborateInterface(schema, node)).toEqual(active)
-    const duplicate = { ...schema, items: [{ ...schema.items[0]!, dynamic: {
+    const duplicate = { ...schema, items: [{ ...schema.body[0]!, dynamic: {
       kind: 'dynamicCombo' as const, materialization: 'wire15' as const,
       options: [{ key: 'a', inputs: [socketInput('file'), socketInput('file')] }],
     } }] } as NodeSchema

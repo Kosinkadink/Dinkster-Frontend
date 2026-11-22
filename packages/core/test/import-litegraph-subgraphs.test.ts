@@ -14,7 +14,7 @@ import type { NodeSchema } from '../src/schema/model.js'
 
 const schema: NodeSchema = {
   type: 'Relay', displayName: 'Relay', category: 'test', source: 'v3', isOutputNode: true,
-  items: [
+  body: [
     { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {}, default: 5 } },
     { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },
@@ -120,7 +120,7 @@ describe('LiteGraph subgraphs', () => {
   it.each([false, true])('forwards a dynamic selector and separate branch widgets (keyed: %s)', (keyed) => {
     const render: NodeSchema = {
       type: 'Render', displayName: 'Render', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'output', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
           widget: { widgetType: 'COMBO', options: { values: ['depth', 'normal'] }, default: 'depth' },
           dynamic: { kind: 'dynamicCombo', defaultOption: 'depth', materialization: 'wire15', options: [
@@ -159,7 +159,7 @@ describe('LiteGraph subgraphs', () => {
     const body = result.document!.graphs['inner']!
     const derived = deriveBoundarySchema(body, resolver)
     expect(derived.diagnostics.filter(item => item.severity === 'error')).toEqual([])
-    expect(derived.schema!.items).toMatchObject([
+    expect(derived.schema!.body).toMatchObject([
       { id: 'mode', dynamic: { kind: 'dynamicCombo', options: [{ key: 'depth' }, { key: 'normal' }] } },
       { id: 'normalize', widget: { widgetType: 'BOOLEAN' } },
       { id: 'label', widget: { widgetType: 'STRING' } },
@@ -174,11 +174,11 @@ describe('LiteGraph subgraphs', () => {
   it.each([false, true])('maps a scalar sink after a generated map crosses a subgraph boundary (unresolved input: %s)', (unresolved) => {
     const source: NodeSchema = {
       type: 'ListSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'values', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } }],
+      body: [{ kind: 'output', id: 'values', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } }],
     }
     const sink: NodeSchema = {
       type: 'SaveValue', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false },
         { kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
           dynamic: { kind: 'dynamicCombo', options: [{ key: 'auto', inputs: [] }], defaultOption: 'auto' } },
@@ -234,7 +234,7 @@ describe('LiteGraph subgraphs', () => {
   it('uses the listed promoted widget without dropping unlisted input deliveries', () => {
     const toggle: NodeSchema = {
       type: 'Toggle', displayName: 'Toggle', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+      body: [{ kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
         widget: { widgetType: 'BOOLEAN', options: {}, default: false } }],
     }
     const def = { ...definition(), inputs: [{ id: 'in', name: 'value', type: 'INT', linkIds: [1767] }],
@@ -258,7 +258,7 @@ describe('LiteGraph subgraphs', () => {
       alsoBinds: [{ kind: 'port', node: 'n2', port: 'enabled' }],
     })
     const derived = deriveBoundarySchema(body, resolver)
-    expect(derived.schema!.items[0]).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
+    expect(derived.schema!.body[0]).toMatchObject({ type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', default: 7 } })
     expect(Object.keys(body.nodes).sort()).toEqual(['n1', 'n2'])
     expect(body.nodes.n2!.values).toEqual({ enabled: false })
@@ -299,7 +299,7 @@ describe('LiteGraph subgraphs', () => {
   it('preserves a boundary port that is incompatible with an available schema', () => {
     const incompatibleSchema: NodeSchema = {
       ...schema,
-      items: [{ ...schema.items[0]!, id: 'current_value' }, schema.items[1]!],
+      body: [{ ...schema.body[0]!, id: 'current_value' }, schema.body[1]!],
     }
     const result = importLitegraph(
       { nodes: [instance(1)], links: [], definitions: { subgraphs: [definition()] } } as JsonObject,
@@ -562,9 +562,9 @@ describe('LiteGraph subgraphs', () => {
   })
 
   it('keeps modern promoted seed values separate from implicit controller entries', () => {
-    const controlled: NodeSchema = { ...schema, items: [
-      { ...schema.items[0]!, kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
-        widget: { widgetType: 'INT', options: {}, controller: 'after_generate' } }, schema.items[1]!,
+    const controlled: NodeSchema = { ...schema, body: [
+      { ...schema.body[0]!, kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, controller: 'after_generate' } }, schema.body[1]!,
     ] }
     const resolver = (type: string) => type === 'Relay' ? controlled : undefined
     const def = definition()
@@ -598,14 +598,14 @@ describe('LiteGraph subgraphs', () => {
   })
 
   it.each([false, true])('resolves materialized native family members through imported boundaries (grouped: %s)', (grouped) => {
-    const family: NodeSchema = { ...schema, type: 'Family', items: [
+    const family: NodeSchema = { ...schema, type: 'Family', body: [
       { kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
         dynamic: { kind: 'autogrow', materialization: 'wire15',
           template: [
             { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false },
             ...(grouped ? [{ kind: 'input' as const, id: 'other', type: { kind: 'concrete' as const, name: 'INT' }, optional: true }] : []),
           ],
-          naming: { kind: 'prefix', prefix: 'item', min: 1, max: 5 } } }, schema.items[1]!,
+          naming: { kind: 'prefix', prefix: 'item', min: 1, max: 5 } } }, schema.body[1]!,
     ] }
     const resolver = (type: string) => type === 'Family' ? family : resolve(type)
     const def = { ...definition(), nodes: [{ id: 1, type: 'Family',
@@ -636,14 +636,14 @@ describe('LiteGraph subgraphs', () => {
   })
 
   it('resolves nested materialized members beneath an ordinary outer family', () => {
-    const family: NodeSchema = { ...schema, type: 'NestedFamily', items: [
+    const family: NodeSchema = { ...schema, type: 'NestedFamily', body: [
       { kind: 'input', id: 'outer', type: { kind: 'wildcard' }, optional: false,
         dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'row', min: 1, max: 1 }, template: [
           { kind: 'input', id: 'inner', type: { kind: 'wildcard' }, optional: false,
             dynamic: { kind: 'autogrow', materialization: 'wire15',
               naming: { kind: 'prefix', prefix: 'sub', min: 1, max: 4 },
               template: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'INT' }, optional: false }] } },
-        ] } }, schema.items[1]!,
+        ] } }, schema.body[1]!,
     ] }
     const resolver = (type: string) => type === family.type ? family : resolve(type)
     const base = imported({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
@@ -730,7 +730,7 @@ describe('LiteGraph subgraphs', () => {
     expect(body.boundary!.outputs.map((item) => item.id)).toEqual(['unused-out', 'out'])
     const derived = deriveBoundarySchema(body, resolve)
     expect(derived.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
-    expect(derived.schema!.items.filter((item) => item.kind === 'input' || item.kind === 'output')
+    expect(derived.schema!.body.filter((item) => item.kind === 'input' || item.kind === 'output')
       .map((item) => [item.kind, item.id, item.type])).toEqual([
       ['input', 'unused-in', { kind: 'concrete', name: 'FLOAT' }],
       ['input', 'in', { kind: 'concrete', name: 'INT' }],
@@ -757,7 +757,7 @@ describe('LiteGraph subgraphs', () => {
     { value: true, controllers: { in: 'randomize' }, warnings: [] },
     { value: null, controllers: {}, warnings: ['import.subgraphs.widgetUnresolved'] },
   ])('decodes promoted controller $value without shifting the following literal', ({ value, controllers, warnings }) => {
-    const seeded: NodeSchema = { ...schema, items: [
+    const seeded: NodeSchema = { ...schema, body: [
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 5, controller: 'after_generate' } },
       { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },

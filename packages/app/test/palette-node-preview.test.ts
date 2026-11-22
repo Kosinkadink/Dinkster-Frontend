@@ -12,7 +12,7 @@ describe('transient palette preview node', () => {
   it('uses schema defaults and the first combo option without touching external state', () => {
     const schema: NodeSchema = {
       type: 'PreviewNode', displayName: 'Preview Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'count', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {}, default: 3 } },
         { kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'COMBO', options: { options: ['fast', 'slow'] } } },
       ],
@@ -20,7 +20,7 @@ describe('transient palette preview node', () => {
     const node = transientPreviewNode(schema)
 
     expect(node).toMatchObject({ type: 'PreviewNode', title: 'Preview Node', values: { count: 3, mode: 'fast' } })
-    expect(schema.items[1]).not.toHaveProperty('value')
+    expect(schema.body[1]).not.toHaveProperty('value')
 
     const preview = palettePreviewLayout(schema, defaultTokens, (text) => text.length * 8, () => undefined)
     expect(preview.node).toEqual(node)

@@ -53,7 +53,7 @@ const primitiveSchema = (typeName = 'INT'): NodeSchema => ({
   category: '',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'value', type: { kind: 'concrete', name: typeName }, optional: true },
     {
       kind: 'output',

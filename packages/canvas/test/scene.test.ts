@@ -420,7 +420,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
     }
     const match: NodeSchema = {
       type: 'Match',
@@ -428,7 +428,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input', id: 'in', optional: false,
           type: {
@@ -500,7 +500,7 @@ describe('buildScene', () => {
     })
     for (const pin of pins) {
       expect(pin.matchVariable).toBe('T')
-      const declared = match.items.find((item) =>
+      const declared = match.body.find((item) =>
         (item.kind === 'input' || item.kind === 'output') && item.id === pin.portId)
       if (declared?.kind !== 'input' && declared?.kind !== 'output') throw new Error(`missing declared pin '${pin.portId}'`)
       expect(pin.matchConstraint).toEqual(declared.type)
@@ -516,7 +516,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'items',
@@ -537,7 +537,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name } }],
+      body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name } }],
     })
     const image = producer('IMAGE')
     const latent = producer('LATENT')
@@ -672,7 +672,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'in', type: variable, optional: false },
         { kind: 'output', id: 'out', type: variable },
       ],
@@ -683,7 +683,7 @@ describe('buildScene', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name } }],
     })
     const image = producer('IMAGE')
     const latent = producer('LATENT')
@@ -796,7 +796,7 @@ describe('sections in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       { kind: 'section', id: 'advanced', displayName: 'Advanced' },
       {
@@ -817,7 +817,7 @@ describe('sections in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
+    body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
   }
   const consumerSchema: NodeSchema = {
     type: 'Consumer',
@@ -825,7 +825,7 @@ describe('sections in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
   }
   const synthetic = new Map([
     ['Sectioned', sectionedSchema],
@@ -1109,7 +1109,7 @@ describe('named nets in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
+    body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
   }
   const consumer: NodeSchema = {
     type: 'Consumer',
@@ -1117,7 +1117,7 @@ describe('named nets in scenes', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+    body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
   }
   const synthetic = new Map([
     ['Producer', producer],
@@ -1273,20 +1273,20 @@ describe('solver verdicts on scene edges', () => {
   const typed = (name: string): { kind: 'concrete'; name: string } => ({ kind: 'concrete', name })
   const producerOf = (type: string, out: string): NodeSchema => ({
     type: `P${out}`, displayName: type, category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: typed(type) }],
+    body: [{ kind: 'output', id: 'out', type: typed(type) }],
   })
   const sink: NodeSchema = {
     type: 'SinkLatent', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
+    body: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
   }
   const imageSink: NodeSchema = {
     type: 'SinkImage', displayName: 'Image sink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('IMAGE'), optional: false }],
+    body: [{ kind: 'input', id: 'in', type: typed('IMAGE'), optional: false }],
   }
   const variable = { kind: 'variable' as const, templateId: 'T' }
   const variableSwitch: NodeSchema = {
     type: 'VariableSwitch', displayName: 'Variable switch', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'in', type: variable, optional: false },
       { kind: 'output', id: 'out', type: variable },
     ],
@@ -1370,18 +1370,18 @@ describe('solver verdicts on scene edges', () => {
     const listImage = { kind: 'list' as const, element: image }
     const source: NodeSchema = {
       type: 'ListSource', displayName: 'List source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'images', type: listImage }],
+      body: [{ kind: 'output', id: 'images', type: listImage }],
     }
     const bodyNode: NodeSchema = {
       type: 'BodyNode', displayName: 'Body node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'image', type: image, optional: false },
         { kind: 'output', id: 'image', type: image },
       ],
     }
     const listSink: NodeSchema = {
       type: 'ListSink', displayName: 'List sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'images', type: listImage, optional: false }],
+      body: [{ kind: 'input', id: 'images', type: listImage, optional: false }],
     }
     const doc: WorkflowDocument = {
       format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('region-solve'), root: asGraphDefId('root'),
@@ -1681,7 +1681,7 @@ describe('boundary pseudo-nodes', () => {
     }
     if (reverse) document.graphs.root.nodes = Object.fromEntries(Object.entries(document.graphs.root.nodes).reverse())
     const resolve = (type: string): NodeSchema | undefined => type === 'Left' || type === 'Right' ? {
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [
         { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: {
           widgetType: 'INT', controller: 'after_generate', options: type === 'Left'
             ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 },
@@ -1842,7 +1842,7 @@ describe('boundary pseudo-nodes', () => {
       ...original.view.graphs.g1!, reroutes: { junction: { position: { x: -80, y: 95 } } },
     } } } }
     const integerSource: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+      body: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
     const before = JSON.stringify(doc)
     for (const occurrence of [undefined, { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }]) {
       const scene = buildScene({ document: doc, graphId: 'g1', resolve: documentResolver(doc, (type) => type === 'IntegerSource' ? integerSource : schemas.get(type)),
@@ -1913,11 +1913,11 @@ describe('selector scene items', () => {
     const extra: Record<string, NodeSchema> = {
       DinksterImageSrc: {
         type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       ComfyImageSrc: {
         type: 'ComfyImageSrc', displayName: 'ComfyImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
       },
     }
     const doc = loadDocument({

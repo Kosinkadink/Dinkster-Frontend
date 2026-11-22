@@ -378,7 +378,7 @@ describe('reviewed fixes', () => {
   it('composes a node splice as disconnect plus both compatible connections', () => {
     const schema: NodeSchema = {
       type: 'test.convert', displayName: 'Convert', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
@@ -397,7 +397,7 @@ describe('reviewed fixes', () => {
   it('refuses a splice when either dangling side has unresolved type metadata', () => {
     const schema: NodeSchema = {
       type: 'test.convert', displayName: 'Convert', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false },
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'comfy.IMAGE' } },
       ],
@@ -432,7 +432,7 @@ describe('reviewed fixes', () => {
     }
     const batch: NodeSchema = {
       type: 'test.batch', displayName: 'Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input', id: 'values', type: matchType, optional: false,
           dynamic: {
@@ -466,7 +466,7 @@ describe('reviewed fixes', () => {
   it('excludes a schema whose only compatible port is outside the fresh dynamic branch', () => {
     const schema: NodeSchema = {
       type: 'test.branches', displayName: 'Branches', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         dynamic: {
           kind: 'dynamicCombo',

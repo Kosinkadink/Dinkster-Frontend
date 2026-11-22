@@ -16,7 +16,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const schema: NodeSchema = {
   type: 'SeedTest', displayName: 'Seed Test', category: 'test', source: 'v3', isOutputNode: true,
-  items: [
+  body: [
     { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
     { kind: 'input', id: 'up', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: { min: 10, max: 20, step: 3 }, default: 10, controller: 'after_generate' } },
@@ -53,7 +53,7 @@ function compileDoc(document: any): CompileArtifact {
 
 describe('controllerAdvancement', () => {
   it.each(['fixed', 'decrement'] as const)('honors a literal consumer initial mode %s without stored controller state', (controllerInitial) => {
-    const initialSchema: NodeSchema = { ...schema, items: schema.items.map((item) => item.kind === 'input' && item.id === 'down'
+    const initialSchema: NodeSchema = { ...schema, body: schema.body.map((item) => item.kind === 'input' && item.id === 'down'
       ? { ...item, widget: { ...item.widget!, controllerInitial } } : item) }
     const document = fixture() as any
     document.graphs.g0.nodes.seed.controllers = { up: 'fixed', down: 'fixed', random: 'fixed', fixed: 'fixed' }
@@ -119,7 +119,7 @@ describe('controllerAdvancement', () => {
     }
     const consumers = Object.fromEntries<NodeSchema>(([
       ['Left', { min: 3, max: 17, step: 2 }], ['Right', { min: 10, max: 20, step: 7 }],
-    ] as const).map(([type, options]) => [type, { ...schema, type, items: schema.items.map((item) =>
+    ] as const).map(([type, options]) => [type, { ...schema, type, items: schema.body.map((item) =>
       item.kind === 'input' && item.id === 'up' ? { ...item, widget: { ...item.widget!, options } } : item) }]))
     for (const arrangement of ['fanout', 'shared', 'promoted']) {
       document.graphs.g0.nodes.i1 = { id: 'i1', type: '#body', values: { value: 10 }, controllers: { value: 'increment' } }
@@ -203,7 +203,7 @@ describe('controllerAdvancement', () => {
   it('advances unsafe integer controller values without precision loss', () => {
     const exactSchema: NodeSchema = {
       type: 'ExactSeed', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
         { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 0, max: '18446744073709551615', step: 1 }, default: 0, controller: 'after_generate' } },
@@ -238,7 +238,7 @@ describe('controllerAdvancement', () => {
     // so advancement must step from that same value, not silently skip.
     const noDefault: NodeSchema = {
       ...schema,
-      items: [
+      body: [
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
         { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 10, max: 20, step: 3 }, controller: 'after_generate' } },
@@ -265,7 +265,7 @@ describe('controllerAdvancement', () => {
     // a stored document mode still overrides the schema seed.
     const initialFixed: NodeSchema = {
       ...schema,
-      items: schema.items.map((item) =>
+      body: schema.body.map((item) =>
         item.kind === 'input' && (item.id === 'up' || item.id === 'down')
           ? { ...item, widget: { ...item.widget!, controllerInitial: 'fixed' as const } }
           : item),
@@ -292,7 +292,7 @@ describe('controllerAdvancement', () => {
     // value would submit state the run never executed with.
     const optionalNoDefault: NodeSchema = {
       ...schema,
-      items: [
+      body: [
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
         { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: true,
           widget: { widgetType: 'INT', options: { min: 10, max: 20, step: 3 }, controller: 'after_generate' } },
@@ -342,11 +342,11 @@ describe('compiled occurrence controller ownership', () => {
   })
   const sourceSchema: NodeSchema = {
     type: 'ControllerSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: INT }],
+    body: [{ kind: 'output', id: 'out', type: INT }],
   }
   const promotedSchema: NodeSchema = {
     type: 'PromotedController', displayName: 'Promoted', category: 'test', source: 'v3', isOutputNode: true,
-    items: [controlled('seed', 1), { kind: 'output', id: 'out', type: INT }],
+    body: [controlled('seed', 1), { kind: 'output', id: 'out', type: INT }],
   }
   const secondarySchema: NodeSchema = {
     ...promotedSchema,
@@ -361,11 +361,11 @@ describe('compiled occurrence controller ownership', () => {
   }
   const sinkSchema: NodeSchema = {
     type: 'ControllerSink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
-    items: [{ kind: 'input', id: 'in', type: INT, optional: false }],
+    body: [{ kind: 'input', id: 'in', type: INT, optional: false }],
   }
   const dynamicSchema: NodeSchema = {
     type: 'DynamicControllers', displayName: 'Dynamic', category: 'test', source: 'v3', isOutputNode: true,
-    items: [
+    body: [
       {
         kind: 'input', id: 'mode', type: INT, optional: true,
         dynamic: { kind: 'dynamicCombo', options: [{ key: 'a', inputs: [controlled('seed', 1)] }] },
@@ -673,7 +673,7 @@ describe('COMBO control-after-generate', () => {
   it('cycles with wraparound and chooses random options uniformly', () => {
     const comboSchema: NodeSchema = {
       type: 'ComboController', displayName: 'Combo Controller', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } },
         ...(['up', 'down', 'random'] as const).map((id) => ({
           kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
@@ -708,7 +708,7 @@ describe('FLOAT controller advancement (shared canvas stepper semantics)', () =>
   // clamping, and grid-quantized randomization - never integer seed math.
   const floatSchema: NodeSchema = {
     type: 'FloatSeed', displayName: 'Float Seed', category: 'test', source: 'v3', isOutputNode: true,
-    items: [
+    body: [
       { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } },
       { kind: 'input', id: 'up', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: {}, default: 0.2, controller: 'after_generate' } },
@@ -902,7 +902,7 @@ describe('completion integration', () => {
     // still stands, even though the stored mode string is unchanged.
     const stripped: NodeSchema = {
       ...schema,
-      items: schema.items.map((item) => {
+      body: schema.body.map((item) => {
         if (item.kind !== 'input' || item.widget?.controller === undefined) return item
         const { controller: _controller, ...widget } = item.widget
         return { ...item, widget }
@@ -961,11 +961,11 @@ describe('control_after_refresh advancement', () => {
   })
   const comboSchema: NodeSchema = {
     type: 'RefreshCombo', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-    items: [combo('up'), combo('down'), combo('random'), combo('fixed'), combo('shrunk')],
+    body: [combo('up'), combo('down'), combo('random'), combo('fixed'), combo('shrunk')],
   }
   const sourceSchema: NodeSchema = {
     type: 'ComboSource', displayName: 'Combo Source', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'COMBO' } }],
+    body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'COMBO' } }],
   }
   const comboFixture = () => ({
     format: 'dinkster-workflow' as const, formatVersion: 1 as const, lineage: 'combo-refresh-test', root: 'g0',

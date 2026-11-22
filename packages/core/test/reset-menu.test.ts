@@ -18,7 +18,7 @@ const tunableSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'seed',

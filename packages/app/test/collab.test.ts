@@ -286,10 +286,10 @@ const planSeedFlatten = (app: AppState, tab: Tab) => flattenInvocation(
 )
 
 const seedFlattenSchemas: readonly NodeSchema[] = [
-  { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] },
+  { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, body: [] },
   {
     type: 'EmptyImage', displayName: 'Empty Image', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: true },
       { kind: 'input', id: 'height', type: { kind: 'concrete', name: 'INT' }, optional: true },
       { kind: 'input', id: 'batch_size', type: { kind: 'concrete', name: 'INT' }, optional: true },
@@ -299,11 +299,11 @@ const seedFlattenSchemas: readonly NodeSchema[] = [
   },
   {
     type: 'PreviewImage', displayName: 'Preview Image', category: 'test', source: 'v3', isOutputNode: true,
-    items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+    body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
   },
   {
     type: 'AssetHolder', displayName: 'Asset holder', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'held', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
+    body: [{ kind: 'input', id: 'held', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
   },
 ]
 
@@ -324,7 +324,7 @@ const sharedCountSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'count',
@@ -1397,7 +1397,7 @@ describe('lifecycle races', () => {
     await until(() => nodeCount(tabB) === nodeCount(tabA), 'join catch-up')
     const baseline = nodeCount(tabA)
     if (knownForeign) {
-      const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }
+      const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, body: [] }
       for (const [app, tab] of [[appA, tabA], [appB, tabB]] as const) {
         const backend = app.backendForTab(tab)
         backend.registry.set({ connection: backend.id, schemas: new Map([['X', schema]]),

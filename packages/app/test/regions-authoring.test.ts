@@ -20,7 +20,7 @@ const primitive = (type: string, name: 'FLOAT' | 'INT' | 'BOOLEAN', output = 'va
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'value',
@@ -37,7 +37,7 @@ const regionSchemas: readonly NodeSchema[] = [
   primitive('dinkster.utilities.primitive_boolean', 'BOOLEAN', 'BOOLEAN'),
   primitive('dinkster.utilities.primitive_int', 'INT', 'INT'),
   { type: 'dinkster.utilities.comfy_math_expression', displayName: 'Math Expression', category: 'utilities', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'expression', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: { multiline: true }, default: 'a + b' } },
       { kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: false, dynamic: {

@@ -26,12 +26,12 @@ const entries = [
 const literal = JSON.stringify({ entries, extra: { preserved: true } })
 const schema: NodeSchema = {
   type: 'TestDescriptors', displayName: 'Descriptors', category: 'test', source: 'v3', isOutputNode: true,
-  items: [
+  body: [
     { kind: 'input', id: 'entries', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: literal } },
     { kind: 'output', id: 'entries', type: spec.choices[0]!.type, outputDescriptors: spec },
   ],
 }
-const sink: NodeSchema = { ...schema, type: 'Sink', items: [{ kind: 'input', id: 'in', type: spec.choices[0]!.type, optional: false }] }
+const sink: NodeSchema = { ...schema, type: 'Sink', body: [{ kind: 'input', id: 'in', type: spec.choices[0]!.type, optional: false }] }
 const resolve = (type: string): NodeSchema | undefined => type === schema.type ? schema : type === sink.type ? sink : undefined
 const outputRows = (s: NodeSchema, values: Record<string, unknown>) => elabOutputsOf(elaborateInterface(s, { values: values as Record<string, string> })).map((output) => [output.address.port, output.spec.displayName, output.spec.type])
 const wire = {
@@ -63,7 +63,7 @@ const run = (doc: WorkflowDocument) => compile({ document: doc, revision: 0, res
 
 describe('stored output descriptors', () => {
   it('requires concrete catalog choices and a required string source', () => {
-    expect(parseDinksterSchema(schema.type, wire).schema?.items[1]).toMatchObject({ outputDescriptors: spec })
+    expect(parseDinksterSchema(schema.type, wire).schema?.body[1]).toMatchObject({ outputDescriptors: spec })
     for (const mutation of [
       { minEntries: -1 }, { maxEntries: 513 }, { minEntries: 33 }, { fixedIds: 'yes' }, { choices: [] },
       { choices: [{ id: 'bad', type: { kind: 'wildcard' } }] },
@@ -101,7 +101,7 @@ describe('stored output descriptors', () => {
   })
 
   it('rejects collisions with ordinary outputs and family IDs', () => {
-    const collision = { ...schema, items: [...schema.items, { kind: 'output' as const, id: 'm0', type: spec.choices[0]!.type }] }
+    const collision = { ...schema, items: [...schema.body, { kind: 'output' as const, id: 'm0', type: spec.choices[0]!.type }] }
     expect(elaborateInterface(collision, { values: { entries: literal } }).diagnostics.some((d) => d.code === 'elab.outputDescriptors.collision')).toBe(true)
   })
 

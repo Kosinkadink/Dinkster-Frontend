@@ -14,7 +14,7 @@ const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: type === 'Sink',
-  items: [
+  body: [
     ...inputs.map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' }, optional: false })),
     ...outputs.map((id) => ({ kind: 'output' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' } })),
   ],
@@ -25,7 +25,7 @@ const schemas: Record<string, NodeSchema> = {
   Sink: schema('Sink', ['in', 'other'], []),
   Batch: {
     type: 'Batch', displayName: 'Batch', category: 'test', source: 'v3', isOutputNode: true,
-    items: [{
+    body: [{
       kind: 'input', id: 'items', type: { kind: 'concrete', name: 'IMAGE' }, optional: false,
       dynamic: {
         kind: 'autogrow',
@@ -39,7 +39,7 @@ const schemas: Record<string, NodeSchema> = {
   },
   Slot: {
     type: 'Slot', displayName: 'Slot', category: 'test', source: 'v3', isOutputNode: true,
-    items: [{
+    body: [{
       kind: 'input', id: 's', type: { kind: 'concrete', name: 'IMAGE' }, optional: true,
       dynamic: {
         kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'IMAGE' },
@@ -52,7 +52,7 @@ const schemas: Record<string, NodeSchema> = {
   },
   CountOutput: {
     type: 'CountOutput', displayName: 'CountOutput', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: true,
         widget: { widgetType: 'INT', options: {}, default: 0 },

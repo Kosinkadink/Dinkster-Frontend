@@ -30,12 +30,12 @@ const input = (id: string, type: TypeExpr, extra?: Partial<InputSpec>): InputSpe
   ...extra,
 })
 
-const schema = (items: NodeSchema['items']): NodeSchema => ({
+const schema = (items: NodeSchema['body']): NodeSchema => ({
   type: 'test.node',
   displayName: 'Test',
   category: 'test',
   source: 'v3',
-  items,
+  body: items,
   isOutputNode: false,
 })
 

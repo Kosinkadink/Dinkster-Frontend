@@ -45,13 +45,13 @@ it('converts supplied first-party interfaces before resolving installed packs', 
   ].map(([from, pack, type]) => {
     const source = schemas.get(from!)!
     return {
-      pack: pack!, version: '0.0.1', schema: { ...source, type: type!, items: source.items.map((item) =>
+      pack: pack!, version: '0.0.1', schema: { ...source, type: type!, items: source.body.map((item) =>
         item.kind === 'input' && item.id === 'ckpt_name'
           ? { ...item, widget: { ...item.widget!, options: { options: ['other.safetensors', 'specific.safetensors'] } } }
           : item) },
       rule: { from: from!, cases: [{ to: type!,
-        inputs: Object.fromEntries(source.items.filter((item) => item.kind === 'input').map((item) => [item.id, { kind: 'copy' as const, input: item.id }])),
-        outputs: Object.fromEntries(source.items.filter((item) => item.kind === 'output').map((item) => [item.id, item.id])),
+        inputs: Object.fromEntries(source.body.filter((item) => item.kind === 'input').map((item) => [item.id, { kind: 'copy' as const, input: item.id }])),
+        outputs: Object.fromEntries(source.body.filter((item) => item.kind === 'output').map((item) => [item.id, item.id])),
       }] },
     }
   })
@@ -151,7 +151,7 @@ it.each([false, true])('converts active choices and sparse input families before
 it.each([false, true])('converts declared dotted port ids, including internal links: %s', (internal) => {
   const schema: NodeSchema = {
     type: 'dinkster.models.merge', displayName: 'Merge', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'time_embed.', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
       { kind: 'input', id: 'input_blocks.0.', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
@@ -190,7 +190,7 @@ it.each([false, true])('converts declared dotted port ids, including internal li
 it.each([false, true])('fully translates primary and helper chains inside a subgraph: %s', (nested) => {
   const schema = (type: string): NodeSchema => ({
     type, displayName: type, category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
       { kind: 'input', id: 'dependency', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
@@ -247,7 +247,7 @@ it.each([false, true])('fully translates primary and helper chains inside a subg
 
 it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations finite and editable', (shape) => {
   const schema = (type: string): NodeSchema => ({
-    type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+    type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
   })
   const translations: ComfyTranslation[] = [
     { pack: 'first', version: '1', schema: schema(shape === 'same-type' ? 'A' : 'B'),
@@ -269,7 +269,7 @@ it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations 
 it('uses a replacement only for the recorded source node version, not the pack version', () => {
   const schema: NodeSchema = {
     type: 'native.percent', displayName: 'Percent', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
   }
   const translations: ComfyTranslation[] = [{ schema, version: '9.0', rule: {
@@ -293,7 +293,7 @@ it('uses a replacement only for the recorded source node version, not the pack v
 it('applies a same-type import value transform exactly once', () => {
   const schema: NodeSchema = {
     type: 'SameType', displayName: 'Same Type', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
       widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
   }
   const imported = importLitegraph({ nodes: [{ id: 1, type: 'SameType', widgets_values: [7] }], links: [] },
@@ -445,7 +445,7 @@ const sdSchema = (
   category: 'test',
   source: 'v3',
   isOutputNode,
-  items,
+  body: items,
 })
 
 const sd15Schemas = [
@@ -510,7 +510,7 @@ const schemaFromLitegraphNode = (node: any): NodeSchema => {
     category: 'test fixture',
     source: 'v3',
     isOutputNode: outputs.length === 0,
-    items: [...connectedInputs, ...widgetInputs, ...outputs],
+    body: [...connectedInputs, ...widgetInputs, ...outputs],
   }
 }
 
@@ -852,7 +852,7 @@ describe('serialized output slot identity', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: true,
-    items: [{ kind: 'input', id: 'image', type: imageType, optional: false }],
+    body: [{ kind: 'input', id: 'image', type: imageType, optional: false }],
   }
   const counted: NodeSchema = {
     type: 'CountedSource',
@@ -860,7 +860,7 @@ describe('serialized output slot identity', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'count',
@@ -892,7 +892,7 @@ describe('serialized output slot identity', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { ...sdOutput('left', 'IMAGE'), displayName: 'LEFT' },
         { ...sdOutput('right', 'IMAGE'), displayName: 'RIGHT' },
       ],
@@ -955,9 +955,9 @@ describe('serialized output slot identity', () => {
   it('does not positionally reinterpret an invalid family member as a later static output', () => {
     const mixed: NodeSchema = {
       ...counted,
-      items: [
+      body: [
         sdOutput('before', 'IMAGE'),
-        ...counted.items,
+        ...counted.body,
         sdOutput('after', 'IMAGE'),
       ],
     }
@@ -973,11 +973,11 @@ describe('serialized output slot identity', () => {
   })
 
   it('rejects families whose combined members exceed the shared budget', () => {
-    const countedFamily = counted.items[1] as OutputSpec & { dynamic: CountBoundOutputAutogrowSpec }
+    const countedFamily = counted.body[1] as OutputSpec & { dynamic: CountBoundOutputAutogrowSpec }
     const overBudget: NodeSchema = {
       ...counted,
-      items: [
-        counted.items[0]!,
+      body: [
+        counted.body[0]!,
         {
           ...countedFamily,
           dynamic: {
@@ -1036,7 +1036,7 @@ describe('serialized output slot identity', () => {
   it('rejects output-family slots when the count input is linked', () => {
     const countSource: NodeSchema = {
       type: 'CountSource', displayName: 'Count Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } }],
+      body: [{ kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } }],
     }
     const imported = importLitegraph(workflow([
       lgNode(1, countSource.type, { outputs: [{ name: 'count', links: [1] }] }),
@@ -1119,9 +1119,9 @@ describe('versioned node widget upgrades', () => {
       }
     }
     for (const items of [
-      [schema.items[1]!, schema.items[0]!, ...schema.items.slice(2)],
-      [sdInput('extra', 'STRING', 'STRING'), ...schema.items],
-      [sdInput('filename_prefix', 'INT', 'INT'), ...schema.items.slice(1)],
+      [schema.body[1]!, schema.body[0]!, ...schema.body.slice(2)],
+      [sdInput('extra', 'STRING', 'STRING'), ...schema.body],
+      [sdInput('filename_prefix', 'INT', 'INT'), ...schema.body.slice(1)],
     ]) {
       const drifted = { ...schema, items }
       const resolveDrifted = (type: string) => type === schema.type ? drifted : undefined
@@ -1190,11 +1190,11 @@ describe('versioned node widget upgrades', () => {
   it('selects the saved class and version without rewriting nodes, links or source JSON', () => {
     const producer: NodeSchema = {
       type: 'UpgradeSource', displayName: 'Upgrade source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [sdInput('first', 'INT', 'INT'), sdInput('second', 'INT', 'INT'), sdOutput('value', 'INT')],
+      body: [sdInput('first', 'INT', 'INT'), sdInput('second', 'INT', 'INT'), sdOutput('value', 'INT')],
     }
     const consumer: NodeSchema = {
       type: 'UpgradeSink', displayName: 'Upgrade sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [sdInput('value', 'INT')],
+      body: [sdInput('value', 'INT')],
     }
     const upgrades: ComfyNodeUpgradeTable = new Map([['UpgradeSource', new Map([
       ['0.1.0', (values) => Array.isArray(values) ? [values[1]!, values[0]!] : []],
@@ -1345,7 +1345,7 @@ describe('positional widget mapping', () => {
       expect(imported.diagnostics).toEqual([])
       expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ seed: 42 })
       expect(imported.document!.graphs.g0!.nodes.n1!.controllers).toEqual({ seed: mode })
-      const withBoolean = { ...schema, items: [...schema.items, sdInput('enabled', 'BOOLEAN', 'BOOLEAN')] }
+      const withBoolean = { ...schema, items: [...schema.body, sdInput('enabled', 'BOOLEAN', 'BOOLEAN')] }
       const ambiguous = importLitegraph(workflow([lgNode(1, schema.type, { widgets_values: [42, legacy] })]),
         (type) => type === schema.type ? withBoolean : undefined)
       expect(ambiguous.document).toBeUndefined()
@@ -1498,7 +1498,7 @@ describe('positional widget mapping', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'FLOAT' } }],
     }
     const localResolve = (type: string) => type === floatSource.type ? floatSource : resolve(type)
     const json = workflow(
@@ -1577,7 +1577,7 @@ describe('positional widget mapping', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'model',
@@ -1659,7 +1659,7 @@ describe('positional widget mapping', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'model',
         type: { kind: 'concrete', name: 'COMBO' },
@@ -1708,7 +1708,7 @@ describe('Autogrow endpoint reconstruction', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'image', type: imageType }],
+    body: [{ kind: 'output', id: 'image', type: imageType }],
   }
   const input = (id: string): InputSpec => ({ kind: 'input', id, type: imageType, optional: false })
 
@@ -1743,7 +1743,7 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'values',
         type: { kind: 'wildcard' },
@@ -1780,7 +1780,7 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'values',
         type: { kind: 'wildcard' },
@@ -1816,7 +1816,7 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         input('fixed'),
         {
           kind: 'input',
@@ -1852,7 +1852,7 @@ describe('Autogrow endpoint reconstruction', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input',
         id: 'values',
         type: { kind: 'wildcard' },
@@ -1894,7 +1894,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('reconstructs prefix-family image0/image1 links as ordered persisted members', () => {
     const schema: NodeSchema = {
       type: 'ImageBatch', displayName: 'Image Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
         dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image' } },
       }],
@@ -1928,7 +1928,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('reconstructs grouped prefix and named-family wire variants', () => {
     const grouped: NodeSchema = {
       type: 'GroupedInputs', displayName: 'Grouped Inputs', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', template: [input('image'), input('mask')],
@@ -1947,7 +1947,7 @@ describe('Autogrow endpoint reconstruction', () => {
 
     const named: NodeSchema = {
       type: 'NamedInputs', displayName: 'Named Inputs', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', materialization: 'wire15', template: [input('image'), input('mask')],
@@ -1968,7 +1968,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('reconstructs an Autogrow family inside an active wire-15 DynamicCombo', () => {
     const schema: NodeSchema = {
       type: 'ComboBatch', displayName: 'Combo Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', options: { options: ['batch'] } },
         dynamic: {
@@ -2002,7 +2002,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it.each([1, 2])('omits unlinked socket placeholders while retaining the declared minimum %s', (minimum) => {
     const schema: NodeSchema = {
       type: 'NamedSockets', displayName: 'Named Sockets', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', materialization: 'wire15', template: [input('value')],
@@ -2022,7 +2022,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('fills wire-15 minimum members without changing linked-member order', () => {
     const prefix: NodeSchema = {
       type: 'MinimumBatch', displayName: 'Minimum Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', materialization: 'wire15', template: [input('image')],
@@ -2037,7 +2037,7 @@ describe('Autogrow endpoint reconstruction', () => {
 
     const names: NodeSchema = {
       type: 'MinimumNames', displayName: 'Minimum Names', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', materialization: 'wire15', template: [input('image')],
@@ -2054,7 +2054,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('preserves legacy names-family API identity when links arrive out of declaration order', () => {
     const schema: NodeSchema = {
       type: 'LegacyNames', displayName: 'Legacy Names', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', template: [input('image')],
@@ -2077,7 +2077,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('rewrites value-source and named-net Autogrow sinks', () => {
     const schema: NodeSchema = {
       type: 'RoutedBatch', displayName: 'Routed Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
         dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image' } },
       }],
@@ -2111,7 +2111,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('assigns sparse and out-of-order prefix ordinals by observed input order', () => {
     const schema: NodeSchema = {
       type: 'SparseBatch', displayName: 'Sparse Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
         dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image', max: 4 } },
       }],
@@ -2129,7 +2129,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('reports unmatched family wire names and leaves them unresolved', () => {
     const schema: NodeSchema = {
       type: 'StrictBatch', displayName: 'Strict Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'images', type: { kind: 'wildcard' }, optional: true,
         dynamic: { kind: 'autogrow', template: [input('image')], naming: { kind: 'prefix', prefix: 'image' } },
       }],
@@ -2144,7 +2144,7 @@ describe('Autogrow endpoint reconstruction', () => {
 
     const groupedNames: NodeSchema = {
       type: 'AmbiguousNames', displayName: 'Ambiguous Names', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'channels', type: { kind: 'wildcard' }, optional: true,
         dynamic: {
           kind: 'autogrow', template: [input('image'), input('mask')],
@@ -2164,7 +2164,7 @@ describe('Autogrow endpoint reconstruction', () => {
   it('imports and compiles structural bypass drops with exact first-hop attribution and no live-route warning', () => {
     const relay: NodeSchema = {
       type: 'ImportedRelay', displayName: 'Imported Relay', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         ...input('items'), optional: true,
         dynamic: {
           kind: 'autogrow', materialization: 'wire15', template: [input('value')],
@@ -2174,7 +2174,7 @@ describe('Autogrow endpoint reconstruction', () => {
     }
     const sink: NodeSchema = {
       type: 'ImportedSink', displayName: 'Imported Sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{
+      body: [{
         ...input('items'), optional: true,
         dynamic: {
           kind: 'autogrow', materialization: 'wire15', template: [input('value')],

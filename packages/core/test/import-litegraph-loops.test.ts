@@ -346,7 +346,7 @@ const fixtureSchema = (node: JsonObject): NodeSchema => {
     ...((node['type'] as string) === 'Issue408ExpandIncrement'
       ? { mayExpandGraph: true }
       : {}),
-    items,
+    body: items,
   }
 }
 
@@ -456,7 +456,7 @@ describe('explicit imported list utilities', () => {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items,
+        body: items,
       })
       const schemas = new Map<string, NodeSchema>([
         [
@@ -658,7 +658,7 @@ describe('explicit imported list utilities', () => {
         source: 'v3',
         category: 'test',
         isOutputNode: false,
-        items: [
+        body: [
           {
             kind: 'output',
             id: 'values',
@@ -670,7 +670,7 @@ describe('explicit imported list utilities', () => {
       const add = schemas.get('std.math.add_ints')!
       schemas.set(add.type, {
         ...add,
-        items: add.items.map((item) =>
+        body: add.body.map((item) =>
           item.kind === 'input'
             ? { ...item, widget: { widgetType: 'INT', options: {} } }
             : item,
@@ -758,7 +758,7 @@ describe('explicit imported list utilities', () => {
         source: 'v3',
         category: 'test',
         isOutputNode: false,
-        items: [
+        body: [
           {
             kind: 'output',
             id: 'values',
@@ -770,7 +770,7 @@ describe('explicit imported list utilities', () => {
       const add = schemas.get('std.math.add_ints')!
       schemas.set(add.type, {
         ...add,
-        items: add.items.map((item) =>
+        body: add.body.map((item) =>
           item.kind === 'input' && item.id === 'b'
             ? { ...item, widget: { widgetType: 'INT', options: {} } }
             : item,
@@ -880,7 +880,7 @@ describe('explicit imported list utilities', () => {
         output = false,
       ): NodeSchema => ({
         type,
-        items,
+        body: items,
         source: 'v3',
         displayName: type,
         category: 'test',

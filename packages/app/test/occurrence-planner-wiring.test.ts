@@ -11,7 +11,7 @@ import { coreOccurrencePlanner, dispatchOccurrenceIntention } from '../src/Canva
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type, displayName: type, category: 'test', source: 'v3', isOutputNode: type === 'Sink',
-  items: [
+  body: [
     ...inputs.map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' }, optional: true })),
     ...outputs.map((id) => ({ kind: 'output' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' } })),
   ],
@@ -21,7 +21,7 @@ const schemas: Record<string, NodeSchema> = {
   Sink: schema('Sink', ['in', 'other'], []),
   FamilySink: {
     ...schema('FamilySink', [], []),
-    items: [{
+    body: [{
       kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
       dynamic: {
         kind: 'autogrow',

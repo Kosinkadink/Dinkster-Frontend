@@ -373,12 +373,12 @@ describe('dropped image insertion', () => {
   it('chooses a synthetic catalog loader whose ASSET input exactly accepts the dropped MIME type', async () => {
     const pngOnly = {
       ...schema,
-      items: [{ ...schema.items[0]!, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
+      items: [{ ...schema.body[0]!, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
     } as NodeSchema
     const synthetic = {
       ...schema,
       type: 'pack.synthetic_jpeg_loader',
-      items: [{ ...schema.items[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
+      items: [{ ...schema.body[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
     } as NodeSchema
     const p = { ...base(), mediaType: 'image/jpeg' as const, upload: async () => ({ ...asset, mediaType: 'image/jpeg' }), schemas: () => [pngOnly, synthetic] }
     await expect(insertDroppedImage(p)).resolves.toBe('inserted')
@@ -415,7 +415,7 @@ describe('dropped image insertion', () => {
   })
 
   it('does not author through a hidden compatibility asset input', async () => {
-    const hidden = { ...schema, items: [{ ...schema.items[0]!, hidden: true }] } as NodeSchema
+    const hidden = { ...schema, items: [{ ...schema.body[0]!, hidden: true }] } as NodeSchema
     const p = { ...base(), schemas: () => [hidden] }
     await expect(insertDroppedImage(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()
@@ -483,7 +483,7 @@ describe('dropped latent insertion', () => {
   })
 
   it.each([undefined, 'data/checkpoint'])('refuses a Load Latent schema with widget kind %s', async (kind) => {
-    const item = schema.items[0]! as Extract<NodeSchema['items'][number], { kind: 'input' }>
+    const item = schema.body[0]! as Extract<NodeSchema['body'][number], { kind: 'input' }>
     const wrongSchema = { ...schema, items: [{
       ...item, widget: { widgetType: 'ASSET', options: {}, ...(kind === undefined ? {} : { kind }) },
     }] } as unknown as NodeSchema
@@ -493,7 +493,7 @@ describe('dropped latent insertion', () => {
   })
 
   it('does not author through a hidden compatibility asset input', async () => {
-    const hidden = { ...schema, items: [{ ...schema.items[0]!, hidden: true }] } as NodeSchema
+    const hidden = { ...schema, items: [{ ...schema.body[0]!, hidden: true }] } as NodeSchema
     const p = { ...base(), schemas: () => [hidden] }
     await expect(insertDroppedLatent(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()

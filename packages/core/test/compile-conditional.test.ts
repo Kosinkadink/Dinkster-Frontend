@@ -22,7 +22,7 @@ const widget = (id: string, value: number): InputSpec => input(id, {
   widget: { widgetType: 'FLOAT', options: {}, default: value },
 })
 const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
-  type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, items,
+  type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, body: items,
 })
 const combo = (id = 'mode', defaultOption?: string): InputSpec => ({
   ...input(id, { optional: true }),
@@ -118,7 +118,7 @@ describe('dynamic combo boundary lowering', () => {
     expect(okPrompt(doc)['s.n']!.inputs).toEqual({ mode: 'b', 'mode.amount': 22, 'mode.bias': 3 })
     const derived = deriveBoundarySchema(doc.graphs.sub!, resolve)
     expect(derived.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: 'sub.choice: selector forwarding does not include branch inputs', refs: [{ graphId: 'sub', portId: 'choice', direction: 'input' }] }])
-    expect((derived.schema!.items[0] as InputSpec).dynamic).toMatchObject({ defaultOption: 'b' })
+    expect((derived.schema!.body[0] as InputSpec).dynamic).toMatchObject({ defaultOption: 'b' })
   })
 
   it('uses an explicit instance branch and its branch-local definition values', () => {

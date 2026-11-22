@@ -24,7 +24,7 @@ const bodySchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'in_item', type: TYPE, optional: false },
     { kind: 'input', id: 'in_state', type: TYPE, optional: false },
     { kind: 'input', id: 'in_other', type: TYPE, optional: false },
@@ -37,12 +37,12 @@ const bodySchema: NodeSchema = {
 
 const producerSchema: NodeSchema = {
   type: 'Producer', displayName: 'Producer', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'output', id: 'value', type: TYPE }],
+  body: [{ kind: 'output', id: 'value', type: TYPE }],
 }
 
 const countMultiSplitterSchema: NodeSchema = {
   type: 'CountMultiSplitter', displayName: 'Count multi splitter', category: 'test', source: 'v3', isOutputNode: true,
-  items: [
+  body: [
     { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false },
     { kind: 'output', id: 'before', type: TYPE },
     {
@@ -69,12 +69,12 @@ const countMultiSplitterSchema: NodeSchema = {
 
 const sinkSchema: NodeSchema = {
   type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
-  items: [{ kind: 'input', id: 'in', type: TYPE, optional: false }],
+  body: [{ kind: 'input', id: 'in', type: TYPE, optional: false }],
 }
 
 const indexSinkSchema: NodeSchema = {
   type: 'IndexSink', displayName: 'Index sink', category: 'test', source: 'v3', isOutputNode: true,
-  items: [{ kind: 'input', id: 'index', type: INTEGER, optional: false }],
+  body: [{ kind: 'input', id: 'index', type: INTEGER, optional: false }],
 }
 
 const body = (): GraphDef => ({
@@ -330,7 +330,7 @@ describe('region occurrence boundary projection', () => {
   it('exports a flatten output as the body list type without another list wrapper', () => {
     const listBodySchema: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'out_item' ? { ...item, isList: true } : item),
+      body: bodySchema.body.map((item) => item.id === 'out_item' ? { ...item, isList: true } : item),
     }
     const result = deriveBoundarySchema(body(), (type) => type === 'Body' ? listBodySchema : undefined, {
       kind: 'map', elementPorts: ['item'], outputRoles: { items: { kind: 'flatten' } },
@@ -351,7 +351,7 @@ describe('region occurrence boundary projection', () => {
 
     const variableListSchema: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'out_item' ? {
+      body: bodySchema.body.map((item) => item.id === 'out_item' ? {
         ...item,
         type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } as const,
       } : item),
@@ -428,7 +428,7 @@ describe('region occurrence boundary projection', () => {
     const carried = { kind: 'list', element: TYPE } as const
     const mismatchedSchema: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => {
+      body: bodySchema.body.map((item) => {
         if (item.id === 'in_state') return { ...item, type: carried }
         if (item.id === 'out_state') return { ...item, isList: true }
         return item
@@ -445,7 +445,7 @@ describe('region occurrence boundary projection', () => {
   it('diagnoses a state body source incompatible with its referenced state input', () => {
     const mismatchedSchema: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'out_state' ? { ...item, type: COMBO } : item),
+      body: bodySchema.body.map((item) => item.id === 'out_state' ? { ...item, type: COMBO } : item),
     }
     const result = deriveBoundarySchema(body(), (type) => type === 'Body' ? mismatchedSchema : undefined, {
       kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
@@ -459,7 +459,7 @@ describe('region occurrence boundary projection', () => {
     const deriveState = (sourceType: typeof TYPE | typeof BOOLEAN | typeof COMBO | { readonly kind: 'asset'; readonly element: typeof TYPE } | { readonly kind: 'variable'; readonly templateId: string }) =>
       deriveBoundarySchema(body(), (type) => type === 'Body' ? {
         ...bodySchema,
-        items: bodySchema.items.map((item) => item.id === 'out_state' ? { ...item, type: sourceType } : item),
+        items: bodySchema.body.map((item) => item.id === 'out_state' ? { ...item, type: sourceType } : item),
       } : undefined, {
         kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
         outputRoles: { result: { kind: 'state', statePort: 'state' } },
@@ -471,7 +471,7 @@ describe('region occurrence boundary projection', () => {
 
     const comboInput: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'in_state' ? { ...item, type: COMBO } : item),
+      body: bodySchema.body.map((item) => item.id === 'in_state' ? { ...item, type: COMBO } : item),
     }
     const expectedCombo = deriveBoundarySchema(body(), (type) => type === 'Body' ? comboInput : undefined, {
       kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
@@ -489,7 +489,7 @@ describe('region occurrence boundary projection', () => {
 
     const comboContinuation: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'out_continue' ? { ...item, type: COMBO } : item),
+      body: bodySchema.body.map((item) => item.id === 'out_continue' ? { ...item, type: COMBO } : item),
     }
     const continuation = deriveBoundarySchema(body(), (type) => type === 'Body' ? comboContinuation : undefined, {
       kind: 'while', statePorts: ['state'],
@@ -503,7 +503,7 @@ describe('region occurrence boundary projection', () => {
   it('advises on non-boolean continuation and non-concrete gathers', () => {
     const variableSchema: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'out_other' ? { ...item, type: { kind: 'variable', templateId: 'T' } } : item),
+      body: bodySchema.body.map((item) => item.id === 'out_other' ? { ...item, type: { kind: 'variable', templateId: 'T' } } : item),
     }
     const result = deriveBoundarySchema(body(), (type) => type === 'Body' ? variableSchema : undefined, {
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'items', maxIterations: 2,
@@ -515,7 +515,7 @@ describe('region occurrence boundary projection', () => {
 
     const listBoolean: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.id === 'out_continue' ? { ...item, isList: true } : item),
+      body: bodySchema.body.map((item) => item.id === 'out_continue' ? { ...item, isList: true } : item),
     }
     const listResult = deriveBoundarySchema(body(), (type) => type === 'Body' ? listBoolean : undefined, {
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'continue', maxIterations: 2,
@@ -617,7 +617,7 @@ describe('region compile lowering', () => {
   it('moves a body DynamicCombo selector into the native stored-choice map', () => {
     const comboSchema: NodeSchema = {
       type: 'ComboBody', displayName: 'Combo body', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'item', type: TYPE, optional: false },
         {
           kind: 'input', id: 'mode', type: COMBO, optional: false,
@@ -858,7 +858,7 @@ describe('region compile lowering', () => {
 
     const nonConcreteOutput: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.kind === 'output' && item.id === 'out_item'
+      body: bodySchema.body.map((item) => item.kind === 'output' && item.id === 'out_item'
         ? { ...item, type: { kind: 'variable' as const, templateId: 'T' } }
         : item),
     }
@@ -872,7 +872,7 @@ describe('region compile lowering', () => {
 
     const nonConcreteInput: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.kind === 'input' && item.id === 'in_other'
+      body: bodySchema.body.map((item) => item.kind === 'input' && item.id === 'in_other'
         ? { ...item, type: { kind: 'wildcard' as const } }
         : item),
     }
@@ -890,7 +890,7 @@ describe('region compile lowering', () => {
 
     const lazyInputSchema: NodeSchema = {
       ...bodySchema,
-      items: bodySchema.items.map((item) => item.kind === 'input' && item.id === 'in_other'
+      body: bodySchema.body.map((item) => item.kind === 'input' && item.id === 'in_other'
         ? { ...item, lazy: true as const }
         : item),
     }

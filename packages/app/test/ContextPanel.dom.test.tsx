@@ -32,7 +32,7 @@ import { ContextPanel } from '../src/ContextPanel.js'
 
 const schema: NodeSchema = {
   type: 'Sampler', displayName: 'KSampler', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'steps', displayName: 'Steps', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+  body: [{ kind: 'input', id: 'steps', displayName: 'Steps', type: { kind: 'concrete', name: 'INT' }, optional: false }],
 }
 
 const workflow: WorkflowDocument = {

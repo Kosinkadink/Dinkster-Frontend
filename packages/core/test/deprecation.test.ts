@@ -12,7 +12,7 @@ const schema = (type: string, deprecation?: DeprecationInfo): NodeSchema => ({
   displayName: type,
   category: 'test',
   source: 'v3',
-  items: [],
+  body: [],
   isOutputNode: false,
   ...(deprecation !== undefined ? { deprecation } : {}),
 })

@@ -161,19 +161,19 @@ describe('widget tap interaction', () => {
 
 const widgetSchema: NodeSchema = {
   type: 'Widget', displayName: 'Widget', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input', id: 'amount', type: concrete('FLOAT'), optional: true,
     widget: { widgetType: 'FLOAT', options: {}, default: 1 },
   }],
 }
 const sinkSchema: NodeSchema = {
   type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
+  body: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
 }
 const matchType = { kind: 'variable' as const, templateId: 'item_type' }
 const createListSchema: NodeSchema = {
   type: 'CreateList', displayName: 'Create List', category: 'test', source: 'v3', isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
       dynamic: {
@@ -321,7 +321,7 @@ describe('same-id widget tap vs real output', () => {
   } as unknown as NodeSchema
   const imageSinkSchema: NodeSchema = {
     type: 'ImageSink', displayName: 'ImageSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'pixels', type: concrete('IMAGE'), optional: false },
       { kind: 'input', id: 'prefix', type: concrete('STRING'), optional: false, widget: { widgetType: 'STRING', options: {} } },
       { kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'prefix', widget: { widgetType: 'MOUNT', options: {} } },

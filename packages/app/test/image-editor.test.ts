@@ -105,7 +105,7 @@ describe('image editor entry admission', () => {
     type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: kind === 'image' ? 'IMAGE' : 'VIDEO' } },
     widget: { widgetType: 'ASSET', kind, options: { accept: [kind === 'image' ? 'image/png' : 'video/mp4'] } },
   })
-  const schema = (items: NodeSchema['items']): NodeSchema => ({
+  const schema = (items: NodeSchema['body']): NodeSchema => ({
     type: 'Loader', displayName: 'Loader', category: 'test', source: { kind: 'dinkster' }, items, isOutputNode: false,
   } as unknown as NodeSchema)
 

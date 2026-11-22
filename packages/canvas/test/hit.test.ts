@@ -107,7 +107,7 @@ describe('hitTest', () => {
   it('independently hits horizontal widgets and every input/value-output socket', () => {
     const schema: NodeSchema = {
       type: 'SaveFixture', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
-      items: ['prefix', 'quality', 'mount'].map((id) => ({
+      body: ['prefix', 'quality', 'mount'].map((id) => ({
         kind: 'input', id, optional: false, type: { kind: 'concrete', name: 'STRING' },
         widget: { widgetType: 'STRING', options: {} }, ...(id === 'mount' ? { adjacentTo: 'prefix' } : {}),
       })),
@@ -551,7 +551,7 @@ describe('section hits', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       { kind: 'section', id: 'adv', displayName: 'Advanced' },
       {
@@ -687,7 +687,7 @@ describe('net stub hit testing', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
+    body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } }],
   }
   const consumer: NodeSchema = {
     type: 'Consumer',
@@ -695,7 +695,7 @@ describe('net stub hit testing', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+    body: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
   }
   const synthetic = new Map([
     ['Producer', producer],

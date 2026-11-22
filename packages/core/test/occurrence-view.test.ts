@@ -10,15 +10,15 @@ const combo: InputSpec = {
   kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
   dynamic: { kind: 'dynamicCombo', options: [{ key: 'a', inputs: [] }, { key: 'b', inputs: [] }] },
 }
-const schema: NodeSchema = { type: 'Combo', displayName: 'Combo', category: 'test', source: 'v3', isOutputNode: false, items: [combo] }
+const schema: NodeSchema = { type: 'Combo', displayName: 'Combo', category: 'test', source: 'v3', isOutputNode: false, body: [combo] }
 const familySchema: NodeSchema = {
   type: 'Family', displayName: 'Family', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'items', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+  body: [{ kind: 'input', id: 'items', type: { kind: 'concrete', name: 'STRING' }, optional: true,
     dynamic: { kind: 'autogrow', template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 } } }],
 }
 const nestedFamilySchema: NodeSchema = {
   type: 'NestedFamily', displayName: 'NestedFamily', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'items', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+  body: [{ kind: 'input', id: 'items', type: { kind: 'concrete', name: 'STRING' }, optional: true,
     dynamic: { kind: 'autogrow', template: [
       { kind: 'input', id: 'sub', type: { kind: 'concrete', name: 'STRING' }, optional: true,
         dynamic: { kind: 'autogrow', template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }], naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 8 } } },
@@ -26,7 +26,7 @@ const nestedFamilySchema: NodeSchema = {
 }
 const countOutputSchema: NodeSchema = {
   type: 'CountOutput', displayName: 'CountOutput', category: 'test', source: 'v3', isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: true,
       widget: { widgetType: 'INT', options: {}, default: 0 },
@@ -70,7 +70,7 @@ describe('occurrenceDynamicView', () => {
   it.each([{ options: [] }, { options: [false, 0, 'same', 'same'] }])('projects promoted editable menus through chained instances and fan-out: %j', ({ options }) => {
     const menuSchema: NodeSchema = {
       type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+      body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } } }],
     }
     const bodyNode = (id: string) => ({ id, type: 'Menu', values: {}, dynamic: {
@@ -111,7 +111,7 @@ describe('occurrenceDynamicView', () => {
     const menu: InputSpec = { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
       widget: { widgetType: 'COMBO', ...(editableOptions ? { editableOptions: true } : {}), options: { options: ['schema'] } } }
     const nested: NodeSchema = { type: 'NestedMenu', displayName: 'NestedMenu', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'items', type: menu.type, optional: false,
+      body: [{ kind: 'input', id: 'items', type: menu.type, optional: false,
         dynamic: { kind: 'autogrow', template: [menu], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } }] }
     const doc = { ...docOf(), graphs: {
       g0: graph('g0', { s: { id: 's', type: '#sub', values: { menu: 'outside' }, dynamic: { menu: { options: [] } } } }),
@@ -151,8 +151,8 @@ describe('occurrenceDynamicView', () => {
     const comboIo: NodeSchema = {
       ...schema,
       type: 'ComboIO',
-      items: [
-        ...schema.items,
+      body: [
+        ...schema.body,
         { kind: 'input', id: 'stateIn', type: combo.type, optional: false },
         { kind: 'output', id: 'stateOut', type: combo.type },
       ],
@@ -176,7 +176,7 @@ describe('occurrenceDynamicView', () => {
 
     const docResolve = documentResolver(doc, resolveIo)
     const occurrenceSchema = documentNodeResolver(doc, docResolve)('outer', doc.graphs.outer!.nodes.i!)
-    expect(occurrenceSchema?.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'choice', dynamic: expect.anything() })]))
+    expect(occurrenceSchema?.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'choice', dynamic: expect.anything() })]))
     const view = occurrenceDynamicView(doc, docResolve, ['s'])
     expect(view.dynamic.get('i')?.choice?.selected).toBe('b')
     expect(view.selectorOwners.get('i')?.get('choice')).toEqual({ graphId: 'g0', nodeId: 's', boundaryId: 'choice' })

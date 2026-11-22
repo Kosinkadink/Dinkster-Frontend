@@ -183,7 +183,7 @@ describe('wire-28 dynamic replacement targets', () => {
     const modern = resolve('fixture.dynamic-modern')!
     const requiredModern: NodeSchema = {
       ...modern,
-      items: modern.items.map((item) =>
+      body: modern.body.map((item) =>
         item.kind === 'input' && item.id === 'policy'
           ? { ...item, optional: false }
           : item),
@@ -222,11 +222,11 @@ describe('wire-28 dynamic replacement targets', () => {
 
   it('rejects an unselected required variant slot', () => {
     const legacy = resolve('fixture.dynamic-legacy')!
-    const template = legacy.items.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
+    const template = legacy.body.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
     const target: NodeSchema = {
       ...resolve('fixture.dynamic-modern')!,
       type: 'fixture.required-slot-target',
-      items: [{
+      body: [{
         ...template,
         id: 'mask',
         optional: false,
@@ -330,12 +330,12 @@ describe('wire-28 dynamic replacement targets', () => {
 
   it('materializes a connection-driven slot before validating its dependent mappings', () => {
     const legacy = resolve('fixture.dynamic-legacy')!
-    const template = legacy.items.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
+    const template = legacy.body.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
     const modern = resolve('fixture.dynamic-modern')!
     const target: NodeSchema = {
       ...modern,
       type: 'fixture.open-slot-target',
-      items: [{
+      body: [{
         id: 'mask',
         kind: 'input',
         type: template.type,

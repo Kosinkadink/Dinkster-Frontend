@@ -18,7 +18,7 @@ const schemaOf = (items: InterfaceItem[]): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 const widgetInput = (

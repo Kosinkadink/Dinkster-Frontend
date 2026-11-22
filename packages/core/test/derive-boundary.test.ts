@@ -29,7 +29,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'sampling',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'seed',
@@ -47,7 +47,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'latent',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'samples', type: { kind: 'concrete', name: 'LATENT' }, optional: false },
       { kind: 'output', id: 'out0', displayName: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
     ],
@@ -58,7 +58,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'select',
@@ -95,7 +95,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'items',
@@ -135,7 +135,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'ins',
@@ -155,7 +155,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'src', type: { kind: 'variable', templateId: 'T' }, optional: false },
       {
         kind: 'output',
@@ -176,7 +176,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'count',
@@ -204,7 +204,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'count',
@@ -232,7 +232,7 @@ const innerSchemas: Record<string, NodeSchema> = {
     category: 'util',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input',
         id: 'mode',
@@ -249,14 +249,14 @@ const innerSchemas: Record<string, NodeSchema> = {
   },
   PlainSlotNode: {
     type: 'PlainSlotNode', displayName: 'Plain slot', category: 'util', source: 'v3', isOutputNode: false,
-    items: [{
+    body: [{
       kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true,
       dynamic: { kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [] },
     }],
   },
   SpecializedSlotNode: {
     type: 'SpecializedSlotNode', displayName: 'Specialized slot', category: 'util', source: 'v3', isOutputNode: false,
-    items: [{
+    body: [{
       kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true,
       dynamic: {
         kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [],
@@ -269,7 +269,7 @@ const innerSchemas: Record<string, NodeSchema> = {
   },
   MatchedSlotNode: {
     type: 'MatchedSlotNode', displayName: 'Matched slot', category: 'util', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input', id: 'source', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: false,
         dynamic: {
@@ -344,12 +344,12 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     expect(invalid.schema).toBeUndefined()
     expect(invalid.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.tapMissing' }))
 
-    const seed = innerSchemas.KSampler!.items[0]!
+    const seed = innerSchemas.KSampler!.body[0]!
     const malformed = [
       {
         code: 'boundary.tapAmbiguous',
         tap: 'seed',
-        schema: { ...innerSchemas.KSampler!, items: [...innerSchemas.KSampler!.items, seed] },
+        schema: { ...innerSchemas.KSampler!, items: [...innerSchemas.KSampler!.body, seed] },
       },
       {
         code: 'boundary.tapUnsupported',
@@ -455,7 +455,7 @@ describe('widget promotion vs socket-only', () => {
       const menu = { kind: 'input' as const, id: 'choice', type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', editableOptions: true as const, options: { options: ['schema'] } } }
       const inner: NodeSchema = { type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: false,
-        items: nested ? [{ kind: 'input', id: 'items', type: menu.type, optional: false,
+        body: nested ? [{ kind: 'input', id: 'items', type: menu.type, optional: false,
           dynamic: { kind: 'autogrow', template: [menu], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } }] : [menu] }
       const graph = asDef({ id: 'sub', name: 'sub', nodes: { n0: {
         id: 'n0', type: 'Menu', values: { choice: 'outside' },
@@ -767,7 +767,7 @@ describe('boundary structural identity and presentation', () => {
   it('promotes the selected materialized combo branch without exposing inactive inputs', () => {
     const schema: NodeSchema = {
       type: 'Resize', displayName: 'Resize', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+      body: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
           { key: 'width', inputs: [{ kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
           { key: 'longer', inputs: [{ kind: 'input', id: 'longer_size', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
@@ -795,7 +795,7 @@ describe('boundary structural identity and presentation', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'value',
@@ -840,7 +840,7 @@ describe('boundary structural identity and presentation', () => {
     const schema: NodeSchema = {
       ...innerSchemas.KSampler!,
       type: 'Exact names',
-      items: labels.flatMap((label) => [
+      body: labels.flatMap((label) => [
         { ...label, kind: 'input' as const, type: { kind: 'concrete' as const, name: 'IMAGE' }, optional: false },
         { ...label, kind: 'output' as const, type: { kind: 'concrete' as const, name: 'IMAGE' } },
       ]),
@@ -903,7 +903,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
       category: 'util',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'pairs',
@@ -930,7 +930,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
       category: 'util',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'groups',
@@ -965,7 +965,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
       category: 'util',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'groups',
@@ -1003,7 +1003,7 @@ describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
       category: 'util',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'src', type: img, optional: false },
         {
           kind: 'output',
@@ -1158,7 +1158,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
       boundary: { inputs: [{ id: 'mode', binds: { kind: 'port', node: 'n0', port: 'mode' } }], outputs: [] },
     }), resolve)
     expect(result.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: 'gE.mode: selector forwarding does not include branch inputs', refs: [{ graphId: 'gE', portId: 'mode', direction: 'input' }] }])
-    const input = result.schema?.items[0]
+    const input = result.schema?.body[0]
     expect(input?.kind).toBe('input')
     if (input?.kind !== 'input') return
     expect(input.dynamic).toEqual({ kind: 'dynamicCombo', options: [{ key: 'a', inputs: [] }], defaultOption: 'a' })
@@ -1171,7 +1171,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
       boundary: { inputs: [{ id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.[a].x' } }], outputs: [] },
     }), resolve)
     expect(result.diagnostics).toEqual([])
-    expect(result.schema?.items[0]).toMatchObject({ kind: 'input', id: 'x', optional: false })
+    expect(result.schema?.body[0]).toMatchObject({ kind: 'input', id: 'x', optional: false })
   })
 
   it('nested subgraph instance types resolve through the resolver', () => {

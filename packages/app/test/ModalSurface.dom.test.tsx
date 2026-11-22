@@ -418,7 +418,7 @@ describe('ASSET widget modal integration', () => {
     [false, true].map((stored) => ({ scenario, stored }))))(
     'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {
       const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+        body: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
           widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } } }],
       }
       const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema).document!

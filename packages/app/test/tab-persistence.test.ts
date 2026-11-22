@@ -177,7 +177,7 @@ describe('open-tab persistence', () => {
       return receipt
     })
     await vi.advanceTimersByTimeAsync(5000)
-    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }])
+    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, body: [] }])
     app.flushPersistTabs(true)
     await vi.advanceTimersByTimeAsync(5000)
     expect(app.retentionActivity().incompleteSlots).toEqual([])
@@ -296,7 +296,7 @@ describe('open-tab persistence', () => {
       receipts.set(owner.ownerId, receipt)
       return receipt
     })
-    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }])
+    app.registerSchemas([{ type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, body: [] }])
     app.flushPersistTabs(true)
     await vi.advanceTimersByTimeAsync(10000)
     const siblingJournals = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)

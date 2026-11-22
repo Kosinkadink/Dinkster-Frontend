@@ -58,7 +58,7 @@ const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 /** Old node: image in, strength widget, image out. */

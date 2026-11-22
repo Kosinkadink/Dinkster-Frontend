@@ -49,7 +49,7 @@ const choiceSchema = (options: readonly string[]): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input',
     id: 'choice',
     type: { kind: 'concrete', name: 'STRING' },
@@ -882,7 +882,7 @@ describe('compile and registry routing', () => {
       displayName: 'Test Only',
       category: 'test',
       source: 'v3',
-      items: [],
+      body: [],
       isOutputNode: false,
     }
     app.registerSchemas([extra])

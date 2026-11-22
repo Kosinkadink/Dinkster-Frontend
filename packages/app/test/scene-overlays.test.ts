@@ -1536,7 +1536,7 @@ describe('glsl image estimate overlay', () => {
       ...adjustSchema,
       type: 'test.ambiguous-adjust',
       items: [
-        ...adjustSchema.items,
+        ...adjustSchema.body,
         { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
     } as NodeSchema

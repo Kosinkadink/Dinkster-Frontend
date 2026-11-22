@@ -105,7 +105,7 @@ describe('deriveCompanions: literals', () => {
     const schema: NodeSchema = {
       type: 'T', displayName: 'Primitive', category: '', source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: true },
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' }, knownValue: { input: 'steps' } },
       ],

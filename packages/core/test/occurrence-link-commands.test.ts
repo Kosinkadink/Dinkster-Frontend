@@ -15,7 +15,7 @@ import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type, displayName: type, category: 'test', source: 'v3', isOutputNode: type === 'Sink',
-  items: [
+  body: [
     ...inputs.map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' }, optional: true })),
     ...outputs.map((id) => ({ kind: 'output' as const, id, type: { kind: 'concrete' as const, name: 'IMAGE' } })),
   ],
@@ -25,12 +25,12 @@ const schemas: Record<string, NodeSchema> = {
   Sink: schema('Sink', ['in', 'other'], []),
   NumberSink: {
     ...schema('NumberSink', [], []), isOutputNode: true,
-    items: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false,
+    body: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: {}, default: 0 } }],
   },
   FamilySink: {
     ...schema('FamilySink', [], []),
-    items: [{
+    body: [{
       kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
       dynamic: {
         kind: 'autogrow',
@@ -392,7 +392,7 @@ describe('occurrence-local link commands', () => {
 
   it.each([false, true].flatMap((named) => [false, true].map((chained) => ({ named, chained }))))('materializes a canonical boundary ghost atomically (named=$named, chained=$chained)', ({ named, chained }) => {
     const names = named ? ['head', 'middle', 'tail'] : ['item0', 'item1', 'item2']
-    const canonical: NodeSchema = { ...schema('CanonicalSink', [], []), isOutputNode: true, items: [{
+    const canonical: NodeSchema = { ...schema('CanonicalSink', [], []), isOutputNode: true, body: [{
       kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
       dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
         template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
@@ -447,7 +447,7 @@ describe('occurrence-local link commands', () => {
       expect(compiled.artifact.prompt[`${prefix}.sink`]!.inputs).toEqual({ [`items.${names[1]}`]: [`${prefix}.producerOne`, 0] })
     }
     if (!named && chained) {
-      const legacy: NodeSchema = { ...canonical, items: [{
+      const legacy: NodeSchema = { ...canonical, body: [{
         kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: true,
         dynamic: { kind: 'autogrow', materialization: 'wire15',
           template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
@@ -871,7 +871,7 @@ describe('occurrence-local link commands', () => {
 
     const autogrow: NodeSchema = {
       type: 'Grow', displayName: 'Grow', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: true,
         dynamic: {
           kind: 'autogrow', naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },

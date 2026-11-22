@@ -498,7 +498,7 @@ const dynSchemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchem
   category: 'test',
   source: 'v3',
   isOutputNode: true, // keeps every test node in full scope without sinks
-  items,
+  body: items,
 })
 
 const wire15SchemaOf = (type: string, interfaceItems: readonly Record<string, unknown>[]): NodeSchema => {

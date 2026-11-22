@@ -69,7 +69,7 @@ const schemaOf = (items: InterfaceItem[]): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 const socketInput = (id: string, type = 'IMAGE', extra: Partial<InputSpec> = {}): InputSpec => ({

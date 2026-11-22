@@ -44,7 +44,7 @@ describe('static first-party node catalog', () => {
     expect(copied).toEqual(live)
     expect(live).toHaveLength(1)
     expect(live[0]!.schema).toMatchObject({ type: 'image.resize', pack, displayName: 'Resize Image', searchTerms: ['resample'] })
-    expect(live[0]!.schema.items).toMatchObject([
+    expect(live[0]!.schema.body).toMatchObject([
       { kind: 'input', id: 'image' }, { kind: 'input', id: 'width', widget: { widgetType: 'INT', default: 768 } }, { kind: 'output', id: 'result' },
     ])
     expect(live[0]!.pack.platforms).toEqual(['linux', 'darwin'])

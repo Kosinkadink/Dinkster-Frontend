@@ -37,7 +37,7 @@ const widget = (id: string, value: number): InputSpec => input(id, {
   type: FLOAT, optional: true, widget: { widgetType: 'FLOAT', options: {}, default: value },
 })
 const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =>
-  ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, items })
+  ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, body: items })
 
 const schemas: Record<string, NodeSchema> = {
   Src: schemaOf('Src', [output('out')]),

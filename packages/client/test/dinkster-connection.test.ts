@@ -1691,10 +1691,10 @@ describe('fetchSchemas payload validation (CL5)', () => {
     )
     const installed = await conn.fetchSchemas()
     expect(installed.schemas.size).toBe(4)
-    expect(installed.resolve('test.stream_source')?.items[0]).toMatchObject({
+    expect(installed.resolve('test.stream_source')?.body[0]).toMatchObject({
       kind: 'output', type: { kind: 'stream', element: { kind: 'concrete', name: 'IMAGE' } },
     })
-    expect(installed.resolve('test.stream_sink')?.items[0]).toMatchObject({ acceptsStream: true })
+    expect(installed.resolve('test.stream_sink')?.body[0]).toMatchObject({ acceptsStream: true })
     expect(installed.resolve('test.chunk_map')?.chunkSafe).toEqual({ inputs: ['image'], outputs: ['image'] })
     expect(installed.resolve('test.scoped')?.chunkSafe).toEqual({
       inputs: ['image'], outputs: ['image'], applies: { operation: ['map'] },

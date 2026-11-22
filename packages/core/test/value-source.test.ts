@@ -186,7 +186,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
     })
     const promoted = deriveBoundarySchema(def, resolveInitial)
     expect(promoted.diagnostics).toEqual([])
-    expect(promoted.schema!.items[0]).toMatchObject({ kind: 'input', widget: {
+    expect(promoted.schema!.body[0]).toMatchObject({ kind: 'input', widget: {
       controller: 'after_generate', ...(controllerInitial !== undefined ? { controllerInitial } : {}),
     } })
     expect(JSON.stringify(def)).toBe(before)

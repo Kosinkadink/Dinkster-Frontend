@@ -15,7 +15,7 @@ const schema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'amount',
@@ -334,7 +334,7 @@ const regionSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'item_in', type: { kind: 'concrete', name: 'INT' }, optional: false },
     { kind: 'input', id: 'state_in', type: { kind: 'concrete', name: 'INT' }, optional: false },
     { kind: 'input', id: 'capture_in', type: { kind: 'concrete', name: 'INT' }, optional: false },

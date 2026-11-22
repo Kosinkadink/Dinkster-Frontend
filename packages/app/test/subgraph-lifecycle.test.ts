@@ -11,7 +11,7 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const schema: NodeSchema = {
-  type: 'Plain', displayName: 'Plain', category: 'test', source: 'v3', isOutputNode: false, items: [],
+  type: 'Plain', displayName: 'Plain', category: 'test', source: 'v3', isOutputNode: false, body: [],
 }
 
 const document = (): WorkflowDocument => ({
@@ -54,7 +54,7 @@ describe('subgraph lifecycle app plans', () => {
   it('does not offer hidden compatibility widgets as extracted boundary taps', () => {
     const providerSchema: NodeSchema = {
       ...schema,
-      items: [
+      body: [
         { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: { options: ['Automatic'] } } },
         { kind: 'input', id: 'provider', type: { kind: 'concrete', name: 'COMBO' }, optional: true, widget: { widgetType: 'COMBO', options: { options: ['vision.depth.v2'] } }, hidden: true },
       ],
@@ -368,7 +368,7 @@ describe('subgraph lifecycle app plans', () => {
   it('uses occurrence-resolved dynamic layout height when placing flattened body nodes', () => {
     const familySchema: NodeSchema = {
       type: 'Family', displayName: 'Family', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'items', type: { kind: 'concrete', name: 'STRING' }, optional: true,
         dynamic: {
           kind: 'autogrow',
@@ -418,11 +418,11 @@ describe('subgraph lifecycle app plans', () => {
     const image = { kind: 'concrete', name: 'IMAGE' } as const
     const sourceSchema: NodeSchema = {
       type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: image }],
+      body: [{ kind: 'output', id: 'out', type: image }],
     }
     const groupedSchema: NodeSchema = {
       type: 'Grouped', displayName: 'Grouped', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'pairs', type: image, optional: true,
         dynamic: {
           kind: 'autogrow',

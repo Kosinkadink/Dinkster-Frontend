@@ -14,7 +14,7 @@ import { lifecycleSelectionFingerprint } from '../src/lifecycle/planner.js'
 const value = (id: string): InputSpec => ({ kind: 'input', id, type: { kind: 'concrete', name: 'FLOAT' }, optional: true, widget: { widgetType: 'FLOAT', options: {}, default: 1 } })
 const modal: NodeSchema = {
   type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
-  items: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: true, dynamic: {
+  body: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: true, dynamic: {
     kind: 'dynamicCombo', options: [
       { key: 'a', inputs: [value('gain'), { ...value('items'), dynamic: { kind: 'autogrow', template: [value('weight')], naming: { kind: 'prefix', prefix: 'item', max: 5 } } }] },
       { key: 'b', inputs: [value('gain')] },
@@ -45,7 +45,7 @@ describe('full conditional boundary forwarding', () => {
     const original = document(kind)
     const root = original.graphs['root']!
     const body = original.graphs['body']!
-    const input = modal.items[0] as InputSpec
+    const input = modal.body[0] as InputSpec
     const schema: NodeSchema = kind === 'dynamicCombo' ? modal : { ...modal, items: [{
       ...input, type: { kind: 'concrete', name: 'FLOAT' }, dynamic: {
         kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'FLOAT' }, inputs: [],
@@ -53,7 +53,7 @@ describe('full conditional boundary forwarding', () => {
       },
     }] }
     const localResolve = (type: string): NodeSchema | undefined => type === 'Modal' ? schema : type === 'Source' ? {
-      ...modal, type, isOutputNode: false, items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
+      ...modal, type, isOutputNode: false, body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
     } : undefined
     const doc = { ...original, graphs: { ...original.graphs,
       root: { ...root, nodes: { ...root.nodes,
@@ -96,8 +96,8 @@ describe('full conditional boundary forwarding', () => {
   it('maps a member-scoped subtree without leaking its fixed ancestor into instance identities', () => {
     const original = document()
     const body = original.graphs['body']!
-    const schema: NodeSchema = { ...modal, items: [{ ...value('groups'), dynamic: {
-      kind: 'autogrow', template: [modal.items[0] as InputSpec], naming: { kind: 'prefix', prefix: 'group', max: 3 },
+    const schema: NodeSchema = { ...modal, body: [{ ...value('groups'), dynamic: {
+      kind: 'autogrow', template: [modal.body[0] as InputSpec], naming: { kind: 'prefix', prefix: 'group', max: 3 },
     } }] }
     const scopedResolve = (type: string) => type === modal.type ? schema : undefined
     const doc = { ...original, graphs: { ...original.graphs, body: { ...body,
@@ -131,7 +131,7 @@ describe('full conditional boundary forwarding', () => {
       } },
       body: { ...body, nodes: { leaf: { ...body.nodes['leaf']!, controllers: { 'mode.[a].gain': 'increment' } } } },
     } } as unknown as WorkflowDocument
-    const controllerSchema = { ...modal, items: modal.items.map((item) => item.kind === 'input' && item.dynamic?.kind === 'dynamicCombo' ? {
+    const controllerSchema = { ...modal, items: modal.body.map((item) => item.kind === 'input' && item.dynamic?.kind === 'dynamicCombo' ? {
       ...item, dynamic: { ...item.dynamic, options: item.dynamic.options.map((option) => ({ ...option, inputs: option.inputs.map((input) => input.id === 'gain'
         ? { ...input, widget: { ...input.widget!, controller: 'after_generate' as const } } : input) })) },
     } : item) }
@@ -250,13 +250,13 @@ describe('full conditional boundary forwarding', () => {
     const doc = document('port')
     const derived = deriveBoundarySchema(doc.graphs['body']!, documentResolver(doc, resolve))
     expect(derived.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['boundary.selectorOnly'])
-    expect(derived.schema?.items[0]).toMatchObject({ dynamic: { options: [{ key: 'a', inputs: [] }, { key: 'b', inputs: [] }] } })
+    expect(derived.schema?.body[0]).toMatchObject({ dynamic: { options: [{ key: 'a', inputs: [] }, { key: 'b', inputs: [] }] } })
   })
 
   it('forwards specialized slots through two wrappers with independent values, variants, and type identities', () => {
     const concrete = (name: string) => ({ kind: 'concrete' as const, name })
     const variable = { kind: 'variable' as const, templateId: 'T' }
-    const slotSchema: NodeSchema = { ...modal, items: [{
+    const slotSchema: NodeSchema = { ...modal, body: [{
       kind: 'input', id: 'mode', type: variable, optional: true,
       dynamic: { kind: 'dynamicSlot', slotType: variable, typeTemplateId: 'T', inputs: [value('shared')], variants: [
         { key: 'a', type: concrete('INT'), inputs: [value('gain')] },
@@ -264,7 +264,7 @@ describe('full conditional boundary forwarding', () => {
       ] },
     }] }
     const slotResolve = (type: string): NodeSchema | undefined => type === 'Modal' ? slotSchema :
-      type === 'INT' || type === 'FLOAT' ? { ...modal, type, isOutputNode: false, items: [{ kind: 'output', id: 'out', type: concrete(type) }] } : undefined
+      type === 'INT' || type === 'FLOAT' ? { ...modal, type, isOutputNode: false, body: [{ kind: 'output', id: 'out', type: concrete(type) }] } : undefined
     const original = document('slot')
     const root = original.graphs['root']!
     const doc = { ...original, graphs: { ...original.graphs, root: { ...root,
@@ -276,7 +276,7 @@ describe('full conditional boundary forwarding', () => {
     } } } as unknown as WorkflowDocument
     const derived = deriveBoundarySchema(doc.graphs['middle']!, documentResolver(doc, slotResolve))
     expect(derived.diagnostics).toEqual([])
-    expect(derived.schema?.items[0]).toMatchObject({ dynamic: { typeTemplateId: 'inner:leaf:T', slotType: { templateId: 'inner:leaf:T' } } })
+    expect(derived.schema?.body[0]).toMatchObject({ dynamic: { typeTemplateId: 'inner:leaf:T', slotType: { templateId: 'inner:leaf:T' } } })
     const before = JSON.stringify(doc)
     const result = compile({ document: doc, revision: 1, resolve: slotResolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
     expect(result.ok, JSON.stringify(result)).toBe(true)

@@ -75,7 +75,7 @@ const mathSchema = (mirror: MirrorSpec | null = EXPRESSION_MIRROR): NodeSchema =
   source: 'v3',
   isOutputNode: false,
   ...(mirror ? { mirror } : {}),
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'expression',
@@ -109,7 +109,7 @@ const intSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'steps',
@@ -124,8 +124,8 @@ const intSchema: NodeSchema = {
 const knownIntSchema: NodeSchema = {
   ...intSchema,
   type: 'KnownIntNode',
-  items: [
-    intSchema.items[0]!,
+  body: [
+    intSchema.body[0]!,
     { ...output('out', 'INT'), knownValue: { input: 'steps' } },
   ],
 }

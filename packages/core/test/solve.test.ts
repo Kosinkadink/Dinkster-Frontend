@@ -38,7 +38,7 @@ const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 /** Schema library used across tests. */

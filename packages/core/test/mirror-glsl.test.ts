@@ -56,7 +56,7 @@ const imageSourceSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'level',
@@ -84,7 +84,7 @@ const gateSchema = (mirror: MirrorSpec | null = GLSL_MIRROR): NodeSchema => ({
   source: 'v3',
   isOutputNode: false,
   ...(mirror ? { mirror } : {}),
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false } as InputSpec,
     {
       kind: 'input',

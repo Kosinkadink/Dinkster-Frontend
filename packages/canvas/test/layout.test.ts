@@ -28,17 +28,17 @@ const output = (id: string, over: Partial<OutputSpec> = {}): OutputSpec => ({
   kind: 'output', id, type: { kind: 'concrete', name: 'IMAGE' }, ...over,
 })
 
-const schemaOf = (items: NodeSchema['items'], displayName = 'Test'): NodeSchema => ({
+const schemaOf = (items: NodeSchema['body'], displayName = 'Test'): NodeSchema => ({
   type: 'Test',
   displayName,
   category: 'test',
   source: 'v3',
-  items,
+  body: items,
   isOutputNode: false,
 })
 const nodeData: NodeData = { id: asNodeId('n0'), type: 'Test', values: {} }
 
-const doLayout = (items: NodeSchema['items'], displayName?: string) =>
+const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('conditional widget groups', () => {
@@ -797,9 +797,9 @@ describe('in-node text output region', () => {
 })
 
 describe('sections', () => {
-  const section = (id: string, over: Partial<Extract<NodeSchema['items'][number], { kind: 'section' }>> = {}) =>
+  const section = (id: string, over: Partial<Extract<NodeSchema['body'][number], { kind: 'section' }>> = {}) =>
     ({ kind: 'section', id, ...over }) as const
-  const items: NodeSchema['items'] = [
+  const items: NodeSchema['body'] = [
     input('a'),
     section('adv', { displayName: 'Advanced' }),
     widget('w', { section: 'adv' }),
@@ -1070,7 +1070,7 @@ describe('sections', () => {
   })
 
   it('collapsedByDefault applies without an override and an override can expand it', () => {
-    const defaultItems: NodeSchema['items'] = [
+    const defaultItems: NodeSchema['body'] = [
       section('adv', { displayName: 'Advanced', collapsedByDefault: true }),
       widget('w', { section: 'adv' }),
       output('x'),
@@ -1084,7 +1084,7 @@ describe('sections', () => {
   })
 
   it('members of an UNDECLARED section render normally (schema bug, not a hole)', () => {
-    const buggy: NodeSchema['items'] = [widget('w', { section: 'ghost' }), output('x')]
+    const buggy: NodeSchema['body'] = [widget('w', { section: 'ghost' }), output('x')]
     const l = layoutNode(schemaOf(buggy), nodeData, defaultTokens, measure, widgetMeasure, {
       sectionOverrides: { ghost: true },
     })
@@ -1092,7 +1092,7 @@ describe('sections', () => {
   })
 
   it('collapsed sections count hidden MODIFIED widget values (derived, never stored)', () => {
-    const tunable: NodeSchema['items'] = [
+    const tunable: NodeSchema['body'] = [
       section('adv', { displayName: 'Advanced' }),
       widget('w', { section: 'adv', widget: { widgetType: 'INT', options: {}, default: 20 } }),
       widget('v', { section: 'adv', widget: { widgetType: 'INT', options: {}, default: 5 } }),
@@ -1119,7 +1119,7 @@ describe('sections', () => {
   })
 
   it('controller widgets never trip the hidden-modified indicator', () => {
-    const items: NodeSchema['items'] = [
+    const items: NodeSchema['body'] = [
       section('adv', {}),
       widget('seed', {
         section: 'adv',
@@ -1139,7 +1139,7 @@ describe('sections', () => {
   })
 
   it('hidden outputs are excluded from row pairing', () => {
-    const outItems: NodeSchema['items'] = [
+    const outItems: NodeSchema['body'] = [
       input('a'),
       section('outs', {}),
       output('hidden1'),

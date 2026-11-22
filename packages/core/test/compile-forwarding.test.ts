@@ -39,7 +39,7 @@ const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: true, // keeps every node in full scope without sinks
-  items,
+  body: items,
 })
 const floatWidget = (def: number): Pick<InputSpec, 'widget'> => ({
   widget: { widgetType: 'FLOAT', options: {}, default: def },

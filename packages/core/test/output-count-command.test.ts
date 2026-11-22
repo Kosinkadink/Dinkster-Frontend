@@ -36,7 +36,7 @@ const splitSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [countInput, outputFamily('images', 1, 4), outputFamily('masks', 0, 3)],
+  body: [countInput, outputFamily('images', 1, 4), outputFamily('masks', 0, 3)],
 }
 
 const sinkSchema: NodeSchema = {
@@ -45,7 +45,7 @@ const sinkSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items: [{
+  body: [{
     kind: 'input',
     id: 'image',
     type: { kind: 'concrete', name: 'comfy.IMAGE' },
@@ -133,7 +133,7 @@ describe('node.setOutputCount', () => {
   it('enforces the schema-wide member budget across families sharing the count', () => {
     const wideSchema: NodeSchema = {
       ...splitSchema,
-      items: [countInput, outputFamily('images', 0, 512), outputFamily('masks', 0, 512)],
+      body: [countInput, outputFamily('images', 0, 512), outputFamily('masks', 0, 512)],
     }
     const wideResolve = (type: string): NodeSchema | undefined =>
       type === 'Split' ? wideSchema : type === 'Sink' ? sinkSchema : undefined

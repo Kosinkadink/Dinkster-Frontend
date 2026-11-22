@@ -31,7 +31,7 @@ const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: true, // keeps every node in full scope without sinks
-  items,
+  body: items,
 })
 
 const schemas: Record<string, NodeSchema> = {

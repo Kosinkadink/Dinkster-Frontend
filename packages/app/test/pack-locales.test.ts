@@ -16,7 +16,7 @@ const schema: NodeSchema = {
   pack: 'demo-pack',
   isOutputNode: false,
   searchTerms: ['base-term'],
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'color',
@@ -122,9 +122,9 @@ describe('pack locale catalogs', () => {
     })
     const localized = overlayPackLocales(registry, new Map([['demo-pack', [preferred, fallback]]]))
     const translated = localized.resolve('legacy.paint')!
-    const color = translated.items[0]!
-    const group = translated.items[1]!
-    const image = translated.items[2]!
+    const color = translated.body[0]!
+    const group = translated.body[1]!
+    const image = translated.body[2]!
 
     expect(localized.hash).toBe(registry.hash)
     expect(localized.resolve.forEditorRole?.('demo.paint.editor')).toBe(translated)

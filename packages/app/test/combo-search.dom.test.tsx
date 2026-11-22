@@ -99,7 +99,7 @@ describe('combo search', () => {
     })
     const store = new DocumentStore(loaded.document!, coreCommandRegistry())
     const schema: NodeSchema = { type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+      body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } },
       }],
     }
