@@ -2023,7 +2023,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const fieldOwners = new Map<string, { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }>()
     for (const item of def.boundary.inputs) {
       const binds = item.binds
-      if (binds.kind !== 'port' || binds.members !== undefined || binds.viaReroute !== undefined || item.promoted !== true) continue
+      if (binds.kind !== 'port' || binds.members !== undefined || item.promoted !== true) continue
       const inner = def.nodes[binds.node]
       if (inner === undefined) continue
       const port = binds.port as string

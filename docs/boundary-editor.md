@@ -85,6 +85,11 @@ field that node has not set shows the value the inner node receives, which
 is the value a run uses. The inner node's own dropdown stays its editor of
 the same choice.
 
+A field whose input reaches the inner node through a reroute is the same
+field, and the inner field shows its value through the reroute. A
+forwarded group, a forwarded slot and a field inside a group member stay a
+name and a pin.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become

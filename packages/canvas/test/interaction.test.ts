@@ -4027,6 +4027,22 @@ describe('Inputs panel fields', () => {
     expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)
   })
 
+  it('shows a promoted input reached through a reroute as a field of the entered node', () => {
+    const base = workflow()
+    const sub = base.graphs['g1']!
+    const store = new DocumentStore({ ...base, graphs: { ...base.graphs, g1: {
+      ...sub,
+      reroutes: { r: { id: 'r' } },
+      links: { leg: { id: 'leg', from: { reroute: 'r' }, to: { node: 'inner', port: 'radius' } } },
+      boundary: { ...sub.boundary!, inputs: sub.boundary!.inputs.map((item) => item.id === 'radius'
+        ? { ...item, binds: { kind: 'port', node: 'inner', port: 'radius', viaReroute: 'r' } } : item) },
+    } } } as unknown as WorkflowDocument, coreCommandRegistry())
+    pressPlus(store, 'soft')
+    expect(radiusOf(store, 'g0', 'soft')).toBe(7)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+    expect(radiusOf(store, 'g1', 'inner')).toBeUndefined()
+  })
+
   it('shows a dropdown that leads options with its option\'s fields, edited on the entered node', () => {
     const gain: NodeSchema['items'][number] = { kind: 'input', id: 'gain', type: { kind: 'concrete', name: 'INT' }, optional: true,
       widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 } }
