@@ -2911,6 +2911,13 @@ export class AppState {
    * the Context panel. Undefined while no widget editor is open.
    */
   readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
+  /**
+   * The boundary row selected in the Boundary panel: one item of the
+   * definition `graphId` in tab `tabId`. Session state; the panel shows it
+   * only while the same tab and definition are in view.
+   */
+  readonly boundaryFocus: Signal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined> =
+    createSignal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined>(undefined)
 
   /** Default backend's schema registry (single-backend code path). */
   readonly registry: Signal<SchemaRegistry | undefined>
