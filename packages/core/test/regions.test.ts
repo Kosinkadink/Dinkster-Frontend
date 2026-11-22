@@ -11,12 +11,14 @@ import { validateDocumentShape } from '../src/format/validate.js'
 import { checkDocument } from '../src/invariants.js'
 import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
-import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { inputsOf, outputsOf, type BodyRow, type NodeSchema } from '../src/schema/model.js'
 
 const TYPE = { kind: 'concrete', name: 'FLOAT' } as const
 const BOOLEAN = { kind: 'concrete', name: 'BOOLEAN' } as const
 const INTEGER = { kind: 'concrete', name: 'INT' } as const
 const COMBO = { kind: 'concrete', name: 'COMBO' } as const
+
+const rowId = (row: BodyRow): string | undefined => 'id' in row ? row.id : undefined
 
 const bodySchema: NodeSchema = {
   type: 'Body',
@@ -46,23 +48,13 @@ const countMultiSplitterSchema: NodeSchema = {
     { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false },
     { kind: 'output', id: 'before', type: TYPE },
     {
-      kind: 'output', id: 'images', type: TYPE,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{ kind: 'input', id: 'image', type: TYPE, optional: false }],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
+      kind: 'group', id: 'images', value: { kind: 'output', id: 'image', type: TYPE },
+      keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 }, grows: { count: 'count' }, minMembers: 0, maxMembers: 4,
     },
     { kind: 'output', id: 'after', type: TYPE },
     {
-      kind: 'output', id: 'masks', type: TYPE,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{ kind: 'input', id: 'mask', type: TYPE, optional: false }],
-        naming: { kind: 'prefix', prefix: 'mask', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
+      kind: 'group', id: 'masks', value: { kind: 'output', id: 'mask', type: TYPE },
+      keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 }, grows: { count: 'count' }, minMembers: 0, maxMembers: 4,
     },
   ],
 }
@@ -330,7 +322,7 @@ describe('region occurrence boundary projection', () => {
   it('exports a flatten output as the body list type without another list wrapper', () => {
     const listBodySchema: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'out_item' ? { ...item, isList: true } : item),
+      body: bodySchema.body.map((item) => rowId(item) === 'out_item' ? { ...item, isList: true } : item),
     }
     const result = deriveBoundarySchema(body(), (type) => type === 'Body' ? listBodySchema : undefined, {
       kind: 'map', elementPorts: ['item'], outputRoles: { items: { kind: 'flatten' } },
@@ -351,7 +343,7 @@ describe('region occurrence boundary projection', () => {
 
     const variableListSchema: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'out_item' ? {
+      body: bodySchema.body.map((item) => rowId(item) === 'out_item' ? {
         ...item,
         type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } as const,
       } : item),
@@ -429,8 +421,8 @@ describe('region occurrence boundary projection', () => {
     const mismatchedSchema: NodeSchema = {
       ...bodySchema,
       body: bodySchema.body.map((item) => {
-        if (item.id === 'in_state') return { ...item, type: carried }
-        if (item.id === 'out_state') return { ...item, isList: true }
+        if (rowId(item) === 'in_state') return { ...item, type: carried }
+        if (rowId(item) === 'out_state') return { ...item, isList: true }
         return item
       }),
     }
@@ -445,7 +437,7 @@ describe('region occurrence boundary projection', () => {
   it('diagnoses a state body source incompatible with its referenced state input', () => {
     const mismatchedSchema: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'out_state' ? { ...item, type: COMBO } : item),
+      body: bodySchema.body.map((item) => rowId(item) === 'out_state' ? { ...item, type: COMBO } : item),
     }
     const result = deriveBoundarySchema(body(), (type) => type === 'Body' ? mismatchedSchema : undefined, {
       kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
@@ -459,7 +451,7 @@ describe('region occurrence boundary projection', () => {
     const deriveState = (sourceType: typeof TYPE | typeof BOOLEAN | typeof COMBO | { readonly kind: 'asset'; readonly element: typeof TYPE } | { readonly kind: 'variable'; readonly templateId: string }) =>
       deriveBoundarySchema(body(), (type) => type === 'Body' ? {
         ...bodySchema,
-        items: bodySchema.body.map((item) => item.id === 'out_state' ? { ...item, type: sourceType } : item),
+        body: bodySchema.body.map((item) => rowId(item) === 'out_state' ? { ...item, type: sourceType } : item),
       } : undefined, {
         kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
         outputRoles: { result: { kind: 'state', statePort: 'state' } },
@@ -471,7 +463,7 @@ describe('region occurrence boundary projection', () => {
 
     const comboInput: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'in_state' ? { ...item, type: COMBO } : item),
+      body: bodySchema.body.map((item) => rowId(item) === 'in_state' ? { ...item, type: COMBO } : item),
     }
     const expectedCombo = deriveBoundarySchema(body(), (type) => type === 'Body' ? comboInput : undefined, {
       kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
@@ -489,7 +481,7 @@ describe('region occurrence boundary projection', () => {
 
     const comboContinuation: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'out_continue' ? { ...item, type: COMBO } : item),
+      body: bodySchema.body.map((item) => rowId(item) === 'out_continue' ? { ...item, type: COMBO } : item),
     }
     const continuation = deriveBoundarySchema(body(), (type) => type === 'Body' ? comboContinuation : undefined, {
       kind: 'while', statePorts: ['state'],
@@ -503,7 +495,7 @@ describe('region occurrence boundary projection', () => {
   it('advises on non-boolean continuation and non-concrete gathers', () => {
     const variableSchema: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'out_other' ? { ...item, type: { kind: 'variable', templateId: 'T' } } : item),
+      body: bodySchema.body.map((item) => rowId(item) === 'out_other' ? { ...item, type: { kind: 'variable', templateId: 'T' } } : item),
     }
     const result = deriveBoundarySchema(body(), (type) => type === 'Body' ? variableSchema : undefined, {
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'items', maxIterations: 2,
@@ -515,7 +507,7 @@ describe('region occurrence boundary projection', () => {
 
     const listBoolean: NodeSchema = {
       ...bodySchema,
-      body: bodySchema.body.map((item) => item.id === 'out_continue' ? { ...item, isList: true } : item),
+      body: bodySchema.body.map((item) => rowId(item) === 'out_continue' ? { ...item, isList: true } : item),
     }
     const listResult = deriveBoundarySchema(body(), (type) => type === 'Body' ? listBoolean : undefined, {
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'continue', maxIterations: 2,
@@ -614,20 +606,17 @@ describe('region compile lowering', () => {
     })).toBeUndefined()
   })
 
-  it('moves a body DynamicCombo selector into the native stored-choice map', () => {
+  it('moves a body choice key into the native stored-choice map', () => {
     const comboSchema: NodeSchema = {
       type: 'ComboBody', displayName: 'Combo body', category: 'test', source: 'v3', isOutputNode: false,
       body: [
         { kind: 'input', id: 'item', type: TYPE, optional: false },
         {
-          kind: 'input', id: 'mode', type: COMBO, optional: false,
-          dynamic: {
-            kind: 'dynamicCombo', materialization: 'wire15',
-            options: [{ key: 'scale', inputs: [{
-              kind: 'input', id: 'amount', type: TYPE, optional: true,
-              widget: { widgetType: 'NUMBER', default: 1, options: {} },
-            }] }],
-          },
+          kind: 'choice', id: 'mode', required: true, shared: [],
+          options: [{ key: 'scale', rows: [{
+            kind: 'input', id: 'amount', type: TYPE, optional: true,
+            widget: { widgetType: 'NUMBER', default: 1, options: {} },
+          }] }],
         },
         { kind: 'output', id: 'out', type: TYPE },
       ],
@@ -672,7 +661,6 @@ describe('region compile lowering', () => {
       outputIds: ['out'],
       inputs: {
         item: { $link: { node: '$region', output: 'item' } },
-        mode: 'scale',
         'mode.amount': 2,
       },
       slotVariants: { mode: 'scale' },
@@ -700,11 +688,11 @@ describe('region compile lowering', () => {
     })
     expect(refused.ok).toBe(false)
     if (!refused.ok) {
-      expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.combo.missingChoice')
+      expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
     }
   })
 
-  it('uses canonical dynamic output ids in native body links across static and shared-count families', () => {
+  it('uses flattened output ids in native body links across static outputs and count groups', () => {
     const document = documentWith({ kind: 'map', elementPorts: ['item'] })
     Object.assign(document.graphs.body!.nodes, {
       source: { id: 'source', type: 'CountMultiSplitter', values: { count: 2 } },
@@ -715,9 +703,9 @@ describe('region compile lowering', () => {
     })
     Object.assign(document.graphs.body!.links, {
       before: { id: 'before', from: { node: 'source', port: 'before' }, to: { node: 'before', port: 'in' } },
-      image: { id: 'image', from: { node: 'source', port: 'images', members: ['1'] }, to: { node: 'image', port: 'in' } },
+      image: { id: 'image', from: { node: 'source', port: 'images.1' }, to: { node: 'image', port: 'in' } },
       after: { id: 'after', from: { node: 'source', port: 'after' }, to: { node: 'after', port: 'in' } },
-      mask: { id: 'mask', from: { node: 'source', port: 'masks', members: ['0'] }, to: { node: 'mask', port: 'in' } },
+      mask: { id: 'mask', from: { node: 'source', port: 'masks.0' }, to: { node: 'mask', port: 'in' } },
     })
     const result = compile({
       document,
@@ -735,9 +723,8 @@ describe('region compile lowering', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     const nodes = (result.artifact.dinksterGraph!.nodes.n0 as { region: { body: { nodes: Record<string, unknown> } } }).region.body.nodes
-    expect(nodes.source).toEqual(expect.objectContaining({
-      outputMembers: { images: ['0', '1'], masks: ['0', '1'] },
-    }))
+    // Count groups carry no member lists: the engine derives their members from the count.
+    expect(nodes.source).toEqual({ nodeType: 'CountMultiSplitter', inputs: { count: 2 } })
     expect(nodes.before).toEqual(expect.objectContaining({
       inputs: { in: { $link: { node: 'source', output: 'before' } } },
     }))
@@ -750,31 +737,6 @@ describe('region compile lowering', () => {
     expect(nodes.mask).toEqual(expect.objectContaining({
       inputs: { in: { $link: { node: 'source', output: 'masks.0' } } },
     }))
-  })
-
-  it('rejects a region boundary bound to an output count input', () => {
-    const document = documentWith({ kind: 'map', elementPorts: ['item'] })
-    ;(document.graphs.body!.nodes as Record<string, unknown>).source = { id: 'source', type: 'CountMultiSplitter', values: { count: 2 } }
-    ;(document.graphs.body!.boundary!.inputs as unknown[])[0] = {
-      id: 'item' as never,
-      binds: { kind: 'port', node: 'source' as never, port: 'count' as never },
-    }
-    const result = compile({
-      document,
-      revision: 1,
-      resolve: (type) => type === 'CountMultiSplitter' ? countMultiSplitterSchema : resolve(type),
-      scope: { kind: 'full' },
-      connection: asConnectionId('test'),
-      schemaHash: 'test',
-      graphFeatures: ['regions'],
-    })
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.diagnostics).toContainEqual(expect.objectContaining({
-        code: 'compile.outputFamily.linkedCount',
-        severity: 'error',
-      }))
-    }
   })
 
   it('lowers a map occurrence to one native region entry with body-local links', () => {

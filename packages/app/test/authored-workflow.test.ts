@@ -30,23 +30,23 @@ afterEach(() => {
 const nativePayload: DinksterNodesPayload = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'authored-workflow-test', schemaWire: 1 },
+  dinkster: { version: 'authored-workflow-test', schemaWire: 2 },
   packs: {},
   nodes: {
     EmptyImage: {
-      schemaVersion: 1, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'image',
-      interface: [
+      schemaVersion: 2, nodeType: 'EmptyImage', displayName: 'Empty Image', category: 'image',
+      body: [
         ...['width', 'height', 'batch_size', 'color'].map((id, index) => ({
-          role: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] },
+          kind: 'input' as const, id, type: { kind: 'concrete' as const, types: ['INT'] },
           required: false, default: [512, 512, 1, 0][index]!,
         })),
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
     PreviewImage: {
-      schemaVersion: 1, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'image',
+      schemaVersion: 2, nodeType: 'PreviewImage', displayName: 'Preview Image', category: 'image',
       outputNode: true,
-      interface: [{ role: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
+      body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
     },
   },
 }
@@ -82,12 +82,12 @@ describe('authored workflows on a native backend', () => {
     const backend = app.backends.get()[0]!
     const type = 'dinkster.text.string_length'
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodes: { [type]: {
-        schemaVersion: 1, nodeType: type, displayName: 'Text Length',
-        interface: [
-          { role: 'input', id: 'string', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
-          { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+        schemaVersion: 2, nodeType: type, displayName: 'Text Length',
+        body: [
+          { kind: 'input', id: 'string', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
+          { kind: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
         ],
         replacements: [{ from: 'StringLength', cases: [{ to: type,
           inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' },
@@ -146,11 +146,11 @@ describe('authored workflows on a native backend', () => {
   it('resolves promoted instance assets without replacing sibling overrides or definition defaults', async () => {
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      nodes: { ModelFile: { outputNode: true, interface: [
-        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+      schemaVersion: 2,
+      nodes: { ModelFile: { outputNode: true, body: [
+        { kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
           widget: { type: 'ASSET', accept: [] } },
-        { role: 'output', id: 'MODEL', type: { kind: 'concrete', types: ['MODEL'] } },
+        { kind: 'output', id: 'MODEL', type: { kind: 'concrete', types: ['MODEL'] } },
       ] } },
     }))
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'turbo.safetensors', held: true,
@@ -199,9 +199,9 @@ describe('authored workflows on a native backend', () => {
   it.each(['accepted', 'refused', 'closed', 'replaced', 'newer dialog'])('awaits asset autoresolution before provenance and leftover prompts: %s', async (completion) => {
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      nodes: { AssetLoader: { interface: [
-        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
+      schemaVersion: 2,
+      nodes: { AssetLoader: { body: [
+        { kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
       ] } },
     }))
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'known.png', held: true,

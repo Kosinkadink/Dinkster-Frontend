@@ -1,6 +1,6 @@
 /**
- * DinksterConnection unit tests: native schema registry from the real
- * /api/nodes fixture, V1-prompt -> native graph conversion, submit
+ * DinksterConnection unit tests: native schema registry from an /api/nodes
+ * payload, V1-prompt -> native graph conversion, submit
  * accept/reject mapping, job hydration/replay, WS framing, and native
  * reconciliation.
  */
@@ -9,8 +9,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DINKSTER_SCHEMA_WIRE_VERSION,
   asConnectionId,
-  asDynamicMemberId,
   asNodeId,
   asPortId,
   asPromptId,
@@ -32,18 +32,41 @@ import { uuidv4 } from '../src/dinkster-connection.js'
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
 
-const nodesPayload = readJson('fixtures/dinkster-nodes.json') as DinksterNodesPayload
+const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: concrete('INT') },
+        { kind: 'input', id: 'b', required: true, default: 1, type: concrete('INT') },
+        { kind: 'output', id: 'sum', type: concrete('INT') },
+      ],
+    },
+    'test.types': {
+      nodeType: 'test.types', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Types', category: 'test', description: '', idempotent: false,
+      body: [
+        { kind: 'input', id: 'either', required: true, type: { kind: 'union', types: ['INT', 'FLOAT'] } },
+        { kind: 'input', id: 'anything', required: true, type: { kind: 'wildcard' } },
+        { kind: 'input', id: 't_in', required: true, type: { kind: 'variable', templateId: 'T' } },
+        { kind: 'input', id: 'c_in', required: true, type: { kind: 'variable', templateId: 'C', allowed: ['INT', 'FLOAT'] } },
+        { kind: 'input', id: 'ints', required: true, type: { kind: 'list', element: concrete('INT') } },
+        { kind: 'input', id: 'matrix', required: true, type: { kind: 'list', element: { kind: 'list', element: concrete('INT') } } },
+        { kind: 'input', id: 'items', required: true, type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } },
+        { kind: 'output', id: 't_out', type: { kind: 'variable', templateId: 'T' } },
+      ],
+    },
+  },
+}
 const docsPageFixture = JSON.parse(readFileSync(new URL('./fixtures/docs-page.json', import.meta.url), 'utf8')) as unknown
 const currentNodesPayload = (
   dinkster?: Record<string, unknown>,
 ): DinksterNodesPayload => ({
   ...nodesPayload,
-  schemaVersion: 1,
-  ...(dinkster === undefined ? {} : { dinkster: { ...dinkster, schemaWire: 1 } }),
-  nodes: Object.fromEntries(
-    Object.entries(nodesPayload.nodes as Record<string, Record<string, unknown>>)
-      .map(([type, schema]) => [type, { ...schema, schemaVersion: 1 }]),
-  ),
+  ...(dinkster === undefined ? {} : { schemaVersion: 1, dinkster: { ...dinkster, schemaWire: DINKSTER_SCHEMA_WIRE_VERSION } }),
 })
 const liveNodesPayload = currentNodesPayload()
 const C0 = asConnectionId('c0')
@@ -58,9 +81,9 @@ it('decodes and revalidates static registry import metadata without backend cred
   const row = { pack: 'dinkster-text', version: '0.0.1',
     rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length',
       inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' } }] },
-    schema: { schemaVersion: 1, nodeType: 'dinkster.text.string_length', interface: [
-      { role: 'input', id: 'string', type: { kind: 'concrete', types: ['STRING'] } },
-      { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+    schema: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'dinkster.text.string_length', body: [
+      { kind: 'input', id: 'string', type: { kind: 'concrete', types: ['STRING'] } },
+      { kind: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
     ] } }
   const indexRow = (version = '0.0.1') => ({ from: 'StringLength', candidates: [{ ...row, version, target: row.schema.nodeType }] })
   let payload: unknown = { schemaVersion: 1, items: [indexRow()] }
@@ -74,7 +97,7 @@ it('decodes and revalidates static registry import metadata without backend cred
       expect(init?.credentials).toBe('omit')
       if (url.endsWith('/schemas.json')) return jsonResponse(200, { packName: row.pack,
         version: url.includes('/0.0.2/') ? '0.0.2' : '0.0.1', schemas: [{ nodeType: row.schema.nodeType,
-          schemaWireVersion: 1, schema: row.schema }] })
+          schemaWireVersion: DINKSTER_SCHEMA_WIRE_VERSION, schema: row.schema }] })
       calls.push({ url, etag: new Headers(init?.headers).get('If-None-Match') })
       return new Response(status === 304 ? null : JSON.stringify(payload), { status, headers: { ETag: etag } })
     }, webSocketFactory: () => ({}) as WebSocketLike })
@@ -123,8 +146,8 @@ it('retains the newer import catalog when an older refresh completes last', asyn
     registryStaticUrl: () => 'https://mirror.example/static',
     fetchFn: async (url, init) => {
       if (url.endsWith('/schemas.json')) return jsonResponse(200, { packName: 'dinkster-text',
-        version: url.includes('/0.0.2/') ? '0.0.2' : '0.0.1', schemas: [{ nodeType: 'dinkster.text.string_length', schemaWireVersion: 1,
-          schema: { schemaVersion: 1, interface: [] } }] })
+        version: url.includes('/0.0.2/') ? '0.0.2' : '0.0.1', schemas: [{ nodeType: 'dinkster.text.string_length', schemaWireVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+          schema: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [] } }] })
       etags.push(new Headers(init?.headers).get('If-None-Match'))
       if (etags.length === 1) return new Promise<Response>((resolve) => { releaseOlder = resolve })
       if (etags.length === 2) return new Response(JSON.stringify(snapshot('0.0.2')), { headers: { ETag: '"newer"' } })
@@ -995,15 +1018,15 @@ function chainArtifact(): CompileArtifact {
 describe('promptToDinksterGraph', () => {
   it('lowers heterogeneous compiler outputs without reconstructing the static catalog order', () => {
     const output = (id: string, type: string) => ({
-      role: 'output', id, type: { kind: 'concrete', types: [type] },
+      kind: 'output', id, type: { kind: 'concrete', types: [type] },
     })
     const effective = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodes: {
-        Source: { schemaVersion: 1, nodeType: 'Source', interface: [output('caption', 'core.str'), output('total', 'INT')] },
-        Sink: { schemaVersion: 1, nodeType: 'Sink', interface: [
-          { role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.str'] } },
-          { role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] } },
+        Source: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Source', body: [output('caption', 'core.str'), output('total', 'INT')] },
+        Sink: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Sink', body: [
+          { kind: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.str'] } },
+          { kind: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] } },
         ] },
       },
     })
@@ -1038,8 +1061,8 @@ describe('promptToDinksterGraph', () => {
       [output('total', 'INT'), output('caption', 'core.str')],
     ]) {
       const catalog = buildDinksterRegistry(C0, {
-        schemaVersion: 1,
-        nodes: { Source: { schemaVersion: 1, nodeType: 'Source', interface: declared } },
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        nodes: { Source: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Source', body: declared } },
       })
       const native = promptToDinksterGraph(compiled.artifact.prompt, catalog.resolve)
       expect(native.ok).toBe(true)
@@ -1075,43 +1098,34 @@ describe('promptToDinksterGraph', () => {
     { count: undefined, members: [] },
     { count: undefined, members: ['left', 'right'] },
     { count: 2, members: ['0', '1'] },
-  ])('lowers output-family members $members with count $count by canonical ID', ({ count, members }) => {
+  ])('lowers output group members $members with count $count by canonical ID', ({ count, members }) => {
     const dynamicRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodes: {
         Splitter: {
-          schemaVersion: 1,
+          schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
           nodeType: 'Splitter',
-          interface: [
+          body: [
             ...(count === undefined ? [] : [{
-              role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] },
+              kind: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] },
             }]),
-            { role: 'output', id: 'before', type: { kind: 'concrete', types: ['INT'] } },
+            { kind: 'output', id: 'before', type: { kind: 'concrete', types: ['INT'] } },
             {
-              role: 'outputFamily', id: 'parts', minMembers: 1, maxMembers: 4,
-              type: { kind: 'concrete', types: ['INT'] },
-              ...(count === undefined ? {} : { count: { input: 'count', suffix: 'index' } }),
+              kind: 'group', id: 'parts', minMembers: 1,
+              value: { kind: 'output', id: 'part', type: { kind: 'concrete', types: ['INT'] } },
+              ...(count === undefined
+                ? { keys: { named: ['left', 'right'] }, grows: 'link' }
+                : { keys: { numbered: { prefix: '', start: 0, pad: 0 } }, grows: { count: 'count' }, maxMembers: 4 }),
             },
-            { role: 'output', id: 'after', type: { kind: 'concrete', types: ['INT'] } },
+            { kind: 'output', id: 'after', type: { kind: 'concrete', types: ['INT'] } },
           ],
         },
       },
     })
     expect(dynamicRegistry.diagnostics).toEqual([])
     const resolve = (type: string) => dynamicRegistry.resolve(type) ?? registry.resolve(type)
-    const result = promptToDinksterGraph({
-      source: { class_type: 'Splitter', inputs: {}, outputMembers: { parts: ['left', 'right'] } },
-      sink: { class_type: 'std.math.add_ints', inputs: { a: ['source', 2], b: 0 } },
-    }, resolve)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.graph.nodes.source).toEqual({
-      nodeType: 'Splitter', inputs: {}, outputMembers: { parts: ['left', 'right'] },
-    })
-    expect(result.graph.nodes.sink).toMatchObject({ inputs: { a: { $link: { node: 'source', output: 'parts.right' } } } })
-
     const loaded = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'manual-output-family', root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'manual-output-group', root: 'g0',
       graphs: {
         g0: {
           id: 'g0', name: 'root',
@@ -1124,7 +1138,7 @@ describe('promptToDinksterGraph', () => {
           links: {
             l0: { id: 'l0', from: { node: 'source', port: 'after' }, to: { node: 'sink', port: 'a' } },
             ...(members.length === 0 ? {} : { l1: {
-              id: 'l1', from: { node: 'source', port: count === undefined ? 'parts.parts' : 'parts', members: [members[1]] },
+              id: 'l1', from: { node: 'source', port: `parts.${members[1]}` },
               to: { node: 'sink', port: 'b' },
             } }),
           },
@@ -1143,7 +1157,8 @@ describe('promptToDinksterGraph', () => {
     if (!compiled.ok) throw new Error('unreachable')
     expect(compiled.artifact.prompt.source).toEqual({
       class_type: 'Splitter', inputs: count === undefined ? {} : { count },
-      outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'], outputMembers: { parts: members },
+      outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'],
+      ...(count === undefined && members.length > 0 ? { outputMembers: { parts: members } } : {}),
     })
     expect(compiled.artifact.prompt.sink?.inputs.a).toEqual(['source', members.length + 1])
     const native = promptToDinksterGraph(compiled.artifact.prompt, resolve)
@@ -1154,118 +1169,6 @@ describe('promptToDinksterGraph', () => {
         a: { $link: { node: 'source', output: 'after' } },
         b: members.length === 0 ? 0 : { $link: { node: 'source', output: `parts.${members[1]}` } },
       },
-    })
-  })
-
-  it('moves recursive DynamicCombo selectors out of native inputs without removing DynamicSlot sockets', () => {
-    const dynamicRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
-      nodes: {
-        Dynamic: {
-          schemaVersion: 1,
-          nodeType: 'Dynamic',
-          interface: [
-            {
-              role: 'dynamicCombo', id: 'mode', required: true,
-              options: [{ key: 'batch', inputs: [{
-                role: 'dynamicCombo', id: 'quality', required: true,
-                options: [{ key: 'full', inputs: [{
-                  role: 'input', id: 'steps', required: false,
-                  type: { kind: 'concrete', types: ['INT'] },
-                }] }],
-              }] }, {
-                key: 'plain', inputs: [{
-                  role: 'input', id: 'quality', required: false,
-                  type: { kind: 'concrete', types: ['STRING'] },
-                }],
-              }],
-            },
-            {
-              role: 'inputFamily', id: 'items', memberPrefix: 'item',
-              template: [{
-                role: 'dynamicCombo', id: 'mode', required: true,
-                options: [{ key: 'a', inputs: [{
-                  role: 'input', id: 'x', required: false,
-                  type: { kind: 'concrete', types: ['INT'] },
-                }] }],
-              }],
-            },
-            {
-              role: 'dynamicSlot', id: 'source', required: false,
-              variants: [
-                {
-                  key: 'text', type: { kind: 'concrete', types: ['STRING'] },
-                  inputs: [{
-                    role: 'input', id: 'mode', required: false,
-                    type: { kind: 'concrete', types: ['STRING'] },
-                  }],
-                },
-                {
-                  key: 'advanced', type: { kind: 'concrete', types: ['STRING'] },
-                  inputs: [{
-                    role: 'dynamicCombo', id: 'mode', required: true,
-                    options: [{ key: 'one', inputs: [] }],
-                  }],
-                },
-              ],
-              inputs: [],
-            },
-          ],
-        },
-      },
-    } as unknown as DinksterNodesPayload)
-    const prompt: Prompt = {
-      n: {
-        class_type: 'Dynamic',
-        inputs: {
-          mode: 'batch',
-          'mode.quality': 'full',
-          'mode.quality.steps': 2,
-          'items.item0.mode': 'a',
-          'items.item0.mode.x': 1,
-          source: 'text',
-          'source.mode': 'ordinary',
-        },
-        slotVariants: {
-          mode: 'batch',
-          'mode.quality': 'full',
-          'items.item0.mode': 'a',
-          source: 'text',
-        },
-      },
-    }
-    const result = promptToDinksterGraph(prompt, dynamicRegistry.resolve)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.graph.nodes.n).toEqual({
-      nodeType: 'Dynamic',
-      inputs: {
-        'mode.quality.steps': 2,
-        'items.item0.mode.x': 1,
-        source: 'text',
-        'source.mode': 'ordinary',
-      },
-      slotVariants: {
-        mode: 'batch',
-        'mode.quality': 'full',
-        'items.item0.mode': 'a',
-        source: 'text',
-      },
-    })
-
-    const reusedPath = promptToDinksterGraph({
-      n: {
-        class_type: 'Dynamic',
-        inputs: { mode: 'plain', 'mode.quality': 'ordinary' },
-        slotVariants: { mode: 'plain' },
-      },
-    }, dynamicRegistry.resolve)
-    expect(reusedPath.ok).toBe(true)
-    if (!reusedPath.ok) throw new Error('unreachable')
-    expect(reusedPath.graph.nodes.n).toEqual({
-      nodeType: 'Dynamic',
-      inputs: { 'mode.quality': 'ordinary' },
-      slotVariants: { mode: 'plain' },
     })
   })
 
@@ -1289,14 +1192,14 @@ describe('promptToDinksterGraph', () => {
       virtualPath: '',
     }
     const assetRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodes: {
         'comfy.LoadImage': {
-          schemaVersion: 1,
+          schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
           nodeType: 'comfy.LoadImage',
           idempotent: false,
-          interface: [{
-            role: 'input',
+          body: [{
+            kind: 'input',
             id: 'image',
             required: true,
             type: { kind: 'concrete', types: ['ASSET'] },
@@ -1641,12 +1544,12 @@ describe('retained asset ownership', () => {
 })
 
 const regionNodesPayload = currentNodesPayload({
-  version: 'test', schemaWire: 1, graphFeatures: ['regions'],
+  version: 'test', graphFeatures: ['regions'],
 })
 const regionNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, regionNodesPayload) : undefined
 const placementNodesPayload = currentNodesPayload({
-  version: 'test', schemaWire: 1, graphFeatures: ['placement'],
+  version: 'test', graphFeatures: ['placement'],
 })
 const placementNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, placementNodesPayload) : undefined
@@ -1666,12 +1569,12 @@ describe('fetchSchemas wire contract', () => {
     const { conn } = submitHarness((url) => url.includes('/api/nodes')
       ? jsonResponse(200, {
           schemaVersion: 1,
-          dinkster: { version: 'incompatible', schemaWire: 2 },
+          dinkster: { version: 'incompatible', schemaWire: 3 },
           nodes: {},
         })
       : undefined)
     await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 1; the server encodes 2',
+      'schema wire version mismatch: this build decodes 2; the server encodes 3',
     )
     expect(conn.currentRegistry).toBeUndefined()
   })
@@ -1703,7 +1606,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
 
   it('rejects a malformed nodes table instead of installing an empty registry', async () => {
     const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 1, nodes: 'bad' }) : undefined,
+      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: 'bad' }) : undefined,
     )
     await expect(conn.fetchSchemas()).rejects.toThrow('malformed or unsupported')
     expect(conn.currentRegistry).toBeUndefined()
@@ -1724,7 +1627,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const fresh = conn.fetchSchemas()
     resolvers[1]!(jsonResponse(200, liveNodesPayload)) // newest request resolves first
     const freshRegistry = await fresh
-    resolvers[0]!(jsonResponse(200, { schemaVersion: 1, nodes: {} })) // superseded response lands late
+    resolvers[0]!(jsonResponse(200, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {} })) // superseded response lands late
     // The superseded invocation must return the committed registry too: its
     // own decode is stale and would split compile state from submit state.
     expect(await stale).toBe(freshRegistry)
@@ -2183,8 +2086,7 @@ describe('submit', () => {
             ...artifact.provenance.inputSources?.['n1'],
             'items.item0.image': {
               node: asNodeId('n1'),
-              port: asPortId('items.image'),
-              members: [asDynamicMemberId('m0')],
+              port: asPortId('items.item0.image'),
             },
           },
         },
@@ -2197,7 +2099,7 @@ describe('submit', () => {
     expect(d.code).toBe('validation.missing-input')
     expect(d.message).toBe("input 'a' is not connected")
     expect(d.anchor?.occurrence).toEqual({ instancePath: [], node: 'n1' })
-    expect(d.anchor?.port).toEqual({ node: 'n1', port: 'items.image', members: ['m0'] })
+    expect(d.anchor?.port).toEqual({ node: 'n1', port: 'items.item0.image' })
     expect(d.data).toEqual({ runtimeId: 'n1', inputId: 'items.item0.image' })
   })
 

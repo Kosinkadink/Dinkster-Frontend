@@ -66,24 +66,28 @@ describe('hitTest', () => {
   const scene = sceneOf('exec-basic')
   const n0 = scene.nodes.find((n) => n.id === 'n0')!
 
-  it('keeps socketless editors and value taps without incoming hits in nested and family scopes', () => {
+  it('keeps socketless editors and value taps without incoming hits in nested and group scopes', () => {
     const fields = [
-      { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', socketless: true, widget: { type: 'COLOR' } },
-      { role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', pin: false, widget: { type: 'COLOR' } },
+      { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
     ]
-    const combo = { role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: fields }] }
+    const combo = { kind: 'choice', id: 'style', options: [{ key: 'solid', rows: fields }] }
     const scopes = [
       { items: fields, keys: ['color'] },
       { items: [combo], keys: ['style.color'] },
-      { items: [{ role: 'inputFamily', id: 'colors', memberPrefix: 'color', minMembers: 1, maxMembers: 2, template: [combo] }], keys: ['colors.m0.style.color', 'colors.m1.style.color'] },
+      {
+        items: [{ kind: 'group', id: 'colors', keys: { numbered: { prefix: 'color', start: 0, pad: 0 } }, minMembers: 1, maxMembers: 2, member: [combo] }],
+        keys: ['colors.color0.style.color', 'colors.color1.style.color'],
+        dynamic: { colors: { members: ['color0', 'color1'], seq: 2 } },
+      },
     ]
-    for (const { items, keys } of scopes) {
-      const decoded = parseDinksterSchema('SocketlessFixture', { interface: [
+    for (const { items, keys, dynamic } of scopes) {
+      const decoded = parseDinksterSchema('SocketlessFixture', { body: [
         ...items,
-        { role: 'output', id: 'color', type: { kind: 'concrete', types: ['STRING'] } },
+        { kind: 'output', id: 'color', type: { kind: 'concrete', types: ['STRING'] } },
       ] })
       expect(decoded.diagnostics).toEqual([])
-      const data = { ...n0.node, values: Object.fromEntries(keys.map((key) => [key, '#abcdef'])) }
+      const data = { ...n0.node, values: Object.fromEntries(keys.map((key) => [key, '#abcdef'])), ...(dynamic ? { dynamic } : {}) }
       const layout = layoutNode(decoded.schema!, data, defaultTokens, measure, widgetMeasure)
       const node = { ...n0, node: data, layout }
       const socketlessScene = { ...scene, nodes: [node] }
@@ -553,16 +557,21 @@ describe('section hits', () => {
     isOutputNode: false,
     body: [
       { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-      { kind: 'section', id: 'adv', displayName: 'Advanced' },
       {
-        kind: 'input',
-        id: 'w',
-        type: { kind: 'concrete', name: 'INT' },
-        optional: false,
-        section: 'adv',
-        widget: { widgetType: 'INT', options: {} },
+        kind: 'section',
+        id: 'adv',
+        displayName: 'Advanced',
+        rows: [
+          {
+            kind: 'input',
+            id: 'w',
+            type: { kind: 'concrete', name: 'INT' },
+            optional: false,
+            widget: { widgetType: 'INT', options: {} },
+          },
+          { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+        ],
       },
-      { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false, section: 'adv' },
       { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' } },
     ],
   }

@@ -5,8 +5,8 @@ import { importLitegraph } from '../src/format/import-litegraph.js'
 import { asConnectionId } from '../src/ids.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type {
+  BodyRow,
   InputSpec,
-  InterfaceItem,
   NodeSchema,
   TypeExpr,
 } from '../src/schema/model.js'
@@ -16,26 +16,23 @@ const nativeListSchemas = new Map<string, NodeSchema>([
   [
     'CreateList',
     parseDinksterSchema('CreateList', {
-      schemaVersion: 1,
-      interface: [
+      schemaVersion: 2,
+      body: [
         {
-          role: 'inputFamily',
+          kind: 'group',
           id: 'inputs',
-          required: true,
           minMembers: 1,
           maxMembers: 10,
-          memberPrefix: 'input',
-          template: [
-            {
-              role: 'input',
-              id: 'input',
-              required: true,
-              type: { kind: 'wildcard' },
-            },
-          ],
+          keys: { numbered: { prefix: 'input', start: 0, pad: 0 } },
+          value: {
+            kind: 'input',
+            id: 'input',
+            required: true,
+            type: { kind: 'wildcard' },
+          },
         },
         {
-          role: 'output',
+          kind: 'output',
           id: 'list',
           type: { kind: 'list', element: { kind: 'wildcard' } },
         },
@@ -45,16 +42,16 @@ const nativeListSchemas = new Map<string, NodeSchema>([
   [
     'GetItemFromList',
     parseDinksterSchema('GetItemFromList', {
-      schemaVersion: 1,
-      interface: [
+      schemaVersion: 2,
+      body: [
         {
-          role: 'input',
+          kind: 'input',
           id: 'list',
           required: true,
           type: { kind: 'wildcard' },
         },
         {
-          role: 'input',
+          kind: 'input',
           id: 'index',
           required: true,
           default: 0,
@@ -62,9 +59,9 @@ const nativeListSchemas = new Map<string, NodeSchema>([
           type: { kind: 'concrete', types: ['INT'] },
         },
         {
-          role: 'output',
+          kind: 'output',
           id: 'item',
-          displayName: '*',
+          label: '*',
           type: { kind: 'wildcard' },
         },
       ],
@@ -82,7 +79,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'start',
@@ -122,7 +119,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'a',
@@ -151,7 +148,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'list',
@@ -174,7 +171,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'a',
@@ -215,7 +212,7 @@ const helperSchemas = new Map<string, NodeSchema>([
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'condition',
@@ -265,7 +262,7 @@ const typeExpr = (value: unknown): TypeExpr =>
     : { kind: 'concrete', name: value }
 
 const fixtureSchema = (node: JsonObject): NodeSchema => {
-  const items: InterfaceItem[] = []
+  const items: BodyRow[] = []
   for (const input of Array.isArray(node['inputs']) ? node['inputs'] : []) {
     if (input === null || typeof input !== 'object' || Array.isArray(input))
       continue
@@ -355,11 +352,11 @@ describe('explicit imported list utilities', () => {
     'imports heterogeneous native collections using index %s',
     (index) => {
       const sink = parseDinksterSchema('Sink', {
-        schemaVersion: 1,
+        schemaVersion: 2,
         outputNode: true,
-        interface: [
+        body: [
           {
-            role: 'input',
+            kind: 'input',
             id: 'value',
             required: true,
             type: { kind: 'concrete', types: [index === 0 ? 'INT' : 'STRING'] },
@@ -450,7 +447,7 @@ describe('explicit imported list utilities', () => {
       const element: TypeExpr = heterogeneous ? { kind: 'wildcard' } : integer
       const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
       const list: TypeExpr = { kind: 'list', element: variable }
-      const schema = (type: string, items: InterfaceItem[]): NodeSchema => ({
+      const schema = (type: string, items: BodyRow[]): NodeSchema => ({
         type,
         displayName: type,
         category: 'test',
@@ -494,17 +491,12 @@ describe('explicit imported list utilities', () => {
           'std.list.concat',
           schema('std.list.concat', [
             {
-              kind: 'input',
+              kind: 'group',
               id: 'lists',
-              type: { kind: 'wildcard' },
-              optional: false,
-              dynamic: {
-                kind: 'autogrow',
-                template: [
-                  { kind: 'input', id: 'lists', type: list, optional: false },
-                ],
-                naming: { kind: 'prefix', prefix: 'lists', min: 1 },
-              },
+              value: { kind: 'input', id: 'lists', type: list, optional: false },
+              keys: { kind: 'numbered', prefix: 'lists', start: 0, pad: 0 },
+              grows: 'link',
+              minMembers: 1,
             },
             { kind: 'output', id: 'list', type: list },
           ]),
@@ -582,7 +574,7 @@ describe('explicit imported list utilities', () => {
           source: 'v3',
           category: 'test',
           isOutputNode: false,
-          items: [
+          body: [
             {
               kind: 'output',
               id: 'values',
@@ -599,7 +591,7 @@ describe('explicit imported list utilities', () => {
           source: 'v3',
           category: 'test',
           isOutputNode: true,
-          items: [
+          body: [
             { kind: 'input', id: 'value', type: integer, optional: false },
           ],
         },
@@ -876,7 +868,7 @@ describe('explicit imported list utilities', () => {
       const list: TypeExpr = { kind: 'list', element: integer }
       const schema = (
         type: string,
-        items: InterfaceItem[],
+        items: BodyRow[],
         output = false,
       ): NodeSchema => ({
         type,
@@ -892,7 +884,7 @@ describe('explicit imported list utilities', () => {
         type,
         optional: false,
       })
-      const output = (id: string, type: TypeExpr): InterfaceItem => ({
+      const output = (id: string, type: TypeExpr): BodyRow => ({
         kind: 'output',
         id,
         type,

@@ -29,13 +29,13 @@ const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
 })
 const output = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
 
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const schemaOf = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  body: items,
+  body,
 })
 
 const schemas: Record<string, NodeSchema> = {
@@ -46,13 +46,7 @@ const schemas: Record<string, NodeSchema> = {
     widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null },
   })]),
   Slot: schemaOf('Slot', [
-    {
-      kind: 'input',
-      id: 'slot',
-      type: IMAGE,
-      optional: true,
-      dynamic: { kind: 'dynamicSlot', slotType: IMAGE, inputs: [input('gain')] },
-    },
+    { kind: 'typeChoice', id: 'slot', type: IMAGE, rows: [input('gain')], required: false },
     output('out'),
   ]),
 }
@@ -171,7 +165,7 @@ describe('buildParamRows', () => {
     ])
   })
 
-  it('resolves DynamicSlot dependents through real connectivity: absent while the slot is disconnected, live once linked', () => {
+  it('resolves type choice rows through real connectivity: absent while the slot is disconnected, live once linked', () => {
     // Dependents exist only while the slot is CONNECTED (elaborate.ts): the
     // app view must feed elaboration the graph's real connectivity or the
     // exposed 'slot.gain' would diverge from what the canvas renders.

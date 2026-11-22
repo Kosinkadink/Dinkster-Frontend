@@ -620,7 +620,7 @@ describe('subgraph.extract L3 command', () => {
 
     const widgetSchema: any = {
       type: 'Int', displayName: 'Int', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {} },
       }],
@@ -671,7 +671,7 @@ describe('subgraph.extract L3 command', () => {
     }))
     ;(initial as MutableDocument).view.graphs.root = { nodes: { first: {}, second: {} }, valueSources: { value: { position: { x: 10, y: 20 } } } }
     const sinkSchema: any = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
     }
     const resolve = (type: string) => type === 'Sink' ? sinkSchema : undefined
     const compiled = (doc: WorkflowDocument) => {
@@ -1251,7 +1251,7 @@ describe('subgraph.extract L4 structural and view completion', () => {
     expect(session.doc.view.graphs.g0!.groups).toBeUndefined()
   })
 
-  it('forwards promoted and whole-family enclosing boundaries through the new occurrence', () => {
+  it('forwards a promoted enclosing boundary through the new occurrence', () => {
     const root = graph({ nodes: { shell: { id: 'shell' as never, type: '#body', values: {} } }, valueSources: {}, selectors: {}, links: {}, nets: {} })
     const body = graph({
       id: 'body' as never,
@@ -1261,9 +1261,8 @@ describe('subgraph.extract L4 structural and view completion', () => {
       boundary: {
         inputs: [
           { id: 'widget', displayName: 'Widget label', binds: { kind: 'port', node: 'move' as never, port: 'widget' as never }, promoted: true },
-          { id: 'familyIn', binds: { kind: 'family', node: 'move' as never, port: 'familyIn' as never, members: ['m2' as never], slots: ['inputSlot'] } },
         ],
-        outputs: [{ id: 'family', binds: { kind: 'family', node: 'move' as never, port: 'family' as never, members: ['m1' as never], slots: ['slot'] } }],
+        outputs: [],
       },
     })
     const initial = document(root) as MutableDocument
@@ -1278,16 +1277,14 @@ describe('subgraph.extract L4 structural and view completion', () => {
     expect(session.doc.graphs.g0!.boundary).toEqual({
       inputs: [
         { id: 'widget', displayName: 'Widget label', binds: { kind: 'port', node: 'n0', port: 'widget' }, promoted: true },
-        { id: 'familyIn', binds: { kind: 'family', node: 'n0', port: 'familyIn', members: ['m2'] } },
       ],
-      outputs: [{ id: 'family', binds: { kind: 'family', node: 'n0', port: 'family', members: ['m1'] } }],
+      outputs: [],
     })
     expect(session.doc.graphs.body!.boundary).toEqual({
       inputs: [
         { id: 'widget', displayName: 'Widget label', binds: { kind: 'port', node: 'n4', port: 'widget' }, promoted: true },
-        { id: 'familyIn', binds: { kind: 'family', node: 'n4', port: 'familyIn', slots: ['inputSlot'] } },
       ],
-      outputs: [{ id: 'family', binds: { kind: 'family', node: 'n4', port: 'family', slots: ['slot'] } }],
+      outputs: [],
     })
     expect(session.doc.graphs.body!.nodes.n4!.values).toEqual({})
   })
@@ -1475,7 +1472,7 @@ const flattenDocument = (): MutableDocument => {
 }
 
 const flattenSchema = (type: string, items: readonly any[]) => ({
-    type, displayName: type, category: 'test', source: 'v3' as const, items, isOutputNode: false,
+    type, displayName: type, category: 'test', source: 'v3' as const, body: items, isOutputNode: false,
 })
 const flattenSchemas: Record<string, any> = {
     '#child': flattenSchema('#child', [
@@ -1817,7 +1814,7 @@ describe('subgraph.flatten trusted-dispatch authorization', () => {
       occurrence: { owner: { instancePath: [], node: 'occurrence' as never }, bodyGraph: 'body' as never, links: {}, nextOrdinal: 1 },
     }
     const resolver = (type: string) => type === 'BodyNode'
-      ? { ...flattenSchemas.BodyNode, items: flattenSchemas.BodyNode.items.map((item: any) => item.kind === 'input' && ['in', 'other'].includes(item.id)
+      ? { ...flattenSchemas.BodyNode, body: flattenSchemas.BodyNode.body.map((item: any) => item.kind === 'input' && ['in', 'other'].includes(item.id)
         ? { ...item, widget: { widgetType: 'INT', options: { default: 5 } } } : item) }
       : ['Source', 'Consumer', 'Outer'].includes(type) ? flattenSchema(type, [
         ...['in', 'tap', 'net', 'after', 'before', 'after2'].map((id) => ({ kind: 'input', id, optional: true, type: { kind: 'concrete', name: 'X' } })),
@@ -2300,341 +2297,6 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(session.doc.graphs.root!.nodes.n101!.controllers?.other).toBe('fixed')
   })
 
-  it('materializes prefix-family members in occurrence order and rewrites member endpoints', () => {
-    const familyInput = {
-      kind: 'input' as const, id: 'items', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-      dynamic: {
-        kind: 'autogrow' as const, naming: { kind: 'prefix' as const, prefix: 'item', min: 0, max: 8 },
-        template: [{
-          kind: 'input' as const, id: 'value', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-          widget: { widgetType: 'INT', options: {}, controller: 'after_generate' },
-        }],
-      },
-    }
-    const schema: any = {
-      type: 'FamilyNode', displayName: 'FamilyNode', category: 'test', source: 'v3', isOutputNode: false,
-      items: [familyInput, { ...familyInput, kind: 'output', id: 'outputs' }, { ...familyInput, kind: 'output', id: 'unrelated' }],
-    }
-    const root = graph({
-      nodes: {
-        source: { id: 'source' as never, type: 'Source', values: {} },
-        consumer: { id: 'consumer' as never, type: 'Consumer', values: {} },
-        occurrence: {
-          id: 'occurrence' as never, type: '#body', values: { 'family.value#z': 7, 'family.value#a': 9 },
-          controllers: { 'family.value#z': 'fixed' },
-          dynamic: { family: { members: ['z', 'a'] }, outFamily: { members: ['q'] } },
-        },
-      },
-      links: {
-        first: link('first', port('source', 'out'), port('occurrence', 'family.value', ['z'])),
-        outgoing: link('outgoing', port('occurrence', 'outFamily.value', ['q']), port('consumer', 'in')),
-      },
-      nets: {
-        incoming: { id: 'incoming' as never, name: 'incoming', source: port('source', 'out3'), sinks: [port('occurrence', 'family.value', ['a'])] },
-        outputNet: { id: 'outputNet' as never, name: 'outgoing', source: port('occurrence', 'outFamily.value', ['q']), sinks: [port('consumer', 'net')] },
-      },
-      nextOrdinal: 40,
-    })
-    const body = graph({
-      id: 'body' as never, name: 'Body',
-      nodes: {
-        inner: {
-          id: 'inner' as never, type: 'FamilyNode', values: {},
-          dynamic: {
-            items: { members: ['m4'], seq: 8 },
-            outputs: { members: [], seq: 2 },
-            unrelated: { members: [`kept${String.fromCharCode(0)}identity`] },
-          },
-        },
-        bodyConsumer: { id: 'bodyConsumer' as never, type: 'Consumer', values: {} },
-      },
-      links: {
-        unrelatedBody: link(
-          'unrelatedBody',
-          port('inner', 'unrelated.value', [`kept${String.fromCharCode(0)}identity`]),
-          port('bodyConsumer', 'in'),
-        ),
-      },
-      boundary: {
-        inputs: [{ id: 'family', binds: { kind: 'family', node: 'inner' as never, port: 'items' as never } }],
-        outputs: [{ id: 'outFamily', binds: { kind: 'family', node: 'inner' as never, port: 'outputs' as never } }],
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const initial = document(root) as MutableDocument
-    initial.graphs.body = body
-    initial.view.graphs.root = { nodes: { source: {}, consumer: {}, occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    initial.view.graphs.body = {
-      nodes: { inner: { position: { x: 0, y: 0 } }, bodyConsumer: { position: { x: 200, y: 0 } } },
-    }
-    const resolve = (type: string) => type === 'FamilyNode' ? schema : undefined
-    const plan = planFlattenBoundaryRoutes(body, resolve, root.nodes.occurrence!, root)
-    expect(plan.statePlan.status, JSON.stringify(plan.statePlan)).toBe('ready')
-    if (plan.statePlan.status === 'ready') {
-      expect(plan.statePlan.familyScopes[0]).toMatchObject({
-        sourceMembers: ['z', 'a'],
-        targetBefore: { members: ['m4'], seq: 8 },
-        members: [{ before: 'z', after: 'm8' }, { before: 'a', after: 'm9' }],
-      })
-    }
-    const enclosing = structuredClone(initial) as MutableDocument
-    enclosing.graphs.root.boundary = {
-      inputs: [{ id: 'outerFamily', binds: { kind: 'port', node: 'occurrence' as never, port: 'family.value' as never, members: ['z' as never] } }],
-      outputs: [],
-    }
-    const enclosingPlan = planFlattenBoundaryRoutes(body, resolve, enclosing.graphs.root.nodes.occurrence!, enclosing.graphs.root)
-    expect(enclosingPlan.statePlan).toMatchObject({
-      status: 'ready',
-      enclosingRewrites: [{
-        side: 'input', itemIndex: 0, itemId: 'outerFamily', bindingIndex: 0,
-        before: { kind: 'port', node: 'occurrence', port: 'family.value', members: ['z'] },
-        after: [{ kind: 'port', node: 'inner', port: 'items.value', members: ['m8'] }],
-      }],
-    })
-    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
-    const session = trustedFlattenSession(initial, resolve)
-    const outcome = session.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [
-            { id: 'bodyConsumer', kind: 'node', x: 200, y: 0, width: 140, height: 80 },
-            { id: 'inner', kind: 'node', x: 0, y: 0, width: 140, height: 80 },
-          ],
-        },
-        boundaryPlan: plan.boundaryPlan as unknown as Json,
-        statePlan: plan.statePlan as unknown as Json,
-        schemaSnapshot: plan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: plan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(initial, 'root', 'occurrence', evidence)!,
-      },
-    })
-    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.root!.nodes.n41!.dynamic!.items).toMatchObject({ members: ['m4', 'm8', 'm9'], seq: 10 })
-    expect(session.doc.graphs.root!.nodes.n41!.dynamic!.outputs).toMatchObject({ members: ['m2'], seq: 3 })
-    expect(session.doc.graphs.root!.nodes.n41!.dynamic!.unrelated).toEqual({
-      members: [`kept${String.fromCharCode(0)}identity`],
-    })
-    expect(session.doc.graphs.root!.nodes.n41!.values).toMatchObject({ 'items.value#m8': 7, 'items.value#m9': 9 })
-    expect(session.doc.graphs.root!.nodes.n41!.controllers).toMatchObject({ 'items.value#m8': 'fixed' })
-    expect(session.doc.graphs.root!.links.first!.to).toEqual(port('n41', 'items.value', ['m8']))
-    expect(session.doc.graphs.root!.links.outgoing!.from).toEqual(port('n41', 'outputs.value', ['m2']))
-    expect(Object.values(session.doc.graphs.root!.links)).toContainEqual(expect.objectContaining({
-      from: port('n41', 'unrelated.value', [`kept${String.fromCharCode(0)}identity`]),
-      to: port('n40', 'in'),
-    }))
-    expect(session.doc.graphs.root!.nets.incoming!.sinks).toEqual([port('n41', 'items.value', ['m9'])])
-    expect(session.doc.graphs.root!.nets.outputNet!.source).toEqual(port('n41', 'outputs.value', ['m2']))
-  })
-
-  it('fans out enclosing descendant family inputs in primary-additional order and preserves the compiled prompt', () => {
-    const leaf = (id: string): any => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: true,
-      widget: { widgetType: 'INT', options: {} },
-    })
-    const nested: any = {
-      kind: 'input', id: 'nested', type: { kind: 'concrete', name: 'INT' }, optional: true,
-      dynamic: {
-        kind: 'autogrow', naming: { kind: 'prefix', prefix: 'nested', min: 0, max: 8 },
-        template: [leaf('keep'), leaf('drop')],
-      },
-    }
-    const family: any = {
-      kind: 'input', id: 'items', type: { kind: 'concrete', name: 'INT' }, optional: true,
-      dynamic: {
-        kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 },
-        template: [leaf('first'), leaf('second'), nested],
-      },
-    }
-    const schema: any = {
-      type: 'SelectedFamily', displayName: 'SelectedFamily', category: 'test', source: 'v3',
-      isOutputNode: true, items: [family],
-    }
-    const additionalSchema: any = {
-      ...schema,
-      type: 'SelectedFamilyAdditional',
-      displayName: 'SelectedFamilyAdditional',
-      items: [{ ...family, dynamic: { ...family.dynamic, template: [...family.dynamic.template, leaf('extra')] } }],
-    }
-    const root = graph({
-      nodes: {
-        occurrence: {
-          id: 'occurrence' as never, type: '#body', values: { 'family.first#x': 5 },
-          dynamic: { family: { members: ['x'] } },
-        },
-      },
-      boundary: {
-        inputs: [{
-          id: 'outer',
-          binds: { kind: 'family', node: 'occurrence' as never, port: 'family' as never, slots: ['nested.keep'] },
-        }],
-        outputs: [],
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 20,
-    })
-    const body = graph({
-      id: 'body' as never, name: 'Body',
-      nodes: {
-        innerPrimary: { id: 'innerPrimary' as never, type: 'SelectedFamily', values: {} },
-        innerAdditional: { id: 'innerAdditional' as never, type: 'SelectedFamilyAdditional', values: {} },
-      },
-      boundary: {
-        inputs: [{
-          id: 'family',
-          binds: { kind: 'family', node: 'innerPrimary' as never, port: 'items' as never, slots: ['nested.keep', 'first'] },
-          alsoBinds: [{ kind: 'family', node: 'innerAdditional' as never, port: 'items' as never, slots: ['extra', 'nested.keep', 'first'] }],
-        }],
-        outputs: [],
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const initial = document(root) as MutableDocument
-    initial.graphs.body = body
-    initial.view.graphs.root = { nodes: { occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    initial.view.graphs.body = {
-      nodes: {
-        innerPrimary: { position: { x: 0, y: 0 } },
-        innerAdditional: { position: { x: 180, y: 0 } },
-      },
-    }
-    const resolve = (type: string) => type === 'SelectedFamily'
-      ? schema
-      : type === 'SelectedFamilyAdditional' ? additionalSchema : undefined
-    const compileDoc = (doc: WorkflowDocument) => compile({
-      document: doc, revision: 1, resolve, scope: { kind: 'full' },
-      connection: asConnectionId('enclosing-family'), schemaHash: 'enclosing-family',
-    })
-    const before = compileDoc(initial)
-    expect(before.ok, JSON.stringify(!before.ok && before.diagnostics)).toBe(true)
-    const plan = planFlattenBoundaryRoutes(body, resolve, root.nodes.occurrence!, root)
-    expect(plan.statePlan.status, JSON.stringify(plan.statePlan)).toBe('ready')
-    if (plan.statePlan.status !== 'ready') return
-    expect(plan.statePlan.enclosingRewrites).toEqual([{
-      side: 'input', itemIndex: 0, itemId: 'outer', bindingIndex: 0,
-      before: { kind: 'family', node: 'occurrence', port: 'family', slots: ['nested.keep'] },
-      after: [
-        { kind: 'family', node: 'innerPrimary', port: 'items', slots: ['nested.keep'] },
-        { kind: 'family', node: 'innerAdditional', port: 'items', slots: ['nested.keep'] },
-      ],
-    }])
-    const absent = structuredClone(initial) as MutableDocument
-    delete absent.graphs.body.boundary.inputs[0].binds.slots
-    delete absent.graphs.body.boundary.inputs[0].alsoBinds[0].slots
-    delete absent.graphs.root.boundary.inputs[0].binds.slots
-    expect(planFlattenBoundaryRoutes(absent.graphs.body, resolve, absent.graphs.root.nodes.occurrence, absent.graphs.root).statePlan).toMatchObject({
-      status: 'ready', enclosingRewrites: [{ after: [
-        { kind: 'family', node: 'innerPrimary', port: 'items' },
-        { kind: 'family', node: 'innerAdditional', port: 'items' },
-      ] }],
-    })
-    const explicitFull = structuredClone(initial) as MutableDocument
-    explicitFull.graphs.body.boundary.inputs[0].binds.slots = ['nested', 'second', 'first']
-    delete explicitFull.graphs.root.boundary.inputs[0].binds.slots
-    expect(planFlattenBoundaryRoutes(explicitFull.graphs.body, resolve, explicitFull.graphs.root.nodes.occurrence, explicitFull.graphs.root).statePlan).toMatchObject({
-      status: 'ready', enclosingRewrites: [{ after: [
-        { slots: ['first', 'second', 'nested'] },
-        { slots: ['first', 'nested.keep', 'extra'] },
-      ] }],
-    })
-    const narrowedFull = structuredClone(initial) as MutableDocument
-    narrowedFull.graphs.body.boundary.inputs[0].binds.slots = ['nested.drop', 'first', 'nested.keep']
-    delete narrowedFull.graphs.root.boundary.inputs[0].binds.slots
-    const narrowedFullPlan = planFlattenBoundaryRoutes(narrowedFull.graphs.body, resolve, narrowedFull.graphs.root.nodes.occurrence, narrowedFull.graphs.root)
-    expect(narrowedFullPlan.statePlan, JSON.stringify(narrowedFullPlan.statePlan)).toMatchObject({
-      status: 'ready', enclosingRewrites: [{ after: [
-        { slots: ['first', 'nested.keep', 'nested.drop'] },
-        { slots: ['first', 'nested.keep', 'extra'] },
-      ] }],
-    })
-    const unknownAdditionalSlot = structuredClone(initial) as MutableDocument
-    unknownAdditionalSlot.graphs.body.boundary.inputs[0].alsoBinds[0].slots = ['ghost']
-    expect(planFlattenBoundaryRoutes(
-      unknownAdditionalSlot.graphs.body,
-      resolve,
-      unknownAdditionalSlot.graphs.root.nodes.occurrence,
-      unknownAdditionalSlot.graphs.root,
-    ).statePlan).toMatchObject({ status: 'refused' })
-    const disjoint = structuredClone(initial) as MutableDocument
-    disjoint.graphs.body.boundary.inputs[0].binds.slots = ['first']
-    disjoint.graphs.root.boundary.inputs[0].binds.slots = ['second']
-    const disjointPlan = planFlattenBoundaryRoutes(disjoint.graphs.body, resolve, disjoint.graphs.root.nodes.occurrence, disjoint.graphs.root)
-    expect(disjointPlan.statePlan).toMatchObject({
-      status: 'refused', refusal: { code: 'subgraph.flatten.stateUnresolved' },
-    })
-    const disjointEvidence = {
-      boundaryPlan: disjointPlan.boundaryPlan,
-      statePlan: disjointPlan.statePlan,
-      schemaPlanDigest: disjointPlan.schemaPlanDigest,
-    }
-    const disjointSession = trustedFlattenSession(disjoint, resolve)
-    const disjointBefore = disjointSession.doc
-    const disjointBytes = JSON.stringify(disjointBefore)
-    const disjointOrdinal = disjointBefore.graphs.root!.nextOrdinal
-    const disjointActorCursors = disjointBefore.graphs.root!.actorCursors
-    const disjointGroupSeq = disjointBefore.view.graphs.root!.groupSeq
-    const disjointOutcome = disjointSession.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [
-            { id: 'innerPrimary', kind: 'node', x: 0, y: 0, width: 140, height: 80 },
-            { id: 'innerAdditional', kind: 'node', x: 180, y: 0, width: 140, height: 80 },
-          ],
-        },
-        boundaryPlan: disjointPlan.boundaryPlan as unknown as Json,
-        statePlan: disjointPlan.statePlan as unknown as Json,
-        schemaSnapshot: disjointPlan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: disjointPlan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(disjoint, 'root', 'occurrence', disjointEvidence)!,
-      },
-    })
-    expect(disjointOutcome.ok).toBe(false)
-    if (!disjointOutcome.ok) expect(disjointOutcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.flatten.stateUnresolved')
-    expect(disjointSession.doc).toBe(disjointBefore)
-    expect(JSON.stringify(disjointSession.doc)).toBe(disjointBytes)
-    expect(disjointSession.doc.graphs.root!.nextOrdinal).toBe(disjointOrdinal)
-    expect(disjointSession.doc.graphs.root!.actorCursors).toEqual(disjointActorCursors)
-    expect(disjointSession.doc.view.graphs.root!.groupSeq).toBe(disjointGroupSeq)
-    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
-    const session = trustedFlattenSession(initial, resolve)
-    const outcome = session.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [
-            { id: 'innerPrimary', kind: 'node', x: 0, y: 0, width: 140, height: 80 },
-            { id: 'innerAdditional', kind: 'node', x: 180, y: 0, width: 140, height: 80 },
-          ],
-        },
-        boundaryPlan: plan.boundaryPlan as unknown as Json,
-        statePlan: plan.statePlan as unknown as Json,
-        schemaSnapshot: plan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: plan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(initial, 'root', 'occurrence', evidence)!,
-      },
-    })
-    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.root!.boundary!.inputs[0]!.binds).toEqual({
-      kind: 'family', node: 'n21', port: 'items', slots: ['nested.keep'],
-    })
-    expect(session.doc.graphs.root!.boundary!.inputs[0]!.alsoBinds).toEqual([{
-      kind: 'family', node: 'n20', port: 'items', slots: ['nested.keep'],
-    }])
-    const after = compileDoc(session.doc)
-    expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
-    if (before.ok && after.ok) {
-      expect(Object.values(after.artifact.prompt).map((node) => node.inputs)).toEqual(
-        Object.values(before.artifact.prompt).map((node) => node.inputs),
-      )
-    }
-  })
-
   it('keeps enclosing output unique-producer refusal named and byte-cursor atomic', () => {
     const initial = flattenDocument()
     initial.graphs.body.boundary.outputs[0].alsoBinds = [
@@ -2659,459 +2321,10 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(session.doc.view.graphs.root!.groupSeq).toBe(beforeGroupSeq)
   })
 
-  it('materializes a concrete port beneath ancestor family members', () => {
-    const family = (id: string, template: readonly any[]): any => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'X' }, optional: true,
-      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: id, min: 0, max: 8 }, template },
-    })
-    const schema: any = {
-      type: 'ConcreteMember', displayName: 'ConcreteMember', category: 'test', source: 'v3', isOutputNode: false,
-      items: [family('outer', [family('inner', [
-        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'X' }, optional: true },
-      ])])],
-    }
-    const root = graph({
-      nodes: {
-        source: { id: 'source' as never, type: 'Source', values: {} },
-        occurrence: {
-          id: 'occurrence' as never, type: '#body', values: { selected: 17 },
-        },
-      },
-      links: { selected: link('selected', port('source', 'out'), port('occurrence', 'selected')) },
-      nextOrdinal: 30,
-    })
-    const body = graph({
-      id: 'body' as never, name: 'Body',
-      nodes: {
-        inner: {
-          id: 'inner' as never, type: 'ConcreteMember', values: {},
-          dynamic: { outer: { members: ['m4'], memberState: { m4: { 'outer.inner': { members: ['m2'] } } } } },
-        },
-      },
-      boundary: {
-        inputs: [{
-          id: 'selected', promoted: true,
-          binds: { kind: 'port', node: 'inner' as never, port: 'outer.inner.value' as never, members: ['m4' as never, 'm2' as never] },
-        }],
-        outputs: [],
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const initial = document(root) as MutableDocument
-    initial.graphs.body = body
-    initial.view.graphs.root = { nodes: { source: {}, occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    initial.view.graphs.body = { nodes: { inner: { position: { x: 0, y: 0 } } } }
-    const resolve = (type: string) => type === 'ConcreteMember' ? schema : undefined
-    const plan = planFlattenBoundaryRoutes(body, resolve, root.nodes.occurrence!, root)
-    expect(plan.statePlan.status, JSON.stringify(plan.statePlan)).toBe('ready')
-    if (plan.statePlan.status !== 'ready') return
-    expect(plan.statePlan.familyScopes).toHaveLength(0)
-    expect(plan.statePlan.addresses).toContainEqual(expect.objectContaining({
-      before: { port: 'selected' },
-      uses: ['endpoint', 'value'],
-      targets: [expect.objectContaining({
-        binding: expect.objectContaining({ port: 'outer.inner.value', members: ['m4', 'm2'] }),
-      })],
-    }))
-    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
-    const session = trustedFlattenSession(initial, resolve)
-    const outcome = session.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [{ id: 'inner', kind: 'node', x: 0, y: 0, width: 140, height: 80 }],
-        },
-        boundaryPlan: plan.boundaryPlan as unknown as Json,
-        statePlan: plan.statePlan as unknown as Json,
-        schemaSnapshot: plan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: plan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(initial, 'root', 'occurrence', evidence)!,
-      },
-    })
-    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.root!.nodes.n30!.values).toEqual({ 'outer.inner.value#m4#m2': 17 })
-    expect(session.doc.graphs.root!.links.selected!.to).toEqual(port('n30', 'outer.inner.value', ['m4', 'm2']))
-  })
-
-  it('materializes recursive family scopes independently and preserves the compiled prompt', () => {
-    const leaf: any = {
-      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
-      widget: { widgetType: 'INT', options: {} },
-    }
-    const family = (id: string, template: readonly any[]) => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: true,
-      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: id, min: 0, max: 8 }, template },
-    })
-    const schema: any = {
-      type: 'RecursiveFamily', displayName: 'RecursiveFamily', category: 'test', source: 'v3', isOutputNode: true,
-      items: [family('outer', [family('inner', [leaf])])],
-    }
-    const root = graph({
-      nodes: {
-        occurrence: {
-          id: 'occurrence' as never, type: '#body', values: { 'family.inner.value#o#i': 12 },
-          dynamic: {
-            family: { members: ['o'], seq: 7, memberState: { o: { 'family.inner': { members: ['i'], seq: 3 } } } },
-          },
-        },
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 20,
-    })
-    const body = graph({
-      id: 'body' as never, name: 'Body',
-      nodes: { inner: { id: 'inner' as never, type: 'RecursiveFamily', values: {} } },
-      boundary: { inputs: [{ id: 'family', binds: { kind: 'family', node: 'inner' as never, port: 'outer' as never } }], outputs: [] },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const initial = document(root) as MutableDocument
-    initial.graphs.body = body
-    initial.view.graphs.root = { nodes: { occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    initial.view.graphs.body = { nodes: { inner: { position: { x: 0, y: 0 } } } }
-    const resolve = (type: string) => type === 'RecursiveFamily' ? schema : undefined
-    const compileDoc = (doc: WorkflowDocument) => compile({
-      document: doc, revision: 1, resolve, scope: { kind: 'full' },
-      connection: asConnectionId('recursive-family'), schemaHash: 'recursive-family',
-    })
-    const before = compileDoc(initial)
-    expect(before.ok, JSON.stringify(!before.ok && before.diagnostics)).toBe(true)
-    const plan = planFlattenBoundaryRoutes(body, resolve, root.nodes.occurrence!, root)
-    expect(plan.statePlan.status, JSON.stringify(plan.statePlan)).toBe('ready')
-    if (plan.statePlan.status === 'ready') {
-      expect(plan.statePlan.familyScopes).toHaveLength(2)
-      expect(plan.statePlan.familyScopes.map((scope) => scope.members)).toEqual([
-        [{ before: 'o', after: 'm0' }],
-        [{ before: 'i', after: 'm0' }],
-      ])
-      expect(plan.statePlan.familyScopes[1]!.parent).toEqual({ scope: 'family-0', beforeMember: 'o', afterMember: 'm0' })
-    }
-    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
-    const session = trustedFlattenSession(initial, resolve)
-    const outcome = session.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [{ id: 'inner', kind: 'node', x: 0, y: 0, width: 140, height: 80 }],
-        },
-        boundaryPlan: plan.boundaryPlan as unknown as Json,
-        statePlan: plan.statePlan as unknown as Json,
-        schemaSnapshot: plan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: plan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(initial, 'root', 'occurrence', evidence)!,
-      },
-    })
-    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.root!.nodes.n20!.values).toEqual({ 'outer.inner.value#m0#m0': 12 })
-    const after = compileDoc(session.doc)
-    expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
-    if (before.ok && after.ok) {
-      expect(Object.values(after.artifact.prompt)[0]!.inputs).toEqual(Object.values(before.artifact.prompt)[0]!.inputs)
-    }
-  })
-
-  it('flattens a realistic nested-subgraph workflow with three family scopes and exact compile equivalence', () => {
-    const leaf: any = {
-      kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
-      widget: { widgetType: 'INT', options: {}, controller: 'after_generate' },
-    }
-    const family = (id: string, template: readonly any[]): any => ({
-      kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: true,
-      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: id, min: 0, max: 8 }, template },
-    })
-    const leafSchema: any = {
-      type: 'NestedFamilyOutput', displayName: 'NestedFamilyOutput', category: 'test', source: 'v3', isOutputNode: true,
-      items: [family('outer', [family('middle', [family('inner', [leaf])])])],
-    }
-    const child = graph({
-      id: 'child' as never, name: 'Imported child definition',
-      nodes: { leaf: { id: 'leaf' as never, type: 'NestedFamilyOutput', values: {} } },
-      boundary: { inputs: [{ id: 'family', binds: { kind: 'family', node: 'leaf' as never, port: 'outer' as never } }], outputs: [] },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const body = graph({
-      id: 'body' as never, name: 'Imported wrapper definition',
-      nodes: { nested: { id: 'nested' as never, type: '#child', values: {} } },
-      boundary: { inputs: [{ id: 'family', binds: { kind: 'family', node: 'nested' as never, port: 'family' as never } }], outputs: [] },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const root = graph({
-      nodes: {
-        occurrence: {
-          id: 'occurrence' as never, type: '#body',
-          values: { 'family.middle.inner.value#outer-user#middle-user#inner-user': 42 },
-          controllers: { 'family.middle.inner.value#outer-user#middle-user#inner-user': 'fixed' },
-          dynamic: {
-            family: {
-              members: ['outer-user'],
-              memberState: {
-                'outer-user': {
-                  'family.middle': {
-                    members: ['middle-user'],
-                    memberState: {
-                      'middle-user': {
-                        'family.middle.inner': { members: ['inner-user'] },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 20,
-    })
-    const initial = document(root) as MutableDocument
-    initial.graphs.body = body
-    initial.graphs.child = child
-    initial.view.graphs.root = { nodes: { occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    initial.view.graphs.body = { nodes: { nested: { position: { x: 0, y: 0 } } } }
-    initial.view.graphs.child = { nodes: { leaf: { position: { x: 0, y: 0 } } } }
-    const resolve = (type: string): any => {
-      if (type === 'NestedFamilyOutput') return leafSchema
-      if (type === '#child') return deriveBoundarySchema(child, resolve).schema
-      if (type === '#body') return deriveBoundarySchema(body, resolve).schema
-      return undefined
-    }
-    const compileDoc = (doc: WorkflowDocument) => compile({
-      document: doc, revision: 1, resolve, scope: { kind: 'full' },
-      connection: asConnectionId('nested-family-import-audit'), schemaHash: 'nested-family-import-audit',
-    })
-    const before = compileDoc(initial)
-    expect(before.ok, JSON.stringify(!before.ok && before.diagnostics)).toBe(true)
-    const plan = planFlattenBoundaryRoutes(body, resolve, root.nodes.occurrence!, root)
-    expect(plan.statePlan.status, JSON.stringify(plan.statePlan)).toBe('ready')
-    if (plan.statePlan.status !== 'ready') return
-    expect(plan.statePlan.familyScopes).toHaveLength(3)
-    expect(plan.statePlan.familyScopes.map((scope) => scope.members)).toEqual([
-      [{ before: 'outer-user', after: 'm0' }],
-      [{ before: 'middle-user', after: 'm0' }],
-      [{ before: 'inner-user', after: 'm0' }],
-    ])
-    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
-    const session = trustedFlattenSession(initial, resolve)
-    const outcome = session.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [{ id: 'nested', kind: 'node', x: 0, y: 0, width: 140, height: 80 }],
-        },
-        boundaryPlan: plan.boundaryPlan as unknown as Json,
-        statePlan: plan.statePlan as unknown as Json,
-        schemaSnapshot: plan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: plan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(initial, 'root', 'occurrence', evidence)!,
-      },
-    })
-    expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.root!.nodes.n20).toEqual({
-      id: 'n20', type: '#child',
-      values: { 'family.middle.inner.value#m0#m0#m0': 42 },
-      controllers: { 'family.middle.inner.value#m0#m0#m0': 'fixed' },
-      dynamic: {
-        family: {
-          members: ['m0'], seq: 1,
-          memberState: {
-            m0: {
-              'family.middle': {
-                members: ['m0'], seq: 1,
-                memberState: { m0: { 'family.middle.inner': { members: ['m0'], seq: 1 } } },
-              },
-            },
-          },
-        },
-      },
-    })
-    const after = compileDoc(session.doc)
-    expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
-    if (before.ok && after.ok) {
-      expect(Object.values(before.artifact.prompt)).toHaveLength(1)
-      expect(Object.values(after.artifact.prompt)).toHaveLength(1)
-      expect(Object.values(after.artifact.prompt)[0]!.inputs).toEqual(Object.values(before.artifact.prompt)[0]!.inputs)
-      expect(Object.values(after.artifact.prompt)[0]!.inputs).toEqual({
-        'outer.outer0.middle.middle0.inner.inner0': 42,
-      })
-    }
-
-    const nul = structuredClone(initial) as MutableDocument
-    const nulId = `inner${String.fromCharCode(0)}user`
-    const occurrence = nul.graphs.root.nodes.occurrence
-    occurrence.values = { [`family.middle.inner.value#outer-user#middle-user#${nulId}`]: 42 }
-    occurrence.controllers = { [`family.middle.inner.value#outer-user#middle-user#${nulId}`]: 'fixed' }
-    occurrence.dynamic.family.memberState['outer-user']['family.middle'].memberState['middle-user']['family.middle.inner'].members = [nulId]
-    const nulPlan = planFlattenBoundaryRoutes(nul.graphs.body, resolve, occurrence, nul.graphs.root)
-    expect(nulPlan.statePlan).toMatchObject({ status: 'refused', refusal: { code: 'subgraph.flatten.stateUnresolved' } })
-    const nulEvidence = {
-      boundaryPlan: nulPlan.boundaryPlan, statePlan: nulPlan.statePlan, schemaPlanDigest: nulPlan.schemaPlanDigest,
-    }
-    const nulSession = trustedFlattenSession(nul, resolve)
-    const nulBefore = nulSession.doc
-    const nulBytes = JSON.stringify(nulBefore)
-    const nulOutcome = nulSession.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [{ id: 'nested', kind: 'node', x: 0, y: 0, width: 140, height: 80 }],
-        },
-        boundaryPlan: nulPlan.boundaryPlan as unknown as Json,
-        statePlan: nulPlan.statePlan as unknown as Json,
-        schemaSnapshot: nulPlan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: nulPlan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(nul, 'root', 'occurrence', nulEvidence)!,
-      },
-    })
-    expect(nulOutcome.ok).toBe(false)
-    if (!nulOutcome.ok) expect(nulOutcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.flatten.stateUnresolved')
-    expect(nulSession.doc).toBe(nulBefore)
-    expect(JSON.stringify(nulSession.doc)).toBe(nulBytes)
-  })
-
-  it('preserves wire-15 names suffixes and refuses stale names and ordinal exhaustion', () => {
-    const schemaFor = (naming: any): any => ({
-      type: 'WireFamily', displayName: 'WireFamily', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'items', type: { kind: 'concrete', name: 'X' }, optional: true,
-        dynamic: {
-          kind: 'autogrow', materialization: 'wire15', naming,
-          template: [{
-            kind: 'input', id: 'value', type: { kind: 'concrete', name: 'X' }, optional: true,
-            widget: { widgetType: 'INT', options: {}, controller: 'after_generate' },
-          }],
-        },
-      }],
-    })
-    const makePlan = (members: string[], naming: any, targetDynamic: any = {}) => {
-      const schema = schemaFor(naming)
-      const body = graph({
-        id: 'body' as never,
-        nodes: { inner: { id: 'inner' as never, type: 'WireFamily', values: {}, dynamic: targetDynamic } },
-        boundary: { inputs: [{ id: 'family', binds: { kind: 'family', node: 'inner' as never, port: 'items' as never } }], outputs: [] },
-      })
-      const occurrence: any = { id: 'occurrence', type: '#body', values: {}, dynamic: { family: { members } } }
-      return planFlattenBoundaryRoutes(body, () => schema, occurrence, graph({ nodes: { occurrence } }))
-    }
-    const names = makePlan(['green', 'red'], { kind: 'names', names: ['red', 'green'] })
-    expect(names.statePlan.status, JSON.stringify(names.statePlan)).toBe('ready')
-    if (names.statePlan.status === 'ready') {
-      expect(names.statePlan.familyScopes[0]!.members).toEqual([
-        { before: 'green', after: 'green' }, { before: 'red', after: 'red' },
-      ])
-      expect(names.statePlan.nodes[0]!.dynamic!.items!.members).toEqual(['green', 'red'])
-    }
-    const wireSchema = schemaFor({ kind: 'names', names: ['red', 'green'] })
-    const wireBody = graph({
-      id: 'body' as never,
-      nodes: { inner: { id: 'inner' as never, type: 'WireFamily', values: {} } },
-      boundary: { inputs: [{ id: 'family', binds: { kind: 'family', node: 'inner' as never, port: 'items' as never } }], outputs: [] },
-    })
-    const wireOccurrence: any = {
-      id: 'occurrence', type: '#body', values: { 'family.value#green': 4 },
-      controllers: { 'family.value#green': 'fixed' }, dynamic: { family: { members: ['green'] } },
-    }
-    const wireRoot = graph({
-      nodes: { source: { id: 'source' as never, type: 'Source', values: {} }, occurrence: wireOccurrence },
-      links: { wire: link('wire', port('source', 'out'), port('occurrence', 'family.value', ['green'])) },
-    })
-    const wirePlan = planFlattenBoundaryRoutes(wireBody, () => wireSchema, wireOccurrence, wireRoot)
-    expect(wirePlan.statePlan.status, JSON.stringify(wirePlan.statePlan)).toBe('ready')
-    if (wirePlan.statePlan.status === 'ready') {
-      expect(wirePlan.statePlan.addresses).toContainEqual(expect.objectContaining({
-        before: { port: 'family.value', members: ['green'] }, uses: ['endpoint', 'value', 'controller'],
-        targets: [expect.objectContaining({ binding: expect.objectContaining({ port: 'items.green' }) })],
-      }))
-      expect(wirePlan.statePlan.nodes[0]!.values).toEqual({ 'items.green': 4 })
-      expect(wirePlan.statePlan.nodes[0]!.controllers).toEqual({ 'items.green': 'fixed' })
-    }
-    const nestedFamily = {
-      kind: 'input' as const, id: 'sub', type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-      dynamic: {
-        kind: 'autogrow' as const, materialization: 'wire15' as const,
-        naming: { kind: 'names' as const, names: ['child'] },
-        template: [{ kind: 'input' as const, id: 'value', type: { kind: 'concrete' as const, name: 'X' }, optional: true }],
-      },
-    }
-    const mixedSchema = schemaFor({ kind: 'prefix', prefix: 'item', min: 0, max: 8 })
-    delete mixedSchema.items[0].dynamic.materialization
-    mixedSchema.items[0].dynamic.template = [nestedFamily]
-    const mixedBody = graph({
-      id: 'body' as never,
-      nodes: { inner: { id: 'inner' as never, type: 'WireFamily', values: {} } },
-      boundary: { inputs: [{ id: 'family', binds: { kind: 'family', node: 'inner' as never, port: 'items' as never } }], outputs: [] },
-      valueSources: {}, selectors: {},
-    })
-    const mixedOccurrence: any = {
-      id: 'occurrence', type: '#body', values: {},
-      dynamic: { family: { members: ['outer'] } },
-    }
-    const mixedRoot = graph({
-      nodes: { occurrence: mixedOccurrence },
-      boundary: {
-        inputs: [{
-          id: 'nested',
-          binds: { kind: 'family', node: 'occurrence' as never, port: 'family.sub' as never, members: ['outer' as never] },
-        }],
-        outputs: [],
-      },
-    })
-    const mixedPlan = planFlattenBoundaryRoutes(mixedBody, () => mixedSchema, mixedOccurrence, mixedRoot)
-    expect(mixedPlan.statePlan, JSON.stringify(mixedPlan.statePlan)).toMatchObject({
-      status: 'ready',
-      enclosingRewrites: [{
-        before: { kind: 'family', node: 'occurrence', port: 'family.sub', members: ['outer'] },
-        after: [{ kind: 'family', node: 'inner', port: 'items.sub', members: ['m0'] }],
-      }],
-    })
-    const mixedDoc = document(mixedRoot) as MutableDocument
-    mixedDoc.graphs.body = mixedBody
-    mixedDoc.view.graphs.root = { nodes: { occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    mixedDoc.view.graphs.body = { nodes: { inner: { position: { x: 0, y: 0 } } } }
-    const mixedEvidence = {
-      boundaryPlan: mixedPlan.boundaryPlan, statePlan: mixedPlan.statePlan, schemaPlanDigest: mixedPlan.schemaPlanDigest,
-    }
-    const mixedSession = trustedFlattenSession(mixedDoc, () => mixedSchema)
-    const mixedOutcome = mixedSession.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [{ id: 'inner', kind: 'node', x: 0, y: 0, width: 140, height: 80 }],
-        },
-        boundaryPlan: mixedPlan.boundaryPlan as unknown as Json,
-        statePlan: mixedPlan.statePlan as unknown as Json,
-        schemaSnapshot: mixedPlan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: mixedPlan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(mixedDoc, 'root', 'occurrence', mixedEvidence)!,
-      },
-    })
-    expect(mixedOutcome.ok, JSON.stringify(!mixedOutcome.ok && mixedOutcome.diagnostics)).toBe(true)
-    expect(mixedSession.doc.graphs.root!.boundary!.inputs[0]!.binds).toEqual({
-      kind: 'family', node: 'n20', port: 'items.sub', members: ['m0'],
-    })
-    expect(makePlan(['blue'], { kind: 'names', names: ['red'] }).statePlan).toMatchObject({
-      status: 'refused', refusal: { code: 'subgraph.flatten.stateUnresolved' },
-    })
-    expect(makePlan(['source'], { kind: 'prefix', prefix: 'item', max: 8 }, {
-      items: { members: [], seq: 1_000_000_000_000_000 },
-    }).statePlan).toMatchObject({
-      status: 'refused', refusal: { code: 'subgraph.lifecycle.idExhausted' },
-    })
-    expect(makePlan([`bad${String.fromCharCode(0)}member`], { kind: 'prefix', prefix: 'item', max: 8 }).statePlan).toMatchObject({
-      status: 'refused', refusal: { code: 'subgraph.flatten.stateUnresolved' },
-    })
-  })
-
   it('preserves the compiled prompt across promoted value materialization', () => {
     const widgetSchema: any = {
       type: 'WidgetNode', displayName: 'WidgetNode', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {} },
       }],
@@ -3174,7 +2387,7 @@ describe('subgraph.flatten L5-L6 core command', () => {
   it('preserves nested definition-owned promoted fallback when the outer occurrence is absent', () => {
     const widgetSchema: any = {
       type: 'WidgetNode', displayName: 'WidgetNode', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' },
       }],
@@ -3246,139 +2459,6 @@ describe('subgraph.flatten L5-L6 core command', () => {
     }
   })
 
-  it('materializes an explicit DynamicCombo selection into the planned clone state', () => {
-    const input = (id: string, dynamic?: any) => ({
-      kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-      ...(dynamic === undefined ? {} : { dynamic }),
-    })
-    const schema: any = {
-      type: 'ComboNode', displayName: 'ComboNode', category: 'test', source: 'v3', isOutputNode: false,
-      items: [input('choice', {
-        kind: 'dynamicCombo',
-        options: [{ key: 'a', inputs: [input('x')] }, { key: 'b', inputs: [input('y')] }],
-        defaultOption: 'a',
-      })],
-    }
-    const body = graph({
-      nodes: { inner: { id: 'inner' as never, type: 'ComboNode', values: {}, dynamic: { choice: { selected: 'a' } } } },
-      boundary: { inputs: [{ id: 'combo', binds: { kind: 'port', node: 'inner' as never, port: 'choice' as never } }], outputs: [] },
-      valueSources: {}, selectors: {},
-    })
-    const occurrence: any = { id: 'occurrence', type: '#body', values: {}, dynamic: { combo: { selected: 'b' } } }
-    const parent = graph({
-      nodes: { occurrence, source: { id: 'source' as never, type: 'Source', values: {} } },
-      links: { linked: { id: 'linked' as never, from: port('source', 'out'), to: port('occurrence', 'combo') } },
-      nets: { netted: { id: 'netted' as never, name: 'netted', source: port('source', 'out'), sinks: [port('occurrence', 'combo')] } },
-      boundary: { inputs: [{ id: 'outer', binds: { kind: 'port', node: 'occurrence' as never, port: 'combo' as never } }], outputs: [] },
-      valueSources: {}, selectors: {},
-    })
-    const plan = planFlattenBoundaryRoutes(body, () => schema, occurrence, parent)
-    expect(plan.boundaryPlan).toEqual([{ side: 'input', id: 'combo', route: 'combo' }])
-    expect(plan.statePlan.status).toBe('ready')
-    if (plan.statePlan.status === 'ready') expect(plan.statePlan.nodes[0]!.dynamic).toEqual({ choice: { selected: 'b' } })
-
-    const staleOccurrence = { id: 'occurrence', type: '#body', values: {}, dynamic: { combo: { selected: 'missing' } } } as any
-    const stale = planFlattenBoundaryRoutes(body, () => schema, staleOccurrence, graph({ nodes: { occurrence: staleOccurrence } }))
-    expect(stale.statePlan.status).toBe('refused')
-    if (stale.statePlan.status === 'refused') expect(stale.statePlan.refusal).toMatchObject({ code: 'subgraph.flatten.stateUnresolved' })
-
-    const wrongShapeOccurrence = {
-      id: 'occurrence', type: '#body', values: {},
-      dynamic: { combo: { selected: 'a', members: ['silently-lost'], seq: 7 } },
-    } as any
-    expect(planFlattenBoundaryRoutes(body, () => schema, wrongShapeOccurrence, graph({
-      nodes: { occurrence: wrongShapeOccurrence },
-    })).statePlan).toMatchObject({ status: 'refused', refusal: { code: 'subgraph.flatten.stateUnresolved' } })
-
-    const inactiveBody = structuredClone(body) as any
-    inactiveBody.boundary.inputs[0].binds.port = 'choice.[b].y'
-    const inactive = planFlattenBoundaryRoutes(inactiveBody, () => schema, occurrence, parent)
-    expect(inactive.statePlan).toMatchObject({
-      status: 'refused', refusal: { code: 'subgraph.lifecycle.boundaryUnresolved' },
-    })
-
-    const fannedBody = structuredClone(body) as any
-    fannedBody.boundary.inputs[0].binds.port = 'choice.[a].x'
-    fannedBody.boundary.inputs[0].alsoBinds = [{ kind: 'port', node: 'inner', port: 'choice.[b].y' }]
-    const fanned = planFlattenBoundaryRoutes(fannedBody, () => schema, occurrence, parent)
-    expect(fanned.statePlan).toMatchObject({
-      status: 'refused', refusal: { code: 'subgraph.lifecycle.boundaryUnresolved' },
-    })
-  })
-
-  it('refuses inventoried inactive combo descendant state instead of silently dropping it', () => {
-    const input = (id: string, dynamic?: any) => ({
-      kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'X' }, optional: true,
-      ...(dynamic === undefined ? {} : { dynamic }),
-    })
-    const hiddenFamily = {
-      kind: 'autogrow' as const,
-      naming: { kind: 'prefix' as const, prefix: 'item', min: 0, max: 8 },
-      template: [input('value')],
-    }
-    const schema: any = {
-      type: 'ComboNode', displayName: 'ComboNode', category: 'test', source: 'v3', isOutputNode: false,
-      items: [input('choice', {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'a', inputs: [input('active')] },
-          { key: 'b', inputs: [input('hidden', hiddenFamily)] },
-        ],
-        defaultOption: 'a',
-      })],
-    }
-    const body = graph({
-      id: 'body' as never,
-      nodes: { inner: { id: 'inner' as never, type: 'ComboNode', values: {}, dynamic: { choice: { selected: 'a' } } } },
-      boundary: { inputs: [{ id: 'combo', binds: { kind: 'port', node: 'inner' as never, port: 'choice' as never } }], outputs: [] },
-      valueSources: {}, selectors: {}, nextOrdinal: 1,
-    })
-    const root = graph({
-      nodes: {
-        occurrence: {
-          id: 'occurrence' as never, type: '#body', values: {},
-          dynamic: {
-            combo: { selected: 'a' },
-            'combo.[b].hidden': { members: ['dormant'] },
-          },
-        },
-      },
-      valueSources: {}, selectors: {}, nextOrdinal: 20,
-    })
-    const initial = document(root) as MutableDocument
-    initial.graphs.body = body
-    initial.view.graphs.root = { nodes: { occurrence: { position: { x: 0, y: 0 }, size: { width: 100, height: 80 } } } }
-    initial.view.graphs.body = { nodes: { inner: { position: { x: 0, y: 0 } } } }
-    const plan = planFlattenBoundaryRoutes(body, () => schema, root.nodes.occurrence!, root)
-    expect(plan.statePlan).toMatchObject({
-      status: 'refused',
-      refusal: { code: 'subgraph.flatten.stateUnresolved' },
-    })
-    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
-    const session = trustedFlattenSession(initial, () => schema)
-    const before = session.doc
-    const beforeBytes = JSON.stringify(before)
-    const outcome = session.dispatch({
-      command: 'subgraph.flatten',
-      params: {
-        graphId: 'root', instancePath: [], nodeId: 'occurrence', placementCenter: { x: 50, y: 40 },
-        resolvedGeometry: {
-          occurrence: { id: 'occurrence', kind: 'node', x: 0, y: 0, width: 100, height: 80 },
-          body: [{ id: 'inner', kind: 'node', x: 0, y: 0, width: 140, height: 80 }],
-        },
-        boundaryPlan: plan.boundaryPlan as unknown as Json,
-        statePlan: plan.statePlan as unknown as Json,
-        schemaSnapshot: plan.schemaSnapshot as unknown as Json,
-        schemaPlanDigest: plan.schemaPlanDigest,
-        selectionFingerprint: lifecycleFlattenFingerprint(initial, 'root', 'occurrence', evidence)!,
-      },
-    })
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.flatten.stateUnresolved')
-    expect(session.doc).toBe(before)
-    expect(JSON.stringify(session.doc)).toBe(beforeBytes)
-  })
-
   it('rewrites both ends of a promoted occurrence tap delivery before staged cycle checks', () => {
     const initial = flattenDocument()
     initial.graphs.body.boundary.inputs.push({
@@ -3419,11 +2499,8 @@ describe('subgraph.flatten L5-L6 core command', () => {
     { name: 'region shell', mutate: (doc: MutableDocument, invocation: any) => { doc.graphs.root.nodes.occurrence.region = { kind: 'map', elementPorts: ['input'] }; refreshFlattenFingerprint(doc, invocation) }, code: 'subgraph.flatten.regionUnsupported' },
     { name: 'missing required state plan with dormant state', mutate: (doc: MutableDocument, invocation: any) => { doc.graphs.root.nodes.occurrence.values.netInput = 3; delete invocation.params.statePlan; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
     { name: 'missing required state plan with dynamic state', mutate: (doc: MutableDocument, invocation: any) => { doc.graphs.root.nodes.occurrence.dynamic = { choice: { selected: 'x' } }; delete invocation.params.statePlan; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
-    { name: 'family route missing required state plan', mutate: (doc: MutableDocument, invocation: any) => { doc.graphs.body.boundary.inputs[0].binds.kind = 'family'; invocation.params.boundaryPlan[0].route = 'family'; delete invocation.params.statePlan; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
-    { name: 'family-member route missing required state plan', mutate: (doc: MutableDocument, invocation: any) => { doc.graphs.body.boundary.inputs[0].binds.members = ['m0']; invocation.params.boundaryPlan[0].route = 'family'; delete invocation.params.statePlan; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
-    { name: 'ready state plan paired with specialized route', mutate: (doc: MutableDocument, invocation: any) => { invocation.params.schemaSnapshot['#child'].items[0].dynamic = { kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'X' }, inputs: [] }; invocation.params.boundaryPlan[0].route = 'specialized'; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
-    { name: 'ready state plan paired with unresolved route', mutate: (doc: MutableDocument, invocation: any) => { invocation.params.schemaSnapshot['#child'].items[0].dynamic = { kind: 'dynamicCombo', options: [] }; invocation.params.boundaryPlan[0].route = 'unresolved'; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
-    { name: 'schema snapshot digest mismatch', mutate: (_doc: MutableDocument, invocation: any) => { invocation.params.schemaSnapshot['#child'].items[0].tooltip = 'changed' }, code: 'params.invalid' },
+    { name: 'ready state plan paired with unresolved route', mutate: (doc: MutableDocument, invocation: any) => { invocation.params.schemaSnapshot['#child'].body[0] = { kind: 'choice', id: 'in', options: [], shared: [], required: false }; invocation.params.boundaryPlan[0].route = 'unresolved'; refreshFlattenSchemaDigest(invocation); refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
+    { name: 'schema snapshot digest mismatch', mutate: (_doc: MutableDocument, invocation: any) => { invocation.params.schemaSnapshot['#child'].body[0].tooltip = 'changed' }, code: 'params.invalid' },
     { name: 'malformed state plan coverage', mutate: (_doc: MutableDocument, invocation: any) => { invocation.params.statePlan.source.bodyNodes.pop() }, code: 'params.invalid' },
     { name: 'array-shaped route assertion', mutate: (doc: MutableDocument, invocation: any) => { invocation.params.boundaryPlan[0].route = ['plainWidget']; refreshFlattenFingerprint(doc, invocation) }, code: 'params.invalid' },
     { name: 'unpromoted boundary tap', mutate: (doc: MutableDocument, invocation: any) => { doc.graphs.body.boundary.inputs[0].promoted = false; Object.assign(invocation.params, (flattenInvocation(doc) as any).params) }, code: 'subgraph.flatten.stateUnresolved' },

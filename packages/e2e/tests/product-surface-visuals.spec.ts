@@ -300,56 +300,6 @@ test('Memory lease rows retain device identity, bytes and expiry', async ({ page
   await page.evaluate(() => (window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual())
 })
 
-test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  for (const profile of [false, true]) {
-    await page.evaluate(async (profile) => {
-      const componentPath = '/src/OutputDescriptorEditor.tsx'
-      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-      const { OutputDescriptorEditor } = await import(componentPath)
-      const { render } = await import(rendererPath)
-      const host = document.createElement('section')
-      host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:520px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
-      document.querySelector('.canvas-pane')!.append(host)
-      const app = window.__dinksterTest!.app
-      const dispose = render(() => OutputDescriptorEditor({
-        spec: { input: 'entries', choices: [{ id: 'float', type: { kind: 'concrete', name: 'core.float' } }], minEntries: 0, maxEntries: 3, fixedIds: false,
-          ...(profile ? { probe: { input: 'asset', kind: 'model', revision: '1' } } : {}) },
-        initial: '{', asset: undefined, staleLinks: [], app, tab: app.activeTab()!, isCurrent: () => true,
-        onDisconnect: () => {}, onCommit: () => { host.dataset['committed'] = 'true' }, onClose: () => { host.dataset['closed'] = 'true' },
-      }), host)
-      ;(window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual = () => { dispose(); host.remove() }
-    }, profile)
-    const editor = page.getByTestId('output-descriptor-editor')
-    await expect(editor.getByRole('status').first()).toBeVisible()
-    await expect(editor.getByTestId('output-descriptors-apply')).toBeDisabled()
-    await expect(editor.getByText(profile ? 'Probe the current asset to generate valid outputs.' : 'Use Stored JSON to repair invalid descriptors.', { exact: true })).toBeVisible()
-    if (profile) {
-      await editor.getByTestId('output-profile-probe').click()
-      await expect(editor.getByRole('alert')).toHaveText('Choose an asset before probing.')
-    }
-    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-      await page.setViewportSize({ width, height })
-      await editor.getByTestId('output-descriptors-apply').scrollIntoViewIfNeeded()
-      await page.mouse.move(0, 0)
-      await screenshot(page, `descriptor-invalid-${profile ? 'profile' : 'editable'}-${width}`)
-    }
-    if (!profile) {
-      await editor.getByRole('button', { name: 'Stored JSON', exact: true }).click()
-      await editor.getByRole('textbox', { name: 'Descriptor document', exact: true }).fill('{"entries":[]}')
-      await expect(editor.getByRole('status')).toHaveCount(0)
-      await expect(editor.getByTestId('output-descriptors-apply')).toBeEnabled()
-      await editor.getByTestId('output-descriptors-apply').click()
-      await expect(editor.locator('..')).toHaveAttribute('data-committed', 'true')
-    } else {
-      await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-      await expect(editor.locator('..')).toHaveAttribute('data-closed', 'true')
-    }
-    await page.evaluate(() => (window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual())
-  }
-})
-
 test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { GraphDef, ValueSourceData } from '../src/format/document.js'
 import { asGraphDefId, asLinkId, asNodeId, asPortId, asValueSourceId } from '../src/ids.js'
 import { deriveGlslMirrorBindings } from '../src/mirror/glsl.js'
-import { parseDinksterNodes } from '../src/schema/dinkster-wire.js'
+import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes } from '../src/schema/dinkster-wire.js'
 import type { InputSpec, MirrorSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 
 /**
@@ -17,13 +17,23 @@ const adjustWire = JSON.parse(
   readFileSync(new URL('./fixtures/image_adjust_wire29.json', import.meta.url), 'utf8'),
 ) as { mirror: { source: string; tolerance: { perChannel: number } } }
 
-const adjustSchema = ((): NodeSchema => {
-  const parsed = parseDinksterNodes({ schemaVersion: 1, nodes: { 'dinkster.image.adjust': adjustWire } })
-  expect(parsed.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-  const schema = parsed.schemas.get('dinkster.image.adjust')
-  expect(schema).toBeDefined()
-  return schema!
-})()
+/**
+ * Decodes a vendored wire schema on first use, so a fixture that no longer
+ * decodes fails only the tests that read it.
+ */
+const vendoredSchema = (type: string, wire: unknown): (() => NodeSchema) => {
+  let schema: NodeSchema | undefined
+  return () => {
+    if (schema !== undefined) return schema
+    const parsed = parseDinksterNodes({ schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: wire } })
+    expect(parsed.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    schema = parsed.schemas.get(type)
+    expect(schema).toBeDefined()
+    return schema!
+  }
+}
+
+const adjustSchema = vendoredSchema('dinkster.image.adjust', adjustWire)
 
 /**
  * Exact wire-30 serialization of the backend's dinkster.image.filter schema
@@ -35,13 +45,7 @@ const filterWire = JSON.parse(
   readFileSync(new URL('./fixtures/image_filter_wire30.json', import.meta.url), 'utf8'),
 ) as { mirror: { source: string; tolerance: { perChannel: number }; applies: Record<string, readonly string[]> } }
 
-const filterSchema = ((): NodeSchema => {
-  const parsed = parseDinksterNodes({ schemaVersion: 1, nodes: { 'dinkster.image.filter': filterWire } })
-  expect(parsed.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-  const schema = parsed.schemas.get('dinkster.image.filter')
-  expect(schema).toBeDefined()
-  return schema!
-})()
+const filterSchema = vendoredSchema('dinkster.image.filter', filterWire)
 
 const output = (id: string, type: string): OutputSpec => ({
   kind: 'output',
@@ -116,12 +120,13 @@ const gateSchema = (mirror: MirrorSpec | null = GLSL_MIRROR): NodeSchema => ({
 })
 
 const schemas = new Map<string, NodeSchema>([
-  ['dinkster.image.adjust', adjustSchema],
-  ['dinkster.image.filter', filterSchema],
   ['ImageSource', imageSourceSchema],
   ['test.gate', gateSchema()],
 ])
-const resolve = (type: string): NodeSchema | undefined => schemas.get(type)
+const resolve = (type: string): NodeSchema | undefined =>
+  type === 'dinkster.image.adjust' ? adjustSchema()
+    : type === 'dinkster.image.filter' ? filterSchema()
+      : schemas.get(type)
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
@@ -164,7 +169,7 @@ describe('deriveGlslMirrorBindings', () => {
   it('binds the wire-decoded adjust schema from stored widget values', () => {
     const def = adjustGraph({ operation: 'contrast', factor: 2.5 })
     expect(bindingOf(def)).toEqual({
-      source: adjustSchema.mirror!.source,
+      source: adjustSchema().mirror!.source,
       images: [{ name: 'u_image', inputId: 'image', driver: { node: 'src', output: 'out' } }],
       scalars: [
         { name: 'operation', glslType: 'int', value: 3 },
@@ -317,11 +322,50 @@ const filterGraph = (operation?: string, values: Record<string, unknown> = {}) =
   })
 
 describe('applies-scoped binding derivation', () => {
+  it('binds only while the stored choice key is covered, and never binds the choice dropdown', () => {
+    const scoped: NodeSchema = {
+      type: 'test.scoped',
+      displayName: 'Scoped',
+      category: 'test',
+      source: 'v3',
+      isOutputNode: false,
+      mirror: { ...GLSL_MIRROR, applies: { operation: ['blur'] } },
+      body: [
+        { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+        {
+          kind: 'choice',
+          id: 'operation',
+          required: true,
+          default: 'blur',
+          shared: [],
+          options: [
+            { key: 'blur', rows: [{ kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 1 } }] },
+            { key: 'noise', rows: [{ kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'NUMBER', options: {}, default: 0.5 } }] },
+          ],
+        },
+        output('image', 'IMAGE'),
+      ],
+    }
+    const local = (t: string) => (t === 'test.scoped' ? scoped : resolve(t))
+    const scopedGraph = (selected: string, values: Record<string, unknown>) => graph({
+      id: 'g0',
+      nodes: {
+        src: node('src', 'ImageSource'),
+        a1: { ...node('a1', 'test.scoped', values), dynamic: { operation: { selected } } } as GraphDef['nodes'][string],
+      },
+      links: { l1: link('l1', port('src', 'out'), port('a1', 'image')) },
+    })
+    expect(deriveGlslMirrorBindings(scopedGraph('blur', { 'operation.radius': 3 }), local).get('a1')?.scalars).toEqual([
+      { name: 'radius', glslType: 'int', value: 3 },
+    ])
+    expect(deriveGlslMirrorBindings(scopedGraph('noise', { 'operation.strength': 0.25 }), local).get('a1')).toBeUndefined()
+  })
+
   it('binds a covered operation from dynamic state and stored branch values', () => {
     const binding = deriveGlslMirrorBindings(
       filterGraph('gaussian_blur', { 'operation.radius': 2, 'operation.sigma': 1.5 }), resolve).get('f1')
     expect(binding).toEqual({
-      source: filterSchema.mirror!.source,
+      source: filterSchema().mirror!.source,
       images: [{ name: 'u_image', inputId: 'image', driver: { node: 'src', output: 'out' } }],
       scalars: [
         { name: 'operation', glslType: 'int', value: 0 },
@@ -354,7 +398,7 @@ describe('applies-scoped binding derivation', () => {
     expect(deriveGlslMirrorBindings(filterGraph(operation), resolve).get('f1')).toBeUndefined()
   })
 
-  it('yields no binding when an applies key never surfaces as a combo input', () => {
+  it('yields no binding when an applies key names no choice of the node', () => {
     const scoped = gateSchema({ ...GLSL_MIRROR, applies: { missing: ['soft'] } })
     const local = new Map(schemas)
     local.set('test.gate', scoped)
@@ -366,7 +410,7 @@ describe('applies-scoped binding derivation', () => {
     expect(deriveGlslMirrorBindings(def, (t) => local.get(t)).get('a1')).toBeUndefined()
   })
 
-  it('yields no binding when an applies key names a non-combo input', () => {
+  it('yields no binding when an applies key names an input rather than a choice', () => {
     const scoped = gateSchema({ ...GLSL_MIRROR, applies: { steps: ['4'] } })
     const local = new Map(schemas)
     local.set('test.gate', scoped)

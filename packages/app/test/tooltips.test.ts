@@ -92,10 +92,12 @@ describe('TooltipController', () => {
 describe('canvas tooltip provider', () => {
   const node = { node: { type: 'Sampler', values: { steps: 20 } }, layout: { title: 'Sampler' } }
   const schema = {
+    type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
     description: 'Samples a latent image.', pack: 'sampling-pack',
-    items: [
-      { kind: 'input', id: 'model', tooltip: 'Model used for sampling.' },
-      { kind: 'input', id: 'steps', tooltip: 'Number of sampling steps.' },
+    body: [
+      { kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: false, tooltip: 'Model used for sampling.' },
+      { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false, tooltip: 'Number of sampling steps.',
+        widget: { widgetType: 'INT', options: {} } },
     ],
   }
   const context = { resolveSchema: () => schema, resolvePack: () => ({ displayName: 'Sampling Pack' }) }

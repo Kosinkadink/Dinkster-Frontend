@@ -175,12 +175,10 @@ const createListSchema: NodeSchema = {
   type: 'CreateList', displayName: 'Create List', category: 'test', source: 'v3', isOutputNode: false,
   body: [
     {
-      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{ kind: 'input', id: 'item', type: matchType, optional: false }],
-        naming: { kind: 'prefix', prefix: 'items', min: 1, max: 8 },
-      },
+      kind: 'group', id: 'items',
+      value: { kind: 'input', id: 'item', type: matchType, optional: false },
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link', minMembers: 1, maxMembers: 8,
     },
     { kind: 'output', id: 'list', type: { kind: 'list', element: matchType } },
   ],
@@ -248,20 +246,20 @@ describe('widget tap scene links', () => {
     expect(scene.links.every((link) => link.typeName === 'FLOAT')).toBe(true)
   })
 
-  it('resolves a Create List family and output from a widget output', () => {
+  it('resolves a Create List group and output from a widget output', () => {
     const document = {
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'g', nodes: {
         source: { id: 'source', type: 'Widget', values: { amount: 2 } },
         list: {
           id: 'list', type: 'CreateList', values: {},
-          dynamic: { items: { members: ['m0'], seq: 1 } },
+          dynamic: { items: { members: ['item0'], seq: 1 } },
         },
       }, links: {
         l1: {
           id: 'l1',
           from: { node: 'source', tap: 'amount' },
-          to: { node: 'list', port: 'items.item', members: ['m0'] },
+          to: { node: 'list', port: 'items.item0' },
         },
       }, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: {
@@ -282,9 +280,9 @@ describe('widget tap scene links', () => {
     })
     const list = scene.nodes.find((node) => node.id === 'list')!
     const connected = list.layout.pins.find((pin) =>
-      pin.direction === 'in' && pin.address.members?.[0] === 'm0')!
+      pin.direction === 'in' && pin.address.port === 'items.item0')!
     const offered = list.layout.pins.find((pin) =>
-      pin.direction === 'in' && pin.address.members?.[0] !== 'm0')!
+      pin.direction === 'in' && pin.address.port === 'items.item1')!
     const output = list.layout.pins.find((pin) => pin.direction === 'out')!
     expect(connected.type).toEqual(concrete('FLOAT'))
     expect(connected.ghost).not.toBe(true)
@@ -293,7 +291,7 @@ describe('widget tap scene links', () => {
     expect(output.type).toEqual({ kind: 'list', element: concrete('FLOAT') })
     expect(scene.links[0]).toMatchObject({
       from: { kind: 'widgetTap', node: 'source', input: 'amount' },
-      to: { kind: 'port', node: 'list', port: 'items.item', members: ['m0'] },
+      to: { kind: 'port', node: 'list', port: 'items.item0' },
       typeName: 'FLOAT',
     })
     expect(scene.links[0]?.mismatch).not.toBe(true)
@@ -307,24 +305,34 @@ describe('widget tap scene links', () => {
 describe('same-id widget tap vs real output', () => {
   const loadLikeSchema: NodeSchema = {
     type: 'LoadLike', displayName: 'LoadLike', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       {
-        kind: 'input', id: 'image', type: concrete('STRING'), optional: false,
-        widget: { widgetType: 'STRING', options: {}, default: 'a.png' },
-      },
-      {
-        kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'image',
-        widget: { widgetType: 'MOUNT', options: {}, default: null },
+        kind: 'row',
+        rows: [
+          {
+            kind: 'input', id: 'image', type: concrete('STRING'), optional: false,
+            widget: { widgetType: 'STRING', options: {}, default: 'a.png' },
+          },
+          {
+            kind: 'input', id: 'mount', type: concrete('STRING'), optional: true,
+            widget: { widgetType: 'MOUNT', options: {}, default: null },
+          },
+        ],
       },
       { kind: 'output', id: 'image', type: concrete('IMAGE') },
     ],
-  } as unknown as NodeSchema
+  }
   const imageSinkSchema: NodeSchema = {
     type: 'ImageSink', displayName: 'ImageSink', category: 'test', source: 'v3', isOutputNode: false,
     body: [
       { kind: 'input', id: 'pixels', type: concrete('IMAGE'), optional: false },
-      { kind: 'input', id: 'prefix', type: concrete('STRING'), optional: false, widget: { widgetType: 'STRING', options: {} } },
-      { kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, adjacentTo: 'prefix', widget: { widgetType: 'MOUNT', options: {} } },
+      {
+        kind: 'row',
+        rows: [
+          { kind: 'input', id: 'prefix', type: concrete('STRING'), optional: false, widget: { widgetType: 'STRING', options: {} } },
+          { kind: 'input', id: 'mount', type: concrete('STRING'), optional: true, widget: { widgetType: 'MOUNT', options: {} } },
+        ],
+      },
     ],
   }
   const builtScene = (from: object, port = 'pixels'): Scene => {

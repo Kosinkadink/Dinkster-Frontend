@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   asGraphDefId,
-  asDynamicMemberId,
   asLineageId,
   asLinkId,
   asNetId,
@@ -65,7 +64,8 @@ describe('buildScene', () => {
     expect(updated).toEqual(buildScene({ ...input, document: current }))
     expect(updated!.nodes[1]).toBe(before.nodes[1])
     expect(updated!.nodes[0]!.layout).toBe(before.nodes[0]!.layout)
-    const changedSchema = { ...resolve(old.type)!, widgetGroups: [] }
+    const oldSchema = resolve(old.type)!
+    const changedSchema = { ...oldSchema, body: [{ kind: 'section' as const, id: 'shown', visible: { formula: 'width > 100' }, rows: oldSchema.body }] }
     expect(updateSceneNodeValues(before, previous, current, 'g0', (type) => type === old.type ? changedSchema : resolve(type))).toBeUndefined()
     const deleted = { ...current, graphs: { ...current.graphs, g0: { ...current.graphs.g0!, nodes: {
       ...graph.nodes, n0: { ...old, values: {} },
@@ -518,15 +518,13 @@ describe('buildScene', () => {
       isOutputNode: false,
       body: [
         {
-          kind: 'input',
+          kind: 'group',
           id: 'items',
-          type: { kind: 'wildcard' },
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 'value', type: variable, optional: false }],
-            naming: { kind: 'prefix', prefix: 'value', min: 1, max: 8 },
-          },
+          value: { kind: 'input', id: 'value', type: variable, optional: false },
+          keys: { kind: 'numbered', prefix: 'value', start: 0, pad: 0 },
+          grows: 'link',
+          minMembers: 1,
+          maxMembers: 8,
         },
         { kind: 'output', id: 'result', type: { kind: 'list', element: variable } },
       ],
@@ -594,7 +592,7 @@ describe('buildScene', () => {
               id: asNodeId('match'),
               type: listMaker.type,
               values: {},
-              dynamic: { items: { members: [asDynamicMemberId('m0'), asDynamicMemberId('m1')] } },
+              dynamic: { items: { members: ['value0', 'value1'], seq: 2 } },
             },
           },
           links: {},
@@ -606,8 +604,7 @@ describe('buildScene', () => {
               binds: {
                 kind: 'port',
                 node: asNodeId('match'),
-                port: asPortId('items.value'),
-                members: [asDynamicMemberId('m0')],
+                port: asPortId('items.value0'),
               },
             }],
             outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
@@ -635,7 +632,7 @@ describe('buildScene', () => {
 
     expect(resolve('#body')).toBeDefined()
     const expectOccurrenceType = (pins: ReturnType<typeof occurrencePins>, name: string) => {
-      for (const id of ['items.value#m0', 'items.value#m1']) {
+      for (const id of ['items.value0', 'items.value1']) {
         expect(pins.find((pin) => pin.portId === id)?.type).toEqual({ kind: 'concrete', name })
       }
       expect(pins.find((pin) => pin.portId === 'result')?.type).toEqual({
@@ -657,7 +654,7 @@ describe('buildScene', () => {
       },
     }
     const reverted = occurrencePins('first', disconnected)
-    for (const id of ['items.value#m0', 'items.value#m1']) {
+    for (const id of ['items.value0', 'items.value1']) {
       expect(reverted.find((pin) => pin.portId === id)?.type).toEqual(variable)
     }
     expect(reverted.find((pin) => pin.portId === 'result')?.type).toEqual({ kind: 'list', element: variable })
@@ -798,17 +795,22 @@ describe('sections in scenes', () => {
     isOutputNode: false,
     body: [
       { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-      { kind: 'section', id: 'advanced', displayName: 'Advanced' },
       {
-        kind: 'input',
-        id: 'w',
-        type: { kind: 'concrete', name: 'INT' },
-        optional: false,
-        section: 'advanced',
-        widget: { widgetType: 'INT', options: {} },
+        kind: 'section',
+        id: 'advanced',
+        displayName: 'Advanced',
+        rows: [
+          {
+            kind: 'input',
+            id: 'w',
+            type: { kind: 'concrete', name: 'INT' },
+            optional: false,
+            widget: { widgetType: 'INT', options: {} },
+          },
+          { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+          { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' } },
+        ],
       },
-      { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false, section: 'advanced' },
-      { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' }, section: 'advanced' },
     ],
   }
   const producerSchema: NodeSchema = {

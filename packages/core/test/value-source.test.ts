@@ -129,7 +129,7 @@ describe('value source consumers', () => {
     if (reverse) document.graphs.g0!.nodes = Object.fromEntries(Object.entries(document.graphs.g0!.nodes).reverse())
     const resolver = (type: string) => type === 'Left' || type === 'Right' ? {
       type, displayName: type, category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' },
+      body: [{ kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' },
         widget: { widgetType: 'INT', options: type === 'Left' ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 } } }],
     } as import('../src/schema/model.js').NodeSchema : undefined
     const before = structuredClone(document)
@@ -168,7 +168,7 @@ describe('value source consumers', () => {
 
 describe('effective spec derivation (P1/P2/P5)', () => {
   it.each(['fixed', 'decrement', undefined] as const)('retains consumer initial controller mode %s through input promotion', (controllerInitial) => {
-    const schema = { ...resolve('KSampler')!, type: 'InitialMode', items: [{
+    const schema = { ...resolve('KSampler')!, type: 'InitialMode', body: [{
       kind: 'input' as const, id: 'seed', type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
       widget: { widgetType: 'INT', options: { step: 2 }, controller: 'after_generate' as const,
         ...(controllerInitial !== undefined ? { controllerInitial } : {}) },
@@ -274,7 +274,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
         },
       })
       for (const shared of [false, true]) {
-        const resolveScalar = (type: string) => ({ type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true, items: [
+        const resolveScalar = (type: string) => ({ type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true, body: [
           { kind: 'input' as const, id: 'choice', type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
             widget: { widgetType: 'COMBO', options: { options: type === 'A' ? [{ value, label: 'First' }] : [shared ? value : other] } } },
         ] })
@@ -297,8 +297,8 @@ describe('effective spec derivation (P1/P2/P5)', () => {
 })
 
 describe('member-aware consumer derivation (dynamic-derived inputs)', () => {
-  // Autogrow widget family + a DynamicCombo: consumers that exist only in
-  // the ELABORATED interface, never as top-level schema items.
+  // A group of widget values and a choice: consumers that exist only in
+  // the ELABORATED interface, never as top-scope schema inputs.
   const dynResolve = (type: string) =>
     type === 'Dyn'
       ? ({
@@ -307,48 +307,41 @@ describe('member-aware consumer derivation (dynamic-derived inputs)', () => {
           category: 'test',
           source: 'v3',
           isOutputNode: true,
-          items: [
+          body: [
             {
-              kind: 'input',
+              kind: 'group',
               id: 'weights',
-              type: { kind: 'wildcard' },
-              optional: false,
-              dynamic: {
-                kind: 'autogrow',
-                template: [
-                  {
-                    kind: 'input',
-                    id: 'w',
-                    type: { kind: 'concrete', name: 'FLOAT' },
-                    optional: true,
-                    widget: { widgetType: 'FLOAT', options: { min: 0, max: 2 }, default: 0.5 },
-                  },
-                ],
-                naming: { kind: 'prefix', prefix: 'w', min: 0, max: 8 },
+              value: {
+                kind: 'input',
+                id: 'w',
+                type: { kind: 'concrete', name: 'FLOAT' },
+                optional: true,
+                widget: { widgetType: 'FLOAT', options: { min: 0, max: 2 }, default: 0.5 },
               },
+              keys: { kind: 'numbered', prefix: 'w', start: 0, pad: 0 },
+              grows: 'filled',
+              minMembers: 0,
+              maxMembers: 8,
             },
             {
-              kind: 'input',
+              kind: 'choice',
               id: 'mode',
-              type: { kind: 'concrete', name: 'COMBO' },
-              optional: true,
-              dynamic: {
-                kind: 'dynamicCombo',
-                options: [
-                  {
-                    key: 'a',
-                    inputs: [
-                      {
-                        kind: 'input',
-                        id: 'x',
-                        type: { kind: 'concrete', name: 'INT' },
-                        optional: true,
-                        widget: { widgetType: 'INT', options: { min: 1, max: 10 }, default: 1 },
-                      },
-                    ],
-                  },
-                ],
-              },
+              required: false,
+              shared: [],
+              options: [
+                {
+                  key: 'a',
+                  rows: [
+                    {
+                      kind: 'input',
+                      id: 'x',
+                      type: { kind: 'concrete', name: 'INT' },
+                      optional: true,
+                      widget: { widgetType: 'INT', options: { min: 1, max: 10 }, default: 1 },
+                    },
+                  ],
+                },
+              ],
             },
           ],
         } as never)
@@ -359,21 +352,17 @@ describe('member-aware consumer derivation (dynamic-derived inputs)', () => {
       id: asNodeId(id),
       type: 'Dyn',
       values: {},
-      dynamic: { weights: { members: ['m0'], seq: 1 } },
+      dynamic: { weights: { members: ['w0'] }, mode: { selected: 'a' } },
     }) as never
 
-  it('derives the spec from an autogrow MEMBER consumer via the elaborated interface', () => {
+  it('derives the spec from a group MEMBER consumer via the elaborated interface', () => {
     const def = doc({
       g0: graph({
         id: 'g0',
         nodes: { n1: dynNode('n1') },
         valueSources: { v1: source('v1', 0.75) },
         links: {
-          l4: {
-            id: asLinkId('l4'),
-            from: vsrc('v1'),
-            to: { ...port('n1', 'weights.w'), members: ['m0'] } as never,
-          },
+          l4: { id: asLinkId('l4'), from: vsrc('v1'), to: port('n1', 'weights.w0') },
         },
       }),
     }).graphs['g0']!
@@ -384,14 +373,14 @@ describe('member-aware consumer derivation (dynamic-derived inputs)', () => {
     expect(eff.diagnostics).toEqual([])
   })
 
-  it('derives the spec from a combo BRANCH consumer (no member path, not top-level)', () => {
+  it('derives the spec from a choice OPTION consumer (not top-level)', () => {
     const def = doc({
       g0: graph({
         id: 'g0',
         nodes: { n1: dynNode('n1') },
         valueSources: { v1: source('v1', 3) },
         links: {
-          l4: { id: asLinkId('l4'), from: vsrc('v1'), to: port('n1', 'mode.[a].x') },
+          l4: { id: asLinkId('l4'), from: vsrc('v1'), to: port('n1', 'mode.x') },
         },
       }),
     }).graphs['g0']!

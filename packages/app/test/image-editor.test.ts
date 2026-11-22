@@ -105,8 +105,8 @@ describe('image editor entry admission', () => {
     type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: kind === 'image' ? 'IMAGE' : 'VIDEO' } },
     widget: { widgetType: 'ASSET', kind, options: { accept: [kind === 'image' ? 'image/png' : 'video/mp4'] } },
   })
-  const schema = (items: NodeSchema['body']): NodeSchema => ({
-    type: 'Loader', displayName: 'Loader', category: 'test', source: { kind: 'dinkster' }, items, isOutputNode: false,
+  const schema = (body: NodeSchema['body']): NodeSchema => ({
+    type: 'Loader', displayName: 'Loader', category: 'test', source: { kind: 'dinkster' }, body, isOutputNode: false,
   } as unknown as NodeSchema)
 
   it('accepts one writable image AssetRef and rejects missing, video, driven, and ambiguous inputs', () => {

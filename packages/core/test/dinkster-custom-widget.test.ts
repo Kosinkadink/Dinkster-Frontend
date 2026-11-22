@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { inputsOf } from '../src/schema/model.js'
-import { parseDinksterNodes } from '../src/schema/dinkster-wire.js'
+import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes } from '../src/schema/dinkster-wire.js'
 
 const catalog = (widget: unknown) => ({
-  schemaVersion: 1,
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
   nodes: {
     'pack.custom': {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       displayName: 'Pack Custom',
-      interface: [{
-        role: 'input',
+      body: [{
+        kind: 'input',
         id: 'level',
         type: { kind: 'concrete', types: ['pack.level'] },
         required: false,

@@ -57,49 +57,49 @@ const base = {
 }
 
 const scalarExpressionRegistry = () => parseDinksterNodes({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     'e2e.identity.int': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'e2e.identity.int',
       version: 1,
       displayName: 'Integer',
       category: 'test',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'source', required: false,
+          kind: 'input', id: 'source', required: false,
           type: { kind: 'concrete', types: ['INT'] }, default: 0,
         },
         {
-          role: 'output', id: 'result',
+          kind: 'output', id: 'result',
           type: { kind: 'concrete', types: ['INT'] },
           knownValue: { input: 'source' },
         },
       ],
     },
     'dinkster.math.expression': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'dinkster.math.expression',
       version: 1,
       displayName: 'Math Expression',
       category: 'math',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'expression', required: true,
+          kind: 'input', id: 'expression', required: true,
           type: { kind: 'concrete', types: ['STRING'] },
           default: 'a + b', widget: { type: 'STRING', multiline: true },
         },
         {
-          role: 'inputFamily', id: 'values', required: true, minMembers: 1,
-          memberNames: 'abcdefghijklmnopqrstuvwxyz'.split(''),
-          template: [{
-            role: 'input', id: 'value', required: true,
+          kind: 'group', id: 'values', minMembers: 1,
+          keys: { named: 'abcdefghijklmnopqrstuvwxyz'.split('') },
+          value: {
+            kind: 'input', id: 'value', required: true,
             type: { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] },
-          }],
+          },
         },
-        { role: 'output', id: 'float', type: { kind: 'concrete', types: ['FLOAT'] } },
-        { role: 'output', id: 'int', type: { kind: 'concrete', types: ['INT'] } },
-        { role: 'output', id: 'boolean', type: { kind: 'concrete', types: ['BOOLEAN'] } },
+        { kind: 'output', id: 'float', type: { kind: 'concrete', types: ['FLOAT'] } },
+        { kind: 'output', id: 'int', type: { kind: 'concrete', types: ['INT'] } },
+        { kind: 'output', id: 'boolean', type: { kind: 'concrete', types: ['BOOLEAN'] } },
       ],
       mirror: {
         kind: 'expression', precision: 'bounded',
@@ -152,7 +152,7 @@ describe('represented output previews', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       {
         kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
         optional: false, widget: { widgetType: 'ASSET', options: {}, default: null },
@@ -621,7 +621,7 @@ const artifact = (over: Partial<CompileArtifact> = {}): CompileArtifact => ({
 } as unknown as CompileArtifact)
 
 const resolveSchema = (type: string): NodeSchema | undefined =>
-  type === 'Source' ? ({ type, items: [] } as unknown as NodeSchema) : undefined
+  type === 'Source' ? ({ type, body: [] } as unknown as NodeSchema) : undefined
 
 const execution = (prompt: string, queuedAt: number, art: CompileArtifact, over: Partial<ExecutionState> = {}): ExecutionState => ({
   ref: { connection: art.connection, prompt }, key: `${art.connection}:${prompt}`, artifact: art,
@@ -868,10 +868,10 @@ describe('retainProvenExecution', () => {
       },
     })
     const resolver = (type: string): NodeSchema | undefined => type === 'Controlled'
-      ? ({ type, items: [{ kind: 'input', id: 'seed', widget: {
+      ? ({ type, body: [{ kind: 'input', id: 'seed', widget: {
           widgetType: 'INT', controller: 'after_generate', controllerInitial: 'randomize',
         } }] } as unknown as NodeSchema)
-      : type === 'Sink' ? ({ type, items: [] } as unknown as NodeSchema) : undefined
+      : type === 'Sink' ? ({ type, body: [] } as unknown as NodeSchema) : undefined
     const current = execution('n+1', 20, controlledArtifact, { status: 'queued' })
     const prior = execution('n', 10, controlledArtifact, { nodes: { a: { state: 'done' }, b: { state: 'done' } } })
     const retained = retainProvenExecution(current, [prior, current], controlledArtifact, [], resolver)
@@ -907,10 +907,10 @@ describe('retainProvenExecution', () => {
       },
     })
     const resolver = (type: string): NodeSchema | undefined => type === 'Controlled'
-      ? ({ type, items: [{ kind: 'input', id: 'seed', widget: {
+      ? ({ type, body: [{ kind: 'input', id: 'seed', widget: {
           widgetType: 'INT', controller: 'after_generate', controllerInitial: 'randomize',
         } }] } as unknown as NodeSchema)
-      : type === 'Sink' ? ({ type, items: [] } as unknown as NodeSchema) : undefined
+      : type === 'Sink' ? ({ type, body: [] } as unknown as NodeSchema) : undefined
     const current = execution('n+1', 20, artifact({ scope: { kind: 'partial', targets: [] }, prompt: {} }))
     const prior = execution('n', 10, controlledArtifact, { nodes: { b: { state: 'done' } } })
     const retained = retainProvenExecution(current, [prior, current], controlledArtifact, [], resolver)
@@ -1010,7 +1010,7 @@ describe('deriveSceneOverlays', () => {
     } as unknown as GraphDef
     const source = {
       type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'number#raw', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 0 } },
         { kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } },
       ],
@@ -1389,7 +1389,7 @@ describe('glsl image estimate overlay', () => {
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
+    body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
   } as unknown as NodeSchema
   const adjustSchema: NodeSchema = {
     type: 'test.adjust',
@@ -1398,7 +1398,7 @@ describe('glsl image estimate overlay', () => {
     source: 'v3',
     isOutputNode: false,
     mirror: { kind: 'glsl', precision: 'bounded', tolerance: { perChannel: 1 / 255 }, source: GLSL_SOURCE },
-    items: [
+    body: [
       { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       {
         kind: 'input',
@@ -1535,7 +1535,7 @@ describe('glsl image estimate overlay', () => {
     const ambiguousSchema = {
       ...adjustSchema,
       type: 'test.ambiguous-adjust',
-      items: [
+      body: [
         ...adjustSchema.body,
         { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
@@ -1649,7 +1649,7 @@ describe('glsl image estimate overlay', () => {
     const twoOutputSchema: NodeSchema = {
       ...imageProducerSchema,
       type: 'TwoOutputSource',
-      items: [
+      body: [
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } },
         { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
@@ -1728,7 +1728,7 @@ describe('glsl image estimate overlay', () => {
       const representedSchema = {
         ...imageProducerSchema,
         type: 'RepresentedSource',
-        items: [
+        body: [
           {
             kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
             optional: false, widget: { widgetType: 'ASSET', options: {}, default: null },

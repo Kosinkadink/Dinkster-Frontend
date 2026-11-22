@@ -25,18 +25,16 @@ const schema: NodeSchema = {
       widget: { widgetType: 'FLOAT', options: {}, default: 1 },
     },
     {
-      kind: 'input',
+      kind: 'group',
       id: 'items',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          { kind: 'input', id: 'tag', displayName: 'Tag', type: { kind: 'concrete', name: 'STRING' }, optional: true },
-          { kind: 'input', id: 'image', displayName: 'Image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-        ],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-      },
+      member: [
+        { kind: 'input', id: 'tag', displayName: 'Tag', type: { kind: 'concrete', name: 'STRING' }, optional: true },
+        { kind: 'input', id: 'image', displayName: 'Image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      ],
+      keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 },
+      grows: 'link',
+      minMembers: 0,
+      maxMembers: 4,
     },
   ],
 }
@@ -70,13 +68,13 @@ const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
       sub: {
         id: 'sub',
         name: 'sub',
-        nodes: { n1: { id: 'n1', type: 'GrowTest', values: {} } },
+        nodes: { n1: { id: 'n1', type: 'GrowTest', values: {}, dynamic: { items: { members: ['item1'], seq: 1 } } } },
         links: {},
         nets: {},
         reroutes: {},
         ...(withValueSource ? { valueSources: { v0: { id: 'v0', title: 'Literal amount', value: 23 } } } : {}),
         boundary: {
-          inputs: [{ id: 'items', displayName: 'Items', binds: { kind: 'family', node: 'n1', port: 'items', slots: ['image', 'tag'] } }],
+          inputs: [{ id: 'items', displayName: 'Items', binds: { kind: 'port', node: 'n1', port: 'items.item1.image' } }],
           outputs: withValueSource
             ? [{ id: 'amount', displayName: 'Amount', binds: { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } } }]
             : withWidgetTap
@@ -202,7 +200,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     expect(tab.store.revision).toBe(revision)
     expect(app.diagnosticFocus.get()).toMatchObject({
       tab,
-      anchor: { port: { node: 'n1', port: 'items' } },
+      anchor: { port: { node: 'n1', port: 'items.item1.image' } },
       portInstancePath: ['occ'],
     })
     unmount()
@@ -263,61 +261,21 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('toggles a slot with Enter and lets Escape leave the control without another edit', async () => {
-    const { tab, root, unmount } = (await mountPanel())
-    const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!
-    const tag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
-    tag.focus()
-    tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await vi.waitFor(() => expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.binds.slots).toEqual(['image']))
-    const item = tab.store.doc.graphs.sub!.boundary!.inputs[0]!
-    expect(item.binds.slots).toEqual(['image'])
-    const updatedTag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
-    expect(updatedTag.getAttribute('aria-checked')).toBe('false')
-
-    updatedTag.focus()
-    updatedTag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    expect(document.activeElement).toBe(panel)
-    expect(item.binds.slots).toEqual(['image'])
-    unmount()
-  })
-
-  it('announces derivation errors and refused empty selections', async () => {
-    const { root, unmount } = (await mountPanel())
-    const image = root.querySelector<HTMLButtonElement>('[data-slot-path="image"]')!
-    image.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
-    expect(root.querySelector('[data-testid="boundary-diag"]')?.getAttribute('role')).toBe('alert')
-
-    const tag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
-    tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(root.querySelector('[data-testid="boundary-notice"]')?.getAttribute('role')).toBe('status')
-    unmount()
-  })
-
-  it('presents invalid, unavailable, and empty states without inventing mutations', async () => {
+  it('presents invalid and empty states without inventing mutations', async () => {
     const invalid = (await mountPanel())
     expect((await invalid.app.dispatchTo(invalid.tab, {
-      command: 'boundary.setSlots',
-      params: { graphId: 'sub', side: 'inputs', itemId: 'items', slots: ['unknown'] },
+      command: 'boundary.setBinding',
+      params: { graphId: 'sub', side: 'inputs', itemId: 'items', node: 'n1', port: 'items' },
     })).ok).toBe(true)
     const diagnostic = invalid.root.querySelector<HTMLElement>('[data-testid="boundary-diag"]')!
     expect(diagnostic.getAttribute('role')).toBe('alert')
-    expect(diagnostic.getAttribute('data-code')).toBe('boundary.slotUnknown')
+    expect(diagnostic.getAttribute('data-code')).toBe('boundary.familyBind')
     invalid.unmount()
-
-    const unavailable = (await mountPanel())
-    unavailable.app.backends.get()[0]!.registry.set(undefined)
-    unavailable.app.backendsTick.set(unavailable.app.backendsTick.get() + 1)
-    const state = unavailable.root.querySelector<HTMLElement>('[data-testid="boundary-unavailable"]')!
-    expect(state.getAttribute('role')).toBe('status')
-    expect(state.textContent).toContain('Exposure unavailable')
-    unavailable.unmount()
 
     const empty = (await mountPanel())
     expect(empty.tab.store.dispatch({
       command: 'boundary.unbind',
-      params: { graphId: 'sub', side: 'inputs', itemId: 'items', node: 'n1', port: 'items' },
+      params: { graphId: 'sub', side: 'inputs', itemId: 'items', node: 'n1', port: 'items.item1.image' },
     }).ok).toBe(true)
     const emptyStates = [...empty.root.querySelectorAll<HTMLElement>('[data-testid="boundary-empty"]')]
     expect(emptyStates.map((element) => [element.getAttribute('data-side'), element.getAttribute('role')])).toEqual([

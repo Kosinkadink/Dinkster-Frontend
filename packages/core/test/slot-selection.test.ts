@@ -12,7 +12,7 @@
  * would become empty is refused.
  */
 import { describe, expect, it } from 'vitest'
-import type { InputSpec } from '../src/schema/model.js'
+import type { BodyRow, GroupSpec, InputSpec } from '../src/schema/model.js'
 import { exposureAt, parseSelection, toggleSlotSelection } from '../src/schema/slot-selection.js'
 
 const socket = (id: string): InputSpec => ({
@@ -22,20 +22,18 @@ const socket = (id: string): InputSpec => ({
   optional: false,
 })
 
-const grow = (id: string, template: InputSpec[]): InputSpec => ({
-  kind: 'input',
+const grow = (id: string, member: BodyRow[]): GroupSpec => ({
+  kind: 'group',
   id,
-  type: { kind: 'wildcard' },
-  optional: false,
-  dynamic: {
-    kind: 'autogrow',
-    template,
-    naming: { kind: 'prefix', prefix: id, min: 0, max: 4 },
-  },
+  member,
+  keys: { kind: 'numbered', prefix: id, start: 0, pad: 0 },
+  grows: 'link',
+  minMembers: 0,
+  maxMembers: 4,
 })
 
 /** tag, sub{a, b, deep{x, y}}, other */
-const TEMPLATE: InputSpec[] = [
+const TEMPLATE: BodyRow[] = [
   socket('tag'),
   grow('sub', [socket('a'), socket('b'), grow('deep', [socket('x'), socket('y')])]),
   socket('other'),

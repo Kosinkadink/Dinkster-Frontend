@@ -10,7 +10,7 @@ import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes } from '../src/index.j
 
 const payload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 1 },
+  dinkster: { version: '0.9.0', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
   packs: {
     core: { displayName: 'Dinkster Core' },
     'vhs.video': { displayName: 'Video Helper Suite', abbr: 'VHS', mark: '\u{1F3A5}', color: '#64b5f6' },
@@ -85,13 +85,13 @@ const payload = {
     'empty.blueprints': { displayName: 'Empty', blueprints: [] },
   },
   nodes: {
-    'core.add': { displayName: 'Add', pack: 'core', signature: 'sig-add-1', interface: [] },
-    'vhs.load': { displayName: 'Load Video', pack: 'vhs.video', interface: [] },
-    orphan: { displayName: 'Orphan', interface: [] },
-    'bad.sig': { displayName: 'Bad Sig', signature: 42, interface: [] },
-    sink: { displayName: 'Sink', idempotent: true, outputNode: true, interface: [] },
-    effectful: { displayName: 'Effectful', idempotent: false, interface: [] },
-    aliased: { displayName: 'Aliased', aliases: ['LegacyName'], interface: [] },
+    'core.add': { displayName: 'Add', pack: 'core', signature: 'sig-add-1', body: [] },
+    'vhs.load': { displayName: 'Load Video', pack: 'vhs.video', body: [] },
+    orphan: { displayName: 'Orphan', body: [] },
+    'bad.sig': { displayName: 'Bad Sig', signature: 42, body: [] },
+    sink: { displayName: 'Sink', idempotent: true, outputNode: true, body: [] },
+    effectful: { displayName: 'Effectful', idempotent: false, body: [] },
+    aliased: { displayName: 'Aliased', aliases: ['LegacyName'], body: [] },
   },
 }
 

@@ -153,60 +153,56 @@ const typed = (name: string): { kind: 'concrete'; name: string } => ({ kind: 'co
 const synthetic = new Map<string, NodeSchema>([
   ['PIMG', {
     type: 'PIMG', displayName: 'ImgSrc', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: typed('IMAGE') }],
+    body: [{ kind: 'output', id: 'out', type: typed('IMAGE') }],
   }],
   ['PLAT', {
     type: 'PLAT', displayName: 'LatSrc', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: typed('LATENT') }],
+    body: [{ kind: 'output', id: 'out', type: typed('LATENT') }],
   }],
   ['dinkster.string_to_combo', {
     type: 'dinkster.string_to_combo', displayName: 'Convert String to Combo', category: 'string', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'string', type: typed('STRING'), optional: false },
       { kind: 'output', id: 'choice', type: typed('COMBO') },
     ],
   }],
   ['dinkster.combo_to_string', {
     type: 'dinkster.combo_to_string', displayName: 'Convert Combo to String', category: 'string', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'choice', type: typed('COMBO'), optional: false },
       { kind: 'output', id: 'text', type: typed('STRING') },
     ],
   }],
   ['SinkLatent', {
     type: 'SinkLatent', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
+    body: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
   }],
   ['SinkOpt', {
     type: 'SinkOpt', displayName: 'OptSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: true }],
+    body: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: true }],
   }],
   ['FSink', {
     type: 'FSink', displayName: 'FloatSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
+    body: [{
       kind: 'input', id: 'f', type: typed('FLOAT'), optional: true,
       widget: { widgetType: 'FLOAT', options: {}, default: 1 },
     }],
   }],
-  // Nested-only autogrow template: the trailing ghost renders nothing, so
+  // A group whose member holds only a group: the spare member renders nothing, so
   // the node carries a growth affordance row instead (dynamic-scene tests
   // prove the derivation; here we pin its paint).
   ['PNest', {
     type: 'PNest', displayName: 'PureNest', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
-      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{
-          kind: 'input', id: 'sub', type: typed('IMAGE'), optional: true,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 's', type: typed('IMAGE'), optional: true }],
-            naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 4 },
-          },
-        }],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 5 },
-      },
+    body: [{
+      kind: 'group', id: 'items',
+      member: [{
+        kind: 'group', id: 'sub',
+        value: { kind: 'input', id: 's', type: typed('IMAGE'), optional: true },
+        keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 },
+        grows: 'link', minMembers: 0, maxMembers: 4,
+      }],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link', minMembers: 0, maxMembers: 5,
     }],
   }],
 ])

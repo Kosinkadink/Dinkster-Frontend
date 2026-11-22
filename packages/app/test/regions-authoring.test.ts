@@ -40,11 +40,9 @@ const regionSchemas: readonly NodeSchema[] = [
     body: [
       { kind: 'input', id: 'expression', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: { multiline: true }, default: 'a + b' } },
-      { kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: false, dynamic: {
-        kind: 'autogrow', naming: { kind: 'names', names: ['a', 'b', 'c'], min: 1 },
-        template: [{ kind: 'input', id: 'value', type: { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }, optional: false }],
-        optionalAfterMinimum: true, materialization: 'wire15',
-      } },
+      { kind: 'group', id: 'values', keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'link', minMembers: 1,
+        value: { kind: 'input', id: 'value', type: { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }, optional: false },
+        optionalAfterMinimum: true },
       { kind: 'output', id: 'INT', type: { kind: 'concrete', name: 'INT' } },
     ] },
 ]

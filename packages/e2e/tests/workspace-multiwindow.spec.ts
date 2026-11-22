@@ -23,7 +23,7 @@ async function waitForStartupOwnership(page: Page): Promise<void> {
   await waitForOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas(
     ['TestNode', 'NewLocalNode'].map((type) => ({
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
     })),
   ))
 }
@@ -95,7 +95,7 @@ for (const accepted of [true, false]) {
       const app = window.__dinksterTest!.app
       const schema: NodeSchema = {
         type: 'ImageLoader', displayName: 'Image Loader', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', optional: false,
+        body: [{ kind: 'input', id: 'image', optional: false,
           type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
       }

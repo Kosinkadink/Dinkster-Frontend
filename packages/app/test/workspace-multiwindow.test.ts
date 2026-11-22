@@ -929,9 +929,9 @@ describe('AppState multi-window workspace', () => {
           const displayName = url.endsWith(encodeURIComponent(`sha256:${'b'.repeat(64)}`))
             ? 'Changed label' : 'English label'
           return new Response(JSON.stringify(url.includes('/api/nodes') ? {
-            schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 1 },
+            schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 2 },
             packs: { demo: { displayName: 'Demo', locales: { en: `sha256:${'a'.repeat(64)}`, zh: `sha256:${'b'.repeat(64)}` } } },
-            nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'Raw node', pack: 'demo', interface: [] } },
+            nodes: { 'demo.localized': { schemaVersion: 2, displayName: 'Raw node', pack: 'demo', body: [] } },
           } : { nodes: { 'demo.localized': { displayName } } }),
           { status: 200, headers: { 'Content-Type': 'application/json' } })
         })
@@ -1530,11 +1530,11 @@ describe('AppState multi-window workspace', () => {
     await second.openDocument(workflow(), 'Shared workflow')
     first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     }))
@@ -1716,11 +1716,11 @@ describe('AppState multi-window workspace', () => {
       : app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -1779,9 +1779,9 @@ describe('AppState multi-window workspace', () => {
       editableApps.push(app)
       const backend = app.backends.get()[0]!
       const registry = buildDinksterRegistry(backend.id, {
-        schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {
-          X: { schemaVersion: 1, displayName: 'X', outputNode: true,
-            interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }] },
+        schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {
+          X: { schemaVersion: 2, displayName: 'X', outputNode: true,
+            body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }] },
         },
       })
       backend.registry.set(registry)
@@ -1855,11 +1855,11 @@ describe('AppState multi-window workspace', () => {
     const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const registry = buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -1976,9 +1976,9 @@ describe('AppState multi-window workspace', () => {
     const app = createEditableApp()
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      nodes: { AssetLoader: { interface: [
-        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
+      schemaVersion: 2,
+      nodes: { AssetLoader: { body: [
+        { kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
       ] } },
     }))
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'known.png',

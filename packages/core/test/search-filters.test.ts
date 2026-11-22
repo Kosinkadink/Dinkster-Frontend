@@ -2,8 +2,7 @@
  * Structured search filters: kind:/in:/out: token parsing, structural
  * type-token matching (the "one generic node, many forms" rule: variables
  * consult allowed sets instead of enumerating concrete forms), and schema
- * port matching across dynamic interfaces (autogrow, dynamicCombo,
- * dynamicSlot).
+ * port matching across groups, choices and type choices.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -115,46 +114,48 @@ describe('schemaMatchesPortFilters', () => {
     expect(autoConnectTarget(hiddenOnly, concrete('COMBO'), 'in')).toBeUndefined()
   })
 
-  it('sees through dynamicCombo option sets', () => {
+  it('sees through the options of a choice', () => {
     const s = schema([
-      input('mode', concrete('COMBO'), {
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [
-            { key: 'a', inputs: [input('strength', concrete('FLOAT'))] },
-            { key: 'b', inputs: [input('mask', concrete('MASK'))] },
-          ],
-        },
-      }),
+      {
+        kind: 'choice',
+        id: 'mode',
+        required: true,
+        shared: [],
+        options: [
+          { key: 'a', rows: [input('strength', concrete('FLOAT'))] },
+          { key: 'b', rows: [input('mask', concrete('MASK'))] },
+        ],
+      },
     ])
     expect(schemaMatchesPortFilters(s, { inputs: ['mask'] })).toBe(true)
     expect(schemaMatchesPortFilters(s, { inputs: ['float'] })).toBe(true)
     expect(schemaMatchesPortFilters(s, { inputs: ['image'] })).toBe(false)
   })
 
-  it('sees through dynamicSlot slot types and dependents', () => {
+  it('sees through a type choice pin type and its rows', () => {
     const s = schema([
-      input('slot', { kind: 'wildcard' }, {
-        dynamic: {
-          kind: 'dynamicSlot',
-          slotType: concrete('core.conditioning'),
-          inputs: [input('strength', concrete('FLOAT'))],
-        },
-      }),
+      {
+        kind: 'typeChoice',
+        id: 'slot',
+        type: concrete('core.conditioning'),
+        rows: [input('strength', concrete('FLOAT'))],
+        required: true,
+      },
     ])
     expect(schemaMatchesPortFilters(s, { inputs: ['conditioning'] })).toBe(true)
     expect(schemaMatchesPortFilters(s, { inputs: ['float'] })).toBe(true)
   })
 
-  it('sees through autogrow templates', () => {
+  it('sees through group members', () => {
     const s = schema([
-      input('images', concrete('IMAGE'), {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('image', concrete('IMAGE'))],
-          naming: { kind: 'prefix', prefix: 'image' },
-        },
-      }),
+      {
+        kind: 'group',
+        id: 'images',
+        value: input('image', concrete('IMAGE')),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers: 0,
+      },
     ])
     expect(schemaMatchesPortFilters(s, { inputs: ['image'] })).toBe(true)
   })
@@ -240,26 +241,23 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
   })
 
   it('matches concrete batch families and a constrained shared family exactly', () => {
+    const group = (type: TypeExpr) => ({
+      kind: 'group' as const,
+      id: 'values',
+      value: input('value', type),
+      keys: { kind: 'numbered' as const, prefix: 'value', start: 0, pad: 0 },
+      grows: 'link' as const,
+      minMembers: 1,
+      maxMembers: 50,
+    })
     const family = (name: string) => schema([
-      input('values', concrete(name), {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('value', concrete(name))],
-          naming: { kind: 'prefix', prefix: 'value', min: 1, max: 50 },
-        },
-      }),
+      group(concrete(name)),
       { kind: 'output', id: 'value', type: concrete(name) },
     ])
     const allowed = ['comfy.IMAGE', 'comfy.MASK', 'comfy.LATENT'].map(concrete)
     const matchType: TypeExpr = { kind: 'variable', templateId: 'MatchType', allowedTypes: allowed }
     const combined = schema([
-      input('values', matchType, {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('value', matchType)],
-          naming: { kind: 'prefix', prefix: 'value', min: 1, max: 50 },
-        },
-      }),
+      group(matchType),
       { kind: 'output', id: 'value', type: matchType },
     ])
 
@@ -311,40 +309,44 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
     expect(autoConnectTarget(target, concrete('comfy.MASK'), 'in')).toEqual({ port: 'generic' })
   })
 
-  it('an autogrow family member is a target, with its materialize frames', () => {
-    // Mirrors std.list.make: family 'items', single template slot 'items',
-    // variable-typed. A fresh node's first (synthetic) member must be
-    // auto-connectable - the palette path parity of the ghost-pin drop.
+  it('a group member is a target, with materialize frames when the node does not store it yet', () => {
+    // Mirrors std.list.make: group 'items' of one variable-typed input.
+    // A fresh node's first member must be auto-connectable - the palette
+    // path parity of the ghost-pin drop.
     const itemType: TypeExpr = { kind: 'variable', templateId: 'T' }
-    const make = schema([
-      input('items', itemType, {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('items', itemType)],
-          naming: { kind: 'prefix', prefix: 'item', min: 1 },
-        },
-      }),
+    const make = (minMembers: number) => schema([
+      {
+        kind: 'group',
+        id: 'items',
+        value: input('item', itemType),
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers,
+      },
       { kind: 'output', id: 'list', type: { kind: 'list', element: itemType } },
     ])
-    expect(autoConnectTarget(make, concrete('IMAGE'), 'in')).toEqual({
-      port: 'items.items',
-      members: ['m0'],
-      materialize: [{ construct: 'items', members: ['m0'] }],
+    // A new node stores its first minMembers members, so that member is a plain port.
+    expect(autoConnectTarget(make(1), concrete('IMAGE'), 'in')).toEqual({ port: 'items.item0' })
+    // With no minimum, the offered spare member carries the frame that stores it.
+    expect(autoConnectTarget(make(0), concrete('IMAGE'), 'in')).toEqual({
+      port: 'items.item0',
+      materialize: [{ construct: 'items', members: ['item0'], seq: 1 }],
     })
   })
 
-  it('a DynamicCombo default-branch input is a target; the selector row never is', () => {
+  it("a choice's start-option input is a target; the choice's dropdown never is", () => {
     const s = schema([
-      input('mode', concrete('COMBO'), {
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [{ key: 'a', inputs: [input('mask', concrete('MASK'))] }],
-        },
-      }),
+      {
+        kind: 'choice',
+        id: 'mode',
+        required: true,
+        shared: [],
+        options: [{ key: 'a', rows: [input('mask', concrete('MASK'))] }],
+      },
     ])
     expect(schemaMatchesLinkDrop(s, concrete('MASK'), 'in')).toBe(true)
-    // The default branch's input is a real addressable port on a fresh node.
-    expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.[a].mask' })
+    // The start option's input is a real addressable port on a fresh node.
+    expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.mask' })
     // Unknown anchor metadata cannot choose a branch input or selector row.
     expect(autoConnectTarget(s, { kind: 'wildcard' }, 'in')).toBeUndefined()
   })

@@ -9,7 +9,7 @@ import { netViewPositions } from '../src/format/net-views.js'
 import { asDynamicMemberId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
-import { initialDynamicStateOf } from '../src/schema/model.js'
+import { initialDynamicStateOf } from '../src/schema/body.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 /** Port ref addressing one member of a dynamic family. */
@@ -142,15 +142,16 @@ describe('DocumentStore.dispatch', () => {
     expect(store.doc).toBe(before)
   })
 
-  it('seeds a fresh wire-15 choice and undoes edits back to the explicit first option', () => {
+  it('seeds a fresh choice and undoes edits back to the explicit first option', () => {
     const parsed = parseDinksterSchema('Resize', {
-      schemaVersion: 1,
-      interface: [{
-        role: 'dynamicCombo',
+      schemaVersion: 2,
+      nodeType: 'Resize',
+      body: [{
+        kind: 'choice',
         id: 'resize_type',
         options: [
-          { key: 'scale dimensions', inputs: [{ role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: false }] },
-          { key: 'scale by multiplier', inputs: [{ role: 'input', id: 'multiplier', type: { kind: 'concrete', types: ['FLOAT'] }, required: false }] },
+          { key: 'scale dimensions', rows: [{ kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: false }] },
+          { key: 'scale by multiplier', rows: [{ kind: 'input', id: 'multiplier', type: { kind: 'concrete', types: ['FLOAT'] }, required: false }] },
         ],
       }],
     })

@@ -1,24 +1,18 @@
 /**
- * Whole-family forwarding lowering.
+ * Boundary forwarding lowering.
  *
- * Contract under test: definition-local prefix members and
- * instance-appended suffix members merge into OCCURRENCE-LOCAL derived state
- * only; member ids (never ordinals) are identity; api names and output
- * indexes are computed over the merged list per occurrence; one instance can
- * never see another's members or mutate the shared definition. Every test
+ * Contract under test: a subgraph boundary item forwards one inner input or
+ * output by its flattened id (a static port or one member of a group), per
+ * occurrence; chained boundaries, promoted values, reroutes, value sources,
+ * bypassed shells and partial execution compose through it. Every test
  * asserts EXACT prompt wiring or output indexes, not just `ok`.
- *
- * Mixed integration (reroutes + value sources + primitives + nesting +
- * partial execution over forwarded topology) lives at the bottom - the
- * pieces must compose, not merely work in isolation.
  */
 import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, type CompileInput } from '../src/compile/compile.js'
-import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
-import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -33,7 +27,7 @@ const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   ...extra,
 })
 const output = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const schemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -45,281 +39,27 @@ const floatWidget = (def: number): Pick<InputSpec, 'widget'> => ({
   widget: { widgetType: 'FLOAT', options: {}, default: def },
 })
 
+const group = (id: string, prefix: string, value: InputSpec | OutputSpec): GroupSpec => ({
+  kind: 'group', id, value, keys: { kind: 'numbered', prefix, start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
+})
+
 const schemas: Record<string, NodeSchema> = {
   Src: schemaOf('Src', [output('out')]),
   Sink: schemaOf('Sink', [input('in')]),
+  OptSink: schemaOf('OptSink', [input('in', { optional: true })]),
   IntSource: schemaOf('IntSource', [{ ...output('out'), type: { kind: 'concrete', name: 'INT' } }]),
   IntValue: schemaOf('IntValue', [input('value', {
     type: { kind: 'concrete', name: 'INT' },
     widget: { widgetType: 'INT', options: {}, default: 0 },
   })]),
   IntSink: schemaOf('IntSink', [input('in', { type: { kind: 'concrete', name: 'INT' } })]),
-  // Single-slot connectable family: wire names images.image0, image1, ...
-  Batch: schemaOf('Batch', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 8 },
-      },
-    },
-    output('out'),
-  ]),
-  FamilyFallbackRelay: schemaOf('FamilyFallbackRelay', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 8 },
-      },
-    },
-    input('fallback', { optional: true }),
-    output('out'),
-  ]),
-  Wire15Sink: schemaOf('Wire15Sink', [{
-    ...input('items', { optional: true }),
-    dynamic: {
-      kind: 'autogrow', materialization: 'wire15',
-      template: [input('value', { optional: true })],
-      naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-    },
-  }]),
-  // Tight cap for over-cap safety tests.
-  BatchCap2: schemaOf('BatchCap2', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 2 },
-      },
-    },
-    output('out'),
-  ]),
-  // Widget-backed family: member values, defaults, promoted suffix values.
-  Weigh: schemaOf('Weigh', [
-    {
-      ...input('weights'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('w', { optional: true, ...floatWidget(0.5) })],
-        naming: { kind: 'prefix', prefix: 'w', min: 0, max: 8 },
-      },
-    },
-    output('out'),
-  ]),
-  // Grouped template (two sockets + one widget) for slot-selective
-  // forwarding: everything optional so any subset is selectable.
-  Duo: schemaOf('Duo', [
-    {
-      ...input('pairs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          input('image', { optional: true }),
-          input('extra', { optional: true }),
-          input('gain', { optional: true, ...floatWidget(0.5) }),
-        ],
-        naming: { kind: 'prefix', prefix: 'pair', min: 0, max: 6 },
-      },
-    },
-    output('out'),
-  ]),
-  // Grouped OUTPUT family for slot-selective forwarding: output indexes are
-  // assigned on the INNER node over the FULL template, selection or not.
-  SplitDuo: schemaOf('SplitDuo', [
-    input('src', { optional: true }),
-    {
-      ...output('douts'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('main', { optional: true }), input('aux', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'd', min: 0, max: 4 },
-      },
-    } as OutputSpec,
-    output('last'),
-  ]),
-  // Nested family: items[m].sub[k] (Autogrow-in-Autogrow), plus a widget
-  // per item so memberState AND values must both rebase through crossings.
-  Nest: schemaOf('Nest', [
-    {
-      ...input('items'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          input('name', { optional: true, widget: { widgetType: 'STRING', options: {}, default: '' } }),
-          {
-            ...input('sub', { optional: true }),
-            dynamic: {
-              kind: 'autogrow',
-              template: [input('s', { optional: true })],
-              naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 4 },
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 5 },
-      },
-    },
-    output('out'),
-  ]),
-  // Dynamic OUTPUT family followed by a static output (index arithmetic).
-  Split: schemaOf('Split', [
-    input('src', { optional: true }),
-    {
-      ...output('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('o', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'o', min: 0, max: 6 },
-      },
-    } as OutputSpec,
-    output('last'),
-  ]),
-  CountSplit: schemaOf('CountSplit', [
-    input('count', {
-      type: { kind: 'concrete', name: 'INT' },
-      widget: { widgetType: 'INT', options: {}, default: 0 },
-    }),
-    {
-      ...output('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('out', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'out', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
-    output('last'),
-  ]),
-  NestedSplit: schemaOf('NestedSplit', [{
-    ...output('outs'),
-    dynamic: {
-      kind: 'autogrow', naming: { kind: 'prefix', prefix: 'out', min: 0, max: 4 },
-      template: [{
-        ...input('sub', { optional: true }),
-        dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-          template: [input('value', { optional: true })] },
-      }],
-    },
-  }, output('last')]),
-  WideCountSplit: schemaOf('WideCountSplit', [
-    input('count', {
-      type: { kind: 'concrete', name: 'INT' },
-      widget: { widgetType: 'INT', options: {}, default: 0 },
-    }),
-    {
-      ...output('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('out', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'out', min: 0, max: Number.MAX_SAFE_INTEGER },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
-    output('last'),
-  ]),
-  // Triple-nested family: a[mA].b[mB].c - two-hop ancestor routes.
-  Deep3: schemaOf('Deep3', [
-    {
-      ...input('a'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          {
-            ...input('b', { optional: true }),
-            dynamic: {
-              kind: 'autogrow',
-              template: [
-                {
-                  ...input('c', { optional: true }),
-                  dynamic: {
-                    kind: 'autogrow',
-                    template: [input('leaf', { optional: true })],
-                    naming: { kind: 'prefix', prefix: 'leaf', min: 0, max: 3 },
-                  },
-                },
-              ],
-              naming: { kind: 'prefix', prefix: 'b', min: 0, max: 3 },
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 'a', min: 0, max: 3 },
-      },
-    },
-    output('out'),
-  ]),
-  // Two independent families on one node: cumulative occurrence overlays.
-  TwoFam: schemaOf('TwoFam', [
-    {
-      ...input('imgs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 8 },
-      },
-    },
-    {
-      ...input('ws'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('w', { optional: true, ...floatWidget(0.5) })],
-        naming: { kind: 'prefix', prefix: 'w', min: 0, max: 8 },
-      },
-    },
-    output('out'),
-  ]),
-  // Family whose template holds a DynamicCombo: selected-branch state and
-  // branch values under a forwarded suffix member must both rebase.
-  Modal: schemaOf('Modal', [
-    {
-      ...input('opts'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          {
-            kind: 'input',
-            id: 'mode',
-            type: { kind: 'concrete', name: 'COMBO' },
-            optional: true,
-            dynamic: {
-              kind: 'dynamicCombo',
-              options: [
-                { key: 'a', inputs: [input('x', { optional: true, ...floatWidget(1) })] },
-                { key: 'b', inputs: [input('x', { optional: true, ...floatWidget(9) })] },
-              ],
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 'opt', min: 0, max: 4 },
-      },
-    },
-    output('out'),
-  ]),
-  // Family whose template is a DynamicSlot with a widget dependent:
-  // dependents elaborate from link EXISTENCE, so forwarding must project
-  // connectivity through the boundary - per occurrence.
-  SlotFam: schemaOf('SlotFam', [
-    {
-      ...input('slots'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          {
-            ...input('s', { optional: true }),
-            dynamic: {
-              kind: 'dynamicSlot',
-              slotType: IMAGE,
-              inputs: [input('gain', { optional: true, ...floatWidget(2) })],
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 's', min: 0, max: 4 },
-      },
-    },
-    output('out'),
-  ]),
+  // A group of pins: flattened ids images.image0, images.image1, ...
+  Batch: schemaOf('Batch', [group('images', 'image', input('image', { optional: true })), output('out')]),
+  // A group of fields: member values and member defaults.
+  Weigh: schemaOf('Weigh', [group('weights', 'w', input('w', { optional: true, ...floatWidget(0.5) })), output('out')]),
+  // A group of outputs followed by a static output (index arithmetic).
+  Split: schemaOf('Split', [input('src', { optional: true }), group('outs', 'o', output('o')), output('last')]),
+  FallbackRelay: schemaOf('FallbackRelay', [input('fallback', { optional: true }), output('out')]),
 }
 const resolve = (type: string) => schemas[type]
 
@@ -415,85 +155,11 @@ const okPrompt = (doc: WorkflowDocument) => {
   return result.artifact.prompt
 }
 
-/** Forwarding subgraph over one inner node: boundary input family + out port. */
-const famSub = (innerType: string, opts?: { innerDynamic?: Record<string, unknown>; innerValues?: Record<string, unknown> }): GraphSpec => ({
-  nodes: { n: { type: innerType, ...(opts?.innerDynamic ? { dynamic: opts.innerDynamic } : {}), ...(opts?.innerValues ? { values: opts.innerValues } : {}) } },
-  boundary: {
-    inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: innerFamilyOf(innerType) } }],
-    outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-  },
-})
-const innerFamilyOf = (type: string): string =>
-  type === 'Weigh' ? 'weights' : type === 'Nest' ? 'items' : type === 'SlotFam' ? 'slots' : 'images'
-
 // ---------------------------------------------------------------------------
 // Focused lowering behavior
 // ---------------------------------------------------------------------------
 
 describe('widget output boundary lowering', () => {
-
-  it.each([1, 2].flatMap((depth) => [false, true].flatMap((named) =>
-    ['value', 'link'].map((evidence) => ({ depth, named, evidence })),
-  )))('preserves authored positional evidence through $depth boundaries (named=$named, $evidence)', ({ depth, named, evidence }) => {
-    const first = named ? 'first' : 'item0'
-    const second = named ? 'second' : 'item1'
-    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
-      role: 'inputFamily', id: 'items', minMembers: 0, optionalAfterMinimum: true,
-      ...(named ? { memberNames: ['first', 'second', 'tail'] } : { memberPrefix: 'item', maxMembers: 3 }),
-      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false }],
-    }] }).schema!
-    const document = docOf({
-      g0: { nodes: { source: { type: 'IntSource' }, shell: {
-        type: depth === 1 ? '#sub' : '#outer',
-        values: evidence === 'value' ? { [`fam.${second}`]: 20 } : {},
-      } }, links: evidence === 'link' ? [[['source', 'out'], ['shell', `fam.${second}`]]] : [] },
-      sub: { nodes: { source: { type: 'IntSource' }, n: {
-        type: 'Positional', values: evidence === 'value' ? { [`items.${first}`]: 10 } : {},
-      } }, links: evidence === 'link' ? [[['source', 'out'], ['n', `items.${first}`]]] : [],
-      boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'items' } }] } },
-      ...(depth === 2 ? { outer: { nodes: { inner: { type: '#sub' } }, boundary: {
-        inputs: [{ id: 'fam', binds: { kind: 'family', node: 'inner', port: 'fam' } }],
-      } } } : {}),
-    })
-    const result = compile({ ...inputOf(document), resolve: (type) => type === 'Positional' ? positional : resolve(type) })
-    expect(result.ok, JSON.stringify(result.ok ? result.artifact.diagnostics : result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.diagnostics.filter((diagnostic) => diagnostic.blocksExecution)).toEqual([])
-    const node = Object.values(result.artifact.prompt).find((node) => node.class_type === 'Positional')!
-    expect(Object.keys(node.inputs)).toEqual([`items.${first}`, `items.${second}`])
-    if (evidence === 'value') expect(node.inputs).toEqual({ [`items.${first}`]: 10, [`items.${second}`]: 20 })
-    else {
-      expect(node.inputs[`items.${second}`]).toEqual(['source', 0])
-      expect(node.inputs[`items.${first}`]).not.toEqual(['source', 0])
-    }
-  })
-
-  it.each([1, 2])('compiles canonical opted-in suffixes through %s family boundaries', (depth) => {
-    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
-      role: 'inputFamily', id: 'images', minMembers: 2, maxMembers: 4,
-      memberPrefix: 'image', optionalAfterMinimum: true,
-      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
-    }] }).schema!
-    const document = docOf({
-      g0: { nodes: { a: { type: 'Src' }, b: { type: 'Src' }, shell: {
-        type: depth === 1 ? '#sub' : '#outer', dynamic: { fam: { members: ['image1', 'image2'] } },
-      } }, links: [[['b', 'out'], ['shell', 'fam.image1']]] },
-      sub: { nodes: { a: { type: 'Src' }, n: { type: 'Positional', dynamic: { images: { members: ['image0'] } } } },
-        links: [[['a', 'out'], ['n', 'images.image0']]],
-        boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'images' } }] } },
-      ...(depth === 2 ? { outer: { nodes: { inner: { type: '#sub' } }, boundary: {
-        inputs: [{ id: 'fam', binds: { kind: 'family', node: 'inner', port: 'fam' } }],
-      } } } : {}),
-    })
-    const result = compile({ ...inputOf(document), resolve: (type) => type === 'Positional' ? positional : resolve(type) })
-    expect(result.ok, JSON.stringify(result.ok ? result.artifact.diagnostics : result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.diagnostics.filter((diagnostic) => diagnostic.blocksExecution)).toEqual([])
-    const node = Object.values(result.artifact.prompt).find((node) => node.class_type === 'Positional')!
-    expect(Object.keys(node.inputs)).toEqual(['images.image0', 'images.image1'])
-    expect(node.inputs['images.image1']).toEqual(['b', 0])
-  })
-
   const leaf = (value: number): GraphSpec => ({
     nodes: { n: { type: 'IntValue', values: { value } } },
     boundary: {
@@ -540,350 +206,6 @@ describe('widget output boundary lowering', () => {
   })
 })
 
-describe('suffix members lower per occurrence', () => {
-  it('links and widget values on suffix members reach the inner node with merged api names', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0', 'm1'] } }, values: { 'fam.w#m1': 0.9 } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.w', ['m0']]]],
-        },
-        sub: famSub('Weigh'),
-      }),
-    )
-    // No definition prefix: suffix members take ordinals 0 and 1.
-    expect(prompt['s.n']!.inputs).toEqual({ 'weights.w0': ['a', 0], 'weights.w1': 0.9 })
-  })
-
-  it('definition prefix comes first; suffix ordinals continue after it', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.image', ['m0']]]],
-        },
-        sub: {
-          nodes: {
-            p: { type: 'Src' },
-            n: { type: 'Batch', dynamic: { images: { members: ['d0'] } } },
-          },
-          links: [[['p', 'out'], ['n', 'images.image', ['d0']]]],
-          boundary: {
-            inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'images' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    // Prefix member d0 -> image0 (fed inside the definition); suffix -> image1.
-    expect(prompt['s.n']!.inputs).toEqual({
-      'images.image0': ['s.p', 0],
-      'images.image1': ['a', 0],
-    })
-  })
-
-  it('suffix widget defaults apply from the forwarded template', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: { nodes: { s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } } } },
-        sub: famSub('Weigh'),
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toEqual({ 'weights.w0': 0.5 })
-  })
-
-  it('two instances of one definition keep independent suffix state', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s1: { type: '#sub', dynamic: { fam: { members: ['m0', 'm1'] } }, values: { 'fam.w#m0': 0.1, 'fam.w#m1': 0.2 } },
-            s2: { type: '#sub', dynamic: { fam: { members: ['m5'] } }, values: { 'fam.w#m5': 0.7 } },
-            s3: { type: '#sub' },
-          },
-        },
-        sub: famSub('Weigh'),
-      }),
-    )
-    expect(prompt['s1.n']!.inputs).toEqual({ 'weights.w0': 0.1, 'weights.w1': 0.2 })
-    expect(prompt['s2.n']!.inputs).toEqual({ 'weights.w0': 0.7 })
-    // The suffix-less instance sees NOTHING (occurrence caches must not leak).
-    expect(prompt['s3.n']!.inputs).toEqual({})
-  })
-
-  it('compilation never mutates the document (definitions, instances, snapshots)', () => {
-    const doc = docOf({
-      g0: {
-        nodes: {
-          s1: { type: '#sub', dynamic: { fam: { members: ['m0'] } }, values: { 'fam.w#m0': 0.3 } },
-          s2: { type: '#sub' },
-        },
-      },
-      sub: famSub('Weigh', { innerDynamic: { weights: { members: ['d0'] } } }),
-    })
-    const before = JSON.parse(JSON.stringify(doc)) as unknown
-    const result = run(doc)
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    expect(JSON.parse(JSON.stringify(doc))).toEqual(before)
-  })
-
-  it('member ids are identity: reordering suffix members moves values with them', () => {
-    const graphs = (members: string[]): Record<string, GraphSpec> => ({
-      g0: {
-        nodes: {
-          s: { type: '#sub', dynamic: { fam: { members } }, values: { 'fam.w#mA': 0.1, 'fam.w#mB': 0.9 } },
-        },
-      },
-      sub: famSub('Weigh'),
-    })
-    expect(okPrompt(docOf(graphs(['mA', 'mB'])))['s.n']!.inputs).toEqual({ 'weights.w0': 0.1, 'weights.w1': 0.9 })
-    expect(okPrompt(docOf(graphs(['mB', 'mA'])))['s.n']!.inputs).toEqual({ 'weights.w0': 0.9, 'weights.w1': 0.1 })
-  })
-})
-
-describe('nested and chained forwarding', () => {
-  it('forwards a nested family under a concrete ancestor member', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { subs: { members: ['k0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'subs.s', ['k0']]]],
-        },
-        sub: {
-          nodes: { n: { type: 'Nest', dynamic: { items: { members: ['d0'] } } } },
-          boundary: {
-            inputs: [{ id: 'subs', binds: { kind: 'family', node: 'n', port: 'items.sub', members: ['d0'] } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    // Canonical nested naming: outer member segment, nested port id, then
-    // nested prefix+ordinal ('items.item0.sub.sub0' - matches elaborate.ts).
-    // The essential assertion: the suffix member of the NESTED family wires
-    // under the correct concrete ancestor member.
-    expect(prompt['s.n']!.inputs).toMatchObject({ 'items.item0.sub.sub0': ['a', 0] })
-  })
-
-  it('nested memberState on the instance rebases through the crossing (autogrow-in-autogrow)', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: {
-              type: '#sub',
-              dynamic: {
-                fam: { members: ['x0'], memberState: { x0: { 'fam.sub': { members: ['y0'] } } } },
-              },
-              values: { 'fam.name#x0': 'hello' },
-            },
-          },
-          links: [[['a', 'out'], ['s', 'fam.sub.s', ['x0', 'y0']]]],
-        },
-        sub: famSub('Nest'),
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toMatchObject({
-      'items.item0.name': 'hello',
-      'items.item0.sub.sub0': ['a', 0],
-    })
-  })
-
-  it('chains forwarding through two subgraph boundaries with additive ordinals', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#outer', dynamic: { fam2: { members: ['m0'] } }, values: { 'fam2.w#m0': 0.9 } },
-          },
-          links: [[['a', 'out'], ['s', 'fam2.w', ['m0']]]],
-        },
-        outer: {
-          nodes: { i: { type: '#inner', dynamic: { fam1: { members: ['q0'] } }, values: { 'fam1.w#q0': 0.4 } } },
-          boundary: {
-            inputs: [{ id: 'fam2', binds: { kind: 'family', node: 'i', port: 'fam1' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'i', port: 'out' } }],
-          },
-        },
-        inner: {
-          nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['d0'] } }, values: { 'weights.w#d0': 0.1 } } },
-          boundary: {
-            inputs: [{ id: 'fam1', binds: { kind: 'family', node: 'n', port: 'weights' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    // Ordinals: inner definition prefix d0 -> w0, outer-definition member on
-    // the mid instance q0 -> w1, root suffix m0 -> w2. The link (not the
-    // stored value) drives w2: connections beat values.
-    expect(prompt['s.i.n']!.inputs).toEqual({
-      'weights.w0': 0.1,
-      'weights.w1': 0.4,
-      'weights.w2': ['a', 0],
-    })
-  })
-})
-
-describe('dynamic output forwarding', () => {
-  it('forwards nested output families through two wrappers with independent sibling member state', () => {
-    const prompt = okPrompt(docOf({
-      g0: {
-        nodes: {
-          a: { type: '#outer', dynamic: { outputs: { members: ['m0'], memberState: {
-            m0: { 'outputs.sub': { members: ['k0', 'k1'] } },
-          } } } },
-          b: { type: '#outer', dynamic: { outputs: { members: ['m0'], memberState: {
-            m0: { 'outputs.sub': { members: ['k0'] } },
-          } } } },
-          first: { type: 'Sink' }, second: { type: 'Sink' }, other: { type: 'Sink' },
-        },
-        links: [
-          [['a', 'outputs.sub.value', ['m0', 'k0']], ['first', 'in']],
-          [['a', 'outputs.sub.value', ['m0', 'k1']], ['second', 'in']],
-          [['b', 'outputs.sub.value', ['m0', 'k0']], ['other', 'in']],
-        ],
-      },
-      outer: {
-        nodes: { i: { type: '#inner' } },
-        boundary: { outputs: [{ id: 'outputs', binds: { kind: 'family', node: 'i', port: 'outputs' } }] },
-      },
-      inner: {
-        nodes: { n: { type: 'NestedSplit' } },
-        boundary: { outputs: [{ id: 'outputs', binds: { kind: 'family', node: 'n', port: 'outs' } }] },
-      },
-    }))
-    expect(prompt.first!.inputs).toEqual({ in: ['a.i.n', 0] })
-    expect(prompt.second!.inputs).toEqual({ in: ['a.i.n', 1] })
-    expect(prompt.other!.inputs).toEqual({ in: ['b.i.n', 0] })
-  })
-
-  const outSub: GraphSpec = {
-    nodes: { n: { type: 'Split', dynamic: { outs: { members: ['d0'] } } } },
-    boundary: {
-      inputs: [{ id: 'src', binds: { kind: 'port', node: 'n', port: 'src' } }],
-      outputs: [
-        { id: 'fouts', binds: { kind: 'family', node: 'n', port: 'outs' } },
-        { id: 'last', binds: { kind: 'port', node: 'n', port: 'last' } },
-      ],
-    },
-  }
-
-  it('suffix output members take merged wire indexes; static outputs shift after them', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            s: { type: '#sub', dynamic: { fouts: { members: ['m0', 'm1'] } } },
-            k0: { type: 'Sink' },
-            k1: { type: 'Sink' },
-            k2: { type: 'Sink' },
-          },
-          links: [
-            [['s', 'fouts.o', ['m0']], ['k0', 'in']],
-            [['s', 'fouts.o', ['m1']], ['k1', 'in']],
-            [['s', 'last'], ['k2', 'in']],
-          ],
-        },
-        sub: outSub,
-      }),
-    )
-    // Merged outputs on the inner node: d0 (index 0), suffix m0 (1), m1 (2), last (3).
-    expect(prompt['k0']!.inputs).toEqual({ in: ['s.n', 1] })
-    expect(prompt['k1']!.inputs).toEqual({ in: ['s.n', 2] })
-    expect(prompt['k2']!.inputs).toEqual({ in: ['s.n', 3] })
-  })
-
-  it('forwards hidden count-bound members and shifts following output indexes', () => {
-    const prompt = okPrompt(docOf({
-      g0: {
-        nodes: { s: { type: '#sub' }, member: { type: 'Sink' }, last: { type: 'Sink' } },
-        links: [
-          [['s', 'fouts', ['1']], ['member', 'in']],
-          [['s', 'last'], ['last', 'in']],
-        ],
-      },
-      sub: {
-        nodes: { n: { type: 'CountSplit', values: { count: 2 } } },
-        boundary: {
-          outputs: [
-            { id: 'fouts', binds: { kind: 'family', node: 'n', port: 'outs' } },
-            { id: 'last', binds: { kind: 'port', node: 'n', port: 'last' } },
-          ],
-        },
-      },
-    }))
-    expect(prompt['s.n']!.outputMembers).toEqual({ outs: ['0', '1'] })
-    expect(prompt.member!.inputs).toEqual({ in: ['s.n', 1] })
-    expect(prompt.last!.inputs).toEqual({ in: ['s.n', 2] })
-  })
-
-  it('keeps promoted output counts independent across sibling instances', () => {
-    const prompt = okPrompt(docOf({
-      g0: {
-        nodes: {
-          a: { type: '#sub', values: { amount: 1 } },
-          b: { type: '#sub', values: { amount: 3 } },
-          first: { type: 'Sink' },
-          third: { type: 'Sink' },
-        },
-        links: [
-          [['a', 'fouts', ['0']], ['first', 'in']],
-          [['b', 'fouts', ['2']], ['third', 'in']],
-        ],
-      },
-      sub: {
-        nodes: { n: { type: 'CountSplit', values: { count: 2 } } },
-        boundary: {
-          inputs: [{ id: 'amount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true }],
-          outputs: [{ id: 'fouts', binds: { kind: 'family', node: 'n', port: 'outs' } }],
-        },
-      },
-    }))
-    expect(prompt['a.n']!.inputs.count).toBe(1)
-    expect(prompt['a.n']!.outputMembers).toEqual({ outs: ['0'] })
-    expect(prompt['b.n']!.inputs.count).toBe(3)
-    expect(prompt['b.n']!.outputMembers).toEqual({ outs: ['0', '1', '2'] })
-    expect(prompt.first!.inputs).toEqual({ in: ['a.n', 0] })
-    expect(prompt.third!.inputs).toEqual({ in: ['b.n', 2] })
-  })
-
-})
-
-describe('connectivity projection (DynamicSlot dependents through the boundary)', () => {
-  it('a parent link into a forwarded slot member elaborates its dependents - per occurrence only', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s1: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-            s2: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s1', 'fam.s', ['m0']]]],
-        },
-        sub: famSub('SlotFam'),
-      }),
-    )
-    // s1: slot connected -> dependent 'gain' elaborates with its default.
-    expect(prompt['s1.n']!.inputs).toMatchObject({ 'slots.s0.s': ['a', 0], 'slots.s0.s.gain': 2 })
-    // s2: same definition, same member id, NO link -> no dependent leaks over.
-    expect(prompt['s2.n']!.inputs).toEqual({})
-  })
-})
-
 describe('boundary address matching (dotted ids, ambiguity)', () => {
   it('a concrete boundary input with a dotted id resolves exactly', () => {
     const prompt = okPrompt(
@@ -908,87 +230,9 @@ describe('boundary address matching (dotted ids, ambiguity)', () => {
     expect(prompt['k']!.inputs).toEqual({ in: ['s.o', 0] })
   })
 
-  it('a forwarded family with a dotted boundary id lowers', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { 'fam.set': { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.set.image', ['m0']]]],
-        },
-        sub: {
-          nodes: { n: { type: 'Batch' } },
-          boundary: {
-            inputs: [{ id: 'fam.set', binds: { kind: 'family', node: 'n', port: 'images' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toEqual({ 'images.image0': ['a', 0] })
-  })
-
 })
 
-describe('cumulative and occurrence-local behavior', () => {
-  it('two forwarded families targeting one inner node overlay cumulatively', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: {
-              type: '#sub',
-              dynamic: { pics: { members: ['p0'] }, weights: { members: ['q0'] } },
-              values: { 'weights.w#q0': 0.8 },
-            },
-          },
-          links: [[['a', 'out'], ['s', 'pics.image', ['p0']]]],
-        },
-        sub: {
-          nodes: { n: { type: 'TwoFam' } },
-          boundary: {
-            inputs: [
-              { id: 'pics', binds: { kind: 'family', node: 'n', port: 'imgs' } },
-              { id: 'weights', binds: { kind: 'family', node: 'n', port: 'ws' } },
-            ],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toEqual({ 'imgs.image0': ['a', 0], 'ws.w0': 0.8 })
-  })
-
-  it('a DynamicCombo under a forwarded suffix member selects and values per instance', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            s1: {
-              type: '#sub',
-              dynamic: { fam: { members: ['m0'], memberState: { m0: { 'fam.mode': { selected: 'b' } } } } },
-            },
-            s2: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-        },
-        sub: {
-          nodes: { n: { type: 'Modal' } },
-          boundary: {
-            inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'opts' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    // s1 selected branch 'b' (x defaults 9); s2 defaults to branch 'a' (x 1).
-    // Same member id on both instances: state must not bleed across.
-    expect(prompt['s1.n']!.inputs).toEqual({ 'opts.opt0.mode': 'b', 'opts.opt0.mode.x': 9 })
-    expect(prompt['s2.n']!.inputs).toEqual({ 'opts.opt0.mode': 'a', 'opts.opt0.mode.x': 1 })
-  })
-
+describe('promoted values', () => {
   it('chained concrete promotion: the outer instance value wins (first-write outside-in)', () => {
     const prompt = okPrompt(
       docOf({
@@ -1003,9 +247,9 @@ describe('cumulative and occurrence-local behavior', () => {
           },
         },
         inner: {
-          nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['d0'] } }, values: { 'weights.w#d0': 1 } } },
+          nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['w0'] } }, values: { 'weights.w0': 1 } } },
           boundary: {
-            inputs: [{ id: 'gain', binds: { kind: 'port', node: 'n', port: 'weights.w', members: ['d0'] }, promoted: true }],
+            inputs: [{ id: 'gain', binds: { kind: 'port', node: 'n', port: 'weights.w0' }, promoted: true }],
             outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
           },
         },
@@ -1016,376 +260,137 @@ describe('cumulative and occurrence-local behavior', () => {
 })
 
 describe('failure safety', () => {
-  it('I1 obligation 7: active boundary death, bypassed shell, chained boundaries, and sibling overlays stay occurrence-correct', () => {
+  it('bypass routes through chained boundaries, a bypassed shell and sibling occurrences stay occurrence-correct', () => {
     const result = run(docOf({
       g0: {
         nodes: {
-          familySource: { type: 'Src' },
           activeSource: { type: 'Src' },
           mutedSource: { type: 'Src', mode: 'muted' },
-          left: { type: '#middle', dynamic: { fam: { members: ['left0', 'left1'] } } },
-          right: { type: '#middle', dynamic: { fam: { members: ['right0'] } } },
+          left: { type: '#middle' },
+          right: { type: '#middle' },
           bypassedShell: { type: '#inner', mode: 'bypassed' },
           mutedShell: { type: '#inner', mode: 'muted' },
-          leftTarget: { type: 'Wire15Sink' },
-          rightTarget: { type: 'Wire15Sink' },
-          shellTarget: { type: 'Wire15Sink' },
-          mutedTarget: { type: 'Wire15Sink' },
+          leftTarget: { type: 'OptSink' },
+          rightTarget: { type: 'OptSink' },
+          shellTarget: { type: 'OptSink' },
+          mutedTarget: { type: 'OptSink' },
         },
         links: [
-          [['familySource', 'out'], ['left', 'fam.image', ['left0']]],
-          [['familySource', 'out'], ['left', 'fam.image', ['left1']]],
           [['activeSource', 'out'], ['left', 'fallback']],
-          [['left', 'out'], ['leftTarget', 'items.result']],
-          [['familySource', 'out'], ['right', 'fam.image', ['right0']]],
+          [['left', 'out'], ['leftTarget', 'in']],
           [['mutedSource', 'out'], ['right', 'fallback']],
-          [['right', 'out'], ['rightTarget', 'items.result']],
+          [['right', 'out'], ['rightTarget', 'in']],
           [['activeSource', 'out'], ['bypassedShell', 'fallback']],
-          [['bypassedShell', 'out'], ['shellTarget', 'items.result']],
+          [['bypassedShell', 'out'], ['shellTarget', 'in']],
           [['activeSource', 'out'], ['mutedShell', 'fallback']],
-          [['mutedShell', 'out'], ['mutedTarget', 'items.result']],
+          [['mutedShell', 'out'], ['mutedTarget', 'in']],
         ],
       },
       middle: {
         nodes: { inner: { type: '#inner' } },
         boundary: {
-          inputs: [
-            { id: 'fam', binds: { kind: 'family', node: 'inner', port: 'fam' } },
-            { id: 'fallback', binds: { kind: 'port', node: 'inner', port: 'fallback' } },
-          ],
+          inputs: [{ id: 'fallback', binds: { kind: 'port', node: 'inner', port: 'fallback' } }],
           outputs: [{ id: 'out', binds: { kind: 'port', node: 'inner', port: 'out' } }],
         },
       },
       inner: {
-        nodes: { relay: { type: 'FamilyFallbackRelay', mode: 'bypassed' } },
+        nodes: { relay: { type: 'FallbackRelay', mode: 'bypassed' } },
         boundary: {
-          inputs: [
-            { id: 'fam', binds: { kind: 'family', node: 'relay', port: 'images' } },
-            { id: 'fallback', binds: { kind: 'port', node: 'relay', port: 'fallback' } },
-          ],
+          inputs: [{ id: 'fallback', binds: { kind: 'port', node: 'relay', port: 'fallback' } }],
           outputs: [{ id: 'out', binds: { kind: 'port', node: 'relay', port: 'out' } }],
         },
       },
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt.leftTarget!.inputs['items.result']).toEqual(['activeSource', 0])
-    expect(result.artifact.prompt.rightTarget!.inputs['items.result']).toBeUndefined()
-    expect(result.artifact.prompt.shellTarget!.inputs['items.result']).toEqual(['activeSource', 0])
-    expect(result.artifact.prompt.mutedTarget!.inputs['items.result']).toBeUndefined()
+    expect(result.artifact.prompt.leftTarget!.inputs['in']).toEqual(['activeSource', 0])
+    expect(result.artifact.prompt.rightTarget!.inputs['in']).toBeUndefined()
+    expect(result.artifact.prompt.shellTarget!.inputs['in']).toEqual(['activeSource', 0])
+    expect(result.artifact.prompt.mutedTarget!.inputs['in']).toBeUndefined()
     const warning = result.artifact.diagnostics.find((diagnostic) =>
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
     expect(warning?.anchor?.occurrence).toEqual({ instancePath: ['right', 'inner'], node: 'relay' })
     expect(warning?.message).toBe('relay.fallback: selected bypass route has no value')
-    expect(warning?.data?.['inputIndex']).toBe(1)
+    expect(warning?.data?.['inputIndex']).toBe(0)
   })
-
-  it('I1 obligation 8: FamilyCrossing member keeps its index but is skipped as a bypass candidate', () => {
-    const document = (withFallback: boolean) => docOf({
-      g0: {
-        nodes: {
-          familySource: { type: 'Src' },
-          fallbackSource: { type: 'Src' },
-          shell: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          target: { type: 'Wire15Sink' },
-        },
-        links: [
-          [['familySource', 'out'], ['shell', 'fam.image', ['m0']]],
-          ...(withFallback ? [[['fallbackSource', 'out'], ['shell', 'fallback']] as [End, End]] : []),
-          [['shell', 'out'], ['target', 'items.result']],
-        ],
-      },
-      sub: {
-        nodes: { relay: { type: 'FamilyFallbackRelay', mode: 'bypassed' } },
-        boundary: {
-          inputs: [
-            { id: 'fam', binds: { kind: 'family', node: 'relay', port: 'images' } },
-            { id: 'fallback', binds: { kind: 'port', node: 'relay', port: 'fallback' } },
-          ],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'relay', port: 'out' } }],
-        },
-      },
-    })
-
-    const routed = run(document(true))
-    expect(routed.ok, JSON.stringify(!routed.ok && routed.diagnostics)).toBe(true)
-    if (routed.ok) {
-      expect(routed.artifact.prompt.target!.inputs['items.result']).toEqual(['fallbackSource', 0])
-      expect(routed.artifact.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('compile.bypass.unrouted')
-    }
-
-    const unrouted = run(document(false))
-    expect(unrouted.ok, JSON.stringify(!unrouted.ok && unrouted.diagnostics)).toBe(true)
-    if (unrouted.ok) {
-      expect(unrouted.artifact.prompt.target!.inputs['items.result']).toBeUndefined()
-      expect(unrouted.artifact.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.bypass.unrouted')
-    }
-  })
-
 })
 
 // ---------------------------------------------------------------------------
-// Mixed integration: reroutes + value sources + nets + forwarding + partial
+// Mixed integration: reroutes + value sources + forwarding + partial
 // execution composed in single documents.
 // ---------------------------------------------------------------------------
 
-describe('slot-selective forwarding lowering (binds.slots, hazard F10)', () => {
-  /** Duo forwarded with a selection; static out port for scope. */
-  const duoSub = (slots?: string[]): GraphSpec => ({
-    nodes: { n: { type: 'Duo' } },
-    boundary: {
-      inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'pairs', ...(slots ? { slots } : {}) } }],
-      outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-    },
-  })
-
-  it('a selected slot lowers; omitted slots take template defaults on the inner node', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.image', ['m0']]]],
-        },
-        sub: duoSub(['image']),
-      }),
-    )
-    // Grouped wire names: family.memberName.slot. 'gain' is unexposed, so
-    // the inner elaboration bakes the template default; 'extra' stays absent.
-    expect(prompt['s.n']!.inputs).toEqual({
-      'pairs.pair0.image': ['a', 0],
-      'pairs.pair0.gain': 0.5,
-    })
-  })
-
-  it('a stale value under an unexposed slot is dormant, never compiled and never an error', () => {
-    // As if the boundary was narrowed AFTER the instance stored a gain value:
-    // preserved-by-design state, the template default compiles instead.
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] } }, values: { 'fam.gain#m0': 0.9 } },
-          },
-        },
-        sub: duoSub(['image']),
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toEqual({ 'pairs.pair0.gain': 0.5 })
-  })
-
-  it('chained forwarding narrows the selection and still lowers end to end', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#outer', dynamic: { fam2: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam2.image', ['m0']]]],
-        },
-        outer: {
-          nodes: { i: { type: '#sub' } },
-          boundary: {
-            inputs: [{ id: 'fam2', binds: { kind: 'family', node: 'i', port: 'fam', slots: ['image'] } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'i', port: 'out' } }],
-          },
-        },
-        sub: duoSub(['image', 'gain']),
-      }),
-    )
-    expect(prompt['s.i.n']!.inputs).toEqual({
-      'pairs.pair0.image': ['a', 0],
-      'pairs.pair0.gain': 0.5,
-    })
-  })
-
-  it('output selection keeps inner output indexes computed over the FULL template', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            s: { type: '#sub2', dynamic: { fouts: { members: ['m0'] } } },
-            k: { type: 'Sink' },
-          },
-          links: [[['s', 'fouts.aux', ['m0']], ['k', 'in']]],
-        },
-        sub2: {
-          nodes: { n: { type: 'SplitDuo' } },
-          boundary: {
-            outputs: [{ id: 'fouts', binds: { kind: 'family', node: 'n', port: 'douts', slots: ['aux'] } }],
-          },
-        },
-      }),
-    )
-    // Member m0 stamps main (idx 0) AND aux (idx 1) on the inner node even
-    // though only aux is exposed - selection must not shift indexes.
-    expect(prompt['k']!.inputs).toEqual({ in: ['s.n', 1] })
-  })
-
-  it('named net and reroute feed selected forwarded slots of two members', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0', 'm1'] } } },
-          },
-          reroutes: ['r0'],
-          links: [
-            [['a', 'out'], { reroute: 'r0' }],
-            [{ reroute: 'r0' }, ['s', 'fam.image', ['m0']]],
-          ],
-          nets: { imgs: { source: ['a', 'out'], sinks: [['s', 'fam.image', ['m1']]] } },
-        },
-        sub: duoSub(['image']),
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toEqual({
-      'pairs.pair0.image': ['a', 0],
-      'pairs.pair0.gain': 0.5,
-      'pairs.pair1.image': ['a', 0],
-      'pairs.pair1.gain': 0.5,
-    })
-  })
-
-  /** Nest forwarded with a dotted (nested-narrowing) selection. */
-  const nestSelSub = (slots: string[]): GraphSpec => ({
-    nodes: { n: { type: 'Nest' } },
-    boundary: {
-      inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'items', slots } }],
-      outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-    },
-  })
-
-  it('a dotted selection narrows a nested construct and lowers through nested member state', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: {
-              type: '#nsub',
-              dynamic: { fam: { members: ['x0'], memberState: { x0: { 'fam.sub': { members: ['y0'] } } } } },
-            },
-          },
-          links: [[['a', 'out'], ['s', 'fam.sub.s', ['x0', 'y0']]]],
-        },
-        nsub: nestSelSub(['sub.s']),
-      }),
-    )
-    // Hidden 'name' bakes the inner template default; the nested wire lands
-    // under the rebased ancestor member. The 'fam.sub'-keyed nested state
-    // proves the ancestor CONSTRUCT stays addressable under a dotted entry.
-    expect(prompt['s.n']!.inputs).toEqual({
-      'items.item0.name': '',
-      'items.item0.sub.sub0': ['a', 0],
-    })
-  })
-
-})
-
 describe('mixed integration', () => {
-  it('value source -> reroute chain -> forwarded suffix member (baked, beats template default)', () => {
+  it('value source -> reroute chain -> a forwarded group member (baked, beats the member default)', () => {
     const prompt = okPrompt(
       docOf({
         g0: {
-          nodes: { s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } } },
+          nodes: { s: { type: '#sub' } },
           reroutes: ['r0', 'r1'],
           valueSources: { v0: 0.75 },
           links: [
             [{ valueSource: 'v0' }, { reroute: 'r0' }],
             [{ reroute: 'r0' }, { reroute: 'r1' }],
-            [{ reroute: 'r1' }, ['s', 'fam.w', ['m0']]],
-          ],
-        },
-        sub: famSub('Weigh'),
-      }),
-    )
-    expect(prompt['s.n']!.inputs).toEqual({ 'weights.w0': 0.75 })
-  })
-
-  it('forwarded dynamic output -> reroute -> consumer', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            s: { type: '#sub', dynamic: { fouts: { members: ['m0'] } } },
-            k: { type: 'Sink' },
-          },
-          reroutes: ['r0'],
-          links: [
-            [['s', 'fouts.o', ['m0']], { reroute: 'r0' }],
-            [{ reroute: 'r0' }, ['k', 'in']],
+            [{ reroute: 'r1' }, ['s', 'w']],
           ],
         },
         sub: {
-          nodes: { n: { type: 'Split' } },
+          nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['w0'] } } } },
           boundary: {
-            outputs: [{ id: 'fouts', binds: { kind: 'family', node: 'n', port: 'outs' } }],
-          },
-        },
-      }),
-    )
-    expect(prompt['k']!.inputs).toEqual({ in: ['s.n', 0] })
-  })
-
-  it('prefix + suffix fed through reroutes inside AND outside the definition', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-          reroutes: ['r0'],
-          links: [
-            [['a', 'out'], { reroute: 'r0' }],
-            [{ reroute: 'r0' }, ['s', 'fam.image', ['m0']]],
-          ],
-        },
-        sub: {
-          nodes: {
-            p: { type: 'Src' },
-            n: { type: 'Batch', dynamic: { images: { members: ['d0'] } } },
-          },
-          reroutes: ['ri'],
-          links: [
-            [['p', 'out'], { reroute: 'ri' }],
-            [{ reroute: 'ri' }, ['n', 'images.image', ['d0']]],
-          ],
-          boundary: {
-            inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'images' } }],
+            inputs: [{ id: 'w', binds: { kind: 'port', node: 'n', port: 'weights.w0' } }],
             outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
           },
         },
       }),
     )
-    expect(prompt['s.n']!.inputs).toEqual({
-      'images.image0': ['s.p', 0],
-      'images.image1': ['a', 0],
-    })
+    expect(prompt['s.n']!.inputs).toEqual({ 'weights.w0': 0.75 })
   })
 
-  it('partial execution scopes through forwarded members and reroutes', () => {
+  it('a forwarded group output member -> reroute -> consumer', () => {
+    const prompt = okPrompt(
+      docOf({
+        g0: {
+          nodes: { s: { type: '#sub' }, k: { type: 'Sink' } },
+          reroutes: ['r0'],
+          links: [
+            [['s', 'o'], { reroute: 'r0' }],
+            [{ reroute: 'r0' }, ['k', 'in']],
+          ],
+        },
+        sub: {
+          nodes: { n: { type: 'Split', dynamic: { outs: { members: ['o0', 'o1'] } } } },
+          boundary: {
+            outputs: [{ id: 'o', binds: { kind: 'port', node: 'n', port: 'outs.o1' } }],
+          },
+        },
+      }),
+    )
+    expect(prompt['k']!.inputs).toEqual({ in: ['s.n', 1] })
+  })
+
+  it('partial execution scopes through a forwarded group member and reroutes', () => {
     const doc = docOf({
       g0: {
         nodes: {
           a: { type: 'Src' },
           b: { type: 'Src' },
-          s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
+          s: { type: '#sub' },
           other: { type: 'Sink' },
         },
         reroutes: ['r0'],
         links: [
           [['a', 'out'], { reroute: 'r0' }],
-          [{ reroute: 'r0' }, ['s', 'fam.image', ['m0']]],
+          [{ reroute: 'r0' }, ['s', 'image']],
           [['b', 'out'], ['other', 'in']],
         ],
       },
-      sub: famSub('Batch'),
+      sub: {
+        nodes: { n: { type: 'Batch', dynamic: { images: { members: ['image0'] } } } },
+        boundary: {
+          inputs: [{ id: 'image', binds: { kind: 'port', node: 'n', port: 'images.image0' } }],
+          outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
+        },
+      },
     })
     const result = run(doc, { kind: 'partial', targets: [{ instancePath: [asNodeId('s')], node: asNodeId('n') }] })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
@@ -1393,6 +398,6 @@ describe('mixed integration', () => {
     // Upstream closure of the inner node: itself + the Src feeding the
     // forwarded member (through the reroute). The unrelated branch is out.
     expect(Object.keys(result.artifact.prompt).sort()).toEqual(['a', 's.n'])
+    expect(result.artifact.prompt['s.n']!.inputs).toEqual({ 'images.image0': ['a', 0] })
   })
-
 })

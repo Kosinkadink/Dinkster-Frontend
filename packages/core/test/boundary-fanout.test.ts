@@ -56,19 +56,19 @@ const schemas: Record<string, NodeSchema> = {
   Knob: schemaOf('Knob', [
     input('v', { type: FLOAT, widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } }),
   ]),
-  // Single-slot autogrow (wire names images.image0, image1, ...): dynamic
-  // member routes must fan out like static ports.
-  Batcher: schemaOf('Batcher', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 2 },
+  // A group of one input per member (images.image0, images.image1): member
+  // routes must fan out like static ports.
+  Batcher: {
+    ...schemaOf('Batcher', [output('out')]),
+    body: [
+      {
+        kind: 'group', id: 'images', value: input('image'),
+        keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+        grows: 'link', minMembers: 1, maxMembers: 2,
       },
-    },
-    output('out'),
-  ]),
+      output('out'),
+    ],
+  },
 }
 const resolve = (type: string) => schemas[type]
 
@@ -266,20 +266,6 @@ describe('deriveBoundarySchema with fan-out', () => {
     expect(gain.optional).toBe(true) // both targets widget-backed
   })
 
-  it('derives whole-family input fan-out from the authoritative primary target', () => {
-    const def = defOf(
-      { b1: { type: 'Batcher' }, b2: { type: 'Batcher' } },
-      { inputs: [{
-        id: 'in',
-        binds: { kind: 'family', node: 'b1', port: 'images' },
-        alsoBinds: [{ kind: 'family', node: 'b2', port: 'images' }],
-      }] },
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics).toEqual([])
-    expect(inputsOf(schema!)[0]).toMatchObject({ id: 'in', dynamic: { kind: 'autogrow' } })
-  })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -364,7 +350,7 @@ describe('compile lowers boundary fan-out', () => {
     expect(prompt['i.si.t2']!.inputs).toEqual({ in: ['a', 0] })
   })
 
-  it('dynamic member routes fan out (autogrow targets on two inner nodes)', () => {
+  it('group member routes fan out (member targets on two inner nodes)', () => {
     const prompt = okPrompt(
       docOf({
         g0: {
@@ -373,14 +359,14 @@ describe('compile lowers boundary fan-out', () => {
         },
         sub: {
           nodes: {
-            b1: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
-            b2: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
+            b1: { type: 'Batcher', dynamic: { images: { members: ['image0'] } } },
+            b2: { type: 'Batcher', dynamic: { images: { members: ['image0'] } } },
           },
           boundary: {
             inputs: [{
               id: 'first',
-              binds: bind('b1', 'images.image', ['m0']),
-              alsoBinds: [bind('b2', 'images.image', ['m0'])],
+              binds: bind('b1', 'images.image0'),
+              alsoBinds: [bind('b2', 'images.image0')],
             }],
           },
         },
