@@ -200,8 +200,10 @@ override, or caller-owned workflow title.
 Each tab keeps its kind icon: workflow, app, curve, shader source, or a
 file for an extension-defined editor. A running job breathes that same icon
 in cyan rather than replacing it with a spinner; reduced motion keeps it
-still. The last completed run puts a cyan dot at the icon's lower right;
-an error puts a coral dot there. An edit or a new run clears the result.
+still. Queued work is cyan without motion. The run that ended most recently
+puts a cyan dot at the icon's lower right on completion, or a coral dot on
+failure or interruption; user cancellation has no dot. An edit or a new run
+clears the result.
 Run ownership follows the document lineage, independently of canvas overlay
 pins, and frozen tabs show only their own run. The unsaved marker is secondary
 text gray in the close button's place; hover or keyboard focus reveals Close.

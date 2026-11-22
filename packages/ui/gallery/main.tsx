@@ -306,6 +306,7 @@ function Gallery() {
               <Section title="Run icons" components="ProductRunIcon">
                 <div class="dinkster-actions">
                   <span>Idle <ProductRunIcon icon={Settings} /></span>
+                  <span>Queued <ProductRunIcon icon={Settings} queued /></span>
                   <span>Running <ProductRunIcon icon={Settings} running /></span>
                   <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
                   <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>

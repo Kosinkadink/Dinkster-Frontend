@@ -59,7 +59,7 @@
 .dinkster-link:hover { color: var(--dinkster-text-primary); }
 .dinkster-icon { width: var(--dinkster-icon-size); height: var(--dinkster-icon-size); flex: none; }
 .dinkster-run-icon { position: relative; display: inline-flex; flex: none; }
-.dinkster-run-icon[data-running] { color: var(--dinkster-accent-foreground); }
+.dinkster-run-icon:is([data-running], [data-queued]) { color: var(--dinkster-accent-foreground); }
 .dinkster-run-icon[data-running] > .dinkster-icon { animation: dinkster-breathe 2.4s ease-in-out infinite; }
 .dinkster-run-icon[data-result]::after { content: ''; position: absolute; right: -2px; bottom: -2px; width: var(--dinkster-space-8); height: var(--dinkster-space-8); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-accent-foreground); box-shadow: 0 0 0 2px var(--dinkster-surface-panel); }
 .dinkster-run-icon[data-result='failed']::after { background: var(--dinkster-danger-foreground); }

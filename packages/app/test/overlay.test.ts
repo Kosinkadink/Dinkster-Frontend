@@ -91,6 +91,21 @@ describe('follow-latest default', () => {
 })
 
 describe('tab run marks', () => {
+  it('shows the last run to end, not the last one queued, and clears cancelled results', () => {
+    const slow = run(basic, 100)
+    const fast = run(basic, 200)
+    expect(app.tabRunState(basic)).toBe('queued')
+    app.store.apply({ kind: 'started', execution: slow, timestamp: 201 })
+    app.store.apply({ kind: 'completed', execution: fast, timestamp: 202 })
+    expect(app.tabRunState(basic)).toBe('running')
+    app.store.apply({ kind: 'error', execution: slow, timestamp: 400, runtimeNodeId: 'n0',
+      detail: { exceptionType: 'RuntimeError', exceptionMessage: 'No image', traceback: [] } })
+    expect(app.tabRunState(basic)).toBe('failed')
+    const cancelled = run(basic, 500)
+    app.store.apply({ kind: 'cancelled', execution: cancelled, timestamp: 501 })
+    expect(app.tabRunState(basic)).toBe('idle')
+  })
+
   it('tracks each lineage independently of overlay pins and clears results on edit or a new run', async () => {
     expect(app.tabRunState(basic)).toBe('idle')
     const first = run(basic, 100)
@@ -115,7 +130,7 @@ describe('tab run marks', () => {
     app.store.apply({ kind: 'completed', execution: second, timestamp: 302 })
     expect(app.tabRunState(basic)).toBe('finished')
     const third = run(basic, 400)
-    expect(app.tabRunState(basic)).toBe('idle')
+    expect(app.tabRunState(basic)).toBe('queued')
     app.store.apply({ kind: 'error', execution: third, timestamp: 401, runtimeNodeId: 'n0',
       detail: { exceptionType: 'RuntimeError', exceptionMessage: 'No image', traceback: [] } })
     expect(app.tabRunState(basic)).toBe('failed')

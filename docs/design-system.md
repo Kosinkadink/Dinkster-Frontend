@@ -146,7 +146,8 @@ foreground against their actual fill, including the hovered fill.
   action in its column. `ProductLoading` is one status region with its label;
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
-  and cyan. Its optional `finished`/`failed` result adds a lower-right cyan or
+  and cyan. Queued work stays cyan without motion. Its optional
+  `finished`/`failed` result adds a lower-right cyan or
   coral dot, hidden while running. Tabs and the status bar use this same export.
   `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
   icon anatomy.

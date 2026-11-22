@@ -27,13 +27,15 @@ export function ProductIcon(props: { icon: LucideIcon }) {
 export function ProductRunIcon(props: {
   readonly icon: LucideIcon
   readonly running?: boolean | undefined
+  readonly queued?: boolean | undefined
   readonly result?: 'finished' | 'failed' | undefined
 }) {
   return (
     <span
       class="dinkster-run-icon"
       data-running={props.running ? '' : undefined}
-      data-result={props.running ? undefined : props.result}
+      data-queued={props.queued ? '' : undefined}
+      data-result={props.running || props.queued ? undefined : props.result}
       aria-hidden="true"
     >
       <ProductIcon icon={props.icon} />

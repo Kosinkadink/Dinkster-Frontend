@@ -18,7 +18,7 @@ export interface WorkflowTabItem {
   readonly editorKind?: string
 }
 
-export type TabRunState = 'idle' | 'running' | 'finished' | 'failed'
+export type TabRunState = 'idle' | 'queued' | 'running' | 'finished' | 'failed'
 
 const kindIcon = (kind: string | undefined) => {
   switch (kind) {
@@ -195,7 +195,8 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
   }
   const label = (tab: T): string => [
     tab.title,
-    props.runState?.(tab) === 'running' ? message('executionLog.status.running')
+    props.runState?.(tab) === 'queued' ? message('executionLog.status.queued')
+      : props.runState?.(tab) === 'running' ? message('executionLog.status.running')
       : props.runState?.(tab) === 'finished' ? message('executionLog.status.completed')
       : props.runState?.(tab) === 'failed' ? message('executionLog.status.error') : undefined,
     props.isDirty(tab) ? message('shell.workflowTabs.state.unsavedChanges') : undefined,
@@ -291,6 +292,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               <ProductRunIcon
                 icon={kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
+                queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
               />
               <span class="tab-title">{tab.title}</span>

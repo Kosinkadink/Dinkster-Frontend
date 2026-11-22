@@ -4892,7 +4892,7 @@ export class AppState {
           // cannot cancel a callback already in flight: re-check ownership
           // rather than trusting teardown ordering.
           if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
-          const latest = this.executionsForTab(tab)[0]
+          const latest = this.lastEndedExecutionForTab(tab)
           if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
           this.documentPersistenceDirty.add(id)
           reconcileGraphNavigation(tab)
@@ -11738,13 +11738,20 @@ export class AppState {
     return this.executionList().filter((state) => state.artifact?.snapshot.lineage === lineage)
   }
 
-  tabRunState(tab: Tab): 'idle' | 'running' | 'finished' | 'failed' {
+  private lastEndedExecutionForTab(tab: Tab): ExecutionState | undefined {
+    return this.executionsForTab(tab)
+      .filter((run) => run.status !== 'queued' && run.status !== 'running')
+      .sort((a, b) => (b.endedAt ?? b.queuedAt) - (a.endedAt ?? a.queuedAt))[0]
+  }
+
+  tabRunState(tab: Tab): 'idle' | 'queued' | 'running' | 'finished' | 'failed' {
     const runs = this.executionsForTab(tab)
     if (runs.some((run) => run.status === 'running')) return 'running'
-    const latest = runs[0]
+    if (runs.some((run) => run.status === 'queued')) return 'queued'
+    const latest = this.lastEndedExecutionForTab(tab)
     if (latest === undefined || this.clearedTabResults.get().get(tab.id) === latest.key) return 'idle'
     if (latest.status === 'completed') return 'finished'
-    if (latest.status === 'error') return 'failed'
+    if (latest.status === 'error' || latest.status === 'interrupted') return 'failed'
     return 'idle'
   }
 
