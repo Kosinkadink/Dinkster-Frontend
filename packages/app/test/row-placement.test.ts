@@ -61,6 +61,21 @@ describe('rowPlacement', () => {
       .toMatchObject({ place: 'above-field', sideTop: -120 })
   })
 
+  it('goes under the field, over the node, when no place beside, under or over the node holds it', () => {
+    // No room beside on a 200 px wide canvas; under the node it would end
+    // at 610, over it it would start at 150; the canvas runs from 280 to 600.
+    expect(rowPlacement(row, at(1), { x: 0, y: 280, width: 200, height: 320 }, { width: 200, height: 150 }))
+      .toMatchObject({ place: 'below-field', sideTop: 20 })
+    expect(rowPlacement(row, at(1), { x: 0, y: 260, width: 200, height: 270 }, { width: 200, height: 120 }))
+      .toMatchObject({ place: 'above-field', sideTop: -120 })
+  })
+
+  it('shows at least its first three lines when it scrolls', () => {
+    // 50 px over the field and 20 under it; the first three lines need 60.
+    expect(rowPlacement(row, at(0.5), { x: 0, y: 150, width: 800, height: 90 }, { width: 100, height: 400, lead: 60 }))
+      .toMatchObject({ place: 'above-field', sideTop: -60, sideMaxHeight: 60 })
+  })
+
   it('scrolls on the side with more room when it fits neither under nor over', () => {
     // Field at screen 200 to 220 on a 260 tall canvas: 40 below, 200 above.
     expect(rowPlacement(row, at(0.5), canvas(800, 260), { width: 100, height: 240 }))

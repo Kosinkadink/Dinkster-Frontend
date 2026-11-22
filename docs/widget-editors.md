@@ -464,11 +464,14 @@ and a `new seed` link; the closed row shows the mode as an icon before the
 value. A slider's fill follows the typed text while it is in range.
 
 The side part stays whole on the visible canvas, which ends at the status
-bar, a docked panel or the on-screen keyboard; the canvas never moves for it.
-Beside the node it slides up or down just far enough, still touching the
-field's row. Under the field or the node it goes above instead when there is
-no room below. When it fits nowhere it takes the height there is and scrolls,
-its first lines in view.
+bar, a docked panel or the on-screen keyboard; it is drawn over the canvas's
+floating tools, and the canvas never moves for it. It takes the first of
+these places that holds it whole: beside the node on the right, then on the
+left, sliding up or down just far enough and still touching the field's row;
+under the node; over the node; under the field, over the node's lower rows;
+over the field. Zoomed out, only the last two. A side part taller than the
+visible canvas takes the height there is and scrolls, showing at least its
+first three lines.
 
 - Enter stores and keeps the keyboard on the row; Escape cancels and keeps it
   there too. Ctrl+Enter stores, then runs the workflow.

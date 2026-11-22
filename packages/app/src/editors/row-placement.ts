@@ -1,5 +1,5 @@
 import { createSignal, onCleanup, type Accessor } from 'solid-js'
-import { canvasSideLayout, type CanvasBox, type CanvasSideLayout } from '@dinkster/ui'
+import { canvasSideLayout, type CanvasBox, type CanvasSideLayout, type CanvasSideSize } from '@dinkster/ui'
 
 /** A row's field box on the canvas, in world coordinates. */
 export interface RowBox {
@@ -29,7 +29,7 @@ export function rowPlacement(
   row: RowBox,
   viewport: { readonly x: number; readonly y: number; readonly scale: number },
   bounds: CanvasBox,
-  side: { readonly width: number; readonly height: number },
+  side: CanvasSideSize,
 ): RowPlacement {
   const grow = row.look === 'flat-title' ? 1 : 0
   const rowWidth = row.rect.width + grow * 2

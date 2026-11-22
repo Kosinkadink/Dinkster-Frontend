@@ -43,22 +43,32 @@ export interface CanvasSideLayout {
   readonly sideMaxHeight?: number
 }
 
+/** A side part's size at normal size, and the height of its first three lines. */
+export interface CanvasSideSize {
+  readonly width: number
+  readonly height: number
+  readonly lead?: number
+}
+
 /**
- * Lays out an open field's side part so it stays whole and on the visible
- * canvas, which never moves for it. Beside the node it slides up or down
- * just far enough, still touching the field's row. Under the field or the
- * node it goes above when it does not fit below. When it fits nowhere it
- * takes the height there is, on the side with more room, and scrolls.
+ * Lays out an open field's side part on the visible canvas, which never
+ * moves for it. A side part is never squeezed: a place counts only when
+ * the whole side part fits there. The places, in order: beside the node on
+ * the right, then on the left, sliding up or down just far enough and still
+ * touching the field's row; under the node; over the node; under the field;
+ * over the field. Zoomed out, only the last two. A side part taller than
+ * the visible canvas takes the height there is and scrolls, showing at
+ * least its first three lines.
  *
- * `row` and `bounds` are screen boxes; `side` is the side part's own size
- * at normal size. `nodeBelow` and `nodeAbove` are the distances, at normal
- * size, from the field's top down to where the side part starts under the
- * node and up to where it ends above the node.
+ * `row` and `bounds` are screen boxes; `side` is at normal size.
+ * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
+ * field's top down to where the side part starts under the node and up to
+ * where it ends over the node.
  */
 export function canvasSideLayout(
   row: CanvasBox,
   bounds: CanvasBox,
-  side: { readonly width: number; readonly height: number },
+  side: CanvasSideSize,
   scale: number,
   nodeBelow: number,
   nodeAbove: number,
@@ -68,40 +78,49 @@ export function canvasSideLayout(
   const top = (bounds.y - row.y) / zoom
   const bottom = (bounds.y + bounds.height - row.y) / zoom
   const fieldHeight = row.height / zoom
-  const fit = (
-    below: CanvasSidePlace,
-    above: CanvasSidePlace,
-    belowTop: number,
-    aboveBottom: number,
-  ): CanvasSideLayout => {
-    if (belowTop + side.height <= bottom)
-      return { place: below, sideTop: belowTop }
-    if (aboveBottom - side.height >= top)
-      return { place: above, sideTop: aboveBottom - side.height }
-    const roomBelow = Math.max(0, bottom - belowTop)
-    const roomAbove = Math.max(0, aboveBottom - top)
-    return roomBelow >= roomAbove
-      ? { place: below, sideTop: belowTop, sideMaxHeight: roomBelow }
-      : { place: above, sideTop: top, sideMaxHeight: roomAbove }
-  }
-  if (scale < 1) return fit('below-field', 'above-field', fieldHeight, 0)
+  const tall = side.height > bottom - top
+  const lead = Math.min(side.height, side.lead ?? 0)
   const sideWidth = side.width * zoom
-  const place: CanvasSidePlace =
-    row.x + row.width + sideWidth <= bounds.x + bounds.width
-      ? 'right'
-      : row.x - sideWidth >= bounds.x
-        ? 'left'
-        : 'below-node'
-  if (place === 'below-node')
-    return fit('below-node', 'above-node', nodeBelow, -nodeAbove)
-  const height = Math.min(side.height, Math.max(0, bottom - top))
-  // On the canvas, and still beside some of the row when the row itself is
-  // partly off the canvas.
-  const onCanvas = Math.max(top, Math.min(0, bottom - height))
-  const sideTop = Math.min(Math.max(onCanvas, 1 - height), fieldHeight - 1)
-  return height < side.height
-    ? { place, sideTop, sideMaxHeight: height }
-    : { place, sideTop }
+  const beside: CanvasSidePlace | undefined =
+    scale < 1
+      ? undefined
+      : row.x + row.width + sideWidth <= bounds.x + bounds.width
+        ? 'right'
+        : row.x - sideWidth >= bounds.x
+          ? 'left'
+          : undefined
+  if (beside !== undefined) {
+    const height = tall ? Math.max(bottom - top, lead) : side.height
+    // On the canvas, and still beside some of the row when the row itself
+    // is partly off the canvas.
+    const onCanvas = Math.max(top, Math.min(0, bottom - height))
+    const sideTop = Math.min(Math.max(onCanvas, 1 - height), fieldHeight - 1)
+    return tall
+      ? { place: beside, sideTop, sideMaxHeight: height }
+      : { place: beside, sideTop }
+  }
+  if (!tall && scale >= 1) {
+    if (nodeBelow + side.height <= bottom)
+      return { place: 'below-node', sideTop: nodeBelow }
+    if (-nodeAbove - side.height >= top)
+      return { place: 'above-node', sideTop: -nodeAbove - side.height }
+  }
+  if (fieldHeight + side.height <= bottom)
+    return { place: 'below-field', sideTop: fieldHeight }
+  if (-side.height >= top)
+    return { place: 'above-field', sideTop: -side.height }
+  // No place holds it whole: under or over the field, where there is more
+  // room, scrolling.
+  const roomBelow = Math.max(0, bottom - fieldHeight)
+  const roomAbove = Math.max(0, -top)
+  if (roomBelow >= roomAbove)
+    return {
+      place: 'below-field',
+      sideTop: fieldHeight,
+      sideMaxHeight: Math.max(roomBelow, lead),
+    }
+  const height = Math.max(roomAbove, lead)
+  return { place: 'above-field', sideTop: -height, sideMaxHeight: height }
 }
 
 /**
@@ -238,7 +257,7 @@ interface CanvasRowFrameProps {
   sideMaxHeight?: number
   side?: JSX.Element
   /** The side part's own size, before any height limit. */
-  onSideSize?: (size: { width: number; height: number }) => void
+  onSideSize?: (size: CanvasSideSize) => void
   ref?: (element: HTMLDivElement) => void
   /** The flat-title node look moves the steppers inward, as the canvas does. */
   look?: 'original' | 'flat-title'
@@ -266,7 +285,7 @@ function CanvasRowFrame(
     width: number
     height: number
   }>()
-  let reported: { width: number; height: number } | undefined
+  let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
@@ -286,8 +305,13 @@ function CanvasRowFrame(
     const whole = {
       width: size.width,
       height: side.scrollHeight + side.offsetHeight - side.clientHeight,
+      lead: leadHeight(side),
     }
-    if (whole.width !== reported?.width || whole.height !== reported.height) {
+    if (
+      whole.width !== reported?.width ||
+      whole.height !== reported.height ||
+      whole.lead !== reported.lead
+    ) {
       reported = whole
       props.onSideSize?.(whole)
     }
@@ -350,6 +374,41 @@ function CanvasRowFrame(
         <path d={outline()} />
       </svg>
     </div>
+  )
+}
+
+/**
+ * The height of a side part's first three lines, with its padding and
+ * border below them, at normal size. A line is a run of text or icons
+ * that share a line on screen.
+ */
+function leadHeight(side: HTMLElement): number {
+  const box = side.getBoundingClientRect()
+  // Zoomed in, the side part is drawn scaled.
+  const ratio = box.height / Math.max(1, side.offsetHeight) || 1
+  const rects: DOMRect[] = []
+  const walker = document.createTreeWalker(side, NodeFilter.SHOW_TEXT)
+  const range = document.createRange()
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.textContent?.trim()) continue
+    range.selectNodeContents(node)
+    rects.push(...Array.from(range.getClientRects()))
+  }
+  for (const icon of side.querySelectorAll('svg')) rects.push(icon.getBoundingClientRect())
+  const lines: { top: number; bottom: number }[] = []
+  for (const rect of rects.sort((a, b) => a.top - b.top)) {
+    const line = lines.find((item) => rect.top < item.bottom && rect.bottom > item.top)
+    if (line) line.bottom = Math.max(line.bottom, rect.bottom)
+    else lines.push({ top: rect.top, bottom: rect.bottom })
+  }
+  const third = lines.sort((a, b) => a.bottom - b.bottom)[2]
+  if (third === undefined) return side.offsetHeight
+  const style = getComputedStyle(side)
+  return Math.ceil(
+    (third.bottom - box.top) / ratio +
+      side.scrollTop +
+      parseFloat(style.paddingBottom) +
+      parseFloat(style.borderBottomWidth),
   )
 }
 
