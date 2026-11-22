@@ -962,6 +962,7 @@ export class InteractionController {
       this.setHover(undefined, undefined, undefined)
       this.setAffordanceHover(undefined)
       this.setLinkMidpointHover(undefined)
+      this.setHoveredTextEdge(undefined)
     }
     // Space is tracked at the window so it works without canvas focus, but
     // never while typing in a field (space must stay a space there).
