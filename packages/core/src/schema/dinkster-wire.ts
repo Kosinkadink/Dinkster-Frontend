@@ -109,7 +109,6 @@ interface WireEntry {
   readonly represents?: unknown
   /** Typed primitive identity output declaration. */
   readonly knownValue?: unknown
-  readonly advanced?: unknown
   /** Compatibility-only presentation marker. */
   readonly hidden?: unknown
   /** Execution-affecting media policies. */
