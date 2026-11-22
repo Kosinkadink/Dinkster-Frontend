@@ -336,6 +336,7 @@ actionsTest.describe('workflow tab actions', () => {
       await tabAction(page, 'Basic', 'rename')
       await expect(page.getByTestId('context-menu')).toHaveCount(0)
       await expect(input).toBeFocused()
+      await expect(input.locator('..').locator('.dinkster-run-icon')).toBeVisible()
       expect(
         await input.evaluate((element) => {
           const field = element as HTMLInputElement
@@ -345,7 +346,9 @@ actionsTest.describe('workflow tab actions', () => {
       await input.fill('Enter name')
       await input.press('Enter')
       await expect(tab(page, 'Enter name')).toBeVisible()
-      await tab(page, 'Enter name').locator('.tab-select').dblclick()
+      await tab(page, 'Enter name').locator('.dinkster-run-icon').dblclick()
+      await expect(input).toHaveCount(0)
+      await tab(page, 'Enter name').locator('.tab-title').dblclick()
       await input.fill('Tab name')
       await input.press('Tab')
       await expect(tab(page, 'Tab name')).toBeVisible()
