@@ -6,16 +6,27 @@ and redo preserve it without affecting compile output or semantic hashes.
 
 ## Controls
 
-- Double-click a node title to minimize or restore it. Double-clicking a
-  subgraph still opens the subgraph.
+- Click the arrow at the left end of a node's title bar. It points down on an
+  open node and right on a minimized one. A press that drags moves the node
+  like the rest of the title bar, and a click on the arrow never opens a
+  subgraph.
+- Double-click a node title to minimize or restore it. A subgraph node's title
+  works the same way; its mark at the right end of the title bar enters it.
 - Press **Alt+C** to toggle the selected nodes.
 - Choose **Minimize** or **Restore** from the node context menu.
-- Use the minimize/restore button in the selection toolbar.
 
 Selection toggles are atomic. If any selected node is expanded, the action
 minimizes all selected nodes. If every selected node is minimized, it restores
-all of them. The toolbar's mode button opens the same **Active**, **Muted**, and
-**Bypassed** selector as the node context menu.
+all of them. The arrow on a selected node acts on the whole selection by this
+rule; the arrow on a node that is not selected acts on that node alone and
+leaves the selection unchanged. The arrow is drawn at every zoom but takes
+clicks only where rows take clicks, and in a read-only run view it changes
+nothing. The selection toolbar has no minimize button; its mode button opens
+the same **Active**, **Muted**, and **Bypassed** selector as the node context
+menu.
+
+The canvas scene navigator lists a **Minimize** or **Restore** button after
+each node; Enter toggles that node alone. It is not a Tab stop on the canvas.
 
 ## Presentation and links
 

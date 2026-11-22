@@ -1,5 +1,5 @@
 
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
 
 async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
   if (mockLegacyDiscovery) {
@@ -516,7 +516,8 @@ test('supports nested drill-in after extraction', async ({ page }) => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
   })))
-  await page.mouse.dblclick(outer.x, outer.y)
+  const outerMark = await subgraphMarkPoint(page, outer.id)
+  await page.mouse.dblclick(outerMark.x, outerMark.y)
   await selectNode(page)
   await extractSelected(page)
   const nested = await nodePoint(page, await page.evaluate(() => {
@@ -524,7 +525,8 @@ test('supports nested drill-in after extraction', async ({ page }) => {
     const graphId = tab.graphStack.get().at(-1)!
     return window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => tab.store.doc.graphs[graphId]!.nodes[node.id]!.type.startsWith('#'))
   }))
-  await page.mouse.dblclick(nested.x, nested.y)
+  const nestedMark = await subgraphMarkPoint(page, nested.id)
+  await page.mouse.dblclick(nestedMark.x, nestedMark.y)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
 })
 

@@ -12,7 +12,7 @@ import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_S
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
-import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 // Crisp edges center a side pin on the node's 1 px border, half a pixel
 // inside the box's edge, and half a pixel below its row's center.
@@ -553,9 +553,11 @@ describe('canvas hover affordance paint', () => {
       } as SceneNode],
     }
     // Anything drawn inside a row's band, in canvas coordinates.
-    const inBand = (calls: readonly PaintCall[], top: number) => calls.filter((call) =>
-      ['moveTo', 'lineTo', 'fillText', 'roundRect', 'fillRect'].includes(call.method) &&
-      typeof call.args[1] === 'number' && call.args[1] > top && call.args[1] < top + 24)
+    const inBand = (calls: readonly PaintCall[], top: number) => calls.filter((call) => {
+      if (!['moveTo', 'lineTo', 'fillText', 'roundRect', 'fillRect'].includes(call.method)) return false
+      const y = call.args[call.method === 'fillText' ? 2 : 1]
+      return typeof y === 'number' && y > top && y < top + 24
+    })
     const closed = paintWith(twoRows)
     const open = paintWith(twoRows, (renderer) => renderer.setOpenRow({ nodeId: 'hover-node', valueKey: 'amount' }))
     expect(inBand(closed, 120).length).toBeGreaterThan(0)
@@ -1267,9 +1269,10 @@ describe('diagnostic paint on the live renderer', () => {
     renderer.renderNow()
     expect(lookupPasses).toBe(0)
     expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
-    // The fixed fixtures allow a small drawing margin and the title bar's
-    // rule on each node, not another per-dot grid path.
-    const callLimit = (count === 66 ? 1250 : count === 300 ? 5600 : 21000) + count
+    // The fixed fixtures allow a small drawing margin, the title bar's rule
+    // and the six path calls of its minimize arrow on each node, not another
+    // per-dot grid path.
+    const callLimit = (count === 66 ? 1250 : count === 300 ? 5600 : 21000) + count * 7
     expect(calls.length).toBeLessThanOrEqual(callLimit)
     renderer.dispose()
   })
@@ -2535,7 +2538,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     }))
 
     expect(decorated.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'Sink decorated (...' && call.args.length === 3,
+      call.method === 'fillText' && call.args[0] === 'Sink decorated...' && call.args.length === 3,
     )).toBe(true)
     const spacious = {
       ...scene,
@@ -2623,13 +2626,32 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(count.args[1]).toBe(markX + 3 + 10 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
     expect(Number(count.args[2])).toBeLessThan(header.bottom)
-    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + defaultTokens.padX && call.args[2] === titleY)!
+    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
     expect(title.args[0]).not.toBe(n.layout.title)
-    expect(String(title.args[0]).length * 6).toBeLessThanOrEqual(markX - n.x - defaultTokens.padX - canvasPaintTokens.node.titleBadgeGap)
+    expect(String(title.args[0]).length * 6).toBeLessThanOrEqual(markX - n.x - TITLE_START - canvasPaintTokens.node.titleBadgeGap)
 
     const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
-    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + defaultTokens.padX && call.args[2] === titleY)!
+    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
+  })
+
+  it('paints the minimize arrow before the title, down when open and right when minimized', () => {
+    const plain = nodeOf(fixtureScene('clean'), 'c1')
+    const cx = plain.x + 14
+    const cy = plain.y + plain.layout.headerHeight / 2
+    const arrow = (calls: readonly PaintCall[]) => {
+      const start = calls.findIndex((call) => call.method === 'moveTo' && Math.abs(Number(call.args[0]) - cx) <= 4 && Math.abs(Number(call.args[1]) - cy) <= 4)
+      return calls.slice(start, start + 3).map((call) => call.args)
+    }
+    const open = paint(emptyScene({ nodes: [plain] }))
+    expect(arrow(open)).toEqual([[cx - 4, cy - 2.5], [cx + 4, cy - 2.5], [cx, cy + 3.5]])
+    expect(open.find((call) => call.method === 'fillText' && call.args[0] === plain.layout.title)?.args[1]).toBe(plain.x + 23)
+
+    const minimized = { ...plain, layout: { ...plain.layout, minimized: true as const } }
+    expect(arrow(paint(emptyScene({ nodes: [minimized] })))).toEqual([[cx - 2.5, cy - 4], [cx + 3.5, cy], [cx - 2.5, cy + 4]])
+
+    const hovered = paintWith(emptyScene({ nodes: [plain] }), (renderer) => renderer.setOverlay({ hoveredMinimize: plain.id }))
+    expect(hovered.some((call) => call.method === 'roundRect' && call.args[0] === plain.x + 5 && call.args[2] === 18)).toBe(true)
   })
 
   it('paints mode badges with the active theme tokens', () => {

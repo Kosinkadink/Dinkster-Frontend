@@ -129,7 +129,7 @@ export function selectCanvasPage(href: string) {
 /** One plain sentence per page on what to look at. */
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
-    'The parts of a node: title bar, pins, value rows, a section open and closed, and a node whose type is missing.',
+    'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:
@@ -143,7 +143,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
-    'Every state a node can show: hover, selection, run states, problems, mode, color, a new title and a bad value.',
+    'Every state a node can show: hover, selection, run states, problems, mode, color, a new title, minimized, the minimize arrow under the pointer and a bad value.',
   'run-editable':
     'While a workflow is being edited, only running and failed nodes are marked.',
   'run-frozen':

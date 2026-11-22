@@ -9,7 +9,7 @@ import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
 import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene, type SceneNode } from '../src/scene.js'
-import { layoutNodeBadges } from '../src/badges.js'
+import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -2458,8 +2458,8 @@ describe('gesture ownership and cancellation', () => {
   it('a re-press after a dropped release commits the stale drag and starts fresh', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointermove', 50, 35, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointermove', 80, 35, { buttons: 1, pointerType: 'mouse' })
     // The release was dropped while the pointer was stationary; the next
     // press of the same button arrives over empty canvas.
     harness.fire('pointerdown', 150, 15, { buttons: 1, pointerType: 'mouse' })
@@ -2478,8 +2478,8 @@ describe('gesture ownership and cancellation', () => {
   it('a re-press on a stuck motionless press cancels the stale gesture', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
     expect(harness.dispatched).toEqual([])
     expect(harness.controller.dumpPointerTrace()).toEqual(expect.arrayContaining([
       expect.objectContaining({ gestureKind: 'node', event: 'cancel', reason: 'pointerdown-repress' }),
@@ -3340,15 +3340,93 @@ describe('node title double-click minimization', () => {
     })
   })
 
-  it('keeps subgraph opening ahead of minimization', () => {
+  it('minimizes a subgraph node from its title and enters it only from its mark', () => {
     const scene = interactionScene()
     const subgraph = { ...scene.nodes[0]!, isSubgraph: true }
     const open = vi.fn()
-    const harness = interactionHarness({ ...scene, nodes: [subgraph, ...scene.nodes.slice(1)] }, {
-      onOpenSubgraph: open,
-    })
+    const badgeClick = vi.fn()
+    const harness = interactionHarness(
+      { ...scene, nodes: [subgraph, ...scene.nodes.slice(1)] },
+      { onOpenSubgraph: open, onBadgeClick: badgeClick },
+      { n1: [SUBGRAPH_BADGE] },
+    )
     harness.fire('dblclick', 50, 15)
+    expect(open).not.toHaveBeenCalled()
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1'], collapsed: true },
+    }])
+    harness.fire('dblclick', 50, 40)
+    expect(open).not.toHaveBeenCalled()
+
+    // The mark is drawn 16 px at x 84..100; its target reaches 82..102.
+    harness.fire('pointerdown', 83, 20)
+    expect(badgeClick).not.toHaveBeenCalled()
+    harness.fire('pointerup', 83, 20)
+    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 84, y: 12, width: 16, height: 16 })
+    harness.fire('dblclick', 92, 20)
     expect(open).toHaveBeenCalledWith(subgraph)
+    expect(harness.dispatched).toHaveLength(1)
+  })
+
+  it('drags a node from its subgraph mark without opening the panel', () => {
+    const badgeClick = vi.fn()
+    const harness = interactionHarness(interactionScene(), { onBadgeClick: badgeClick }, { n1: [SUBGRAPH_BADGE] })
+    harness.fire('pointerdown', 92, 20, { buttons: 1 })
+    harness.fire('pointermove', 112, 40, { buttons: 1 })
+    harness.fire('pointerup', 112, 40)
+    expect(badgeClick).not.toHaveBeenCalled()
+    expect(harness.dispatched).toEqual([
+      { command: 'node.move', params: { graphId: 'g0', positions: { n1: { x: 30, y: 30 } } } },
+    ])
+  })
+
+  it('toggles from the title-bar arrow for the selection, or for an unselected node alone', () => {
+    const scene = interactionScene()
+    const harness = interactionHarness(scene)
+    const clickArrow = () => {
+      harness.fire('pointerdown', 24, 20, { buttons: 1 })
+      harness.fire('pointerup', 24, 20)
+    }
+    harness.controller.setSelection(['n2'])
+    clickArrow()
+    expect(harness.dispatched.at(-1)).toEqual({
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1'], collapsed: true },
+    })
+    expect([...harness.controller.getSelection()]).toEqual(['n2'])
+
+    // Any open node in the selection minimizes all of them.
+    harness.swapScene({ ...scene, nodes: [{ ...scene.nodes[0]!, layout: { ...scene.nodes[0]!.layout, minimized: true as const } }, scene.nodes[1]!] })
+    harness.controller.setSelection(['n1', 'n2'])
+    clickArrow()
+    expect(harness.dispatched.at(-1)).toEqual({
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1', 'n2'], collapsed: true },
+    })
+    expect([...harness.controller.getSelection()]).toEqual(['n1', 'n2'])
+
+    // Each click of a double-click already toggled; the double-click adds nothing.
+    harness.fire('dblclick', 24, 20)
+    expect(harness.dispatched).toHaveLength(2)
+  })
+
+  it('moves the node when the press on the arrow drags', () => {
+    const harness = interactionHarness(interactionScene())
+    harness.fire('pointerdown', 24, 20, { buttons: 1 })
+    harness.fire('pointermove', 44, 40, { buttons: 1 })
+    harness.fire('pointerup', 44, 40)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.move', params: { graphId: 'g0', positions: { n1: { x: 30, y: 30 } } } },
+    ])
+  })
+
+  it('takes no arrow click at the overview zoom', () => {
+    const harness = interactionHarness(interactionScene())
+    harness.setViewportTransform(0, 0, 0.25)
+    // World (24, 20), the arrow's middle, at a quarter scale.
+    harness.fire('pointerdown', 6, 5, { buttons: 1 })
+    harness.fire('pointerup', 6, 5)
     expect(harness.dispatched).toEqual([])
   })
 
@@ -3790,12 +3868,12 @@ describe('two-finger touch navigation', () => {
   it('a second finger cancels a one-finger touch drag instead of committing it', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { ...touch, pointerId: 1 })
-    harness.fire('pointermove', 50, 35, { ...touch, pointerId: 1 })
+    harness.fire('pointerdown', 60, 15, { ...touch, pointerId: 1 })
+    harness.fire('pointermove', 80, 35, { ...touch, pointerId: 1 })
     harness.fire('pointerdown', 300, 300, { ...touch, pointerId: 2 })
     harness.fire('pointermove', 320, 300, { ...touch, pointerId: 2 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
-    harness.fire('pointerup', 50, 35, { pointerType: 'touch', pointerId: 1 })
+    harness.fire('pointerup', 80, 35, { pointerType: 'touch', pointerId: 1 })
     harness.fire('pointerup', 320, 300, { pointerType: 'touch', pointerId: 2 })
     // The interrupted node drag never dispatches: cancelled, not committed.
     expect(harness.dispatched).toEqual([])

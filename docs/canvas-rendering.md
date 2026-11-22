@@ -79,6 +79,13 @@ look for the gallery's side-by-side page.
 
 ## Badges
 
+The title bar starts with the minimize arrow: the section rows' disclosure
+triangle, centered in an 18px square target 5px in from the node's left edge,
+in the label color, and under the pointer in the title color over a rounded
+raised-surface square (`canvasPaintTokens.node.minimizeArrow`). The name
+starts where that target ends, and a node's automatic width reserves the
+space. See [node minimization](node-minimization.md) for what it does.
+
 The title bar holds the node's name and suffix and, for a subgraph node, one
 mark at its right end: a 16px square with the boxes icon, followed by the
 linked count when two or more occurrences share the definition. The name is

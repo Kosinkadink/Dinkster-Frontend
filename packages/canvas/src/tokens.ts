@@ -52,7 +52,7 @@ export const canvasPaintTokens = {
     radius: 3,
     baselineOffset: 0.5,
     /** The subgraph mark at the right end of the title bar. */
-    mark: { size: 16, iconSize: 10, padding: 3, gap: 3 },
+    mark: { size: 16, hitSize: 20, iconSize: 10, padding: 3, gap: 3 },
     tab: {
       height: 16,
       fontSize: 11,
@@ -135,6 +135,12 @@ export const canvasPaintTokens = {
     /** The flat-title look's rule under the title, inside the title bar. */
     headerRuleStroke: 1,
     titleBadgeGap: canvasSemanticTokens.space[4],
+    /**
+     * The minimize arrow at the left end of the title bar: its square target
+     * starts `left` in from the node's edge, and the title starts where the
+     * target ends. The arrow itself is the section disclosure triangle.
+     */
+    minimizeArrow: { left: 5, target: 18, hoverRadius: 3 },
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },

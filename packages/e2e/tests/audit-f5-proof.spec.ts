@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, openRailPanel, nativeTest as test, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, openRailPanel, nativeTest as test, subgraphMarkPoint, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const catalog = {
@@ -200,13 +200,8 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })
-  const header = await page.evaluate(() => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((item) => item.id === 'occurrence')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'occurrence')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await page.getByTestId('boundary-pin').click()
