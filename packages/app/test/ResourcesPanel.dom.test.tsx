@@ -41,6 +41,55 @@ it('rejects a base response superseded by push and details invalidated by closin
   controller.dispose()
 })
 
+it.each([
+  { models: true, allocator: false, inconsistent: false, expected: 'Models: 3.0 GB, Other memory: 4.0 GB' },
+  { models: false, allocator: true, inconsistent: false, expected: 'Held, unused: 0.5 GB, Other memory: 6.5 GB' },
+  { models: false, allocator: false, inconsistent: false, expected: 'Used: 7.0 GB' },
+  { models: true, allocator: true, inconsistent: true, expected: 'Used: 7.0 GB' },
+])('draws only independently reported parts: $expected', async ({ models, allocator, inconsistent, expected }) => {
+  const measured = { freeBytes: 5e9, totalBytes: 12e9, ...(allocator ? { torchReservedBytes: inconsistent ? 12e9 : 4e9, torchAllocatedBytes: 3.5e9 } : {}) }
+  const { consumerDetails: _details, ...base } = payload
+  const status: MemoryStatus = { ...base, ...(models ? { consumerDetails: payload.consumerDetails! } : {}), memoryGovernor: { 'vram:cuda:0': { ...payload.memoryGovernor!['vram:cuda:0']!, measured } } }
+  const connection = { status: coreSignal<ConnectionStatus>('connected'), fetchMemoryStatus: async () => status, onMemoryStatus: () => () => {}, fetchRuntimeSettings: async () => ({ categories: { granted: ['memory-headroom'], available: ['memory-headroom'] }, settings: { 'memory-headroom': { value: 1e9, writable: true } } }) } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
+  await flush()
+  expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe(expected)
+  expect(root.querySelector('[role="slider"][aria-label="Always keep free"]')!.getAttribute('aria-valuenow')).toBe('1000000000')
+  unmount()
+})
+
+it('preserves non-card and unmeasured budgets with exact sizes and automatic removal', async () => {
+  const configured = { 'vram:cuda:0': 8e9, ram: 10e9, disk: 25e9, 'vram:cuda:1': 6e9, custom: 123456789 }
+  const status: MemoryStatus = { ...payload, memoryGovernor: { ...payload.memoryGovernor, ram: { ...payload.memoryGovernor!['vram:cuda:0']!, measured: null }, 'vram:cuda:1': { ...payload.memoryGovernor!['vram:cuda:0']!, measured: null } } }
+  const updateRuntimeSetting = vi.fn(async (_category: string, value: unknown) => ({ value, writable: true }))
+  const connection = { status: coreSignal<ConnectionStatus>('connected'), fetchMemoryStatus: async () => status, onMemoryStatus: () => () => {}, fetchRuntimeSettings: async () => ({ categories: { granted: ['memory-budgets'], available: ['memory-budgets'] }, settings: { 'memory-budgets': { value: configured, writable: true } } }), updateRuntimeSetting } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
+  await flush()
+  const field = (name: string) => {
+    const label = [...root.querySelectorAll('label')].find((label) => label.textContent === name)!
+    return root.querySelector<HTMLInputElement>(`[id="${label.htmlFor}"]`)!
+  }
+  expect(field('System memory').value).toBe('10.0 GB')
+  expect(field('Disk').value).toBe('25.0 GB')
+  expect(field('vram:cuda:1').value).toBe('6.0 GB')
+  expect(field('custom').value).toBe('0.123456789 GB')
+  expect(root.querySelectorAll('[role="slider"]')).toHaveLength(1)
+  const input = (name: string, value: string) => { const element = field(name); element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })) }
+  input('System memory', '1.75 GB'); input('custom', '7G'); input('vram:cuda:1', '987654321')
+  const form = field('Disk').closest('form')!
+  field('Disk').parentElement!.querySelector('button')!.click()
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
+  expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 1.75e9, 'vram:cuda:1': 987654321, custom: '7G' })
+  expect(field('System memory').value).toBe('1.75 GB')
+  updateRuntimeSetting.mockRejectedValueOnce(new Error('Exact budget rejected.'))
+  input('System memory', 'bad size'); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
+  expect(root.textContent).toContain('Exact budget rejected.')
+  expect(field('System memory').value).toBe('bad size')
+  unmount()
+})
+
 it('targets a backend repeatedly without collapsing other backends', async () => {
   const connection = {
     status: coreSignal<ConnectionStatus>('connected'),

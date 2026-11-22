@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import type { DinksterConnection, MemoryGovernorDevice, MemoryStatus, RuntimeSettings } from '@dinkster/client'
-import { ProductButton, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductNotice, ProductResourceUsage, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
+import { ProductButton, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductNotice, ProductResourceUsage, ProductTextInput, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
 import { MemoryStatusController } from './memory-status.js'
 import { ProductSlider } from './ProductSlider.js'
 import { useSignal } from './solid-adapter.js'
@@ -34,6 +34,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const [telemetryError, setTelemetryError] = createSignal('')
   const [budgetDraft, setBudgetDraft] = createSignal<Readonly<Record<string, number>>>({})
   const [headroomDraft, setHeadroomDraft] = createSignal<number>()
+  const [otherBudgetDraft, setOtherBudgetDraft] = createSignal<Readonly<Record<string, string>>>({})
   const [notification, setNotification] = createSignal<{ message: string }>()
   const [pending, setPending] = createSignal(false)
   const [clock, setClock] = createSignal(Date.now())
@@ -96,6 +97,33 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   }
   const granted = (category: string) => settings()?.categories.granted.includes(category) === true && settings()?.settings[category]?.writable === true
   const limit = (device: string) => status()?.acceleratorPolicy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? status()?.memoryGovernor?.[device]?.budgetBytes ?? undefined
+  const sliderCards = () => cards().filter((device) => limit(device) !== undefined && status()?.memoryGovernor?.[device]?.measured != null)
+  const configuredBudgets = () => (settings()?.settings['memory-budgets']?.value ?? {}) as Record<string, unknown>
+  const otherBudgets = () => [...new Set([...Object.keys(configuredBudgets()), ...Object.keys(status()?.memoryGovernor ?? {})])].filter((device) => !sliderCards().includes(device))
+  const budgetName = (device: string) => device === 'ram' ? message('resources.systemMemory') : device === 'disk' ? message('resources.disk') : device
+  const otherBudgetValue = (device: string) => {
+    const value = configuredBudgets()[device]
+    const size = typeof value === 'number' ? value / 1_000_000_000 : undefined
+    return otherBudgetDraft()[device] ?? (size === undefined ? value === undefined ? '' : String(value) : `${Number.isInteger(size) ? size.toFixed(1) : size} GB`)
+  }
+  const saveOtherBudgets = async () => {
+    await act(async () => {
+      const value = { ...configuredBudgets() }
+      for (const [device, text] of Object.entries(otherBudgetDraft())) {
+        const trimmed = text.trim()
+        const decimalGB = /^(\d+(?:\.\d+)?)\s+GB$/i.exec(trimmed)
+        if (trimmed === '') delete value[device]
+        else value[device] = decimalGB ? Math.round(Number(decimalGB[1]) * 1_000_000_000) : /^\d+$/.test(trimmed) ? Number(trimmed) : trimmed
+      }
+      const section = await connection().updateRuntimeSetting('memory-budgets', value)
+      setSettings((current) => current ? { ...current, settings: { ...current.settings, 'memory-budgets': section } } : current)
+      setOtherBudgetDraft({})
+    })
+  }
+  const headroom = () => {
+    const configured = settings()?.settings['memory-headroom']?.value
+    return status()?.acceleratorPolicy?.physicalHeadroomBytes ?? (typeof configured === 'number' ? configured : undefined)
+  }
   const update = async (category: string, value: unknown): Promise<void> => {
     await act(async () => {
       const section = await connection().updateRuntimeSetting(category, value)
@@ -111,10 +139,15 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
     if (used === undefined) return []
     const reserved = row.measured?.torchReservedBytes
     const allocated = row.measured?.torchAllocatedBytes
-    const loaded = models(device).reduce((sum, model) => sum + model.bytes, 0)
-    if (details() === undefined || reserved === undefined || allocated === undefined || allocated > reserved || reserved > used || loaded + reserved - allocated > used) return [{ label: message('resources.used'), value: used, tone: 'other' }]
-    const held = reserved - allocated
-    return [{ label: message('resources.models'), value: loaded, tone: 'models' }, { label: message('resources.heldUnused'), value: held, tone: 'held' }, { label: message('resources.otherMemory'), value: used - loaded - held, tone: 'other' }]
+    const loaded = details() === undefined ? undefined : models(device).reduce((sum, model) => sum + model.bytes, 0)
+    const held = reserved === undefined || allocated === undefined ? undefined : reserved - allocated
+    const known: ProductResourceSegment[] = [
+      ...(loaded === undefined ? [] : [{ label: message('resources.models'), value: loaded, tone: 'models' as const }]),
+      ...(held === undefined ? [] : [{ label: message('resources.heldUnused'), value: held, tone: 'held' as const }]),
+    ]
+    const accounted = known.reduce((sum, part) => sum + part.value, 0)
+    if (known.length === 0 || known.some((part) => part.value < 0) || accounted > used) return [{ label: message('resources.used'), value: used, tone: 'other' }]
+    return [...known, { label: message('resources.otherMemory'), value: used - accounted, tone: 'other' }]
   }
   const unload = () => cards().filter((device) => Object.keys(status()?.memoryGovernor?.[device]?.consumers ?? {}).length > 0)
   return <section class="dinkster-resource-backend" data-backend={props.backend.id}>
@@ -153,6 +186,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
         <Show when={status() && cards().length === 0}><ProductFacts label={message('resources.work')} items={[{ label: message('resources.running'), value: status()!.queue.running.length }, { label: message('resources.queued'), value: status()!.queue.queued }]} /></Show>
         <Show when={cards().length > 0}>
           <ProductDisclosure title={message('resources.details')}>
+            <p class="dinkster-description">{message('resources.otherMemoryDescription')}</p>
             <For each={cards()}>{(device) => {
               const row = () => status()!.memoryGovernor![device]!
               return <div class="dinkster-stack">
@@ -177,8 +211,19 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
         <Show when={granted('memory-budgets') || granted('memory-headroom') || granted('aimdo-policy')}>
           <ProductDisclosure title={message('resources.limits')}>
             <Show when={granted('aimdo-policy')}><RuntimeSettingsPanel connection={connection()} backendLabel={props.backend.label} categories={['aimdo-policy']} alwaysOpen {...(status() === undefined ? {} : { memoryStatus: status()! })} /></Show>
-            <Show when={granted('memory-budgets')}><For each={cards().filter((device) => limit(device) !== undefined && status()?.memoryGovernor?.[device]?.measured !== null)}>{(device) => <div class="dinkster-resource-limit-control"><span>{cards().length > 1 ? message('resources.cardLimit', { name: status()!.memoryGovernor![device]!.measured?.gpuName ?? device }) : message('resources.memoryLimit')}</span><ProductSlider ariaLabel={message('resources.cardLimit', { name: device })} min={0} max={status()!.memoryGovernor![device]!.measured!.totalBytes} step={64 * 1024 ** 2} value={budgetDraft()[device] ?? limit(device)!} disabled={pending() || stale()} onInput={(value) => setBudgetDraft((current) => ({ ...current, [device]: value }))} onCommit={(value) => void update('memory-budgets', { ...settings()!.settings['memory-budgets']!.value as Record<string, unknown>, [device]: value })} /><span>{gb(budgetDraft()[device] ?? limit(device)!)}</span></div>}</For></Show>
-            <Show when={granted('memory-headroom') && status()?.acceleratorPolicy?.physicalHeadroomBytes !== undefined}><div class="dinkster-resource-limit-control"><span>{message('resources.keepFree')}</span><ProductSlider ariaLabel={message('resources.keepFree')} min={0} max={Math.max(...cards().map((device) => status()!.memoryGovernor![device]!.measured?.totalBytes ?? 0), 1024 ** 3)} step={64 * 1024 ** 2} value={headroomDraft() ?? status()!.acceleratorPolicy!.physicalHeadroomBytes} disabled={pending() || stale()} onInput={setHeadroomDraft} onCommit={(value) => void update('memory-headroom', value)} /><span>{gb(headroomDraft() ?? status()!.acceleratorPolicy!.physicalHeadroomBytes)}</span></div></Show>
+            <Show when={granted('memory-budgets')}><For each={sliderCards()}>{(device) => <div class="dinkster-resource-limit-control"><span>{cards().length > 1 ? message('resources.cardLimit', { name: status()!.memoryGovernor![device]!.measured?.gpuName ?? device }) : message('resources.memoryLimit')}</span><ProductSlider ariaLabel={message('resources.cardLimit', { name: device })} min={0} max={status()!.memoryGovernor![device]!.measured!.totalBytes} step={64 * 1024 ** 2} value={budgetDraft()[device] ?? limit(device)!} disabled={pending() || stale()} onInput={(value) => setBudgetDraft((current) => ({ ...current, [device]: value }))} onCommit={(value) => void update('memory-budgets', { ...settings()!.settings['memory-budgets']!.value as Record<string, unknown>, [device]: value })} /><span>{gb(budgetDraft()[device] ?? limit(device)!)}</span></div>}</For></Show>
+            <Show when={granted('memory-budgets') && otherBudgets().length > 0}>
+              <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void saveOtherBudgets() }}>
+                <strong>{message('resources.otherLimits')}</strong>
+                <p class="dinkster-description">{message('resources.exactLimitHelp')}</p>
+                <For each={otherBudgets()}>{(device) => <ProductField label={budgetName(device)}>{(attributes) => <div class="dinkster-stack">
+                  <ProductTextInput {...attributes} value={otherBudgetValue(device)} placeholder={message('runtimeSettings.memory.automatic')} disabled={pending() || stale()} onInput={(event) => setOtherBudgetDraft((current) => ({ ...current, [device]: event.currentTarget.value }))} />
+                  <ProductButton type="button" disabled={pending() || stale() || otherBudgetValue(device) === ''} onClick={() => setOtherBudgetDraft((current) => ({ ...current, [device]: '' }))}>{message('runtimeSettings.memory.automatic')}</ProductButton>
+                </div>}</ProductField>}</For>
+                <ProductButton type="submit" fill="solid" disabled={pending() || stale() || Object.keys(otherBudgetDraft()).length === 0}>{message('runtimeSettings.action.apply')}</ProductButton>
+              </form>
+            </Show>
+            <Show when={granted('memory-headroom') && headroom() !== undefined}><div class="dinkster-resource-limit-control"><span>{message('resources.keepFree')}</span><ProductSlider ariaLabel={message('resources.keepFree')} min={0} max={Math.max(...cards().map((device) => status()!.memoryGovernor![device]!.measured?.totalBytes ?? 0), headroom()!, 1024 ** 3)} step={64 * 1024 ** 2} value={headroomDraft() ?? headroom()!} disabled={pending() || stale()} onInput={setHeadroomDraft} onCommit={(value) => void update('memory-headroom', value)} /><span>{gb(headroomDraft() ?? headroom()!)}</span></div></Show>
           </ProductDisclosure>
         </Show>
         <Show when={unload().length > 0 && details() !== undefined}><ProductButton intent="remove" disabled={stale() || pending()} onClick={() => setConfirmUnload(() => async () => { for (const device of unload()) await connection().unloadMemory(device) })}>{message('memory.action.unloadAll')}</ProductButton></Show>
