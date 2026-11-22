@@ -541,6 +541,10 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
  */
 export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, lineCount: number = canvasPaintTokens.node.textOutputMaxRows): NodeLayout {
   if (layout.textOutput !== undefined) return layout
+  if (layout.minimized) {
+    const { preview, ...base } = withCompactPreviewRegion(layout, tokens)
+    return { ...base, textOutput: { x: preview!.x, y: preview!.y, width: preview!.width, height: preview!.height } }
+  }
   const regionHeight = tokens.rowHeight * Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, Math.trunc(lineCount)))
   if (layout.preview?.compact === true) {
     const expansion = regionHeight - tokens.rowHeight

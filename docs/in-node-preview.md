@@ -229,10 +229,11 @@ precedence or when the selected asset is cleared.
 The region is ordinary node body for selection, drag, resize, and hit testing.
 Only the executed-output paging controls add image-specific actions.
 
-A minimized node shows a one-row preview strip only while it has a picture to
-paint; the picture is contain-fit into that row. Without one (no preview yet,
-loading, unavailable, a ready video or audio player, or a recorded text
-result) the node is only its title bar, with no strip and no label.
+A minimized node shows a one-row strip only while it has real content: a
+picture to paint, contain-fit into that row, or else the first line of a
+recorded text result. Without either (no preview yet, loading, unavailable,
+or a ready video or audio player) the node is only its title bar, with no
+strip and no label.
 Video/audio DOM transports and paging controls are omitted while minimized.
 Restoring the node returns its full preview and stored expanded size. See
 [Node minimization](node-minimization.md).

@@ -1512,7 +1512,7 @@ const FLOATC = typeColor(defaultTokens, 'FLOAT')
 const SEL = defaultTokens.colors.selection
 
 describe('node chrome paint on the live renderer', () => {
-  it('projects minimized nodes with one connected proxy per side and a preview strip only for a picture', () => {
+  it('projects minimized nodes with one connected proxy per side and a strip only for a picture or text result', () => {
     const base = fixtureScene('clean')
     const source = nodeOf(base, 'img')
     const output = source.layout.pins.find((pin) => pin.direction === 'out')!
@@ -1559,12 +1559,11 @@ describe('node chrome paint on the live renderer', () => {
       nodes: scene.nodes.map((node) => node.id === minimizedSource.id ? { ...node, previewCapable: true as const } : node),
     })
     const minimizedHeight = source.layout.headerHeight + defaultTokens.padBottom
-    // Nothing to show, a pending preview, and a text result all leave the
-    // minimized node as a bare title bar.
+    // Nothing to show and a pending preview leave the minimized node as a
+    // bare title bar with no status label.
     for (const update of [
       () => undefined,
       () => renderer.setNodePreviews({ [minimizedSource.id]: { status: 'loading' } }),
-      () => renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'done' } }),
     ]) {
       update()
       const bare = nodeOf(renderer.getScene(), minimizedSource.id)
@@ -1575,12 +1574,22 @@ describe('node chrome paint on the live renderer', () => {
     calls.length = 0
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'fillText' &&
-      ['Preview', 'No preview', 'Loading', 'done'].includes(String(call.args[0])))).toBe(false)
+      ['Preview', 'No preview', 'Loading', 'loading preview...'].includes(String(call.args[0])))).toBe(false)
+    // A recorded text result is content: one row with its first line.
+    renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'first line\nsecond line' } })
+    const withText = nodeOf(renderer.getScene(), minimizedSource.id)
+    expect(withText.layout.width).toBe(100)
+    expect(withText.layout.textOutput).toMatchObject({ height: defaultTokens.rowHeight })
+    calls.length = 0
+    renderer.renderNow()
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'first line')).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'second line')).toBe(false)
     // The same preview entry turning into a decoded picture opens the strip.
     renderer.setNodePreviews({ [minimizedSource.id]: { image: {} as CanvasImageSource, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimizedSource.id)
     expect(projected.layout.width).toBe(100)
     expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
+    expect(projected.layout.textOutput).toBeUndefined()
     expect(renderer.getScene().links.every((link) =>
       link.x1 === projected.x + projected.layout.width &&
       link.y1 === projected.y + projected.layout.headerHeight / 2)).toBe(true)

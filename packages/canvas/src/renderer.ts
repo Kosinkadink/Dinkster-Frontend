@@ -23,7 +23,7 @@ import {
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset } from './hit.js'
-import { animationFrameAt, containRect, previewHasPicture, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
+import { animationFrameAt, containRect, minimizedStripContent, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
   boundarySceneId,
@@ -1340,11 +1340,12 @@ export class CanvasRenderer {
         !scene.nodes.some((node) => node.previewCapable === true)) return scene
     const nodes = scene.nodes.map((node) => {
       if (node.layout.minimized === true) {
-        // A minimized node shows a strip only for a picture it can paint now.
-        const preview = this.previews[node.id]
-        return preview !== undefined && previewHasPicture(preview)
+        const content = minimizedStripContent(this.previews[node.id], this.outputTexts[node.id])
+        return content === 'picture'
           ? { ...node, layout: withPreviewRegion(node.layout, this.tokens) }
-          : node
+          : content === 'text'
+            ? { ...node, layout: withTextOutputRegion(node.layout, this.tokens) }
+            : node
       }
       const baseLayout = node.previewCapable === true
         ? withCompactPreviewRegion(node.layout, this.tokens)
@@ -1427,13 +1428,13 @@ export class CanvasRenderer {
   setNodePreviews(previews: PreviewMap): void {
     // Canvas/video pixels can change without replacing their source object.
     this.invalidateNodeTiles(new Set(Object.keys(previews)))
-    // Body regions follow which nodes have a preview and, for minimized
-    // nodes, whether that preview is a picture yet.
+    // Body regions follow which nodes have a preview and what each minimized
+    // node has to show.
     const regionSignature = (map: PreviewMap): string => [
       ...Object.keys(map).sort(),
       ...this.baseScene.nodes
-        .filter((node) => node.layout.minimized === true && map[node.id] !== undefined && previewHasPicture(map[node.id]!))
-        .map((node) => `picture:${node.id}`),
+        .filter((node) => node.layout.minimized === true)
+        .map((node) => `${node.id}:${minimizedStripContent(map[node.id], this.outputTexts[node.id]) ?? ''}`),
     ].join('\u0000')
     const before = regionSignature(this.previews)
     const after = regionSignature(previews)
