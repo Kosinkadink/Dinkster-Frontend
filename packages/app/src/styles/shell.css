@@ -787,7 +787,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   .statusbar .host-ui-column { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 768px) {
   .topbar[data-desktop-chrome] .app-menu-button > .brand-wordmark { display: none; }
   .topbar[data-desktop-chrome] .app-menu-compact-mark { display: block; width: var(--dinkster-space-24); height: var(--dinkster-space-24); }
   .topbar[data-desktop-chrome] .app-menu-button { min-width: var(--dinkster-control-compact-height); padding-inline: 0; }

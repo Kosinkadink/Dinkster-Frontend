@@ -15,7 +15,7 @@ test('Desktop header keeps app controls and identity clear of native buttons', a
   }, chromeInstaller)
   await page.addStyleTag({ content: '.topbar[data-desktop-chrome] { padding-right: 108px }' })
   const bar = page.locator('.topbar')
-  for (const width of [1100, 801, 800, 600, 521, 520, 390]) {
+  for (const width of [1100, 769, 768, 600, 521, 520, 390]) {
     await page.setViewportSize({ width, height: 700 })
     expect((await bar.boundingBox())!.height).toBe(56)
     for (const id of ['topbar-search', 'rail-toggle', 'image-documents-button', 'projects-button', 'collab-button'])
