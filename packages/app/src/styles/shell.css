@@ -17,7 +17,8 @@
   gap: var(--dinkster-space-4);
 }
 
-.app-menu-compact-mark.brand-symbol { display: none; }
+.app-menu-compact-mark.brand-symbol,
+.cancel-execution-icon { display: none; }
 
 .topbar-group {
   min-width: 0;
@@ -792,7 +793,10 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   .topbar[data-desktop-chrome] .app-menu-compact-mark { display: block; width: var(--dinkster-space-24); height: var(--dinkster-space-24); }
   .topbar[data-desktop-chrome] .app-menu-button { min-width: var(--dinkster-control-compact-height); padding-inline: 0; }
   .topbar[data-desktop-chrome] .app-menu-caret { display: none; }
-  .topbar[data-desktop-chrome] .search-trigger { padding-inline: var(--dinkster-space-8); }
+  .topbar[data-desktop-chrome] .search-trigger { display: flex; justify-content: center; min-width: var(--dinkster-control-compact-height); padding-inline: var(--dinkster-space-8); }
+  .topbar[data-desktop-chrome] .cancel-execution-button { flex: none; width: var(--dinkster-control-compact-height); padding-inline: 0; }
+  .topbar[data-desktop-chrome] .cancel-execution-icon { display: inline-flex; }
+  .topbar[data-desktop-chrome] :is(.search-trigger > span, .cancel-execution-label) { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
   .topbar[data-desktop-chrome][data-platform]:has(.dinkster-window-identity) {
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: var(--dinkster-type-metadata-line) var(--dinkster-control-compact-height);
@@ -810,8 +814,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 }
 
 @media (max-width: 520px) {
-  .topbar[data-desktop-chrome] .search-trigger { display: flex; justify-content: center; }
-  .topbar[data-desktop-chrome] .search-trigger > span { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
   .topbar[data-desktop-chrome][data-platform] { gap: 0; }
   .topbar { grid-template-columns: auto minmax(80px, 1fr) auto; gap: var(--dinkster-space-4); padding-inline: var(--dinkster-space-8); }
   .topbar-group-right { gap: 0; }
