@@ -83,8 +83,12 @@ test('ASSET values preserve the placeholder before the label and ellipsize long 
     contentType: 'image/png',
   })
 
-  const narrow = await paintNode(page, 140)
-  expect(narrow.nodeWidth).toBe(140)
+  // Narrower than its label and value together, the row gives the empty
+  // text its whole width before any of the label. At 160 px the field
+  // between the opener's icon and chevron holds "Choose model" whole; at
+  // 140 px it cannot.
+  const narrow = await paintNode(page, 160)
+  expect(narrow.nodeWidth).toBe(160)
   expect(narrow.calls.some((call) => emptyText.test(call))).toBe(true)
   expect(narrow.calls.some((call) => call.startsWith('Choose') && call.endsWith('...'))).toBe(false)
   await test.info().attach('asset-placeholder-narrow-width', {
