@@ -1,8 +1,7 @@
 # Library
 
-The left-dock Library browses Packs, Templates, and Workflows in that order.
-Execution history and stored runs live in the right-side Runs panel, not in
-Library. The Library header names the backend
+The left-dock Library browses five sources in a stable order: Packs,
+Templates, Workflows, History, and Runs. The Library header names the backend
 that owns the current tab and shows its exact protocol and connection state.
 Search, filters, paging, grid/list preference, and row keyboard navigation use
 the shared `CollectionPanel` contract; each source remains responsible for
@@ -70,5 +69,5 @@ The labelled source button group supports Arrow keys to move and select, while
 Home and End choose the first and last source. A compact source selector
 replaces the buttons at narrow viewport widths. Workflow rows retain
 their direct open behavior. Templates open only through **Open template** after
-selection. Pack rows select for inspection. Runs retains execution-owned
-actions and clear semantics in its All workflows scope.
+selection. Pack rows select for inspection. History and Runs retain their
+existing execution-owned activation, actions, and clear semantics.

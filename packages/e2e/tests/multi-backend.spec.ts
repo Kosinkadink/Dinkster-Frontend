@@ -10,7 +10,6 @@
  */
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!secondBackend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the second native frontend')
@@ -110,11 +109,10 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(run.connection).toBe(secondBackend)
 
   // Open the frozen view of the second-origin run.
-  await page.getByTestId('execution-row').first().locator('.runs-details > summary').click()
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('status-bar')).toContainText(secondBackend!)
-  await page.getByRole('tab', { name: 'Runs', exact: true }).click()
-  const image = page.getByTestId('runs-panel').locator('.output-thumbnail img').first()
+  await page.getByRole('tab', { name: 'Outputs' }).click()
+  const image = page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()
   await expect.poll(() => image.evaluate((element) => ({
     width: (element as HTMLImageElement).naturalWidth, height: (element as HTMLImageElement).naturalHeight,
   })), { timeout: 15_000 }).toEqual({ width: 64, height: 64 })

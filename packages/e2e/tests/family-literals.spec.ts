@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 for (const named of [false, true]) {
   test(`canonical forwarded family edits its instance in a drilled view (named=${named})`, async ({ page }, testInfo) => {
@@ -9,7 +9,7 @@ for (const named of [false, true]) {
     } }))
     await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
     await page.goto('/')
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await page.evaluate(async ({ names, named }) => {
       const app = window.__dinksterTest!.app
       app.registerSchemas([{
@@ -141,7 +141,7 @@ test('legacy named family literal editing advances the ghost through compaction'
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const scalar = { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }

@@ -1,4 +1,4 @@
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function badgePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
   return page.evaluate((nodeId) => {
@@ -25,7 +25,7 @@ test('review-mode native deprecation badges show guidance without an executable 
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
   expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],
@@ -75,7 +75,7 @@ async function migrationCatalog(page: Page): Promise<void> {
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 30_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 }
 
 async function openMigration(page: Page, lineage: string): Promise<void> {
@@ -232,7 +232,7 @@ test('deprecated resize imports its authored size and undoes from the migration 
 })
 
 test('only opt-in review holds a lossy migration for badge Apply', async ({ page }, testInfo) => {
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 503, json: {} }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await migrationCatalog(page)
   await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))

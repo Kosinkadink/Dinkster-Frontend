@@ -5,7 +5,7 @@
  */
 import type { Locator, Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { expect, appViewTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {
@@ -30,7 +30,7 @@ const center = async (locator: Locator): Promise<{ x: number; y: number }> => {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await tab(page, 'Basic').locator('.tab-select').click()
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
 })
@@ -293,11 +293,7 @@ test('tab strip suppresses vertical scrolling and retains horizontal overflow', 
 const actionsTest = test.extend({
   page: async ({ page }, use) => {
     await page.routeWebSocket('**/api/events?*', () => {})
-    await page.route('**/api/**', (route) =>
-      route.request().url().includes('/api/library/retention')
-        ? route.fallback()
-        : route.fulfill({ status: 404 }),
-    )
+    await page.route('**/api/**', (route) => route.fulfill({ status: 404 }))
     await page.route('**/supervisor/**', (route) =>
       route.fulfill({ status: 502 }),
     )
