@@ -965,9 +965,13 @@ The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
 and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
 scoped shared CSS with embedded Noto fonts plus token-derived native overlay
 colors/height and macOS traffic-light position. The installer reuses the first
-`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
-without one it prepends `ProductWindowChrome`. If the app later creates or
-replaces its bar, the installer moves its markings there and removes its own
+`.dinkster-window-toolbar-host`, `.topbar`, `.dinkster-topbar` or direct body
+header, preserving its children. On a shared toolbar it mounts identity inside
+the toolbar grid; a host-managed toolbar leaves its component `qa` and
+`development` flags unset so the installer alone owns those markings. The
+artifact includes the canonical toolbar container rules, including the compact
+metadata row. Without an application bar it prepends `ProductWindowChrome`.
+If the app later creates or replaces its bar, the installer moves its markings there and removes its own
 fallback; removing the app bar restores the fallback. Reinstallation disconnects
 the prior observer and replaces only its own markings/fallback. The host inserts
 the supplied CSS and runs the
@@ -982,8 +986,12 @@ fixed 56px height. At the standard 768px available-content boundary, a container
 query compacts `ProductWindowAction` labels to icons and moves service/identity
 labels into a metadata row inside the bar. Native reservations therefore reduce
 available space before the breakpoint is evaluated. Actions retain their full
-accessible name and title; pending actions reuse the shared disabled/focus and
-spinner behavior. The gallery's Window toolbar page demonstrates production,
+accessible name and title. An optional `shortcut` shows a keyboard hint beside
+the expanded action label; compact mode hides the hint but retains it in the
+button's title and accessible description without changing its action name.
+Changing or removing the shortcut updates both presentations. The hint is
+informational: the caller still owns shortcut registration and activation.
+Pending actions reuse the shared disabled/focus and spinner behavior. The gallery's Window toolbar page demonstrates production,
 QA/custom services, all three platforms, both app themes and idle/running/pending
 states. Supply a brand menu with an icon and the fixed QA/custom service labels;
 arbitrary environment names are outside this toolbar contract. These are shared

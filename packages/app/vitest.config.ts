@@ -10,6 +10,7 @@ export default defineConfig({
   plugins: [solid({ ssr: true })],
   test: {
     environment: 'node',
+    setupFiles: ['./test/setup.ts'],
     include: ['test/**/*.test.{ts,tsx}'],
     exclude: [...configDefaults.exclude, 'test/**/*.dom.test.tsx'],
   },
