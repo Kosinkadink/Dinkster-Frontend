@@ -63,7 +63,7 @@ const diagnostics: readonly Diagnostic[] = [
 ]
 
 function mountPanel(
-  selection?: import('../src/ProblemsPanel.js').ProblemsPanelProps['selection'],
+  onShowInContext?: (diagnostic: Diagnostic) => void,
   panelDiagnostics: () => readonly Diagnostic[] = () => diagnostics,
   compatSkips: () => readonly { readonly packId: string; readonly nodeId: string; readonly reason: string }[] = () => [],
 ) {
@@ -83,7 +83,7 @@ function mountPanel(
   document.body.append(root)
   const unmount = render(() => (
     <ProblemsPanel app={app} diagnostics={panelDiagnostics} compatSkips={compatSkips}
-      {...(selection === undefined ? {} : { selection })} />
+      {...(onShowInContext === undefined ? {} : { onShowInContext })} />
   ), root)
   return { app, diagnosticFocus, root, unmount }
 }
@@ -142,6 +142,7 @@ describe('ProblemsPanel browser interactions', () => {
   it('updates mounted static chrome while preserving disclosure nodes and raw diagnostics', () => {
     registerCatalog('de-DE', {
       'shell.panel.problems.title': '[Probleme]',
+      'problems.action.showInFocused': '[Im Fokus zeigen]',
       'problems.action.showOnCanvas': '[Auf Leinwand zeigen]',
       'problems.section.packs': '[Pakete und Backend]',
       'problems.empty': '[Keine Probleme.]',
@@ -149,7 +150,8 @@ describe('ProblemsPanel browser interactions', () => {
     })
     const panelDiagnostics = createSignal<readonly Diagnostic[]>(diagnostics)
     const [compatSkips, setCompatSkips] = createSolidSignal([{ packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw refusal reason' }])
-    const { root, unmount } = mountPanel(undefined, panelDiagnostics.get, compatSkips)
+    const shown: Diagnostic[] = []
+    const { root, unmount } = mountPanel((diagnostic) => shown.push(diagnostic), panelDiagnostics.get, compatSkips)
     const panel = root.querySelector<HTMLElement>('[data-testid="problems-panel"]')!
     const group = root.querySelector<HTMLElement>('.problems-group')!
     const details = root.querySelector<HTMLDetailsElement>('details.problem')!
@@ -161,6 +163,7 @@ describe('ProblemsPanel browser interactions', () => {
 
     expect(root.querySelector('h2')!.textContent).toBe('[Probleme]')
     expect(root.querySelector<HTMLButtonElement>('.problem-show-on-canvas')!.textContent).toBe('[Auf Leinwand zeigen]')
+    expect(root.querySelector<HTMLButtonElement>('.problem-show-in-context')!.textContent).toBe('[Im Fokus zeigen]')
     expect(root.querySelector<HTMLElement>('[data-section="packs"] .problems-group-title')!.textContent).toBe('[Pakete und Backend]')
     expect(root.querySelector<HTMLElement>('.runtime-error-hint-code')!.getAttribute('aria-label')).toBe('[Diagnosecode: repair]')
     expect(root.querySelector<HTMLElement>('.runtime-error-hint-code')!.getAttribute('data-tooltip-label')).toBe('[Diagnosecode: repair]')
@@ -174,6 +177,7 @@ describe('ProblemsPanel browser interactions', () => {
     expect(root.querySelector('details.problem')).toBe(details)
     expect(root.querySelector('.runtime-error-hint')).toBe(hint)
     expect(details.open).toBe(true)
+    expect(shown).toEqual([])
 
     setCompatSkips([{ packId: 'updated-pack', nodeId: 'UpdatedNode', reason: 'updated refusal reason' }])
     expect(root.textContent).toContain('updated refusal reason')
@@ -279,27 +283,20 @@ describe('ProblemsPanel browser interactions', () => {
     unmount()
   })
 
-  it('filters the selected occurrence and shows no document-wide fallback with an empty selection', () => {
-    const [nodeIds, setNodeIds] = createSolidSignal<readonly string[]>(['n2'])
-    const selection = () => ({
-      tab: { id: 'tab-dom' } as Tab,
-      doc: workflow,
-      graphId: 'g0',
-      instancePath: [],
-      context: nodeIds().length > 0
-        ? { kind: 'node' as const, nodeIds: nodeIds() }
-        : { kind: 'document' as const },
-    })
-    const { root, unmount } = mountPanel(selection)
-    expect(root.querySelectorAll('details.problem')).toHaveLength(2)
-    root.querySelector<HTMLButtonElement>('[data-testid="problems-selection-only"]')!.click()
-    expect([...root.querySelectorAll('.problem-message')].map((row) => row.textContent)).toEqual(['warning detail'])
-    expect(root.querySelector('[data-testid="problems-selection"]')?.textContent).toBe('Warning sampler')
-    setNodeIds([])
-    expect(root.querySelectorAll('details.problem')).toHaveLength(0)
-    expect(root.querySelector('[data-testid="problems-selection"]')?.textContent).toBe('Nothing selected')
-    root.querySelector<HTMLButtonElement>('[data-testid="problems-selection-only"]')!.click()
-    expect(root.querySelectorAll('details.problem')).toHaveLength(2)
+  it('offers Show in Focused beside Show on canvas only when the host wires it', () => {
+    const plain = mountPanel()
+    expect(plain.root.querySelector('.problem-show-in-context')).toBeNull()
+    plain.unmount()
+    document.body.replaceChildren()
+
+    const shown: Diagnostic[] = []
+    const { root, unmount } = mountPanel((diagnostic) => shown.push(diagnostic))
+    // Both fixture diagnostics have owning anchors, so both rows offer it.
+    const buttons = root.querySelectorAll<HTMLButtonElement>('.problem-show-in-context')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]!.textContent).toBe('Show in focused')
+    buttons[0]!.click()
+    expect(shown).toEqual([diagnostics[0]])
     unmount()
   })
 

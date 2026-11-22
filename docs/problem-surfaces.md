@@ -1,14 +1,18 @@
 # Problem surfaces
 
-Problems appear in the right-side Problems panel and its indicator. By
-default the panel shows every current problem, grouped by user action, with
-anchored navigation. Selection only narrows the list to the current canvas
-selection. It starts off and is not persisted. The indicator always counts
-the complete list, even while Selection only is enabled.
+Problems reach the user through three cooperating surfaces (#22). None
+replaces another: the whole-document list is always complete, the focused
+view is always narrow, and the indicator is always visible.
 
-Both read the same composed diagnostics list: solver diagnostics,
+| Surface | Where | Shows |
+| --- | --- | --- |
+| Problems tab | right rail (`problems` panel) | Every current problem, grouped by user action, with anchored navigation. |
+| Focused tab | right rail (`context` panel) | The focused entity's details and ONLY the problems belonging to that context. |
+| Problem indicator | Problems tab label, right-rail toggle | Count plus worst severity whenever document problems exist; absent at zero. |
+
+All three read the same composed diagnostics list (solver diagnostics,
 owner-scoped live problems, and the active execution's artifact diagnostics
-and errors. The separate Focused panel is removed.
+and errors), so their counts can never disagree.
 
 ## Problems sections
 
@@ -22,7 +26,7 @@ The panel shows only non-empty sections, in this order:
    unavailable inference problems.
 5. **Collaboration**: shared-session problems.
 
-Information notices remain visible. Problems rows have a severity
+Information notices remain visible. Problems and Focused rows have a severity
 icon and a single-line producer message naming the thing and its cause. Expanding the
 row reveals the diagnostic code and any debug payload or traceback; hovering
 the summary reveals its complete producer message without repeating the row text.
@@ -118,11 +122,10 @@ workflow.
 
 ## Focus-to-context ownership
 
-Selection only derives its context from live shell facts with the pure
-`deriveFocusContext` function in `packages/app/src/problem-context.ts`.
-Reading focus never mutates the document. A context description appears above
-the filtered list. Nothing selected shows an empty state rather than falling
-back to the current subgraph or document.
+The Focused tab derives WHAT is focused from live shell facts with one pure
+function, `deriveFocusContext` in `packages/app/src/problem-context.ts`. The
+derivation is deterministic - the same snapshot always yields the same
+context - and reading focus never mutates the document.
 
 Priority order, most specific wins:
 
@@ -132,11 +135,15 @@ Priority order, most specific wins:
 3. **Link selection** - one or more links are selected (and no nodes).
 4. **Group selection** - one or more groups are selected (and no nodes or
    links). Members resolve geometrically through the canvas bridge.
+5. **Subgraph view** - the canvas shows a drilled-in subgraph with a known
+   instance path.
+6. **Document** - nothing above applies; the whole document is the context.
 
 A canvas selection containing several entity kinds resolves to the most
-specific non-empty tier (nodes beat links beat groups). The shared derivation
-also represents document and subgraph contexts, but Selection only treats
-those as no selection.
+specific non-empty tier (nodes beat links beat groups), matching how canvas
+gestures treat mixed selections. When subgraph navigation signals are
+mid-transition (the instance path is momentarily out of sync with the graph
+stack), the derivation falls back to the document rather than guessing.
 
 ## Problem partition
 
@@ -156,15 +163,21 @@ context by anchor and ref facts alone:
 
 ## Navigation
 
-Problems rows with an owning context (an occurrence, port or link anchor)
-offer **Show on canvas**. It restores the owning graph view, selects the node
-or link, and centers the camera. Link-only anchors resolve in the current
-graph, including the current subgraph instance. This changes only view state,
-never the document.
+Problems rows with an owning context (an occurrence, port or link anchor) offer
+two actions:
+
+- **Show on canvas** - the existing anchored navigation: restores the owning
+  graph view, selects the node or link, and centers the camera. Link-only
+  anchors resolve in the current graph, including the current subgraph instance.
+- **Show in Focused** - does the same focus, then activates the Focused tab,
+  which now shows the owner and its problems.
+
+Both actions change only view state (selection, navigation, camera, active
+panel), never the document.
 
 ## Localization boundary
 
-The Problems headings, section names, context-kind labels, empty states, counts,
+The Problems and Focused headings, section names, context-kind labels, empty states, counts,
 navigation actions, entity and endpoint wrappers,
 chrome, and diagnostic-code accessible label follow the active locale while
 the panels remain mounted. Locale changes preserve disclosure, selection,
@@ -196,11 +209,15 @@ Aggregation keeps the attention discoverable in every zone state:
 
 - `packages/app/test/problem-context.test.ts` - derivation priority and
   partition rules, per context kind.
+- `packages/app/test/ContextPanel.dom.test.tsx` - the rendered Focused tab
+  follows every context kind, localizes every entity and endpoint wrapper,
+  preserves raw facts and mounted identity, filters problems, and reports
+  empty contexts honestly.
 - `packages/app/test/shell-chrome.dom.test.tsx` - descriptor indicators on
   dock tabs, active or not, clearing at zero.
 - `packages/app/test/panels.test.ts` - indicator aggregation.
-- `packages/app/test/ProblemsPanel.dom.test.tsx` - selection filtering,
-  empty selection, canvas navigation, and mounted locale continuity.
+- `packages/app/test/ProblemsPanel.dom.test.tsx` - the Show in Focused
+  affordance and mounted static-chrome locale continuity.
 - `packages/e2e/tests/problems-focus.spec.ts` - mounted locale changes,
   preserved raw diagnostic and compatibility data, stable disclosure and
   selection, no schema refetch, and inspected English/German-overlay panels.

@@ -1,6 +1,6 @@
-# App log
+# Activity
 
-The App scope in the Log panel is a host-owned record of frontend events. Each entry keeps
+The Activity panel is a host-owned record of frontend events. Each entry keeps
 four separate facts: an exact UTC timestamp, severity, source, and message.
 Backend labels remain attached to events after a disconnect, while app-level
 diagnostics use their diagnostic origin as the source. Severity is written as

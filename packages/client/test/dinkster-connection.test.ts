@@ -3757,26 +3757,6 @@ describe('persistent history wire', () => {
     expect(await missing.getHistoryRun('run-1', 'local')).toBeUndefined()
   })
 
-  it('inspects a stored job using its original client and global run identities', async () => {
-    const history = { ...run, clientId: 'another-browser', state: 'completed' as const }
-    const job = { state: 'completed', clientId: history.clientId, jobId: run.jobId,
-      jobRef: run.runId, sourceDocument: run.sourceDocument, outputs: { image: { text: 'result' } } }
-    let response = job
-    const { conn, requests } = submitHarness(() => jsonResponse(200, response))
-    expect((await conn.fetchHistoryJob(history))?.outputs).toEqual(job.outputs)
-    expect(requests[0]?.url).toBe('http://test/api/jobs/by-ref/run-1')
-    for (const mismatch of [
-      { clientId: 'other-client' }, { jobId: 'other-job' }, { jobRef: 'other-run' }, { sourceDocument: 'other-document' },
-    ]) {
-      response = { ...job, ...mismatch }
-      await expect(conn.fetchHistoryJob(history)).rejects.toThrow(/identity|clientId/)
-    }
-    response = job
-    await expect(conn.fetchJob(run.jobId)).rejects.toThrow('clientId mismatch')
-    const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
-    expect(await missing.fetchHistoryJob(history)).toBeUndefined()
-  })
-
   it('deleteHistoryRun: true on 204, false on 404, throws otherwise', async () => {
     const { conn, requests } = submitHarness((url, init) =>
       url.includes('/api/history/run-1') && init?.method === 'DELETE'

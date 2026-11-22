@@ -89,12 +89,12 @@ no exported output: a map executes its sink once per input element, and zero
 times for an empty list. A region with neither an exported output nor a
 declared output node is invalid.
 
-Run details creates one row per fixed map/fold item as soon as expansion is
+The Queue card creates one row per fixed map/fold item as soon as expansion is
 known. Rows move from waiting to running to completed from explicit backend
-iteration lifecycle events; while rows appear as occurrences start. Runs
-retains each image's actual runtime region item, including nested paths, in
-its Details and viewer. Under This workflow, selecting a loop box exposes
-Iterations for the selected run when that run has an iteration inventory.
+iteration lifecycle events; while rows appear as occurrences start. The
+Outputs panel groups retained images under their actual runtime region item,
+including nested runtime paths, instead of presenting loop results as one
+unattributed workflow list.
 
 ![Per-item loop progress](assets/loop-primitives/queue-progress.png)
 

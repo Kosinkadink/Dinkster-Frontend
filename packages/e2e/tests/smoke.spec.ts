@@ -25,11 +25,11 @@ test('queues the basic workflow and tracks it to completion with outputs', async
   const execution = page.getByTestId('execution-row').first()
   await expect(execution).toBeVisible({ timeout: 10_000 })
   await expect(execution.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
-  await openRailPanel(page, 'Runs')
-  await expect(page.getByTestId('runs-panel').locator('.output-thumbnail img')).not.toHaveCount(0, {
+  await openRailPanel(page, 'Outputs')
+  await expect(page.getByTestId('outputs-panel').locator('.output-thumbnail img')).not.toHaveCount(0, {
     timeout: 10_000,
   })
-  await expect(page.getByTestId('runs-panel').locator('.output-thumbnail img').first()).toHaveJSProperty('naturalWidth', 64)
+  await expect(page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()).toHaveJSProperty('naturalWidth', 64)
   await expect(page.getByTestId('problems-panel')).toContainText('None.')
 })
 
@@ -48,7 +48,7 @@ test('subgraph tab queues its flattened prompt and routes state by lineage', asy
   }), { timeout: 30_000 }).toBe('completed')
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Subgraph' }).click()
   const execution = page.getByTestId('execution-row').first()
-  await expect(execution.getByRole('button', { name: 'Subgraph', exact: true })).toBeVisible()
+  await expect(execution.locator('.execution-tab')).toHaveText('Subgraph')
   await expect(execution.locator('.execution-status')).toHaveText('Completed')
 
   // Bridge-level check: the flattened prompt used occurrence-key runtime ids
@@ -96,8 +96,8 @@ test('completion before submit acknowledgment retains and hydrates outputs', asy
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()]
     .some((state) => state.status === 'completed' && state.artifact !== undefined))).toBe(true)
   releaseReads()
-  await openRailPanel(page, 'Runs')
-  const images = page.getByTestId('runs-panel').locator('.output-thumbnail img')
+  await openRailPanel(page, 'Outputs')
+  const images = page.getByTestId('outputs-panel').locator('.output-thumbnail img')
   await expect(images).not.toHaveCount(0, { timeout: 10_000 })
   await expect(images.first()).toHaveJSProperty('naturalWidth', 64)
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()]
