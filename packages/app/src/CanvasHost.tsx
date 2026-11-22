@@ -5124,7 +5124,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
         multiline: widgetKind === undefined || hit.row.viewId === 'core.text' ||
           (hit.row.viewId === 'core.line' && typeof value === 'string' && value.includes('\n')),
-        rect: inRow
+        // An in-row field and a text box open exactly over the box the canvas
+        // paints, so clicking into them moves no pixel of the label or text.
+        rect: inRow || hit.row.viewId === 'core.text'
           ? { x: hit.x, y: hit.y + fieldInsetY, width: hit.width, height: hit.height - fieldInsetY * 2 }
           : { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
         ...(inRow ? { inRow: {

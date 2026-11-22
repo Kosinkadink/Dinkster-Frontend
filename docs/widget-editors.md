@@ -836,8 +836,9 @@ The overlay derives its position from the widget's world rectangle and the
 renderer viewport signal. Camera pan and zoom update its screen position and
 dimensions while it remains open. Its 18px label band, 14px content font, 20px
 line height, 6px padding, 8px reserved gutter, and corner radius scale with
-zoom and match the Canvas2D field. The editor stays inside the shared 2px
-top/bottom chrome inset, has no resize handle or browser outline, and uses a
+zoom and match the Canvas2D field. The editor covers the same field box the
+canvas paints, inset by the `fieldInsetY` token, has no resize handle or
+browser outline, and uses a
 6px product-themed scrollbar with bounded vertical scrolling. Generic widget
 field rules exclude Product fields without raising selector specificity, so
 the in-node borderless geometry overrides ordinary popover field chrome.
@@ -847,6 +848,17 @@ the same gutter and paints a proportional scrollbar indicator inside the
 rounded chrome. The painted indicator is deliberately non-interactive because
 canvas rows have no scroll interaction; the open editor scrolls. The box never
 grows while typing.
+
+Clicking into a text box moves no pixel of its label or text: only the box's
+outline and the cursor appear. The canvas places its bitmap and its text
+baselines on whole device pixels, while DOM layout rounds font metrics and
+centering its own way, so a computed offset lands a pixel off at some zooms.
+The editor therefore places itself on the canvas's device pixel grid, measures
+where the browser lays out the label's and the first line's baselines, and
+moves each onto the row the canvas painted it on
+(`canvasBaselineRow` and `domFirstBaseline` in
+`packages/app/src/widget-editor-position.ts`). It measures again when the
+camera moves while the box is open.
 
 ### Text box height
 

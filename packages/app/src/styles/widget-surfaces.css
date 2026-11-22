@@ -66,6 +66,13 @@
   scrollbar-width: auto;
 }
 
+/* The box's own outline marks it open; the shared field focus ring would
+   show as a line under the label. */
+.widget-editor.widget-editor-in-node textarea,
+.widget-editor.widget-editor-in-node textarea:focus-visible {
+  box-shadow: none;
+}
+
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar {
   width: var(--multiline-scrollbar-width, 6px);
   height: var(--multiline-scrollbar-width, 6px);
