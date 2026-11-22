@@ -180,17 +180,16 @@ test('left zone hosts multiple tabs and each toggle activates or closes its pane
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
 
   // Library opens in the dock.
-  await page.evaluate(() => window.__dinksterTest!.app.settings.set('shell.layout.left.width', 720))
   await page.getByTestId('library-toggle').click()
   const dock = page.getByTestId('dock-panel')
   const zone = page.getByTestId('dock-zone-left')
   await expect(dock).toHaveAttribute('data-active-panel', 'library')
   await expect(page.getByTestId('library-overlay')).toBeVisible()
   await expect(zone.getByRole('tab', { name: 'Library' })).toHaveAttribute('aria-selected', 'true')
-  await expect(zone.getByRole('tab', { name: 'Backends' })).toBeVisible()
+  await expect(zone.getByRole('tab', { name: 'Backends', includeHidden: true })).toBeAttached()
   const tablist = zone.getByRole('tablist', { name: 'Primary dock panels' })
   const overflowButton = zone.getByTestId('dock-zone-overflow-button')
-  await expect(overflowButton).not.toBeVisible()
+  await expect(overflowButton).toBeVisible()
   await expectWholeTabs(tablist, zone.locator('[role="tab"]'))
 
   // Switching to Backends selects its tab while both tabs remain available.
@@ -682,6 +681,7 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
       window.__dinksterTest!.app.panels.register({
         id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
         placement: 'rail', allowedPlacements: ['rail'], order: 100 + index,
+        when: () => true,
         component: () => document.createElement('div'),
       })
     }

@@ -230,7 +230,7 @@ async function addOverflowPanels(page: Page): Promise<void> {
     for (let index = 0; index < 3; index += 1) {
       app.panels.register({
         id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
-        placement: 'rail', order: 100 + index,
+        placement: 'rail', allowedPlacements: ['rail'], order: 100 + index,
         component: () => document.createElement('div'),
       })
     }
