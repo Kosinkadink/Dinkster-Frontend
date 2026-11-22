@@ -175,6 +175,13 @@ test('an open field keeps its after-run modes reachable through a short canvas r
   await page.mouse.click(widget.x, widget.y)
   await expect(page.getByTestId('canvas-row-field').locator('.dinkster-canvas-field-side')).toBeVisible()
   await page.setViewportSize({ width: 390, height: 360 })
+  // The side part stays whole on the visible canvas; the canvas does not move.
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const side = document.querySelector('[data-testid=canvas-row-field] .dinkster-canvas-field-side')!.getBoundingClientRect()
+    return side.left >= canvas.left && side.top >= canvas.top &&
+      side.right <= canvas.right && side.bottom <= canvas.bottom
+  })).toBe(true)
 
   const randomize = page.getByRole('group', { name: 'After each run' }).getByRole('button', { name: 'randomize' })
   await expect(randomize).toBeInViewport()
