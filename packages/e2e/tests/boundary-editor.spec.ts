@@ -48,13 +48,12 @@ const slotToggle = (page: Page, path: string) =>
 const boundaryTab = (page: Page) =>
   page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="boundary"]')
 
-const queueTab = (page: Page) =>
-  page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="queue"]')
+const runsTab = (page: Page) =>
+  page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="runs"]')
 
 async function widenRail(page: Page): Promise<void> {
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('End')
-  await expect(boundaryTab(page)).toBeVisible()
 }
 
 async function drillIntoOccurrence(page: Page): Promise<void> {
@@ -218,9 +217,9 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
   })
   await page.setViewportSize({ width: 1440, height: 900 })
   await widenRail(page)
-  await queueTab(page).click()
-  await expect(queueTab(page)).toHaveAttribute('aria-selected', 'true')
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
+  await runsTab(page).click()
+  await expect(runsTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(boundaryTab(page)).toHaveCount(0)
   await capture(page, 'boundary-tab-normal-root')
   // Drill into the definition: the panel edits definitions, not instances.
   await drillIntoOccurrence(page)
@@ -301,7 +300,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
   await expect(input).toHaveValue('')
 })
 
-test('root prompt reopens definitions; family item pins to an explicit full selection', async ({ page }) => {
+test('returning to a definition preserves its explicit full selection', async ({ page }) => {
   const item = page.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
   await expect(item).toContainText('Tracks template')
   // Port-bound items list without an exposure tree.
@@ -350,14 +349,12 @@ test('root prompt reopens definitions; family item pins to an explicit full sele
     await expect(slotToggle(page, path)).toHaveAttribute('data-state', 'whole')
   }
 
-  // The root offers navigation, not definition-editing controls.
+  // Boundary is only available inside a subgraph definition.
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
-  await expect(page.getByTestId('boundary-prompt')).toBeVisible()
+  await expect(boundaryTab(page)).toHaveCount(0)
   await expect(page.getByTestId('boundary-item')).toHaveCount(0)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
-  await capture(page, 'boundary-root-prompt')
-  await page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Grower', exact: true }).click()
-  await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
+  await capture(page, 'boundary-root-hidden')
+  await drillIntoOccurrence(page)
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
   await expect(item).toContainText('Pinned')
   expect(await fwdSlots(page)).toEqual(['req', 'sub', 'tag'])

@@ -56,6 +56,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
       id: 'proof.blocked.setting', name: 'Blocked setting', type: 'boolean', defaultValue: false,
     }))
   })
+  await page.getByTestId('extensions-toggle').click()
   const pack = page.locator('[data-pack="proof.blocked"]')
   await expect(pack.getByTestId('extension-pack-toggle')).toBeDisabled()
   await expect(pack.getByTestId('extension-contribution-toggle')).toBeDisabled()
