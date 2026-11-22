@@ -1,5 +1,20 @@
 # Design System
 
+## Logo artwork
+
+The logo and wordmark use outlined vector contours from
+`branding/sources/dinkster-d.svg` and `letter-contours.svg`, assembled into
+`Dinkster_Master.svg`. Both accent bands are coral; cyan and the theme-specific
+lettering colors are unchanged. D outward corners use radius 24, the inward
+stem junction uses 38.4, and outward letter corners use 2.47. The k has a flat
+stem foot with its descending leg below the baseline. All sizes use the same
+artwork, without small-icon cuts or pixel edits. Interface yellow stays in
+the palette; it is not used by the logo.
+
+Build and export commands are in `branding/README.md`. Header, boot, About,
+gallery, website and account-page wordmarks consume those shared exports;
+Desktop takes the published frontend bundle's platform icons.
+
 ## Browser icons
 
 Browser tabs use the approved colored D in `branding/favicon/`. Its square
