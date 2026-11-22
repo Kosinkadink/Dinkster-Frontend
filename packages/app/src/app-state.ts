@@ -8627,7 +8627,7 @@ export class AppState {
     try {
       const registry = this.registryForTab(tab)
       const roots = workflowAssetRoots(tab.store.doc, { revision: tab.store.revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'export')
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
       if (roots.refusal !== undefined) throw new Error(roots.refusal)
       const snapshot = await this.documentWithAssetLocations(tab)
       if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false

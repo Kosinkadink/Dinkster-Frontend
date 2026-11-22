@@ -58,9 +58,10 @@ still rejected when opening the file. Problems lists one warning per adjusted
 node under "Upgraded on open". Selecting it navigates to the node; undoing the
 edit restores the old selection without dismissing the warning.
 
-Retained values whose schema is no longer available keep their asset references
-protected without claiming a complete asset inventory. Sharing, saving and
-exporting still require valid current dynamic identities.
+Saving, exporting and sharing keep the leftovers too. Recognizable asset
+references in removed fields are retained and travel with the workflow;
+unrecognized leftover values do not block these actions. A missing required
+slot variant blocks running only. Saving clears the open-time warning.
 
 ## Named routing
 

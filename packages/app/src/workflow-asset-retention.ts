@@ -141,7 +141,7 @@ export function workflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[] = [],
-  purpose: 'publication' | 'admission' | 'execution' | 'export' = 'publication',
+  purpose: 'publication' | 'admission' | 'execution' = 'publication',
   sourceDocument?: string,
 ): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
   readonly incompleteDiagnostics?: readonly Diagnostic[] } {
@@ -153,7 +153,7 @@ function censusWorkflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[],
-  purpose: 'publication' | 'admission' | 'execution' | 'export',
+  purpose: 'publication' | 'admission' | 'execution',
   sourceDocument?: string,
   inventories: ReadonlyMap<string, CompositorInventory> = new Map(),
 ): ReturnType<typeof workflowAssetRoots> {
@@ -322,7 +322,7 @@ function censusWorkflowAssetRoots(
     checkedSchemas.add(schema)
     if (node.ext !== undefined && Object.keys(node.ext).length > 0) complete = false
     checkedExtensions.add(node)
-    for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
+    for (const [key, value] of Object.entries(node)) if (!['ext', 'values'].includes(key)) checkExtensions(value as Json)
     for (const value of Object.values(node.values)) opaqueRoots(value)
     if (node.ext !== undefined) opaqueRoots(node.ext)
     if (node.dynamic !== undefined) opaqueRoots(node.dynamic as Json)
@@ -353,8 +353,6 @@ function censusWorkflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    if ([...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
-      diagnostic.code === 'elab.dynamic.unknownState' || diagnostic.code === 'elab.combo.removedOption' || diagnostic.code === 'elab.slot.removedVariant')) complete = false
     const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
     if (unsupportedDormant.length > 0) {
       complete = false
@@ -363,27 +361,21 @@ function censusWorkflowAssetRoots(
         message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
       })
     }
-    const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
-    if (missingChoices.length > 0) {
-      complete = false
-      incompleteDiagnostics.push(...missingChoices)
-    }
-    // Historical state stays opaque on open; publication still requires current identities.
-    const invalidIdentity = (diagnostic: Diagnostic): boolean =>
-      (purpose === 'publication' || purpose === 'export') && ['elab.combo.removedOption', 'elab.slot.removedVariant'].includes(diagnostic.code) || diagnostic.severity === 'error' &&
-      !((purpose === 'admission' || purpose === 'export') && diagnostic.code === 'prompt.missing_dynamic_choice') &&
-      !(purpose === 'admission' && diagnostic.code === 'elab.dynamic.unknownState')
+    // Removed constructs are inert storage. A missing required slot is an execution
+    // error, not an asset-ownership error: its dormant inputs are still censused.
+    const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
+      !['prompt.missing_dynamic_choice', 'elab.dynamic.unknownState'].includes(diagnostic.code)
     if (active.diagnostics.some(invalidIdentity) ||
       stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
         invalidIdentity(diagnostic) && diagnostic.code !== 'elab.dormant.unsupported' &&
-        ((purpose !== 'admission' && purpose !== 'export') || ![
+        (purpose !== 'admission' || ![
           'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
           'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
         ].includes(diagnostic.code)))
-      if (invalidIdentities || (purpose !== 'admission' && purpose !== 'export')) refusal = 'Workflow dynamic identities are invalid'
+      if (invalidIdentities || purpose !== 'admission') refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
@@ -410,6 +402,10 @@ function censusWorkflowAssetRoots(
     }
     for (const [input, value] of Object.entries(node.values)) {
       const candidates = inputs.filter((item) => valueKeyOf(item) === input)
+      // Values for fields removed by a pack are inert. opaqueRoots above keeps
+      // recognizable assets without pretending to interpret the old field type.
+      if (candidates.length === 0) continue
+      checkExtensions(value)
       const conflicting = candidates.some((item) => item.wire15Materialization) &&
         new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
       const typed = parseTypedLiteralWire(value)

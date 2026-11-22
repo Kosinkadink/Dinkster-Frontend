@@ -1,6 +1,53 @@
 import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
+test('removed pack parts open with anchored upgrade rows and preserve their stored values', async ({ page }) => {
+  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
+  await page.goto('/')
+  await waitForStartupOwnership(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'UpdatedSampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'mode', displayName: 'Mode', optional: false,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicCombo', materialization: 'wire15',
+          options: [{ key: 'current', inputs: [] }, { key: 'other', inputs: [] }],
+        } }],
+    }])
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'removed-pack-parts', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Updated pack', nodes: {
+        option: { id: 'option', type: 'UpdatedSampler', title: 'Removed option',
+          values: { 'mode.oldAmount': 31 }, dynamic: { mode: { selected: 'removed' } } },
+        group: { id: 'group', type: 'UpdatedSampler', title: 'Removed group',
+          values: { 'old.amount#m3': 17 }, dynamic: { old: { members: ['m3'], seq: 4 } } },
+        choice: { id: 'choice', type: 'UpdatedSampler', title: 'Removed choice',
+          values: { 'old.amount': 23 }, dynamic: { old: { selected: 'previous' } } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { g0: { nodes: {
+        option: { position: { x: 50, y: 80 } }, group: { position: { x: 300, y: 80 } },
+        choice: { position: { x: 50, y: 300 } },
+      } } } },
+    }, 'After a pack update')
+  })
+  await openRailPanel(page, 'Problems')
+  const panel = page.getByTestId('problems-panel')
+  await expect(panel.locator('.problems-group-title')).toContainText(['Upgraded on open'])
+  const upgrades = panel.locator('[data-section="upgrade"]')
+  await expect(upgrades.locator('details.problem')).toHaveCount(3)
+  await expect(upgrades).toContainText("option 'removed' of 'Mode' is no longer in the pack. It is now 'current'.")
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.option!.dynamic!.mode!.selected)).toBe('current')
+  await expect(page.getByTestId('status-bar')).not.toContainText('Workflow dynamic identities are invalid')
+  await page.screenshot({ path: evidencePath('removed-pack-parts', 'opened.png'), animations: 'disabled' })
+  await upgrades.locator('summary').filter({ hasText: 'Removed group:' }).click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  expect(await page.evaluate(() => {
+    const nodes = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
+    return { values: nodes.option!.values, group: nodes.group!.dynamic, choice: nodes.choice!.dynamic }
+  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 } }, choice: { old: { selected: 'previous' } } })
+})
+
 test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))

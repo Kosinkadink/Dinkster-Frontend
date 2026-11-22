@@ -37,6 +37,16 @@ function session(files = [asset('a')]) {
 const replace = (letter: string) => ({ command: 'node.setValue', params: {
   graphId: 'g0', nodeId: 'n0', inputId: 'files', value: [asset(letter)],
 } })
+const captureDownloads = (): Blob[] => {
+  const downloads: Blob[] = []
+  vi.stubGlobal('document', { createElement: () => ({ click() {}, remove() {} }), body: { append() {} } })
+  vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+    downloads.push(blob as Blob)
+    return 'blob:workflow-download'
+  })
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  return downloads
+}
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((done) => { resolve = done })
@@ -636,16 +646,6 @@ describe('workflow retention recovery', () => {
 
 describe('retained app dispatch', () => {
   let app: AppState | undefined
-  const captureDownloads = (): Blob[] => {
-    const downloads: Blob[] = []
-    vi.stubGlobal('document', { createElement: () => ({ click() {}, remove() {} }), body: { append() {} } })
-    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
-      downloads.push(blob as Blob)
-      return 'blob:workflow-download'
-    })
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    return downloads
-  }
   afterEach(() => {
     app?.dispose()
     app = undefined
@@ -875,12 +875,13 @@ describe('retained app dispatch', () => {
           .map((key) => JSON.parse(localStorage.getItem(key)!))
         expect(records).toContainEqual(expect.objectContaining({ complete: true, digests: [asset('a').digest], acknowledgedRevision: 1 }))
       } else {
-        expect(roots).toMatchObject({ complete: false, refusal: 'Workflow dynamic identities are invalid' })
+        expect(roots).toEqual({ complete: true, digests: [asset('a').digest] })
         expect(current.store.doc.graphs.g0!.nodes.instance!.dynamic).toEqual({ unknown: { members: [], seq: 0 } })
         expect(app.problems.get().some((problem) => problem.code === 'workspace.authority.failed')).toBe(false)
         const downloads = captureDownloads()
-        expect(await app.exportWorkflow(current.id)).toBe(false)
-        expect(downloads).toHaveLength(0)
+        expect(await app.exportWorkflow(current.id)).toBe(true)
+        expect(JSON.parse(await downloads[0]!.text()).graphs.g0.nodes.instance.dynamic)
+          .toEqual({ unknown: { members: [], seq: 0 } })
       }
       const after = elaborateInterface(resolveDocument('g0', instance)!, instance, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics
       expect(after).toEqual(diagnostics)
@@ -993,11 +994,11 @@ describe('retained app dispatch', () => {
     const html = renderToString(() => createComponent(ProblemsPanel, {
       app: ownerApp, diagnostics: () => ownerApp.problems.get(), compatSkips: () => [],
     }))
-    expect(html).toContain('Workflow ownership unconfirmed.')
-    expect(html).toContain("Loader (n0): Stored input 'future' has no resolved input schema")
-    expect(html).toContain('Publication and sharing remain unavailable.')
+    expect(html).not.toContain('Workflow ownership unconfirmed.')
+    expect(html).not.toContain('Publication and sharing remain unavailable.')
+    expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.future).toEqual(asset('b'))
     expect(app.connection.retainAssets).toHaveBeenCalledWith(expect.anything(), {
-      revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest],
+      revision: 0, complete: true, digests: [asset('a').digest, asset('b').digest],
     })
   })
 
@@ -2127,15 +2128,22 @@ describe('retained workflow opens', () => {
         .toEqual(['files', 'mode', 'mode.amount'])
       expect(core.elabInputsOf(live).find((input) => input.address.port === 'mode')?.derivedValue).toBe('default')
       const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => updated, [], 'admission')
-      expect(roots).toMatchObject({ complete: false, digests: [asset('a').digest, asset('c').digest] })
-      expect(roots.refusal).toBeUndefined()
-      expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => updated).refusal)
-        .toBe('Workflow dynamic identities are invalid')
-      expect(await app.saveWorkflow(tab.id)).toBe(false)
+      expect(roots).toEqual({ complete: true, digests: [asset('a').digest, asset('c').digest] })
+      expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => updated)).toEqual(roots)
+      const downloads = captureDownloads()
+      expect(await app.exportWorkflow(tab.id)).toBe(true)
+      expect(JSON.parse(await downloads[0]!.text()).graphs).toEqual(saved.graphs)
+      const upload = vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('b').digest)
+      vi.spyOn(app.connection, 'createLibraryRecord').mockResolvedValue({
+        id: 'updated', scope: 'local', name: 'Updated pack', digest: asset('b').digest,
+        mediaType: 'application/json', labels: [], created: 1, modified: 1, revision: 1,
+      })
+      expect(await app.saveWorkflow(tab.id)).toBe(true)
+      expect(JSON.parse(upload.mock.calls[0]![0] as string).graphs).toEqual(saved.graphs)
       if (scenario === 'option') {
         expect(tab.store.undo()).toBe(true)
         expect(tab.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual(dynamic)
-        expect(app.problems.get().filter((problem) => problem.code === 'upgrade.removedDynamicParts')).toHaveLength(1)
+        expect(app.problems.get().filter((problem) => problem.code === 'upgrade.removedDynamicParts')).toHaveLength(0)
       }
     },
   )
@@ -2175,6 +2183,18 @@ describe('retained workflow opens', () => {
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual({ source: { selected: 'removed' } })
     expect(app.problems.get().filter((entry) => entry.code === 'upgrade.removedDynamicParts')).toHaveLength(1)
+    expect(tab.store.redo()).toBe(true)
+    const snapshot = JSON.parse(JSON.stringify(tab.store.doc)) as WorkflowDocument
+    const downloads = captureDownloads()
+    expect(await app.exportWorkflow(tab.id)).toBe(true)
+    expect(JSON.parse(await downloads[0]!.text()).graphs).toEqual(snapshot.graphs)
+    const upload = vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('b').digest)
+    vi.spyOn(app.connection, 'createLibraryRecord').mockResolvedValue({
+      id: 'slot', scope: 'local', name: 'Removed slot variant', digest: asset('b').digest,
+      mediaType: 'application/json', labels: [], created: 1, modified: 1, revision: 1,
+    })
+    expect(await app.saveWorkflow(tab.id)).toBe(true)
+    expect(JSON.parse(upload.mock.calls[0]![0] as string).graphs).toEqual(snapshot.graphs)
   })
 
   it.each(['missing', 'out-of-range', 'linked'] as const)('opens a %s output count for repair without certifying its roots', async (variant) => {
@@ -2776,7 +2796,7 @@ describe('workflow candidate admission', () => {
       const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate)
       expect(roots.complete).toBe(scenario === 'known' || scenario === 'typed')
       expect(roots.digests).toEqual((scenario === 'foreign-typed' ? ['d'] : ['c', 'd']).map((letter) => asset(letter).digest))
-      expect(roots.refusal).toBe(scenario === 'invalid-choice' || scenario === 'unknown-state' ? 'Workflow dynamic identities are invalid' : undefined)
+      expect(roots.refusal).toBeUndefined()
       if (scenario === 'ambiguous') expect(roots.incompleteDiagnostics).toContainEqual(expect.objectContaining({ code: 'workflow.asset.ambiguousInput' }))
       if (scenario === 'foreign-typed') expect(roots.incompleteDiagnostics).toContainEqual(expect.objectContaining({ code: 'workflow.asset.unresolvedInput' }))
     },
@@ -2827,13 +2847,17 @@ describe('workflow candidate admission', () => {
       } } } }
       const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] },
         () => scenario === 'missing-node' ? undefined : candidate)
-      expect(roots.complete).toBe(false)
+      expect(roots.complete).toBe(scenario === 'missing-input')
       expect(roots.digests).toEqual(scenario === 'selection-name' ? [asset('c').digest] : [asset('c').digest, asset('d').digest])
+      if (scenario === 'missing-input') {
+        expect(roots.incompleteDiagnostics).toBeUndefined()
+        return
+      }
       expect(roots.incompleteDiagnostics).toEqual((scenario === 'missing-node' ? ['mode.file', input] : [input]).map((key) => ({
         severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
         refs: [{ graphId: 'g0', nodeId: 'n0' }],
         message: `Loader (n0): Stored input '${key}' has ${scenario === 'missing-node' ? 'no resolved node schema'
-          : scenario === 'missing-input' ? 'no resolved input schema' : 'unresolved asset identities'}`,
+          : 'unresolved asset identities'}`,
       })))
     },
   )
