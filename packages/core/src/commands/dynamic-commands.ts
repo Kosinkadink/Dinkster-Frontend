@@ -34,6 +34,7 @@ import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { boundaryStateResolver } from '../compile/boundary-state.js'
 import { documentNodeResolver } from '../compile/compile.js'
 import { mergeDynamicScope } from '../compile/crossing.js'
+import { allNodesOf, storeStartChoices } from './start-choices.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -639,6 +640,20 @@ const dynamicCompact: CommandDefinition = {
   },
 }
 
+/**
+ * dynamic.storeStartChoices {}: store the start key of every required choice
+ * in the document that has nothing stored. Run when a document meets its
+ * schemas; every other command does this for the nodes it changes.
+ */
+const dynamicStoreStartChoices: CommandDefinition = {
+  id: 'dynamic.storeStartChoices',
+  run(doc, _params, tx, context) {
+    const resolve = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
+    if (resolve !== undefined) storeStartChoices(tx, resolve, allNodesOf(doc))
+    return []
+  },
+}
+
 export const DYNAMIC_COMMANDS: readonly CommandDefinition[] = [
   dynamicMaterialize,
   dynamicSelectOption,
@@ -647,4 +662,5 @@ export const DYNAMIC_COMMANDS: readonly CommandDefinition[] = [
   dynamicLabelMembers,
   dynamicSpecializeSlot,
   dynamicCompact,
+  dynamicStoreStartChoices,
 ]

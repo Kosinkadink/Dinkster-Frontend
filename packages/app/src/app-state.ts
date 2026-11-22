@@ -6238,7 +6238,8 @@ export class AppState {
   private readonly schemaDiagnosticsPending = new Set<string>()
 
   /**
-   * Tabs awaiting a legacy-boolean normalization pass. Unlike schema diagnostics
+   * Tabs awaiting a legacy-boolean normalization pass, followed by storing the
+   * start key of each required choice with nothing stored. Unlike schema diagnostics
    * this RE-ARMS on retarget: which schemas interpret the document is the
    * tab's target backend, and a document opened while targeting one backend
    * (where its types may not even resolve) can be pointed at another whose
@@ -6261,7 +6262,13 @@ export class AppState {
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.legacyBooleanPending.delete(tab.id)
-      void this.normalizeLegacyBooleans(tab)
+      const store = tab.store
+      void this.normalizeLegacyBooleans(tab).then(() => {
+        // A required choice saved with nothing stored gets its start key.
+        if (this.tabs.get().includes(tab) && tab.store === store) {
+          void this.dispatchTo(tab, { command: 'dynamic.storeStartChoices', params: {} })
+        }
+      })
     }
   }
 
