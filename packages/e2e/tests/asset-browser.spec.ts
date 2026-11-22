@@ -1,4 +1,4 @@
-import { expect, selectProductOption, nativeTest as test, type Page, type Request } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page, type Request } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 interface AssetValue {
@@ -160,6 +160,7 @@ test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await installMockBackend(page, requests)
   await page.goto('/')
+  await waitForStartupOwnership(page)
   await page.evaluate(() => localStorage.setItem('dinkster.assetBrowser.view.v1', 'list'))
   await page.getByTestId('backends-toggle').click()
   await page.getByTestId('backend-url-input').fill(MOCK)
