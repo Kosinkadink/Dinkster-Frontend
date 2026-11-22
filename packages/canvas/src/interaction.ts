@@ -972,9 +972,11 @@ export class InteractionController {
         this.cancelGesture('escape')
         this.setFocusedTextEdge(undefined)
       }
-      // A focused text box edge steps the box one line per arrow press.
+      // A focused text box edge steps the box one line per arrow press, unless
+      // keyboard focus has since moved to another control.
+      const otherControl = e.target instanceof HTMLElement && e.target !== canvas && e.target !== e.target.ownerDocument.body
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedTextEdge !== undefined &&
-          this.gesture.kind === 'idle' && !isEditable(e.target)) {
+          this.gesture.kind === 'idle' && !otherControl) {
         e.preventDefault()
         this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
       }
