@@ -140,17 +140,19 @@
 .dinkster-window-toolbar-search { grid-column: 2; grid-row: 1; justify-self: start; }
 .dinkster-window-toolbar-actions { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: var(--dinkster-space-4); }
 .dinkster-window-toolbar-service { grid-column: 4; grid-row: 1; justify-self: start; white-space: nowrap; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.dinkster-window-toolbar > .dinkster-window-identity { grid-column: 5; grid-row: 1; }
+.dinkster-window-toolbar .dinkster-window-identity { grid-column: 5; grid-row: 1; }
 .dinkster-window-action { display: inline-flex; }
 .dinkster-window-action-icon { display: none; }
+.dinkster-window-action-shortcut { padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); color: var(--dinkster-text-secondary); font: inherit; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 @container (max-width: DINKSTER_SIDEBAR_BREAKPOINT) {
   .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto; column-gap: 0; }
   .dinkster-window-toolbar:has(.dinkster-window-toolbar-service, .dinkster-window-identity) { grid-template-rows: var(--dinkster-type-metadata-line) var(--dinkster-control-compact-height); row-gap: 0; }
   .dinkster-window-toolbar:has(.dinkster-window-toolbar-service, .dinkster-window-identity) > :is(.dinkster-window-toolbar-brand, .dinkster-window-toolbar-search, .dinkster-window-toolbar-actions) { grid-row: 2; }
   .dinkster-window-toolbar-service { grid-column: 1 / -1; }
-  .dinkster-window-toolbar > .dinkster-window-identity { grid-column: 1 / -1; flex-direction: row; justify-self: end; gap: var(--dinkster-space-4); }
+  .dinkster-window-toolbar .dinkster-window-identity { grid-column: 1 / -1; flex-direction: row; justify-self: end; gap: var(--dinkster-space-4); }
   .dinkster-window-toolbar-actions { gap: 0; }
   .dinkster-window-toolbar .dinkster-window-action > .dinkster-button { width: var(--dinkster-control-compact-height); height: var(--dinkster-control-compact-height); padding-inline: 0; }
+  .dinkster-window-toolbar .dinkster-window-action-shortcut { display: none; }
   .dinkster-window-toolbar .dinkster-window-action-label,
   .dinkster-window-toolbar-brand .dinkster-menu-label { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
   .dinkster-window-toolbar .dinkster-window-action-icon { display: inline-flex; }
@@ -298,7 +300,7 @@
 .dinkster-canvas-field-glyph { width: var(--dinkster-space-12); height: var(--dinkster-space-12); stroke-width: 3; }
 .dinkster-canvas-field-label { position: relative; flex: none; max-width: 50%; padding-left: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-field-row[data-steppers='false'] .dinkster-canvas-field-label { padding-left: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
-.dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; }
+.dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; min-width: 0; }
 .dinkster-canvas-field-mark { position: relative; display: grid; place-items: center; flex: none; margin-left: auto; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-field-input { position: relative; flex: 0 1 auto; field-sizing: content; min-width: var(--dinkster-space-24); margin-left: auto; height: 100%; padding: 0 calc(var(--dinkster-space-4) / 2); border: 0; outline: 0; background: transparent; color: var(--dinkster-text-primary); font: inherit; text-align: right; }
 /* The open field's outline marks its focus; the input draws no ring of its own. */
@@ -317,20 +319,24 @@
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-mark { color: var(--dinkster-text-muted); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-input { height: var(--dinkster-type-canvas-line); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-label, .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-input { margin-bottom: calc(2 * var(--dinkster-border-width)); }
+/* Zoomed in, the field is drawn scaled. Its text is laid out on whole pixels of the unscaled field, while the canvas centers the row's text half a pixel lower at its exact scaled place. The text moves down that half pixel so it stays where the canvas drew it. At normal size both land on the same whole pixel. */
+.dinkster-canvas-field[data-look='flat-title'][data-zoomed='true'] .dinkster-canvas-field-label, .dinkster-canvas-field[data-look='flat-title'][data-zoomed='true'] .dinkster-canvas-field-input { transform: translateY(calc(var(--dinkster-border-width) / 2)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side { min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='right'] { border-left: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='left'] { border-right: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='below-field'] { border-top-color: var(--dinkster-border-divider); border-radius: 0 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
+.dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='above-field'] { border-bottom-color: var(--dinkster-border-divider); border-radius: calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) 0 0; }
 /* A row the keyboard is on with nothing open: the canvas draws the row, so the frame is clear over it and leaves the pointer to the canvas. */
 .dinkster-canvas-field[data-focus='true'] { pointer-events: none; }
 .dinkster-canvas-field[data-focus='true'] .dinkster-canvas-field-row { background: transparent; }
 .dinkster-canvas-field-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-field-input::placeholder { color: var(--dinkster-text-muted); font-style: italic; opacity: 1; }
-.dinkster-canvas-field-side { position: absolute; top: 0; box-sizing: border-box; min-height: var(--dinkster-input-canvas-height); width: max-content; min-width: calc(var(--dinkster-space-32) * 5); max-width: calc(var(--dinkster-space-32) * 8); padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }
+.dinkster-canvas-field-side { position: absolute; top: 0; box-sizing: border-box; overflow-y: auto; min-height: var(--dinkster-input-canvas-height); width: max-content; min-width: calc(var(--dinkster-space-32) * 5); max-width: calc(var(--dinkster-space-32) * 8); padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }
 .dinkster-canvas-field-side[data-place='right'] { left: 100%; border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) var(--dinkster-radius-small); }
 .dinkster-canvas-field-side[data-place='left'] { right: 100%; border-radius: var(--dinkster-radius-small) 0 var(--dinkster-radius-small) var(--dinkster-radius-small); }
 .dinkster-canvas-field-side[data-place='below-field'] { top: 100%; left: 0; width: 100%; min-width: 0; max-width: none; border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); }
-.dinkster-canvas-field-side[data-place='below-node'] { left: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
+.dinkster-canvas-field-side[data-place='above-field'] { left: 0; width: 100%; min-width: 0; max-width: none; border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small) var(--dinkster-radius-small) 0 0; }
+.dinkster-canvas-field-side[data-place='below-node'], .dinkster-canvas-field-side[data-place='above-node'] { left: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
 .dinkster-canvas-field-outline { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .dinkster-canvas-field-outline path { fill: none; stroke: var(--dinkster-border-focus); stroke-width: var(--dinkster-focus-ring-width); }
 .dinkster-canvas-side-result, .dinkster-canvas-side-problem, .dinkster-canvas-side-help { margin: 0; }

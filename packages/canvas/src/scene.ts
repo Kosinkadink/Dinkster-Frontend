@@ -48,6 +48,7 @@ import {
   traceEndpointAll,
   typeExprFromTypeId,
   type BoundaryItem,
+  type BoundaryPositionResolver,
   type CommandInvocation,
   type Diagnostic,
   type DynamicPortState,
@@ -79,6 +80,7 @@ import {
   insetRowStack,
   layoutBoundaryNode,
   REGION_INDEX_SLOT,
+  TITLE_START,
   layoutNode,
   type BoundarySlotInfo,
   type LayoutRow,
@@ -147,7 +149,7 @@ const onlyNodePositionsChanged = (
     const after = next.nodes[id]!
     return before === after || (
       before.size === after.size && before.collapsed === after.collapsed && before.views === after.views &&
-      before.sections === after.sections && before.color === after.color && before.ext === after.ext
+      before.textLines === after.textLines && before.sections === after.sections && before.color === after.color && before.ext === after.ext
     )
   })
 }
@@ -892,6 +894,7 @@ export interface BuildSceneInput {
     readonly owner: OccurrenceRef
     readonly plannerAvailable: boolean
   }
+  /** Effective state for an occurrence; inferred from the document when omitted. */
   readonly occurrenceView?: {
     readonly dynamic: ReadonlyMap<string, Readonly<Record<string, DynamicPortState>>>
     readonly values?: ReadonlyMap<string, Readonly<Record<string, Json>>>
@@ -1057,6 +1060,16 @@ export function updateSceneNodeValues(
   return changed ? { ...scene, nodes } : scene
 }
 
+/** Use the rendered layout when persisting a definition's initial panel positions. */
+export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPositionResolver> {
+  const scene = buildScene(input)
+  const position = (side: 'inputs' | 'outputs') => {
+    const panel = scene.boundaryNodes.find((node) => node.side === side)!
+    return { position: { x: panel.x, y: panel.y } }
+  }
+  return { inputs: position('inputs'), outputs: position('outputs') }
+}
+
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
@@ -1064,6 +1077,10 @@ export function buildScene(input: BuildSceneInput): Scene {
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  if (input.occurrenceView === undefined) {
+    const occurrenceView = occurrenceDynamicView(input.document, input.resolve, sourcePath ?? [], sourcePath === undefined ? input.graphId : input.document.root)
+    if (input.occurrence !== undefined || occurrenceView.values.size > 0) input = { ...input, occurrenceView }
+  }
   const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     return resolveSource(graphId, sourceId, path)
@@ -1310,6 +1327,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           // Subgraph instances resolve to boundary-derived schemas, so a
           // forwarded family's suffix ghost elaborates here like any node's.
@@ -2050,12 +2068,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     if (derived !== undefined && fieldOwners.size > 0) {
       // The entered node's chosen views, so a field drawn as a slider there
       // is a slider here too.
-      const views = ownerNode !== undefined && ownerGraph !== undefined
-        ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]?.views
+      const ownerView = ownerNode !== undefined && ownerGraph !== undefined
+        ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
       const outside = layoutNode(derived, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(views !== undefined ? { widgetRepresentations: views } : {}),
+        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
       })
       for (const row of outside.rows) {
         const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
@@ -2104,10 +2123,11 @@ export function buildScene(input: BuildSceneInput): Scene {
           if (ownerKey !== undefined) received[ownerKey] = value
         }
       }
-      const views = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views
+      const choiceView = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]
       const choiceLayout = layoutNode(schema, choiceNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(views !== undefined ? { widgetRepresentations: views } : {}),
+        ...(choiceView?.views !== undefined ? { widgetRepresentations: choiceView.views } : {}),
+        ...(choiceView?.textLines !== undefined ? { textBoxLines: choiceView.textLines } : {}),
       })
       const rows: Extract<LayoutRow, { kind: 'widget' }>[] = []
       for (const row of choiceLayout.rows) {
@@ -2505,7 +2525,7 @@ function missingLayout(
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
-  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding
+  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {

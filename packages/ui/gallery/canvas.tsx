@@ -78,6 +78,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widget-companions',
         'widget-taps',
         'widget-states',
+        'text-boxes',
       ],
     ],
     ['Wires', ['types', 'structure']],
@@ -131,7 +132,7 @@ export function selectCanvasPage(href: string) {
 /** One plain sentence per page on what to look at. */
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
-    'The parts of a node: title bar, pins, value rows, a section open and closed, and a node whose type is missing.',
+    'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:
@@ -142,10 +143,10 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   previews:
     'Previews inside nodes: image, video, audio and model, the loading, unavailable, failed, cached and estimated states, and minimized nodes that show a strip only for a picture.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  tabs: 'Tabs above a node say what it is and tabs below say what happened, drawn at 75 percent zoom; a tab is as wide as its icon and its text.',
+  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
-    'Every state a node can show: hover, selection, run states, problems, mode, color, a new title and a bad value.',
+    'Every state a node can show: hover, selection, run states, problems, mode, color, a new title, minimized, the minimize arrow under the pointer and a bad value.',
   'run-editable':
     'While a workflow is being edited, only running and failed nodes are marked.',
   'run-frozen':
@@ -170,6 +171,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
+  'text-boxes':
+    'Each text box keeps its own height, set by dragging the short bar on its bottom edge; text that does not fit shows the quiet scrollbar. The middle node shows the bar under the pointer; the right one was made taller by its own edge, which sizes only its last box.',
   types: 'The color of each data type on its pins and wires.',
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
@@ -197,11 +200,6 @@ interface Variant {
 }
 
 const current: Variant = { id: 'current', caption: '', tokens: (t) => t }
-const chipsBefore: Variant = {
-  id: 'chips',
-  caption: 'Before',
-  tokens: (t) => ({ ...t, badgeLayout: 'chips' }),
-}
 const rowsBefore: Variant = {
   id: 'inset-raised',
   caption: 'Before',
@@ -212,11 +210,6 @@ const rowsAfter: Variant = {
   ...current,
   id: 'raised-editors',
   caption: 'After',
-}
-const tabsAfter: Variant = {
-  id: 'tabs',
-  caption: 'After',
-  tokens: (t) => ({ ...t, badgeLayout: 'tabs' }),
 }
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
@@ -275,11 +268,6 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
     case 'widget-companions':
     case 'widget-states':
       return [rowsBefore, rowsAfter]
-    case 'tabs':
-    case 'tabs-content':
-    case 'run-editable':
-    case 'run-frozen':
-      return [chipsBefore, tabsAfter]
     default:
       return [current]
   }
@@ -372,7 +360,6 @@ function ExampleCard(props: {
             // The painted scene: preview regions grow nodes.
             { ...renderer.getScene(), links: [] },
             fixture.previews,
-            fixture.badges,
             (node) => renderer.getNodeBadgeBounds(node),
           )!
     const include = (x: number, y: number) => {
@@ -436,7 +423,7 @@ function ExampleCard(props: {
     }
     paintLabels()
     let removeListeners: (() => void) | undefined
-    if (tokens.badgeLayout === 'tabs') {
+    if (Object.keys(fixture.badges).length > 0) {
       const hit = (event: PointerEvent | MouseEvent) => {
         const rect = canvas.getBoundingClientRect()
         return hitTestBadge(

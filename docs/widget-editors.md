@@ -462,6 +462,20 @@ limits, a `default` link that stores the declared default, and the help text.
 A seed's side part also holds its four after-run modes as one group of icons
 and a `new seed` link; the closed row shows the mode as an icon before the
 value. A slider's fill follows the typed text while it is in range.
+Clicking into a row moves nothing drawn in it: the label, the value, a seed's
+mode icon and the steppers stay on the pixels the canvas drew them on, and
+only the outline and the cursor appear.
+
+The side part stays whole on the visible canvas, which ends at the status
+bar, a docked panel or the on-screen keyboard; it is drawn over the canvas's
+floating tools, and the canvas never moves for it. It takes the first of
+these places that holds it whole: beside the node on the right, then on the
+left, sliding up or down just far enough and still touching the field's row;
+under the node; over the node; under the field, over the node's lower rows;
+over the field. Zoomed out, only the last two. When no place holds it whole,
+it goes under or over the field, whichever has more room, takes the room
+there is and scrolls with its first lines in view. It never covers its field
+and never runs past an edge of the visible canvas.
 
 - Enter stores and keeps the keyboard on the row; Escape cancels and keeps it
   there too. Ctrl+Enter stores, then runs the workflow.
@@ -832,9 +846,38 @@ field rules exclude Product fields without raising selector specificity, so
 the in-node borderless geometry overrides ordinary popover field chrome.
 The scrollbar
 starts at the content-box top, not below it. Overflowing painted content uses
-the same gutter while idle and hover; hover paints a proportional scrollbar
-indicator inside the rounded chrome. The painted indicator is deliberately
-non-interactive because canvas rows have no scroll interaction.
+the same gutter and paints a proportional scrollbar indicator inside the
+rounded chrome. The painted indicator is deliberately non-interactive because
+canvas rows have no scroll interaction; the open editor scrolls. The box never
+grows while typing.
+
+### Text box height
+
+A text box's text starts 2 units left of the label over it (the label at 6,
+the text at 4), so the box's text reads apart from the labels, which stay in
+one column down the node; the open editor uses the same inset.
+
+Each multiline text box has its own height, in whole lines, from 2 to 16. A
+new node starts at the height the widget declares. A short bar in the middle
+of the box's bottom edge sizes it: dragging the edge changes the height one
+line at a time with a live preview and stores it on release; the bar takes the
+accent color and widens under the pointer, while dragged, and while focused.
+Pressing the bar focuses it, and Arrow Up and Arrow Down then step one line
+until Escape or a press elsewhere. Double-clicking the bar fits the box to its
+wrapped text within the limits; double-clicking again returns it to the
+height it had before.
+
+The height is view state, stored per node and value key in the node's
+`textLines` through `view.setTextBoxLines`: it changes no value, wire, run, or
+cache key, and undo treats it like any other layout change. Group members,
+sections, and subgraph instances each keep their own height, and switching a
+field's representation away and back keeps it. Other rows, the preview, and
+the text output keep their heights when one box changes; on a node with a
+manual size, the stored height moves by the same amount in the same undo step.
+
+The node's own bottom edge sizes its preview when it has one. On a node
+without a preview it sizes only the last text box; every other box keeps its
+height.
 
 Ctrl+Enter commits through the existing widget command path.
 Escape cancels. An outside pointer explicitly blurs the field before the same

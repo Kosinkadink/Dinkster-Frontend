@@ -778,6 +778,11 @@ export interface NodeViewState {
   /** Chosen schema widget representation id per input/value key. */
   readonly views?: Readonly<Record<string, string>>
   /**
+   * Height in whole lines of each multiline text box the user resized, by
+   * input/value key. Absent = the height the widget declares.
+   */
+  readonly textLines?: Readonly<Record<string, number>>
+  /**
    * Per-section collapse OVERRIDES by section id. Absent = the schema's
    * collapsedByDefault. An override record (not a plain collapsed list) so a
    * default-collapsed section can also be explicitly expanded.
@@ -827,8 +832,8 @@ export type BoundarySide = 'inputs' | 'outputs'
  * Geometry of one boundary pseudo-node (the node-like Inputs/Outputs panels
  * shown while editing a subgraph definition). Pure view state: the panels
  * themselves are derived from `GraphDef.boundary` at scene-build time and
- * are never NodeData. Absent = a deterministic default position derived
- * from the graph's content bounds.
+ * are never NodeData. Older documents can omit positions: their content-bound
+ * defaults are stored with the first graph edit, never merely by opening.
  */
 export interface BoundaryNodeViewState {
   readonly position: Vec2

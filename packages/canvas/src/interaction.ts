@@ -31,8 +31,12 @@
  * - node border: drag any corner/edge = ghost preview, ONE atomic
  *   view.setNodeSize (position + size) on release
  * - double-click on a link: ask the host for reroute vs node-splice menu
- * - double-click on a subgraph node: host.onOpenSubgraph
- * - double-click on an ordinary node: toggle minimized state for its selection
+ * - title-bar minimize arrow: click toggles minimized state (the whole
+ *   selection when the node is selected, else that node alone); a drag from
+ *   it moves the node like the rest of the title bar
+ * - subgraph mark: click = host.onBadgeClick, double-click =
+ *   host.onOpenSubgraph; a drag from it moves the node
+ * - double-click on a node's title: toggle minimized state for its selection
  * - double-click on empty canvas: host.onOpenPalette
  * - right-click: select the item under the cursor (preserving an existing
  *   multi-selection that contains it), then host.onContextMenu
@@ -60,12 +64,12 @@ import {
   type TypeExpr,
   type WidgetSpec,
 } from '@dinkster/core'
-import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
+import { hitTestBadge, SUBGRAPH_BADGE, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
 import { controllerChipContains } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
-import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, type LayoutRow, type PinLayout } from './layout.js'
+import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -129,6 +133,10 @@ const isMoveFamilyKind = (kind: Gesture['kind']): boolean =>
   kind === 'group' ||
   kind === 'group-resize' ||
   kind === 'resize'
+
+/** Whole lines a text box shows now, counting any resize surplus it was given. */
+const visibleTextBoxLines = (row: Extract<LayoutRow, { kind: 'widget' }>, tokens: DesignTokens): number =>
+  Math.max(row.rows, Math.floor((row.height - multilineWidgetHeight(0, tokens)) / tokens.multilineText.lineHeight))
 
 export interface ResizeBounds {
   readonly x: number
@@ -729,8 +737,20 @@ type Gesture =
     }
   | { readonly kind: 'widget-affordance'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
+  /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
+  | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
+  | {
+      /** Dragging a text box's bottom edge: its height follows in whole lines. */
+      readonly kind: 'text-box-lines'
+      readonly nodeId: string
+      readonly valueKey: string
+      readonly startWY: number
+      readonly startLines: number
+      lines: number
+      moved: boolean
+    }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -864,6 +884,13 @@ export class InteractionController {
   private focusedPinWidgetTap: true | undefined
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
+  /** Text box edge under the idle pointer, and the one arrow keys size. */
+  private hoveredTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  /** A box a double-click fitted to its text, with the height it had before. */
+  private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
+  private hoveredMinimize: string | undefined
+  private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -940,6 +967,7 @@ export class InteractionController {
       this.setHover(undefined, undefined, undefined)
       this.setAffordanceHover(undefined)
       this.setLinkMidpointHover(undefined)
+      this.setHoveredTextEdge(undefined)
     }
     // Space is tracked at the window so it works without canvas focus, but
     // never while typing in a field (space must stay a space there).
@@ -949,7 +977,18 @@ export class InteractionController {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isEditable(e.target)) this.spaceDown = true
       // Escape aborts the gesture in place: no dispatch, ghosts dropped.
-      if (e.code === 'Escape') this.cancelGesture('escape')
+      if (e.code === 'Escape') {
+        this.cancelGesture('escape')
+        this.setFocusedTextEdge(undefined)
+      }
+      // A focused text box edge steps the box one line per arrow press, unless
+      // keyboard focus has since moved to another control.
+      const otherControl = e.target instanceof HTMLElement && e.target !== canvas && e.target !== e.target.ownerDocument.body
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedTextEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
+      }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') this.spaceDown = false
@@ -1131,7 +1170,8 @@ export class InteractionController {
         (crossGraph || !scene.links.some((link) => link.id === this.hoveredLinkMidpoint))
       // Rows and pin layouts belong to the exact scene instance. Clear their
       // hover on every replacement, even when an identity happens to recur.
-      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined
+      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
+        this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1720,7 +1760,14 @@ export class InteractionController {
     // a selection/drag on the node underneath.
     const badgeHit = this.renderer.getDetailLevel() === 'overview'
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit?.badge.placement === 'title') {
+      // The title mark opens its panel on release, so a drag can move the node.
+      e.preventDefault()
+      this.capturePointer(e)
+      this.gesture = { kind: 'title-press', node: badgeHit.node, badge: badgeHit, startWX: w.x, startWY: w.y }
+      return
+    }
     if (badgeHit) {
       // Cancel the pointerdown so the follow-up mousedown's default action
       // (focus change) can't blur a popover the host just opened and focused.
@@ -1742,9 +1789,14 @@ export class InteractionController {
       }),
     )
     this.capturePointer(e)
+    if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
 
     if (hit.kind === 'widget' && this.widgetRowAffordanceContains(hit)) {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
+      return
+    }
+    if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
+      this.gesture = { kind: 'title-press', node: hit.node, startWX: w.x, startWY: w.y }
       return
     }
     if ((hit.kind === 'body' || hit.kind === 'header') && this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
@@ -1765,6 +1817,16 @@ export class InteractionController {
       case 'widget':
         this.gesture = { kind: 'widget', hit, moved: false }
         return
+      case 'text-box-edge': {
+        const lines = visibleTextBoxLines(hit.row, this.renderer.getDesignTokens())
+        this.gesture = {
+          kind: 'text-box-lines', nodeId: hit.node.id, valueKey: hit.row.valueKey,
+          startWY: w.y, startLines: lines, lines, moved: false,
+        }
+        this.focusedTextEdge = { nodeId: hit.node.id, valueKey: hit.row.valueKey }
+        this.pushOverlay()
+        return
+      }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
         return
@@ -2106,38 +2168,47 @@ export class InteractionController {
         return
       }
       case 'header':
-      case 'body': {
-        const id = hit.node.id
-        if (e.shiftKey) {
-          const range = connectivityRangeSelection(scene, this.selection, id)
-          if (range !== undefined) {
-            this.selection = range.nodes
-            this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
-          }
-          else if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (e.ctrlKey || e.metaKey) {
-          // Toggle immediately; a modifier-drag moves the resulting selection.
-          if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (!this.selection.has(id)) {
-          this.selection = new Set([id])
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-        }
-        this.notifySelection()
-        const dragIds = this.selection.has(id) ? [...this.selection] : []
-        this.gesture = this.selection.has(id)
-          ? this.selectionMoveGesture(scene, w.x, w.y)
-          : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: w.x, startWY: w.y, moved: false }
-        this.pushOverlay()
+      case 'body':
+        this.pressNode(scene, hit.node.id, e, w.x, w.y)
         return
-      }
     }
+  }
+
+  /** Select a pressed node by the modifier rules and arm a move of what is selected. */
+  private pressNode(
+    scene: Scene,
+    id: string,
+    e: { readonly shiftKey: boolean; readonly ctrlKey: boolean; readonly metaKey: boolean },
+    wx: number,
+    wy: number,
+  ): void {
+    if (e.shiftKey) {
+      const range = connectivityRangeSelection(scene, this.selection, id)
+      if (range !== undefined) {
+        this.selection = range.nodes
+        this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
+      }
+      else if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (e.ctrlKey || e.metaKey) {
+      // Toggle immediately; a modifier-drag moves the resulting selection.
+      if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (!this.selection.has(id)) {
+      this.selection = new Set([id])
+      this.linkSelection = new Set()
+      this.rerouteSelection = new Set()
+      this.valueSourceSelection = new Set()
+      this.selectorSelection = new Set()
+      this.groupSelection = new Set()
+      this.netViewSelection = new Set()
+    }
+    this.notifySelection()
+    const dragIds = this.selection.has(id) ? [...this.selection] : []
+    this.gesture = this.selection.has(id)
+      ? this.selectionMoveGesture(scene, wx, wy)
+      : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: wx, startWY: wy, moved: false }
+    this.pushOverlay()
   }
 
   private beginLinkGesture(
@@ -2907,7 +2978,7 @@ export class InteractionController {
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize'
+      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge'
       ? hit.node
       : undefined
   }
@@ -3102,19 +3173,23 @@ export class InteractionController {
     )
     const badge = toolboxInside || overview
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
     const hit = toolboxInside || badge ? undefined : hitTest(scene, w.x, w.y, this.hitOptions({
       ...(this.hoveredReroute ? { rerouteSockets: this.hoveredReroute } : {}),
       widgetTaps: this.widgetTapHits(scene),
       pinRevealed: this.pinRevealed(scene),
     }))
-    this.setAffordanceHover(hit)
+    this.setAffordanceHover(hit, {
+      ...(hit?.kind === 'header' && this.minimizeArrowContains(hit, w.x, w.y) ? { minimize: hit.node.id } : {}),
+      ...(badge !== undefined ? { badge: { nodeId: badge.node.id, badgeId: badge.badge.id } } : {}),
+    })
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
+    this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
     this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
         : 'nesw-resize'
-      : ''
+      : hit?.kind === 'text-box-edge' ? 'ns-resize' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
     this.host.onHoverTarget?.(toolboxButton
@@ -3301,6 +3376,21 @@ export class InteractionController {
       case 'section':
       case 'growth':
         if (passed) g.moved = true
+        return
+      case 'text-box-lines': {
+        if (!passed && !g.moved) return
+        g.moved = true
+        const w = this.renderer.toWorld(sx, sy)
+        const step = this.renderer.getDesignTokens().multilineText.lineHeight
+        g.lines = clampTextBoxLines(g.startLines + Math.round((w.y - g.startWY) / step))
+        this.pushOverlay({ textBoxLines: { nodeId: g.nodeId, valueKey: g.valueKey, lines: g.lines } })
+        return
+      }
+      case 'title-press':
+        // Dragging a title-bar control moves the node like the rest of the title bar.
+        if (!passed) return
+        this.pressNode(this.renderer.getScene(), g.node.id, { shiftKey: false, ctrlKey: false, metaKey: false }, g.startWX, g.startWY)
+        this.processPointerMove(e)
         return
       case 'resize': {
         if (!passed && !g.moved) return
@@ -3528,6 +3618,11 @@ export class InteractionController {
         if (!g.moved && affordance !== undefined && affordance.disabled !== true) {
           this.host.onWidgetRowAffordanceActivate?.(g.hit)
         }
+        return
+      case 'title-press':
+        this.pushOverlay()
+        if (g.badge !== undefined) this.host.onBadgeClick?.(g.badge.node, g.badge.badge, g.badge.rect)
+        else this.toggleMinimized(scene, g.node)
         return
       case 'preview-affordance': {
         this.pushOverlay()
@@ -3762,6 +3857,13 @@ export class InteractionController {
         this.pushOverlay()
         return
       }
+      case 'text-box-lines':
+        if (g.moved) {
+          this.textBoxFit = undefined
+          this.commitTextBoxLines(scene, g.nodeId, g.valueKey, g.lines)
+        }
+        this.pushOverlay() // drop the preview; scene rebuild follows commit
+        return
       case 'resize': {
         // Same-graph rebuilds mid-drag keep the gesture alive, so the node
         // may have been deleted underneath it: commit only if it survived
@@ -4458,6 +4560,7 @@ export class InteractionController {
       case 'widgetTap':
         return j('widgetTap', hit.node.id, hit.input)
       case 'widget':
+      case 'text-box-edge':
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
@@ -4531,6 +4634,7 @@ export class InteractionController {
       case 'body':
       case 'resize':
       case 'widget':
+      case 'text-box-edge':
       case 'section':
       case 'growth':
       case 'pin':
@@ -4697,22 +4801,22 @@ export class InteractionController {
       return
     }
     const scene = this.renderer.getScene()
+    // Badges are their own targets: a double-click on the subgraph mark
+    // enters the subgraph, and one on any other badge does nothing.
+    const badgeHit = this.renderer.getDetailLevel() === 'overview'
+      ? undefined
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit) {
+      if (badgeHit.badge.id === SUBGRAPH_BADGE.id) this.host.onOpenSubgraph?.(badgeHit.node)
+      return
+    }
     const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
-    if ((hit.kind === 'header' || hit.kind === 'body') && hit.node.isSubgraph) {
-      this.host.onOpenSubgraph?.(hit.node)
-    } else if (hit.kind === 'header') {
-      const selectedNodes = scene.nodes.filter((node) => this.selection.has(node.id))
-      const nodes = selectedNodes.some((node) => node.id === hit.node.id)
-        ? selectedNodes
-        : [hit.node]
-      this.host.dispatch({
-        command: 'view.setNodeCollapsed',
-        params: {
-          graphId: scene.graphId,
-          nodeIds: nodes.map((node) => node.id),
-          collapsed: nodes.some((node) => node.layout.minimized !== true),
-        },
-      })
+    // Each click on the minimize arrow already toggled.
+    if (this.minimizeArrowContains(hit, w.x, w.y)) return
+    if (hit.kind === 'header') {
+      this.toggleMinimized(scene, hit.node)
+    } else if (hit.kind === 'text-box-edge') {
+      this.fitTextBox(scene, hit.node, hit.row)
     } else if (hit.kind === 'boundary-pin' && hit.item !== BOUNDARY_ADD_SLOT && !hit.regionIndex) {
       // Double-click a boundary slot: rename its exposed port.
       this.host.onBoundaryRenameRequest?.(hit.bnode.side, hit.item, e.clientX, e.clientY)
@@ -4768,6 +4872,7 @@ export class InteractionController {
       dropTargets?: ReadonlySet<string>
       marquee?: { x1: number; y1: number; x2: number; y2: number }
       resizePreview?: { nodeId: string; x: number; y: number; width: number; height: number }
+      textBoxLines?: { nodeId: string; valueKey: string; lines: number }
       groupDragOffset?: { groupId: string; dx: number; dy: number }
       groupResizeGhost?: { groupId: string; x: number; y: number; width: number; height: number }
       bodyDropNode?: string
@@ -4805,6 +4910,9 @@ export class InteractionController {
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
+      ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
+      ...(this.hoveredBadge !== undefined ? { hoveredBadge: this.hoveredBadge } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -4909,8 +5017,109 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Track one pin OR widget row; repeated moves on it are repaint-free. */
-  private setAffordanceHover(hit: Hit | undefined): void {
+  /** The edge drawn hot: the one being dragged, else the focused one, else the hovered one. */
+  private activeTextEdge(): { readonly nodeId: string; readonly valueKey: string } | undefined {
+    const g = this.gesture
+    if (g.kind === 'text-box-lines') return { nodeId: g.nodeId, valueKey: g.valueKey }
+    return this.focusedTextEdge ?? this.hoveredTextEdge
+  }
+
+  private setHoveredTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.hoveredTextEdge?.nodeId && edge?.valueKey === this.hoveredTextEdge?.valueKey) return
+    this.hoveredTextEdge = edge
+    this.pushOverlay()
+  }
+
+  private setFocusedTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.focusedTextEdge?.nodeId && edge?.valueKey === this.focusedTextEdge?.valueKey) return
+    this.focusedTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /**
+   * Store one text box's height in lines. Every other row, the preview, and
+   * the text output keep their heights: a node with a manual size moves its
+   * stored height by the same amount in the same undo step, and the node's
+   * resize surplus on this box gives way to the whole lines it now has.
+   */
+  private commitTextBoxLines(scene: Scene, nodeId: string, valueKey: string, lines: number): void {
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    const projected = projectTextBoxLines(node.layout, valueKey, lines, this.renderer.getDesignTokens())
+    if (projected === node.layout) return
+    const setLines: CommandInvocation = {
+      command: 'view.setTextBoxLines',
+      params: { graphId: scene.graphId, nodeId, inputId: valueKey, lines },
+    }
+    const size = node.layout.sizeOverride
+    this.host.dispatch(composeBatch(scene.graphId, [], size === undefined ? [setLines] : [setLines, {
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: size.width, height: Math.max(0, Math.round(size.height + projected.height - node.layout.height)) },
+      },
+    }]))
+  }
+
+  private stepTextBox(edge: { readonly nodeId: string; readonly valueKey: string }, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const row = scene.nodes.find((node) => node.id === edge.nodeId)?.layout.rows.find((candidate) =>
+      candidate.kind === 'widget' && candidate.viewId === 'core.text' && candidate.valueKey === edge.valueKey)
+    if (row?.kind !== 'widget') {
+      this.setFocusedTextEdge(undefined)
+      return
+    }
+    this.textBoxFit = undefined
+    const step = canvasPaintTokens.widget.textBoxEdge.keyStepLines
+    this.commitTextBoxLines(scene, edge.nodeId, edge.valueKey,
+      clampTextBoxLines(visibleTextBoxLines(row, this.renderer.getDesignTokens()) + (down ? step : -step)))
+  }
+
+  /** Fit a box to its wrapped text; the same double-click again restores the height before. */
+  private fitTextBox(scene: Scene, node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): void {
+    const current = visibleTextBoxLines(row, this.renderer.getDesignTokens())
+    const fit = this.textBoxFit
+    if (fit !== undefined && fit.nodeId === node.id && fit.valueKey === row.valueKey && fit.fitted === current) {
+      this.textBoxFit = undefined
+      this.commitTextBoxLines(scene, node.id, row.valueKey, fit.before)
+      return
+    }
+    const fitted = clampTextBoxLines(this.renderer.textBoxContentLines(node, row))
+    this.textBoxFit = { nodeId: node.id, valueKey: row.valueKey, fitted, before: current }
+    this.commitTextBoxLines(scene, node.id, row.valueKey, fitted)
+  }
+
+
+  /** Whether a header hit lands on the minimize arrow, at a zoom where the title bar takes clicks. */
+  private minimizeArrowContains(hit: Hit | undefined, wx: number, wy: number): boolean {
+    if (hit?.kind !== 'header' || this.renderer.getDetailLevel() === 'overview') return false
+    const rect = minimizeArrowRect(hit.node)
+    return wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height
+  }
+
+  /**
+   * Minimize or restore from a node's title bar. A selected node acts for the
+   * whole selection (any open node minimizes all); otherwise the node alone.
+   */
+  private toggleMinimized(scene: Scene, node: SceneNode): void {
+    const selectedNodes = scene.nodes.filter((candidate) => this.selection.has(candidate.id))
+    const nodes = selectedNodes.some((candidate) => candidate.id === node.id) ? selectedNodes : [node]
+    this.host.dispatch({
+      command: 'view.setNodeCollapsed',
+      params: {
+        graphId: scene.graphId,
+        nodeIds: nodes.map((candidate) => candidate.id),
+        collapsed: nodes.some((candidate) => candidate.layout.minimized !== true),
+      },
+    })
+  }
+
+  /** Track one pin or widget row, the minimize arrow and a badge; repeated moves on them are repaint-free. */
+  private setAffordanceHover(
+    hit: Hit | undefined,
+    titleControl: { readonly minimize?: string; readonly badge?: { readonly nodeId: string; readonly badgeId: string } } = {},
+  ): void {
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
     const pinNode = pin?.node.id
@@ -4925,7 +5134,10 @@ export class InteractionController {
       pinDirection === this.hoveredPinDirection &&
       pinWidgetTap === this.hoveredPinWidgetTap &&
       widgetNode === this.hoveredWidgetNode &&
-      widgetValue === this.hoveredWidgetValue
+      widgetValue === this.hoveredWidgetValue &&
+      titleControl.minimize === this.hoveredMinimize &&
+      titleControl.badge?.nodeId === this.hoveredBadge?.nodeId &&
+      titleControl.badge?.badgeId === this.hoveredBadge?.badgeId
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -4933,6 +5145,8 @@ export class InteractionController {
     this.hoveredPinWidgetTap = pinWidgetTap
     this.hoveredWidgetNode = widgetNode
     this.hoveredWidgetValue = widgetValue
+    this.hoveredMinimize = titleControl.minimize
+    this.hoveredBadge = titleControl.badge
     this.pushOverlay()
   }
 
@@ -4943,5 +5157,7 @@ export class InteractionController {
     this.hoveredPinWidgetTap = undefined
     this.hoveredWidgetNode = undefined
     this.hoveredWidgetValue = undefined
+    this.hoveredMinimize = undefined
+    this.hoveredBadge = undefined
   }
 }

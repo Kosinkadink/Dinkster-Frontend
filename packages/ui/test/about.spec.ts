@@ -117,8 +117,20 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
         const right = width - (platform === 'win32' ? 148 : 12)
         const search = bar.getByRole('button', { name: 'Search', exact: true })
         const compact = right - left <= 768
-        if (compact) await expect(search.locator('svg')).toBeVisible()
-        else await expect(search.locator('svg')).toBeHidden()
+        await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
+        await expect(search).toHaveAccessibleDescription('Search (Ctrl+K)')
+        if (compact) {
+          await expect(search.locator('svg')).toBeVisible()
+          await expect(search.locator('kbd')).toBeHidden()
+        } else {
+          await expect(search.locator('svg')).toBeHidden()
+          await expect(search.locator('kbd')).toBeVisible()
+          const hint = (await search.locator('kbd').boundingBox())!
+          const action = (await search.boundingBox())!
+          expect(hint.x + hint.width).toBeLessThanOrEqual(
+            action.x + action.width,
+          )
+        }
         for (const metadata of await bar
           .locator(
             '.dinkster-window-identity, .dinkster-window-toolbar-service',
@@ -201,7 +213,16 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
   }
   await page.getByLabel('Execution state').selectOption('running')
   const first = sections.first()
-  await first.getByRole('button', { name: 'Search', exact: true }).click()
+  const search = first.getByRole('button', { name: 'Search', exact: true })
+  await page.getByLabel('Search shortcut').selectOption('Alt+K')
+  await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(search.locator('kbd')).toHaveText('Alt+K')
+  await expect(search.locator('kbd')).toBeVisible()
+  await page.getByLabel('Search shortcut').selectOption('')
+  await expect(search.locator('kbd')).toHaveCount(0)
+  await expect(search).toHaveAttribute('title', 'Search')
+  await search.click()
   await expect(page.getByRole('status')).toHaveText('Search opened')
   await first.getByRole('button', { name: 'Cancel run' }).click()
   await expect(page.getByRole('status')).toHaveText('Run cancelled')

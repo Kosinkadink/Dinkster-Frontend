@@ -8,7 +8,7 @@
  * still grow the family through a ghost pin, switch the forwarded branch,
  * and edit a promoted widget, all with a clean Problems state.
  */
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) =>
   page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -24,12 +24,8 @@ async function widgetRowPoint(page: Page, nodeId: string, inputId: string): Prom
 }
 
 async function drillIntoInstance(page: Page, nodeId = 'inst'): Promise<void> {
-  const header = await page.evaluate((nodeId) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === nodeId)!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  }, nodeId)
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, nodeId)
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
@@ -218,12 +214,8 @@ test('editing the promoted slot dependent persists across drill-in and back', as
 
   // Drill into the definition and back: the promoted value survives and the
   // definition still shows the revealed dependent on the inner slot node.
-  const header = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'inst')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'inst')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   const slotRows = await page.evaluate(() =>

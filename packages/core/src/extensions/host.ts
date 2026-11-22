@@ -158,9 +158,12 @@ export interface NodeDecorationBadge {
   readonly fallbackGlyph?: string
   readonly variant?: 'label'
   readonly appearance?: 'policy'
+  /** A tab above the node (the default) or below it. */
   readonly placement?: 'above' | 'below'
   readonly interactive?: false
   readonly color: string
+  /** Name of an icon the canvas paints, such as 'info', shown before the words. */
+  readonly icon?: string
 }
 
 export interface NodeDecoration {

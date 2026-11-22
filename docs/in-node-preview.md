@@ -258,12 +258,12 @@ media and revokes generated object URLs.
 
 ## Resizing
 
-Existing multiline `core.text` rows retain first claim on user-resize surplus.
-The compact row and active preview map the same stored size request, so preview
-appearance, removal, and zoom do not change multiline editor height. The media
-area grows beyond 180 only when there is no active `core.text` row; the 22-unit
-caption remains reserved in both cases. This preserves the existing preview
-budgets and multiline resize contract.
+The node's bottom edge sizes the preview. Multiline `core.text` rows keep their
+own heights in lines (see "Text box height" in `docs/widget-editors.md`), so
+the preview takes all of the node's resize surplus, down to its 40-unit floor
+plus the 22-unit caption. The compact row and active preview map the same
+stored size request, so preview appearance, removal, and zoom change neither
+the text boxes nor the size the panel opens at.
 
 ## Local expression estimates
 
