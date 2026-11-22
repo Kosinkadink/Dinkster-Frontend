@@ -18,12 +18,12 @@ interface BrowserErrors {
 const browserErrors = new WeakMap<Page, BrowserErrors>()
 
 const firstLink = {
-  from: { node: 'split', port: 'parts.parts', members: ['m0'] },
+  from: { node: 'split', port: 'parts.part0' },
   to: { node: 'concat', port: 'string_a' },
 }
 
 const secondLink = {
-  from: { node: 'split', port: 'parts.parts', members: ['m1'] },
+  from: { node: 'split', port: 'parts.part1' },
   to: { node: 'concat', port: 'string_b' },
 }
 
@@ -31,16 +31,14 @@ async function pinPoint(
   page: Page,
   nodeId: string,
   direction: 'in' | 'out',
-  match: { readonly port?: string; readonly member?: string },
+  match: { readonly port: string },
 ): Promise<Point> {
   return page.evaluate(({ nodeId, direction, match }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
     if (node === undefined) throw new Error(`missing scene node '${nodeId}'`)
     const pin = node.layout.pins.find((candidate) =>
-      candidate.direction === direction
-      && (match.port === undefined || candidate.address.port === match.port)
-      && (match.member === undefined || candidate.address.members?.[0] === match.member))
+      candidate.direction === direction && candidate.address.port === match.port)
     if (pin === undefined) throw new Error(`missing ${direction} pin on '${nodeId}'`)
     const viewport = renderer.getViewport()
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
@@ -76,11 +74,10 @@ async function drag(page: Page, from: Point, to: Point): Promise<void> {
 const splitState = (page: Page) => page.evaluate(() => {
   const graph = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!
   const split = graph.nodes.split as unknown as {
-    dynamic?: { parts?: { members?: readonly string[]; seq?: number } }
+    dynamic?: { parts?: { members?: readonly string[] } }
   }
   return {
     members: split.dynamic?.parts?.members ?? [],
-    seq: split.dynamic?.parts?.seq,
     links: Object.values(graph.links).map((link) => ({ from: link.from, to: link.to })),
   }
 })
@@ -152,18 +149,17 @@ test.beforeEach(async ({ page }, testInfo) => {
 test('grows, executes, reloads, shrinks, and restores string split outputs', async ({ page }) => {
   await drag(
     page,
-    await pinPoint(page, 'split', 'out', { member: 'm0' }),
+    await pinPoint(page, 'split', 'out', { port: 'parts.part0' }),
     await pinPoint(page, 'concat', 'in', { port: 'string_a' }),
   )
   await drag(
     page,
-    await pinPoint(page, 'split', 'out', { member: 'm1' }),
+    await pinPoint(page, 'split', 'out', { port: 'parts.part1' }),
     await pinPoint(page, 'concat', 'in', { port: 'string_b' }),
   )
 
   await expect.poll(() => splitState(page)).toEqual({
-    members: ['m0', 'm1'],
-    seq: 2,
+    members: ['part0', 'part1'],
     links: [firstLink, secondLink],
   })
 
@@ -196,7 +192,7 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
   { timeout: 30_000 }).toBe('completed')
   expect(submitted?.graph.nodes.split?.nodeType).toBe('std.string.split')
   expect(submitted?.graph.nodes.split?.outputMembers).toEqual({
-    parts: ['m0', 'm1'],
+    parts: ['part0', 'part1'],
   })
   await expect.poll(() => page.evaluate((target) => {
     const execution = [...window.__dinksterTest!.app.store.executions.get().values()]
@@ -215,7 +211,7 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
   })
   await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
   await expect.poll(() => splitState(page)).toEqual({
-    members: ['m0', 'm1'], seq: 2, links: [firstLink, secondLink],
+    members: ['part0', 'part1'], links: [firstLink, secondLink],
   })
 
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
@@ -226,21 +222,21 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
     { x: canvas.x + canvas.width - 40, y: canvas.y + canvas.height - 40 },
   )
   await expect.poll(() => splitState(page)).toEqual({
-    members: ['m0', 'm1'], seq: 2, links: [firstLink],
+    members: ['part0', 'part1'], links: [firstLink],
   })
 
   const splitHeader = await headerPoint(page, 'split')
   await page.mouse.click(splitHeader.x, splitHeader.y, { button: 'right' })
   await page.locator('[data-testid=context-menu-item][data-item-id="core.node.compactDynamic"]').click()
-  await expect.poll(() => splitState(page)).toEqual({ members: ['m0'], seq: 2, links: [firstLink] })
+  await expect.poll(() => splitState(page)).toEqual({ members: ['part0'], links: [firstLink] })
 
   await page.keyboard.press('Control+z')
   await expect.poll(() => splitState(page)).toEqual({
-    members: ['m0', 'm1'], seq: 2, links: [firstLink],
+    members: ['part0', 'part1'], links: [firstLink],
   })
   await page.keyboard.press('Control+z')
   await expect.poll(() => splitState(page)).toEqual({
-    members: ['m0', 'm1'], seq: 2, links: [firstLink, secondLink],
+    members: ['part0', 'part1'], links: [firstLink, secondLink],
   })
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get()
     .filter((problem) => problem.severity === 'error')

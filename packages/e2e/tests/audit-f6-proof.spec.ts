@@ -6,7 +6,7 @@ test('proves both product type disclosures and mutation-free interaction', async
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-f6-proof', schemaWire: 1 },
+    dinkster: { version: 'audit-f6-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -20,16 +20,16 @@ test('proves both product type disclosures and mutation-free interaction', async
     const app = window.__dinksterTest!.app as any
     app.registerSchemas([{
       type: 'LatentConsumer', displayName: 'Latent Consumer', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'latent', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+      body: [{ kind: 'input', id: 'latent', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
     }, {
       type: 'ImageConsumer', displayName: 'Image Consumer', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+      body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
     }, {
       type: 'ImageProducer', displayName: 'Image Producer', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
     }, ...Array.from({ length: 12 }, (_, index) => ({
       type: `TypeConsumer${index}`, displayName: `Type Consumer ${index}`, category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: `TYPE_${index}` }, optional: false }],
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: `TYPE_${index}` }, optional: false }],
     }))])
   })
 

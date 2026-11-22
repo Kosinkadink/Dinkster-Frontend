@@ -180,7 +180,7 @@ const activeWidgetView = (page: Page) => page.evaluate(() =>
 const registerExtensionSchema = (page: Page) => page.evaluate(() => {
   window.__dinksterTest!.app.registerSchemas([{
     type: 'extensionMenuTest', displayName: 'Extension menu test', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
+    body: [{
       kind: 'input', id: 'stars', type: { kind: 'concrete', name: 'demo.widget.stars' }, optional: false,
       widget: { widgetType: 'demo.widget.stars', options: { display_name: 'Rating' }, default: 3 },
     }],
@@ -503,8 +503,8 @@ async function installSnapshot(page: Page, options: { source?: string; privilege
   await page.route(`${baseUrl}/api/**`, async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path === `${baseUrl}/api/nodes`) return route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, extensionSnapshotDigest: digest, dinkster: { version: 'proof', schemaWire: 1 },
-      nodes: { 'video-preview.initialize': { schemaVersion: 1, displayName: 'Video preview initialization', interface: [] } },
+      schemaVersion: 1, epoch: 1, extensionSnapshotDigest: digest, dinkster: { version: 'proof', schemaWire: 2 },
+      nodes: { 'video-preview.initialize': { schemaVersion: 2, displayName: 'Video preview initialization', body: [] } },
     } })
     if (path === `${baseUrl}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${baseUrl}/api/extensions/${previewPack}/routes/preview-policy`) {

@@ -6,7 +6,7 @@ test('proves product numeric, slider, and color controls without native chrome',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'audit-f3-proof', schemaWire: 1 },
+    dinkster: { version: 'audit-f3-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -25,7 +25,7 @@ test('proves product numeric, slider, and color controls without native chrome',
     })
     app.registerSchemas([{
       type: 'NumericProof', displayName: 'Numeric proof', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }), widget('color', 'COLOR', '#112233')],
+      body: [widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }), widget('color', 'COLOR', '#112233')],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-proof', root: 'g0',

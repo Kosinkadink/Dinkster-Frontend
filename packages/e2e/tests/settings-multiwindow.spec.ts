@@ -3,7 +3,7 @@ import { expect, nativeTest as test } from './fixtures.js'
 
 async function mockEmptyNativeCatalog(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'panel-window-test', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'panel-window-test', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
 }

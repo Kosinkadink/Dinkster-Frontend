@@ -3,7 +3,7 @@ import { expect, nativeTest as test } from './fixtures.js'
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f2b-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f2b-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }

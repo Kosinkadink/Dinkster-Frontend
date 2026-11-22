@@ -15,7 +15,7 @@ const imageOutput = (names: readonly string[]) => ({
 async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'output-proof', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/assets/*', async (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
@@ -46,7 +46,7 @@ async function installExecution(page: Page): Promise<void> {
   await page.evaluate(async (output) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'OutputPreviewProof', displayName: 'Save Image', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-preview-proof', root: 'g0',

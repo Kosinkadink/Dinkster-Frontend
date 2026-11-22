@@ -9,7 +9,7 @@ async function installRoutes(page: Page, onCandidateRequest: () => void): Promis
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 2 }, nodes: {} } }))
   await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [
     { id: 'comfy-input', mode: 'read', state: 'ready', kind: 'media/image' },
     { id: 'comfy-output', mode: 'read', state: 'ready', kind: 'media/image' },
@@ -70,8 +70,8 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await page.evaluate(async () => {
       window.__dinksterTest!.app.registerSchemas([
-        { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },
-        { type: 'PickerMedia', displayName: 'Picker media', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }] },
+        { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, body: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },
+        { type: 'PickerMedia', displayName: 'Picker media', category: 'proof', source: 'v3', isOutputNode: false, body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }] },
       ])
       await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'picker-proof', root: 'g0', graphs: { g0: { id: 'g0', name: 'root', nodes: { model: { id: 'model', type: 'PickerModel', values: { model: null } }, media: { id: 'media', type: 'PickerMedia', values: { image: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 } }, view: { graphs: { g0: { nodes: { model: { position: { x: 100, y: 100 } }, media: { position: { x: 500, y: 100 } } } } } } }, 'Picker proof')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
@@ -97,8 +97,8 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await page.evaluate(async () => {
       window.__dinksterTest!.app.registerSchemas([
-        { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },
-        { type: 'PickerMedia', displayName: 'Picker media', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }] }])
+        { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, body: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },
+        { type: 'PickerMedia', displayName: 'Picker media', category: 'proof', source: 'v3', isOutputNode: false, body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }] }])
       await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-picker-proof', root: 'g0', graphs: { g0: { id: 'g0', name: 'root', nodes: { media: { id: 'media', type: 'PickerMedia', values: { image: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } }, view: { graphs: { g0: { nodes: { media: { position: { x: 100, y: 100 } } } } } } }, 'Media picker proof')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })

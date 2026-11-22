@@ -71,7 +71,7 @@ async function openFixture(
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'DiagWidgetsTest', displayName: 'Diag Widgets', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           widget('count', 'INT', 5, { min: 0, max: 100 }),
           widget('choice', 'COMBO', 'alpha', { options: ['alpha', 'beta', 'gamma'] }),
           { kind: 'input', id: 'required', displayName: 'Required value', type: { kind: 'concrete', name: 'INT' }, optional: false },
@@ -83,7 +83,7 @@ async function openFixture(
       },
       {
         type: 'DiagIntSourceTest', displayName: 'Int Source', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -103,7 +103,7 @@ async function openFixture(
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'widget-diagnostics-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'widget-diagnostics-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/workflows/plan', (route) => route.fulfill({ json: {
     packs: [], assets: [], errors: [],
@@ -115,8 +115,8 @@ test.beforeEach(async ({ page }) => {
 
 test('an additive nested combo field keeps the node editable and reports its named warning', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'additive-widget-fixture', schemaWire: 1 },
-    nodes: { TolerantWidgets: { interface: [{ role: 'input', id: 'choice', required: true,
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'additive-widget-fixture', schemaWire: 2 },
+    nodes: { TolerantWidgets: { body: [{ kind: 'input', id: 'choice', required: true,
       type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest',
       widget: { type: 'COMBO', options: ['nearest', 'cubic'].map((value) => ({ value, futureHint: 'ignored' })) },
     }] } },
@@ -151,7 +151,7 @@ test('an additive nested combo field keeps the node editable and reports its nam
   await problemEntries(page, 'schema.widget.unknownField').first().locator('summary').click()
   await page.screenshot({ path: testInfo.outputPath('additive-widget-warning.png'), animations: 'disabled' })
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 2, dinkster: { version: 'clean-widget-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 2, dinkster: { version: 'clean-widget-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

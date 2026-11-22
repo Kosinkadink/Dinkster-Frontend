@@ -16,22 +16,22 @@ const emptyWorkflow = (lineage: string) => ({
 const STARTUP_CATALOG = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'latent-file-drop-proof', schemaWire: 1 },
+  dinkster: { version: 'latent-file-drop-proof', schemaWire: 2 },
   packs: {},
   nodes: {
     'dinkster.image.load_image': {
-      schemaVersion: 1, nodeType: 'dinkster.image.load_image', displayName: 'Load Image', category: 'image',
-      interface: [
-        { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image' } },
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
+      schemaVersion: 2, nodeType: 'dinkster.image.load_image', displayName: 'Load Image', category: 'image',
+      body: [
+        { kind: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image' } },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
       ],
     },
     'dinkster.latent.load_latent': {
-      schemaVersion: 1, nodeType: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent',
-      interface: [
-        { role: 'input', id: 'latent', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.LATENT'] } }, widget: { type: 'ASSET', accept: ['application/x-comfy-latent'], kind: 'data/latent' } },
-        { role: 'output', id: 'samples', type: { kind: 'concrete', types: ['comfy.LATENT'] } },
-        { role: 'output', id: 'vae_hint', type: { kind: 'concrete', types: ['STRING'] } },
+      schemaVersion: 2, nodeType: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent',
+      body: [
+        { kind: 'input', id: 'latent', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.LATENT'] } }, widget: { type: 'ASSET', accept: ['application/x-comfy-latent'], kind: 'data/latent' } },
+        { kind: 'output', id: 'samples', type: { kind: 'concrete', types: ['comfy.LATENT'] } },
+        { kind: 'output', id: 'vae_hint', type: { kind: 'concrete', types: ['STRING'] } },
       ],
     },
   },
@@ -207,14 +207,14 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const registry = (app as unknown as {
-      registryForTab: (tab: unknown) => { resolve: (type: string) => { items: readonly {
+      registryForTab: (tab: unknown) => { resolve: (type: string) => { body: readonly {
         kind: string; widget?: { widgetType: string; kind?: string }
       }[] } | undefined } | undefined
     }).registryForTab(app.activeTab()!)
     const loadImage = registry?.resolve('dinkster.image.load_image')
     const loadLatent = registry?.resolve('dinkster.latent.load_latent')
-    return (loadImage?.items.some((item) => item.kind === 'input' && item.widget?.widgetType === 'ASSET') ?? false) &&
-      (loadLatent?.items.some((item) => item.kind === 'input' && item.widget?.kind === 'data/latent') ?? false)
+    return (loadImage?.body.some((item) => item.kind === 'input' && item.widget?.widgetType === 'ASSET') ?? false) &&
+      (loadLatent?.body.some((item) => item.kind === 'input' && item.widget?.kind === 'data/latent') ?? false)
   })).toBe(true)
 })
 

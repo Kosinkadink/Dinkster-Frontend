@@ -18,7 +18,7 @@ test('recorded local assets keep exact identity and provenance without reading m
   })
   await page.route('/supervisor/status', (route) => void route.fulfill({ status: 502 }))
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: { schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'local-assets-test', schemaWire: 1 }, nodes: {},
+    dinkster: { version: 'local-assets-test', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => void route.fulfill({ status: 503, body: 'Mount discovery offline' }))
   await page.route('**/api/assets/catalog?*', (route) => {
@@ -92,7 +92,7 @@ test('global Assets browse surface is aggregated, honest, persistent, and read-o
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'assets-menu-e2e', schemaWire: 1 },
+    dinkster: { version: 'assets-menu-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [
@@ -205,7 +205,7 @@ test('mount scan progress stays visible while the scan is active', async ({ page
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mount-scan-progress-e2e', schemaWire: 1 },
+    dinkster: { version: 'mount-scan-progress-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [{

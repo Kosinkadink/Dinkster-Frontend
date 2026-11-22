@@ -13,7 +13,7 @@ import { expect, nativeTest as test } from './fixtures.js'
  */
 
 const filterWire = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_filter_wire30.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_filter.json', import.meta.url)), 'utf8'),
 ) as Record<string, unknown>
 
 // 2x2 RGB PNG: red, green / blue, white.
@@ -23,19 +23,19 @@ const sourcePng = Buffer.from(
 )
 
 const imageSourceNode = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'e2e.image.source',
   displayName: 'Image Source',
   category: 'test',
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'image',
       required: true,
       type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
       widget: { type: 'ASSET', accept: ['image/png'] },
     },
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+    { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
   ],
 }
 
@@ -49,7 +49,7 @@ test('applies-scoped filter mirrors estimate covered operations and abstain outs
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-filter-estimates-proof', schemaWire: 1 },
+    dinkster: { version: 'mirror-filter-estimates-proof', schemaWire: 2 },
     nodes: {
       'e2e.image.source': imageSourceNode,
       'dinkster.image.filter': filterWire,

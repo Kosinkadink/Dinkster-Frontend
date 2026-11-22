@@ -9,7 +9,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated proof' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'loop-proof', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'loop-proof', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/assets/*', (route) => {
     const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
@@ -28,7 +28,7 @@ async function installLoopExecution(page: Page): Promise<void> {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'LoopOutputProof', displayName: 'Loop output', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
     }])
     await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'loop-progress-proof', root: 'g0',

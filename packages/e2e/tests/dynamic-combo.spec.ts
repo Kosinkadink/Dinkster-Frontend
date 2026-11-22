@@ -1,15 +1,11 @@
 /**
- * DynamicCombo selector editing on a plain node (no boundary forwarding).
- *
- * The forwarded/boundary path is covered by boundary-conditional.spec.ts
- * and coexistence.spec.ts; this suite pins the DIRECT interaction the
- * audit matrix marked untested: clicking the selector row of an ordinary
- * node opens the production combo editor, switching dispatches
- * dynamic.selectOption (never node.setValue), the active branch's inputs
- * swap in the scene, branch-local widget values survive round trips, and
- * one undo restores the previous selection atomically.
+ * Choice dropdown editing on a plain node: clicking the dropdown row opens
+ * the production combo editor, switching dispatches dynamic.selectOption
+ * (never node.setValue), the chosen option's inputs swap in the scene,
+ * option-local widget values survive round trips, and one undo restores the
+ * previous selection atomically.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
@@ -55,6 +51,7 @@ const selectedOf = (page: Page): Promise<string | undefined> =>
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const widget = (id: string, widgetType: string, defaultValue: number) => ({
@@ -63,15 +60,12 @@ test.beforeEach(async ({ page }) => {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ComboNodeTest', displayName: 'Combo Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'size', type: concrete('STRING'), optional: true,
-        dynamic: {
-          kind: 'dynamicCombo', defaultOption: 'fit',
-          options: [
-            { key: 'fit', inputs: [widget('width', 'INT', 512)] },
-            { key: 'crop', inputs: [widget('ratio', 'FLOAT', 1)] },
-          ],
-        },
+      body: [{
+        kind: 'choice', id: 'size', required: true, default: 'fit', shared: [],
+        options: [
+          { key: 'fit', rows: [widget('width', 'INT', 512)] },
+          { key: 'crop', rows: [widget('ratio', 'FLOAT', 1)] },
+        ],
       }],
     }])
     await window.__dinksterTest!.app.openDocument({
@@ -81,6 +75,8 @@ test.beforeEach(async ({ page }) => {
     }, 'Dynamic Combo')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'sizer'))).toBe(true)
 })
 
 test('default branch renders only its own inputs; switching swaps them and stores the selection', async ({ page }) => {

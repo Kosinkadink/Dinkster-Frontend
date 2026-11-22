@@ -17,13 +17,13 @@ const asset = {
 }
 
 const loadImageWire31 = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'dinkster.image.load_image',
   displayName: 'Load Image',
   category: 'image',
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'image',
       required: true,
       type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
@@ -31,7 +31,7 @@ const loadImageWire31 = {
       sourceFilename: { kind: 'media/image', category: 'input' },
     },
     {
-      role: 'output',
+      kind: 'output',
       id: 'image',
       type: { kind: 'concrete', types: ['IMAGE'] },
       represents: { input: 'image', rendition: 'decoded-image' },
@@ -65,7 +65,7 @@ test('an uploaded selected asset estimates its represented output before executi
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'represented-output-proof', schemaWire: 1 },
+    dinkster: { version: 'represented-output-proof', schemaWire: 2 },
     nodes: { 'dinkster.image.load_image': loadImageWire31 },
   } }))
   await page.route('**/api/assets/**', async (route) => {

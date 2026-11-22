@@ -5,10 +5,10 @@ import { expect, nativeTest as test } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const adjustWire = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_adjust_wire29.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_adjust.json', import.meta.url)), 'utf8'),
 ) as Record<string, unknown>
 const filterWire = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_filter_wire30.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_filter.json', import.meta.url)), 'utf8'),
 ) as Record<string, unknown>
 
 const imageA = Buffer.from(
@@ -25,20 +25,20 @@ const assetA = { digest: digestA, name: 'source-a.png', size: imageA.length, med
 const assetB = { digest: digestB, name: 'source-b.png', size: imageB.length, mediaType: 'image/png', virtualPath: 'source-b.png' }
 
 const representedSourceWire = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'e2e.represented-source',
   displayName: 'Load Image',
   category: 'test',
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'image',
       required: true,
       type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
       widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image' },
     },
     {
-      role: 'output',
+      kind: 'output',
       id: 'image',
       type: { kind: 'concrete', types: ['IMAGE'] },
       represents: { input: 'image', rendition: 'decoded-image' },
@@ -68,11 +68,11 @@ test('represented estimates propagate and recompute after connect and reconnect'
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-propagation-proof', schemaWire: 1 },
+    dinkster: { version: 'mirror-propagation-proof', schemaWire: 2 },
     nodes: {
       'e2e.represented-source': representedSourceWire,
-      'dinkster.image.adjust': { ...adjustWire, schemaVersion: 1 },
-      'dinkster.image.filter': { ...filterWire, schemaVersion: 1 },
+      'dinkster.image.adjust': { ...adjustWire, schemaVersion: 2 },
+      'dinkster.image.filter': { ...filterWire, schemaVersion: 2 },
     },
   } }))
 
@@ -94,7 +94,7 @@ test('represented estimates propagate and recompute after connect and reconnect'
               id: 'filter', type: 'dinkster.image.filter', values: {},
               dynamic: { operation: { selected: 'sharpen' } },
             },
-            adjust: { id: 'adjust', type: 'dinkster.image.adjust', values: { operation: 'invert' } },
+            adjust: { id: 'adjust', type: 'dinkster.image.adjust', values: {}, dynamic: { operation: { selected: 'invert' } } },
             sourceA: { id: 'sourceA', type: 'e2e.represented-source', values: { image: first } },
             sourceB: { id: 'sourceB', type: 'e2e.represented-source', values: { image: second } },
           },
