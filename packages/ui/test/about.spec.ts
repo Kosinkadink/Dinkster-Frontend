@@ -89,6 +89,81 @@ for (const width of [1280, 390]) {
   })
 }
 
+test('narrow toolbar keeps region switches in the checked layout menu', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.getByLabel('Account state').selectOption('signed-out')
+  const bar = page
+    .getByRole('region', { name: 'custom dark linux', exact: true })
+    .locator('header')
+  for (const state of ['idle', 'running', 'pending']) {
+    await page.getByLabel('Execution state').selectOption(state)
+    await page.setViewportSize({ width: 484, height: 900 })
+    for (const name of ['Left panel', 'Bottom panel', 'Right panel'])
+      await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
+    await bar
+      .getByRole('button', { name: 'Customize layout', exact: true })
+      .click()
+    await expect(bar.getByRole('menuitemcheckbox')).toHaveText([
+      'Left bar',
+      'Status bar',
+    ])
+    await page.keyboard.press('Escape')
+    await page.setViewportSize({ width: 483, height: 900 })
+    for (const name of ['Left panel', 'Bottom panel', 'Right panel'])
+      await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(
+        0,
+      )
+  }
+  await page.setViewportSize({ width: 390, height: 900 })
+  const trigger = bar.getByRole('button', {
+    name: 'Customize layout',
+    exact: true,
+  })
+  await trigger.focus()
+  await page.keyboard.press('ArrowDown')
+  const menu = bar.getByRole('menu', { name: 'Customize layout', exact: true })
+  await expect(menu.getByRole('menuitemcheckbox')).toHaveText([
+    'Left panel',
+    'Bottom panel',
+    'Right panel',
+    'Left bar',
+    'Status bar',
+  ])
+  await expect(
+    menu.getByRole('menuitemcheckbox', { name: 'Left panel', exact: true }),
+  ).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  const bottom = menu.getByRole('menuitemcheckbox', {
+    name: 'Bottom panel',
+    exact: true,
+  })
+  await expect(bottom).toBeFocused()
+  await expect(bottom).not.toBeChecked()
+  await page.keyboard.press('Enter')
+  await expect(menu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await expect(bottom).toBeChecked()
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 484, height: 900 })
+  await expect(
+    bar.getByRole('button', { name: 'Bottom panel', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await page.setViewportSize({ width: 390, height: 900 })
+  await trigger.click()
+  await menu
+    .getByRole('menuitem', { name: 'Reset layout', exact: true })
+    .click()
+  await trigger.click()
+  await expect(bottom).not.toBeChecked()
+  await page
+    .getByRole('heading', { name: 'Window toolbar', exact: true })
+    .click()
+  await expect(menu).toHaveCount(0)
+})
+
 test('44px toolbar keeps account and full compact metadata in one row', async ({
   page,
 }) => {
@@ -173,13 +248,24 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   })
   await page.getByLabel('Brand presentation').selectOption('wordmark')
   const sections = page.locator('section[aria-label]')
-  for (const width of [1440, 929, 928, 873, 872, 793, 792, 390]) {
-    await page.setViewportSize({ width, height: 900 })
+  for (const fixtureWidth of [1440, 929, 928, 873, 872, 793, 792, 390]) {
     for (const section of await sections.all()) {
       const bar = section.locator('header')
       const platform = await bar.getAttribute('data-platform')
+      const width =
+        fixtureWidth === 390
+          ? platform === 'win32'
+            ? 512
+            : platform === 'darwin'
+              ? 456
+              : 390
+          : fixtureWidth
+      await page.setViewportSize({ width, height: 900 })
       const left = platform === 'darwin' ? 92 : 12
       const right = width - (platform === 'win32' ? 148 : 12)
+      await expect(bar.locator('button[aria-pressed]')).toHaveCount(
+        right - left < 460 ? 0 : 3,
+      )
       const compact = right - left <= 768
       const action = bar.getByRole('button', { name: 'Dinkster', exact: true })
       await expect(action).toHaveAttribute('title', 'Dinkster')
@@ -225,7 +311,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
         .evaluate((node: HTMLImageElement) => node.naturalWidth),
     )
     .toBeGreaterThan(0)
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 512]) {
     await page.setViewportSize({ width, height: 900 })
     for (const theme of ['dark', 'light'])
       await page
@@ -254,7 +340,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   await expect(page.getByRole('status')).toHaveText('Search opened')
   await expect(action.locator('svg')).toBeHidden()
   await sections.first().locator('header').screenshot({
-    path: 'test-results/captures/window-toolbar-wordmark-pending-390.png',
+    path: 'test-results/captures/window-toolbar-wordmark-pending-512.png',
   })
   await page.getByLabel('Execution state').selectOption('idle')
   await expect(action).toBeEnabled()
@@ -280,21 +366,32 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
   await expect(sections).toHaveCount(18)
   for (const state of ['idle', 'running', 'pending']) {
     await page.getByLabel('Execution state').selectOption(state)
-    for (const width of [1440, 929, 928, 873, 872, 793, 792, 390]) {
-      await page.setViewportSize({ width, height: 900 })
+    for (const fixtureWidth of [1440, 929, 928, 873, 872, 793, 792, 390]) {
       for (const section of await sections.all()) {
         if (
-          width !== 1440 &&
-          width !== 390 &&
+          fixtureWidth !== 1440 &&
+          fixtureWidth !== 390 &&
           !(await section.getAttribute('aria-label'))!.startsWith('qa dark ')
         )
           continue
         const bar = section.locator('header')
+        const platform = await bar.getAttribute('data-platform')
+        const width =
+          fixtureWidth === 390
+            ? platform === 'win32'
+              ? 512
+              : platform === 'darwin'
+                ? 456
+                : 390
+            : fixtureWidth
+        await page.setViewportSize({ width, height: 900 })
         const bounds = (await bar.boundingBox())!
         expect(bounds.height).toBe(44)
-        const platform = await bar.getAttribute('data-platform')
         const left = platform === 'darwin' ? 92 : 12
         const right = width - (platform === 'win32' ? 148 : 12)
+        await expect(bar.locator('button[aria-pressed]')).toHaveCount(
+          right - left < 460 ? 0 : 3,
+        )
         const search = bar.getByRole('button', { name: 'Search', exact: true })
         const compact = right - left <= 768
         await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
@@ -367,14 +464,13 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
               JSON.stringify({ state, width, platform, rect, previous }),
             ).toBe(true)
         }
-        if (width === 390 || width === 1440)
+        if (fixtureWidth === 390 || width === 1440)
           for (const label of [
             'Dinkster',
             'Search',
-            'Projects',
-            'Images',
+            'Sample project',
             'Collaboration',
-            'Toggle panels',
+            'Customize layout',
           ])
             await expect(
               bar.getByRole('button', { name: label, exact: true }),
@@ -389,7 +485,9 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
           await expect(cancel).toHaveAttribute('aria-busy', 'true')
         } else await expect(cancel).toBeEnabled()
       }
-      if ((state === 'idle' && width === 1440) || width === 390) {
+      if ((state === 'idle' && fixtureWidth === 1440) || fixtureWidth === 390) {
+        const width = fixtureWidth === 390 ? 512 : fixtureWidth
+        await page.setViewportSize({ width, height: 900 })
         const name =
           state === 'idle'
             ? 'production dark win32'
@@ -399,12 +497,14 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
         await page.getByRole('region', { name, exact: true }).screenshot({
           path: `test-results/captures/window-toolbar-${state}-${width}.png`,
         })
-        if (width === 390 && state === 'pending')
+        if (fixtureWidth === 390 && state === 'pending') {
+          await page.setViewportSize({ width: 456, height: 900 })
           await page
             .getByRole('region', { name: 'custom light darwin', exact: true })
             .screenshot({
-              path: 'test-results/captures/window-toolbar-mac-pending-390.png',
+              path: 'test-results/captures/window-toolbar-mac-pending-456.png',
             })
+        }
       }
     }
   }

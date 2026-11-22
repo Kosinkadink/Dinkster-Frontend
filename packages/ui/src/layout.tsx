@@ -5,9 +5,12 @@ import {
   createSignal,
   createUniqueId,
   onCleanup,
+  onMount,
+  type Accessor,
   type JSX,
 } from 'solid-js'
 import { Menu, type LucideIcon } from 'lucide-solid'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
 import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
 import lightWordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-light.svg?url'
@@ -133,15 +136,27 @@ export function ProductWindowToolbar(props: {
   platform: 'darwin' | 'win32' | 'linux'
   brand: JSX.Element
   search: JSX.Element
-  actions: JSX.Element
+  actions: JSX.Element | ((narrow: Accessor<boolean>) => JSX.Element)
   service?: string | undefined
   serviceKind?: 'qa' | 'custom' | undefined
   account?: JSX.Element
   qa?: boolean
   development?: boolean
 }) {
+  let host!: HTMLElement
+  const [narrow, setNarrow] = createSignal(false)
+  onMount(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrow(
+        entry!.contentRect.width < components.layout.toolbarFullRowWidth,
+      )
+    })
+    observer.observe(host)
+    onCleanup(() => observer.disconnect())
+  })
   return (
     <header
+      ref={host}
       class="dinkster-desktop-bar dinkster-window-toolbar-host"
       data-platform={props.platform}
       data-service-kind={props.serviceKind}
@@ -150,7 +165,11 @@ export function ProductWindowToolbar(props: {
       <div class="dinkster-window-toolbar">
         <div class="dinkster-window-toolbar-brand">{props.brand}</div>
         <div class="dinkster-window-toolbar-search">{props.search}</div>
-        <div class="dinkster-window-toolbar-actions">{props.actions}</div>
+        <div class="dinkster-window-toolbar-actions">
+          {typeof props.actions === 'function'
+            ? props.actions(narrow)
+            : props.actions}
+        </div>
         <Show when={props.service}>
           <span class="dinkster-window-toolbar-service">{props.service}</span>
         </Show>

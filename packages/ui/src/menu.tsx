@@ -8,7 +8,7 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, LogOut, type LucideIcon } from 'lucide-solid'
+import { Check, ChevronDown, LogOut, type LucideIcon } from 'lucide-solid'
 import { ProductIcon, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
@@ -19,6 +19,7 @@ export interface ProductMenuItem {
   icon?: LucideIcon
   intent?: ProductRole
   disabled?: boolean
+  checked?: boolean
   onSelect: () => void
 }
 
@@ -46,7 +47,7 @@ function Menu(props: {
   }
   const enabledItems = () => [
     ...menu.querySelectorAll<HTMLButtonElement>(
-      '[role="menuitem"]:not(:disabled)',
+      '[role^="menuitem"]:not(:disabled)',
     ),
   ]
   const show = (last = false) => {
@@ -193,7 +194,10 @@ function Menu(props: {
             {(item) => (
               <button
                 type="button"
-                role="menuitem"
+                role={
+                  item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'
+                }
+                aria-checked={item.checked}
                 tabindex="-1"
                 class="dinkster-menu-item"
                 data-role={item.intent ?? 'neutral'}
@@ -203,8 +207,15 @@ function Menu(props: {
                   item.onSelect()
                 }}
               >
-                <Show when={item.icon}>
-                  {(icon) => <ProductIcon icon={icon()} />}
+                <Show
+                  when={item.checked !== undefined}
+                  fallback={
+                    <Show when={item.icon}>
+                      {(icon) => <ProductIcon icon={icon()} />}
+                    </Show>
+                  }
+                >
+                  <ProductIcon icon={Check} />
                 </Show>
                 {item.label}
               </button>

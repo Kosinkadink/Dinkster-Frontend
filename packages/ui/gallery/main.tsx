@@ -14,6 +14,7 @@ import {
   Bell,
   CircleAlert,
   LayoutList,
+  FolderOpen,
   PanelLeft,
   PanelBottom,
   PanelRight,
@@ -907,6 +908,22 @@ function WindowToolbarGallery() {
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
   const [brand, setBrand] = createSignal('menu')
   const [account, setAccount] = createSignal('none')
+  const [visible, setVisible] = createSignal<Record<string, boolean>>({
+    'Left panel': true,
+    'Bottom panel': false,
+    'Right panel': true,
+    'Left bar': true,
+    'Status bar': true,
+  })
+  const panels = [
+    ['Left panel', PanelLeft],
+    ['Bottom panel', PanelBottom],
+    ['Right panel', PanelRight],
+  ] as const
+  const toggle = (label: string) => {
+    setVisible((value) => ({ ...value, [label]: !value[label] }))
+    setActivity(`${label} ${visible()[label] ? 'shown' : 'hidden'}`)
+  }
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -1053,8 +1070,50 @@ function WindowToolbarGallery() {
                           onClick={() => setActivity('Search opened')}
                         />
                       }
-                      actions={
+                      actions={(narrow) => (
                         <>
+                          <ProductMenu
+                            label="Customize layout"
+                            icon={Settings}
+                            items={[
+                              ...[
+                                ...(narrow()
+                                  ? panels.map(([label]) => label)
+                                  : []),
+                                'Left bar',
+                                'Status bar',
+                              ].map((label) => ({
+                                label,
+                                checked: visible()[label]!,
+                                onSelect: () => toggle(label),
+                              })),
+                              {
+                                label: 'Reset layout',
+                                onSelect: () => {
+                                  setVisible({
+                                    'Left panel': true,
+                                    'Bottom panel': false,
+                                    'Right panel': true,
+                                    'Left bar': true,
+                                    'Status bar': true,
+                                  })
+                                  setActivity('Layout reset')
+                                },
+                              },
+                            ]}
+                          />
+                          <Show when={!narrow()}>
+                            <For each={panels}>
+                              {([label, icon]) => (
+                                <ProductIconButton
+                                  label={label}
+                                  icon={icon}
+                                  aria-pressed={visible()[label]}
+                                  onClick={() => toggle(label)}
+                                />
+                              )}
+                            </For>
+                          </Show>
                           <Show when={state() !== 'idle'}>
                             <ProductWindowAction
                               label="Cancel run"
@@ -1064,28 +1123,18 @@ function WindowToolbarGallery() {
                               onClick={() => setActivity('Run cancelled')}
                             />
                           </Show>
-                          <For
-                            each={
-                              [
-                                ['Customize layout', Settings],
-                                ['Left panel', PanelLeft],
-                                ['Bottom panel', PanelBottom],
-                                ['Right panel', PanelRight],
-                                ['Projects', LayoutList],
-                                ['Collaboration', User],
-                              ] as const
-                            }
-                          >
-                            {([label, icon]) => (
-                              <ProductIconButton
-                                label={label}
-                                icon={icon}
-                                onClick={() => setActivity(`${label} opened`)}
-                              />
-                            )}
-                          </For>
+                          <ProductWindowAction
+                            label="Sample project"
+                            icon={FolderOpen}
+                            onClick={() => setActivity('Projects opened')}
+                          />
+                          <ProductIconButton
+                            label="Collaboration"
+                            icon={User}
+                            onClick={() => setActivity('Collaboration opened')}
+                          />
                         </>
-                      }
+                      )}
                     />
                   </section>
                 )}

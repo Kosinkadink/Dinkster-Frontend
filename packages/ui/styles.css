@@ -137,6 +137,9 @@
 .dinkster-window-toolbar-brand { grid-column: 1; grid-row: 1; display: flex; align-items: center; }
 .dinkster-window-toolbar-search { grid-column: 2; grid-row: 1; display: flex; align-items: center; justify-self: start; }
 .dinkster-window-toolbar-actions { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: var(--dinkster-space-4); }
+.dinkster-window-toolbar-actions .dinkster-menu-trigger { width: var(--dinkster-control-compact-height); padding-inline: 0; }
+.dinkster-window-toolbar-actions .dinkster-menu-trigger > .dinkster-menu-label { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
+.dinkster-window-toolbar-actions .dinkster-menu-trigger > .dinkster-icon:last-child { display: none; }
 .dinkster-window-toolbar-service { grid-column: 4; grid-row: 1; justify-self: start; white-space: nowrap; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-window-toolbar .dinkster-window-identity { grid-column: 5; grid-row: 1; }
 .dinkster-window-toolbar-account { grid-column: 6; grid-row: 1; display: flex; align-items: center; }
@@ -173,6 +176,7 @@
 .dinkster-textarea { resize: vertical; }
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
+.dinkster-menu-item[aria-checked='false'] > .dinkster-icon { visibility: hidden; }
 .dinkster-menu-trigger[data-account] { padding-inline: var(--dinkster-space-8); border-color: transparent; background: var(--dinkster-surface-raised); }
 .dinkster-avatar { display: inline-grid; place-items: center; flex: none; width: var(--dinkster-space-24); height: var(--dinkster-space-24); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-bold); }
 .dinkster-avatar::before { content: attr(data-initial); }

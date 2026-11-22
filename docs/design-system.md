@@ -969,6 +969,15 @@ mode clips that content and shows the action's icon without changing activation
 or menu ownership. Toolbar wordmarks reserve their shared token width and height
 before the image loads. `ProductWordmark` defaults to dark artwork when no theme
 is supplied. Pending actions reuse the shared disabled/focus and spinner behavior.
+The actions slot also accepts a render function receiving a reactive `narrow`
+accessor. It switches below the fixed 460px available-content token
+`toolbarFullRowWidth`, after native reservations, independently of account or
+execution state. The layout menu then holds the left, bottom and right panel
+switches together, followed by left bar, status bar and Reset layout. In the full
+row the three panel switches stay in the bar and are not repeated in the menu.
+`ProductMenuItem.checked` draws the shared checkmark and exposes
+`menuitemcheckbox` with `aria-checked`; checkbox and ordinary items share keyboard
+navigation and dismissal. The host owns visibility and commands in either place.
 The gallery's Window toolbar page demonstrates plain menu and rich brand
 presentations across production and QA/custom services, all three platforms,
 both app themes and idle/running/pending states. Supply an icon-bearing brand
