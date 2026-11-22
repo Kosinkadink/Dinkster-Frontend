@@ -1301,9 +1301,9 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const [storageBackendId, setStorageBackendId] = createSolidSignal<string>()
+  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string }>()
   const openStorage = (backend = activeBackend()): void => {
-    setStorageBackendId(backend.id)
+    setStorageFocus({ id: backend.id })
     app.modalPanel.set('')
     setPanelOpen(app.panels, app.dock, 'storage', 'left', true)
   }
@@ -1509,7 +1509,7 @@ export function App(props: {
       id: 'storage', get title() { return message('storagePanel.title') }, icon: FolderOpen,
       get description() { return message('storagePanel.description') }, get ariaLabel() { return message('storagePanel.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 29,
-      toggleTestId: 'storage-sidebar-toggle', component: () => <StoragePanel app={app} backendId={storageBackendId()} activeBackend={activeBackend}
+      toggleTestId: 'storage-sidebar-toggle', component: () => <StoragePanel app={app} focusBackend={storageFocus()} activeBackend={activeBackend}
         onOpenAssets={(backend) => {
           setAssetsBackendId(backend.id)
           setPanelOpen(app.panels, app.dock, 'assets', 'left', true)

@@ -1,10 +1,35 @@
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountSettings } from '@dinkster/client'
-import { StorageFolders } from '../src/StoragePanel.js'
+import { StorageFolders, StoragePanel } from '../src/StoragePanel.js'
+import { AppState } from '../src/app-state.js'
 
 const disposers: (() => void)[] = []
-afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren() })
+afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
+
+it('repeats a backend jump after a manual folder-server choice without retargeting execution', async () => {
+  const app = new AppState()
+  const local = app.backends.get()[0]!
+  const remote = app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster')!
+  for (const backend of [local, remote]) {
+    if (backend.protocol === 'dinkster') vi.spyOn(backend.connection, 'fetchMountSettings').mockRejectedValue(new Error('Folders unavailable'))
+  }
+  const [focus, setFocus] = createSignal({ id: local.id })
+  const targets = [...app.tabTargets.get()]
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <StoragePanel app={app} focusBackend={focus()} activeBackend={() => local} onOpenAssets={() => {}} />, root)
+  disposers.push(() => { unmount(); app.dispose(); localStorage.clear() })
+  const picker = root.querySelector<HTMLButtonElement>('[role="combobox"]')!
+  for (let repeat = 0; repeat < 2; repeat++) {
+    picker.click()
+    document.querySelector<HTMLElement>(`[role="option"][data-option-id="${remote.id}"]`)!.click()
+    expect(picker.textContent).toContain('Studio')
+    setFocus({ id: local.id })
+    await vi.waitFor(() => expect(picker.textContent).toContain('Local'))
+  }
+  expect([...app.tabTargets.get()]).toEqual(targets)
+})
 
 it('groups model grants under one folder and switches project membership without removing known folders', async () => {
   const all: (MountDescriptor & { path: string })[] = [

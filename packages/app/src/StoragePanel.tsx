@@ -15,14 +15,14 @@ type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
 
 export function StoragePanel(props: {
   readonly app: AppState
-  readonly backendId: string | undefined
+  readonly focusBackend: { readonly id: string } | undefined
   readonly activeBackend: () => Backend
   readonly onOpenAssets: (backend: Backend) => void
 }) {
   const message = useAppMessage()
   const backends = useSignal(props.app.backends)
   const [selected, setSelected] = createSignal<string>()
-  createEffect(() => setSelected(props.backendId))
+  createEffect(() => setSelected(props.focusBackend?.id))
   const backend = createMemo(() => backends().find((row) => row.id === selected()) ?? props.activeBackend())
   return <section class="dinkster-panel dinkster-stack" data-testid="storage-panel">
     <ProductPanelHeader title={message('storagePanel.title')} />
