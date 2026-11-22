@@ -1720,7 +1720,7 @@ export class InteractionController {
     // a selection/drag on the node underneath.
     const badgeHit = this.renderer.getDetailLevel() === 'overview'
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
     if (badgeHit) {
       // Cancel the pointerdown so the follow-up mousedown's default action
       // (focus change) can't blur a popover the host just opened and focused.
@@ -3096,7 +3096,7 @@ export class InteractionController {
     )
     const badge = toolboxInside || overview
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
     const hit = toolboxInside || badge ? undefined : hitTest(scene, w.x, w.y, this.hitOptions({
       ...(this.hoveredReroute ? { rerouteSockets: this.hoveredReroute } : {}),
       widgetTaps: this.widgetTapHits(scene),

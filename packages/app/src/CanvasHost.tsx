@@ -11,7 +11,6 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack } from 'solid-js'
 import type { ExecutionLogEntry } from '@dinkster/client'
 import {
-  badgeRect,
   buildScene,
   boundarySceneId,
   CANVAS_DETAIL_MIN_SCALE,
@@ -4750,14 +4749,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setBadgePopover((anchor) => {
         if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === anchor.nodeId)
-        const badges = decorations.badges[anchor.nodeId] ?? []
-        const index = badges.findIndex((badge) => badge.id === anchor.badge.id)
-        if (!node || index === -1) return undefined
-        const rect = badgeRect(node, index, badges)
+        const rect = node && renderer.getNodeBadgeLayout(node).find((entry) => entry.badge.id === anchor.badge.id)
+        if (!rect) return undefined
         const vp = renderer.getViewport()
         if (anchor.x !== rect.x * vp.scale + vp.x ||
             anchor.y !== (rect.y + rect.height) * vp.scale + vp.y + 6) return undefined
-        return { ...anchor, badge: badges[index]! }
+        return { ...anchor, badge: rect.badge }
       })
       setSemanticSource({
         owner: `${tab.id}:${gid}`,

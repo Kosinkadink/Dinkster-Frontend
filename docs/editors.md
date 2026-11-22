@@ -342,10 +342,10 @@ as "Execute up to Selection" and disables it whenever the toolbox up-to action
 is disabled.
 
 Open Subgraph, Extract, and Flatten use folder-open, group, and ungroup icons
-from the same canvas icon painter as the other toolbox controls. Subgraph
-header badges use the boxes icon. When a definition is referenced by two or
-more occurrences, the badge adds the document-derived linked count; a single
-occurrence keeps the compact icon-only badge.
+from the same canvas icon painter as the other toolbox controls. A subgraph
+node's mark at the right end of its title bar uses the boxes icon. When a
+definition is referenced by two or more occurrences, the mark adds the
+document-derived linked count; a single occurrence keeps the icon-only mark.
 
 Right-click a linked subgraph occurrence and choose **Make Unique** to clone
 its definition and repoint only that occurrence. The command clones the

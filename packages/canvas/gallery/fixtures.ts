@@ -17,6 +17,7 @@ import {
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   SUBGRAPH_BADGE,
+  UNAVAILABLE_BADGE,
   defaultTokens,
   buildScene,
   dropTargetKey,
@@ -28,6 +29,9 @@ import {
   executionNodePresentation,
   nodeStatesForGraph,
   logWarningBadge,
+  mediaDiagnosticBadge,
+  regionIterationBadge,
+  subgraphBadge,
   toolboxButton,
   type BadgeMap,
   type NodeBadge,
@@ -52,8 +56,8 @@ export const canvasGalleryPages = [
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
-  ['tabs', 'Attached tabs proposal'],
-  ['tabs-content', 'Attached tabs at content zoom'],
+  ['tabs', 'Tabs'],
+  ['tabs-content', 'Tabs at content zoom'],
   ['states', 'Node states'],
   ['run-editable', 'Editable workflow run states'],
   ['run-frozen', 'Frozen run states'],
@@ -717,51 +721,27 @@ export function createCanvasGalleryFixture(
     const map: Record<string, NodeBadge[]> = {}
     for (const id of ids) {
       if (id === 'Empty') continue
-      map[id] = [
-        SUBGRAPH_BADGE,
-        {
-          ...DEPRECATED_BADGE,
-          glyph: 'Deprecated',
-          placement: 'above',
-          icon: 'clock',
-          variant: 'label',
-        },
-      ]
+      map[id] = [id === 'Idle' ? subgraphBadge(3) : SUBGRAPH_BADGE, DEPRECATED_BADGE]
       const state = states[id as keyof typeof states]
       if (state) {
         fixture.states[id] = { state }
-        map[id]!.push({
-          id: `gallery.run.${state}`,
-          glyph: id,
-          variant: 'label',
-          placement: 'below',
-          icon:
-            state === 'running'
-              ? 'play'
-              : state === 'done'
-                ? 'check'
-                : state === 'error'
-                  ? 'triangle-alert'
-                  : state === 'cached'
-                    ? 'database'
-                    : 'clock',
-          color: tokens.stateColors[state],
-        })
+        map[id]!.push(
+          ...executionNodePresentation({ [id]: { state } }, true, tokens).badges[id]!,
+        )
       }
     }
     map['Document error']!.push(PROBLEM_ERROR_BADGE)
     map['Blocking warning']!.push(PROBLEM_BLOCKING_WARNING_BADGE)
-    map.Muted!.push({ ...MUTED_BADGE, placement: 'above', icon: 'volume-x' })
-    map.Bypassed!.push({ ...BYPASSED_BADGE, placement: 'above', icon: 'ban' })
+    map.Muted!.push(MUTED_BADGE)
+    map.Bypassed!.push(BYPASSED_BADGE)
     const crowded = Array.from(
       { length: 9 },
       (_, index): NodeBadge => ({
         id: `gallery.detail.${index}`,
         glyph: `Detail ${index + 1}`,
-        variant: 'label',
         placement: 'below',
         icon: 'info',
-        color: tokens.colors.nodeHeader,
+        color: LOG_INFO_BADGE.color,
       }),
     )
     map.Crowded!.push(...crowded)
@@ -980,32 +960,22 @@ export function createCanvasGalleryFixture(
       MUTED_BADGE,
       BYPASSED_BADGE,
       PROBLEM_ERROR_BADGE,
+      UNAVAILABLE_BADGE,
       PROBLEM_BLOCKING_WARNING_BADGE,
       PROBLEM_WARNING_BADGE,
-      {
-        id: 'core.media.alpha_dropped.image.IMAGE',
-        glyph: 'Alpha dropped: IMAGE',
-        variant: 'label',
-        placement: 'below',
-        interactive: false,
-        color: PROBLEM_WARNING_BADGE.color,
-      },
-      {
-        id: 'core.media.mask_polarity.mask.mask',
-        glyph: 'Mask polarity: mask',
-        variant: 'label',
-        placement: 'below',
-        interactive: false,
-        color: PROBLEM_WARNING_BADGE.color,
-      },
+      mediaDiagnosticBadge('core.media.alpha_dropped.image.IMAGE', 'Alpha dropped: IMAGE'),
+      mediaDiagnosticBadge('core.media.mask_polarity.mask.mask', 'Mask polarity: mask'),
+      regionIterationBadge('iteration 2 of 3'),
     ]
     const map: Record<string, (typeof badges)[number][]> = {}
+    // Some core badges share an id and differ in their words, such as Error and Error 2.
     badges.forEach((badge) => {
-      add(badge.id)
-      map[badge.id] = [badge]
+      const id = `${badge.id}: ${badge.glyph}`
+      add(id)
+      map[id] = [badge]
     })
     fixture.badges = map
-    fixture.overlay = { selection: new Set([badges[0]!.id]) }
+    fixture.overlay = { selection: new Set([`${badges[0]!.id}: ${badges[0]!.glyph}`]) }
     fixture.toolbox = [
       [
         ...(

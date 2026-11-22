@@ -400,7 +400,7 @@ describe('executed image paging overlay', () => {
 })
 
 describe('region execution feedback overlay', () => {
-  it('renders the projected iteration counter as a non-interactive header badge', () => {
+  it('renders the projected iteration counter as a non-interactive bottom tab', () => {
     const model = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'r', isSubgraph: true, regionKind: 'map' }]),
@@ -414,7 +414,8 @@ describe('region execution feedback overlay', () => {
       expect.objectContaining({
         id: 'core.region.iteration',
         glyph: 'iteration 2 of 3',
-        variant: 'label',
+        placement: 'below',
+        icon: 'repeat',
         interactive: false,
       }),
     ]))
@@ -958,7 +959,7 @@ describe('deriveSceneOverlays', () => {
         {
           id: 'z.valid',
           decorate: (node) => node.id === 'proof' ? {
-            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }],
+            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2', icon: 'info' }],
             color: '#123456', titleSuffix: 'decorated', status: 'ready',
           } : undefined,
         },
@@ -967,6 +968,10 @@ describe('deriveSceneOverlays', () => {
           decorate: (node) => node.id === 'other'
             ? { badges: [{ id: 'pack.invalid', glyph: 'Bad', color: 'purple' }] }
             : { badges: [{ id: 'pack.partial', glyph: 'Partial', color: '#112233' }] },
+        },
+        {
+          id: 'c.unknown-icon',
+          decorate: () => ({ badges: [{ id: 'pack.icon', glyph: 'Icon', color: '#112233', icon: 'not-a-canvas-icon' }] }),
         },
         {
           id: 'b.accessor',
@@ -983,7 +988,7 @@ describe('deriveSceneOverlays', () => {
 
     expect(decorated.badges.proof).toEqual([
       executionErrorBadge(1),
-      { id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' },
+      { id: 'pack.proof', glyph: 'Pack', interactive: false, color: '#7b3fb2', icon: 'info' },
     ])
     expect(decorated.badges.other).toBeUndefined()
     expect(decorated.presentation.proof).toEqual({ color: '#123456', titleSuffix: 'decorated', status: 'ready' })
@@ -991,6 +996,7 @@ describe('deriveSceneOverlays', () => {
     expect(results.map(([id, error]) => [id, error === undefined])).toEqual([
       ['a.invalid', false],
       ['b.accessor', false],
+      ['c.unknown-icon', false],
       ['z.valid', true],
     ])
   })
@@ -1279,7 +1285,7 @@ describe('deriveSceneOverlays', () => {
       scene: scene([{ id: 'first', isSubgraph: true, type: '#shared' }]),
     })
     expect(model.badges.first).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'core.subgraph', glyph: '2', icon: 'boxes', variant: 'label' }),
+      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'boxes', placement: 'title' }),
     ]))
   })
 

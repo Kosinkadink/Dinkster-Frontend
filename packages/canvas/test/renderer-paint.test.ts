@@ -9,9 +9,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, documentResolver, loadDocument, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
 import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
-import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
+import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 
 // Crisp edges center a side pin on the node's 1 px border, half a pixel
@@ -274,6 +274,14 @@ function paintWithTokens(scene: Scene, tokens: DesignTokens, setup?: (r: CanvasR
   renderer.renderNow()
   renderer.dispose()
   return calls
+}
+
+/** `amount` of the way from `base` to `toward`, per channel: a mix written apart from the renderer's. */
+const mixHex = (base: string, toward: string, amount: number): string => {
+  const channels = (hex: string) => [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16))
+  const from = channels(base)
+  const to = channels(toward)
+  return `#${from.map((value, index) => Math.round(value + (to[index]! - value) * amount).toString(16).padStart(2, '0')).join('')}`
 }
 
 const paintWith = (scene: Scene, setup?: (r: CanvasRenderer) => void): PaintCall[] =>
@@ -870,16 +878,9 @@ describe('scene visual bounds and fitting', () => {
     expect(bounds).toEqual({ minX: -204, minY: 96, maxX: 604, maxY: 304 })
   })
 
-  it('includes above-node badge lanes in scene visual bounds', () => {
-    const badge = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
-    const rect = badgeRect(node, 0, [badge])
-
-    expect(sceneVisualBounds(emptyScene({ nodes: [node] }), {}, { [node.id]: [badge] })!.minY).toBe(rect.y)
-  })
-
-  it('attaches tab lanes outside state and selection outlines and includes them in camera bounds', () => {
+  it('floats tab lanes 3 px outside state and selection outlines and includes them in camera bounds', () => {
     const { ctx } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, badgeLayout: 'tabs' })
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     const list = [{ ...ERROR_BADGE, placement: 'above' as const }, { ...ERROR_BADGE, id: 'below', placement: 'below' as const }]
     renderer.setScene(emptyScene({ nodes: [node] }))
     renderer.setBadges({ [node.id]: list })
@@ -895,11 +896,11 @@ describe('scene visual bounds and fitting', () => {
           const strong = state === 'running' || state === 'done' || state === 'error'
           const outset = selected ? (scale === 0.5 ? 5 : 4)
             : strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
-          expect(top.y + top.height).toBe(node.y - outset + 1)
-          expect(bottom.y).toBe(node.y + node.layout.height + outset - 1)
-          const bounds = sceneVisualBounds(renderer.getScene(), {}, renderer.getBadges(), (current) => renderer.getNodeBadgeBounds(current))!
-          expect(bounds.minY).toBe(top.y - 0.5)
-          expect(bounds.maxY).toBe(bottom.y + bottom.height + 0.5)
+          expect(top.y + top.height).toBe(node.y - outset - 3)
+          expect(bottom.y).toBe(node.y + node.layout.height + outset + 3)
+          const bounds = sceneVisualBounds(renderer.getScene(), {}, (current) => renderer.getNodeBadgeBounds(current))!
+          expect(bounds.minY).toBe(top.y)
+          expect(bounds.maxY).toBe(bottom.y + bottom.height)
         }
       }
     }
@@ -910,36 +911,36 @@ describe('scene visual bounds and fitting', () => {
       renderer.setOverlay({ bodyDropNode: node.id })
       const drop = renderer.getNodeBadgeLayout(node)
       const dropOutset = scale === 0.5 ? 3.5 : 2.75
-      expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset + 1)
+      expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset - 3)
       renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set(), selectors: new Set(), selectorCandidates: new Set(), valueSources: new Set() })
       const scoped = renderer.getNodeBadgeLayout(node)
       const scopeOutset = scale === 0.5 ? 7 : 6.25
-      expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset + 1)
+      expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset - 3)
     }
     renderer.dispose()
   })
 
-  it('keeps tab labels readable on bright and dark fills in either theme, including hover', () => {
+  it('paints a tab as a tint of its color over the canvas, with its line and words in that color, in either theme', () => {
     for (const theme of ['dark', 'light'] as const) {
+      const colors = canvasColorsForTheme(theme)
       for (const hovered of [false, true]) {
-        const calls = paintWithTokens(emptyScene({ nodes: [node] }), {
-          ...defaultTokens, badgeLayout: 'tabs', colors: canvasColorsForTheme(theme),
-        }, (renderer) => {
-          renderer.setBadges({ [node.id]: [
-            { id: 'bright', glyph: 'Finished', color: '#00e6a0', placement: 'below', variant: 'label' },
-            { id: 'dark', glyph: 'Dark', color: '#243342', placement: 'above', variant: 'label' },
-          ] })
+        const calls = paintWithTokens(emptyScene({ nodes: [node] }), { ...defaultTokens, colors }, (renderer) => {
+          renderer.setBadges({ [node.id]: [{ id: 'bright', glyph: 'Finished', color: '#00e6a0', placement: 'below' }] })
           if (hovered) renderer.setOverlay({ hoveredBadge: { nodeId: node.id, badgeId: 'bright' } })
         })
-        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Finished')?.fillStyle).toBe('#000000')
-        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Dark')?.fillStyle).toBe('#ffffff')
+        const words = mixHex(colors.title, '#00e6a0', 0.7)
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Finished')?.fillStyle).toBe(words)
+        // The first bottom tab starts at the node's left edge; its 1 px line is drawn inside the tab.
+        const tab = calls.findIndex((call) => call.method === 'roundRect' && call.args[0] === node.x + 0.5 && Number(call.args[1]) > node.y + node.layout.height)
+        expect(paintedAfter(calls, tab, 'fill')?.fillStyle).toBe(mixHex(colors.canvasBackground, '#00e6a0', hovered ? 0.3 : 0.16))
+        expect(paintedAfter(calls, tab, 'stroke')?.strokeStyle).toBe(hovered ? words : mixHex(colors.canvasBackground, '#00e6a0', 0.65))
       }
     }
   })
 
   it('paints external tabs when the body is culled, including drag and resize projections', () => {
     const { ctx, calls } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, badgeLayout: 'tabs' })
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     const badge = { ...ERROR_BADGE, glyph: 'External', placement: 'above' as const }
     const edge = { ...node, x: 30, y: 1215 }
     renderer.setScene(emptyScene({ nodes: [edge] }))
@@ -2054,10 +2055,8 @@ describe('node chrome paint on the live renderer', () => {
     expect(PROBLEM_BLOCKING_WARNING_BADGE.color).toBe(defaultTokens.colors.blockingWarning)
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(tokens.colors.blockingWarning)
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
-    const rect = badgeRect(node, 0)
-    const chip = calls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === rect.x && call.args[1] === rect.y)
-    expect(paintedAfter(calls, chip, 'fill')?.fillStyle).toBe(tokens.colors.blockingWarning)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Warning')?.fillStyle)
+      .toBe(mixHex(tokens.colors.title, tokens.colors.blockingWarning, 0.7))
   })
 
   it('running state wins over a blocking-warning outline', () => {
@@ -2607,46 +2606,30 @@ describe('badge and toolbox paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('centers the subgraph fallback glyph when vector painting fails', () => {
-    const original = globalThis.Path2D
-    vi.stubGlobal('Path2D', class Path2D { constructor() { throw new Error('paint failed') } })
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const rect = badgeRect(node, 0, [SUBGRAPH_BADGE])
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [SUBGRAPH_BADGE] }))
-    vi.stubGlobal('Path2D', original)
-    expect(calls.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'S' && call.args[1] === rect.x + rect.width / 2,
-    )).toBe(true)
-  })
-
-  it('paints explicit mode and error words in readable header chips', () => {
-    const scene = fixtureScene('clean')
-    const n = nodeOf(scene, 'c1')
-    const badges = [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE]
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: badges }))
-
-    for (const [index, badge] of badges.entries()) {
-      const rect = badgeRect(n, index, badges)
-      expect(rect.width).toBeGreaterThan(BADGE_SIZE)
-      expect(calls.some((call) =>
-        call.method === 'fillText' &&
-        call.args[0] === badge.glyph &&
-        call.args[1] === rect.x + rect.width / 2
-      )).toBe(true)
+  it('keeps only the subgraph mark in the title bar and cuts the title before it', () => {
+    const plain = nodeOf(fixtureScene('clean'), 'c1')
+    const n = { ...plain, layout: { ...plain.layout, title: 'A title long enough to run under the subgraph mark' } }
+    const scene = emptyScene({ nodes: [n] })
+    const header = { top: n.y, bottom: n.y + n.layout.headerHeight }
+    const titleY = n.y + n.layout.headerHeight / 2
+    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE, subgraphBadge(12)] }))
+    for (const [word, side] of [['Error', 'below'], ['Muted', 'above'], ['Bypassed', 'above']] as const) {
+      const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
+      expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
+    // The mark: 3 px padding, a 10 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
+    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 10 + 3 + 12 + 3)
+    const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
+    expect(count.args[1]).toBe(markX + 3 + 10 + 3)
+    expect(Number(count.args[2])).toBeGreaterThan(header.top)
+    expect(Number(count.args[2])).toBeLessThan(header.bottom)
+    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + defaultTokens.padX && call.args[2] === titleY)!
+    expect(title.args[0]).not.toBe(n.layout.title)
+    expect(String(title.args[0]).length * 6).toBeLessThanOrEqual(markX - n.x - defaultTokens.padX - canvasPaintTokens.node.titleBadgeGap)
 
-    const leftmost = badgeRect(n, badges.length - 1, badges)
-    expect(leftmost.x).toBeLessThan(n.x + defaultTokens.padX)
-    const title = calls.find((call) => call.method === 'fillText' &&
-      call.args[1] === n.x + defaultTokens.padX && call.args[2] === n.y + n.layout.headerHeight / 2)
-    expect(title?.args).toEqual(['', n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
-
-    const singleCalls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE] }))
-    const singleRect = badgeRect(n, 0, [MUTED_BADGE])
-    const singleTitle = singleCalls.find((call) => call.method === 'fillText' && call.args[0] === n.layout.title)
-    expect(singleTitle?.args).toEqual([n.layout.title, n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
-    expect(n.layout.title.length * 6).toBeLessThan(singleRect.x - n.x - defaultTokens.padX - 4)
+    const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
+    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + defaultTokens.padX && call.args[2] === titleY)!
+    expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
   })
 
   it('paints mode badges with the active theme tokens', () => {
@@ -2662,8 +2645,8 @@ describe('badge and toolbox paint on the live renderer', () => {
     const calls = paintWithTokens(scene, tokens, (renderer) =>
       renderer.setBadges({ c1: [MUTED_BADGE, BYPASSED_BADGE] }))
 
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#123456')).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#654321')).toBe(true)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')?.fillStyle).toBe(mixHex(tokens.colors.title, '#123456', 0.7))
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Bypassed')?.fillStyle).toBe(mixHex(tokens.colors.title, '#654321', 0.7))
   })
 
   it('the selection toolbox draws above the selection; active buttons fill, plain ones stay flat', () => {
