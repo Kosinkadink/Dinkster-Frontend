@@ -91,6 +91,13 @@ field, and the inner field shows its value through the reroute. A
 forwarded group, a forwarded slot and a field inside a group member stay a
 name and a pin.
 
+A value source exposed as a field is a field too. It shows the value the
+entered node (or the outer node that owns it) gives the source, and the
+source's own value when that node sets none. Entered with no node, the field
+is the source's own value: editing it there is the same edit as on the
+source's pill, and a value whose kind opens a card opens the source's card
+over the field. The pill keeps showing and editing the source's own value.
+
 ## Subgraph field values
 
 A subgraph node displays the value a run sends: a value set on the instance

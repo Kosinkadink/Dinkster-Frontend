@@ -76,7 +76,7 @@ export function structuralGalleryScene(
             values: { radius: 8 },
             title: 'Alternative',
           },
-          sub: { id: 'sub', type: '#g1', values: { radius: 6 } },
+          sub: { id: 'sub', type: '#g1', values: { radius: 6, grain: 0.4 } },
           note: {
             id: 'note',
             type: 'dinkster.note',
@@ -153,6 +153,14 @@ export function structuralGalleryScene(
         links: {},
         nets: {},
         reroutes: {},
+        valueSources: {
+          grain: {
+            id: 'grain',
+            value: 0.25,
+            title: 'Grain',
+            spec: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 } },
+          },
+        },
         boundary: {
           inputs: [
             {
@@ -162,6 +170,15 @@ export function structuralGalleryScene(
             {
               id: 'radius',
               binds: { kind: 'port', node: 'inner', port: 'radius' },
+              promoted: true,
+            },
+            {
+              id: 'grain',
+              binds: {
+                kind: 'valueSource',
+                valueSource: 'grain',
+                type: { kind: 'concrete', name: 'FLOAT' },
+              },
               promoted: true,
             },
           ],
@@ -205,7 +222,10 @@ export function structuralGalleryScene(
           collapsedNets: ['net'],
           guideNets: ['net'],
         },
-        g1: { nodes: { inner: { position: { x: 350, y: 120 } } } },
+        g1: {
+          nodes: { inner: { position: { x: 350, y: 120 } } },
+          valueSources: { grain: { position: { x: 350, y: 230 } } },
+        },
       },
     },
   }).document

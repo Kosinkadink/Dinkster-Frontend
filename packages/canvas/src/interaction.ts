@@ -136,6 +136,17 @@ const isMoveFamilyKind = (kind: Gesture['kind']): boolean =>
   kind === 'resize'
 
 /** Whole lines a text box shows now, counting any resize surplus it was given. */
+/** The command that stores a widget row's new value where the row's value lives. */
+const rowValueCommand = (row: Extract<LayoutRow, { kind: 'widget' }>, graphId: string, nodeId: string, value: Json): CommandInvocation =>
+  row.valueSourceOwner !== undefined
+    ? { command: 'valueSource.setValue', params: { graphId: row.valueSourceOwner.graphId, valueSourceId: row.valueSourceOwner.valueSourceId, value } }
+    : { command: 'node.setValue', params: {
+      graphId: row.familyOwner?.graphId ?? graphId,
+      nodeId: row.familyOwner?.nodeId ?? nodeId,
+      inputId: row.familyOwner?.valueKey ?? row.valueKey,
+      value,
+    } }
+
 const visibleTextBoxLines = (row: Extract<LayoutRow, { kind: 'widget' }>, tokens: DesignTokens): number =>
   Math.max(row.rows, Math.floor((row.height - multilineWidgetHeight(0, tokens)) / tokens.multilineText.lineHeight))
 
@@ -3601,16 +3612,7 @@ export class InteractionController {
               // Shared with controller advancement (core numeric-step): the
               // stepper and queue-time advancement must not drift.
               const constraints = numericStepConstraints({ widgetType: row.spec.widgetType, options: row.spec.options ?? {} })
-              const value = stepNumericValue(current, direction, constraints)
-              this.host.dispatch({
-                command: 'node.setValue',
-                params: {
-                  graphId: row.familyOwner?.graphId ?? scene.graphId,
-                  nodeId: row.familyOwner?.nodeId ?? g.hit.node.id,
-                  inputId: row.familyOwner?.valueKey ?? row.valueKey,
-                  value,
-                },
-              })
+              this.host.dispatch(rowValueCommand(row, scene.graphId, g.hit.node.id, stepNumericValue(current, direction, constraints)))
             }
             // A numeric edge zone is an independent control even if an
             // unknown extension kind cannot resolve a starting value. It
@@ -3625,16 +3627,7 @@ export class InteractionController {
         this.pushOverlay()
         // A drag that ends where it began stores nothing and leaves no undo step.
         if (String(g.value) === String(g.start)) return
-        const row = g.hit.row
-        this.host.dispatch({
-          command: 'node.setValue',
-          params: {
-            graphId: row.familyOwner?.graphId ?? scene.graphId,
-            nodeId: row.familyOwner?.nodeId ?? g.hit.node.id,
-            inputId: row.familyOwner?.valueKey ?? row.valueKey,
-            value: g.value,
-          },
-        })
+        this.host.dispatch(rowValueCommand(g.hit.row, scene.graphId, g.hit.node.id, g.value))
         return
       }
       case 'widget-affordance':

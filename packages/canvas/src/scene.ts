@@ -291,7 +291,8 @@ export interface SceneBoundaryNode {
    * item id as on the subgraph node outside. They are the values of the
    * subgraph node the editor came in through, or the defaults a new
    * subgraph node starts with when it came in through none. Each row's
-   * `familyOwner` names the node and value key an edit writes.
+   * `familyOwner` names the node and value key an edit writes, or its
+   * `valueSourceOwner` the value source.
    */
   readonly fields?: {
     readonly node: NodeData
@@ -917,6 +918,7 @@ export interface BuildSceneInput {
     }>>
     readonly selectorOwners: ReadonlyMap<string, ReadonlyMap<string, { readonly graphId: string; readonly nodeId: string; readonly boundaryId: string }>>
     readonly familyOwners?: import('@dinkster/core').OccurrenceDynamicView['familyOwners']
+    readonly valueSources?: import('@dinkster/core').OccurrenceDynamicView['valueSources']
   }
 }
 
@@ -2047,12 +2049,29 @@ export function buildScene(input: BuildSceneInput): Scene {
     // receives in this occurrence (the entered node's value, else the
     // default), and an edit writes where that value is owned: the entered
     // node (or the outer node that owns its value), or with no node entered
-    // the inner node's stored value, which is the default.
+    // the inner node's stored value, which is the default. A value source
+    // the input binds is edited the same way, its own value being the
+    // default.
     const fieldValues: Record<string, Json> = {}
     const fieldControllers: Record<string, NonNullable<NodeData['controllers']>[string]> = {}
-    const fieldOwners = new Map<string, { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }>()
+    const fieldOwners = new Map<string,
+      { readonly graphId: string; readonly nodeId: string; readonly valueKey: string } | { readonly graphId: string; readonly valueSourceId: string }>()
     for (const item of def.boundary.inputs) {
       const binds = item.binds
+      if (binds.kind === 'valueSource' && item.promoted === true) {
+        const source = def.valueSources?.[binds.valueSource]
+        if (source === undefined) continue
+        const occurrence = input.occurrenceView?.valueSources?.get(source.id)
+        const value = occurrence !== undefined ? occurrence.value
+          : ownerNode !== undefined && Object.hasOwn(ownerNode.values, item.id) ? ownerNode.values[item.id] : undefined
+        const controller = occurrence !== undefined ? occurrence.controller : ownerNode?.controllers?.[item.id]
+        fieldValues[item.id] = value ?? source.value
+        if (controller !== undefined) fieldControllers[item.id] = controller
+        fieldOwners.set(item.id, occurrence?.owner ?? (ownerNode !== undefined && ownerGraph !== undefined
+          ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
+          : { graphId: def.id, valueSourceId: source.id }))
+        continue
+      }
       if (binds.kind !== 'port' || binds.members !== undefined || item.promoted !== true) continue
       const inner = def.nodes[binds.node]
       if (inner === undefined) continue
@@ -2094,7 +2113,9 @@ export function buildScene(input: BuildSceneInput): Scene {
         // family members) stay pins: those edits target the node itself.
         if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.address.members !== undefined ||
           row.optionsTarget !== undefined || row.inputFamilyOwner !== undefined) continue
-        outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
+        outsideRows.set(row.inputId, [{ ...row, ...('valueSourceId' in owner
+          ? { valueSourceOwner: owner }
+          : { familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }) }])
       }
     }
     // A dropdown that leads options reaches the subgraph node as a forwarded
@@ -2162,9 +2183,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const wiredFields: Record<string, { value?: Json }> = {}
     const drivenByGraph = new Map<string, ReturnType<typeof companionSourcesOf>>()
     for (const row of [...outsideRows.values()].flat()) {
-      const owner = row.familyOwner!
-      const graph = input.document.graphs[owner.graphId]
-      if (owner.graphId === def.id || graph === undefined || owner.valueKey === undefined) continue
+      const owner = row.familyOwner
+      const graph = owner === undefined ? undefined : input.document.graphs[owner.graphId]
+      if (owner === undefined || owner.graphId === def.id || graph === undefined || owner.valueKey === undefined) continue
       if (!drivenByGraph.has(graph.id)) drivenByGraph.set(graph.id, companionSourcesOf(graph, undefined, undefined, input.resolve))
       const driven = drivenByGraph.get(graph.id)!.get(owner.nodeId)?.get(owner.valueKey)
       if (driven !== undefined) wiredFields[row.valueKey] = driven.kind === 'literal' ? { value: driven.value } : {}
