@@ -435,6 +435,7 @@ export function App(props: {
   const tabs = useSignal(app.tabs)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
+  const tabResultClears = useSignal(app.clearedTabResults)
   const collabTabs = useSignal(app.collabTabs)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
@@ -2364,6 +2365,11 @@ export function App(props: {
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            runState={(tab) => {
+              executions()
+              tabResultClears()
+              return app.tabRunState(tab)
+            }}
             isDirty={(tab) => dirtyTabs().has(tab.id)}
             isFrozen={(tab) => tab.execution !== undefined}
             isShared={(tab) => collabTabs().has(tab.id)}
@@ -2403,6 +2409,15 @@ export function App(props: {
               : undefined}
             canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
+            targets={backends()}
+            targetId={(tab) => {
+              tabTargets()
+              return app.backendForTab(tab).id
+            }}
+            onSetTarget={(tab, id) => {
+              const backend = backends().find((candidate) => candidate.id === id)
+              if (backend) app.setTabTarget(tab.id, backend.id)
+            }}
             previews={(tab) => tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
               if (tab.execution !== undefined) return

@@ -2935,6 +2935,7 @@ export class AppState {
    * keeps framework adapters honest when a command changes only a document.
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
+  readonly clearedTabResults = createSignal<ReadonlyMap<string, string>>(new Map())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
@@ -4891,6 +4892,8 @@ export class AppState {
           // cannot cancel a callback already in flight: re-check ownership
           // rather than trusting teardown ordering.
           if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+          const latest = this.executionsForTab(tab)[0]
+          if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
           this.documentPersistenceDirty.add(id)
           reconcileGraphNavigation(tab)
           this.markTabDirty(id)
@@ -7409,6 +7412,11 @@ export class AppState {
     // the Tab object itself: dropping the tab drops its cache entries.
     this.libraryLinks.delete(id)
     this.markTabClean(id)
+    if (this.clearedTabResults.get().has(id)) this.clearedTabResults.update((results) => {
+      const next = new Map(results)
+      next.delete(id)
+      return next
+    })
     if (this.tabViewStates.get().has(id)) {
       this.tabViewStates.update((states) => {
         const next = new Map(states)
@@ -11728,6 +11736,16 @@ export class AppState {
     }
     const lineage = tab.store.doc.lineage
     return this.executionList().filter((state) => state.artifact?.snapshot.lineage === lineage)
+  }
+
+  tabRunState(tab: Tab): 'idle' | 'running' | 'finished' | 'failed' {
+    const runs = this.executionsForTab(tab)
+    if (runs.some((run) => run.status === 'running')) return 'running'
+    const latest = runs[0]
+    if (latest === undefined || this.clearedTabResults.get().get(tab.id) === latest.key) return 'idle'
+    if (latest.status === 'completed') return 'finished'
+    if (latest.status === 'error') return 'failed'
+    return 'idle'
   }
 
   /**

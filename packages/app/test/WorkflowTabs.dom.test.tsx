@@ -4,7 +4,7 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WorkflowTabs } from '../src/WorkflowTabs.js'
+import { WorkflowTabs, type TabRunState } from '../src/WorkflowTabs.js'
 
 interface TestTab {
   readonly id: string
@@ -51,6 +51,7 @@ function fixture(previews?: {
   const root = document.createElement('div')
   document.body.append(root)
   const [activeId, setActiveId] = createSignal('one')
+  const [runState, setRunState] = createSignal<TabRunState>('idle')
   const close = vi.fn()
   const pointerDown = vi.fn()
   const create = vi.fn()
@@ -60,6 +61,7 @@ function fixture(previews?: {
     <WorkflowTabs
       tabs={tabs}
       activeId={activeId()}
+      runState={(tab) => tab.id === 'one' ? runState() : 'idle'}
       isDirty={(tab) => tab.id === 'one'}
       isFrozen={(tab) => tab.id === 'two'}
       isShared={(tab) => tab.id === 'three'}
@@ -74,10 +76,32 @@ function fixture(previews?: {
       onSetPreviews={previews?.set}
     />
   ), root)
-  return { root, activeId, close, pointerDown, create, share, get tabRoot() { return tabRoot }, dispose }
+  return { root, activeId, setRunState, close, pointerDown, create, share, get tabRoot() { return tabRoot }, dispose }
 }
 
 describe('workflow tabs', () => {
+  it('keeps the kind icon and unsaved mark while running and announces result changes', () => {
+    const view = fixture()
+    const first = view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!
+    const glyph = first.querySelector('svg')
+    const trigger = first.querySelector('[role="tab"]')!
+    view.setRunState('running')
+    expect(first.querySelector('svg')).toBe(glyph)
+    expect(first.querySelector('.dinkster-run-icon[data-running]')).not.toBeNull()
+    expect(first.querySelector('.tab-dirty')).not.toBeNull()
+    expect(trigger.getAttribute('aria-label')).toBe('One, running, unsaved changes')
+    view.setRunState('failed')
+    expect(first.querySelector('.dinkster-run-icon[data-running]')).toBeNull()
+    expect(first.querySelector('[data-result="failed"]')).not.toBeNull()
+    expect(trigger.getAttribute('aria-label')).toBe('One, failed, unsaved changes')
+    view.setRunState('finished')
+    expect(first.querySelector('[data-result="finished"]')).not.toBeNull()
+    expect(trigger.getAttribute('aria-label')).toBe('One, completed, unsaved changes')
+    view.setRunState('idle')
+    expect(first.querySelector('[data-result]')).toBeNull()
+    view.dispose()
+  })
+
   it('exposes workflow-specific tab semantics and document state', () => {
     registerGermanCatalog()
     const view = fixture()

@@ -1,5 +1,11 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
 import type { MenuActionItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
+import { ProductRunIcon } from '@dinkster/ui'
+import Workflow from 'lucide-solid/icons/workflow'
+import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
+import Spline from 'lucide-solid/icons/spline'
+import Code from 'lucide-solid/icons/code'
+import File from 'lucide-solid/icons/file'
 import Plus from 'lucide-solid/icons/plus'
 import X from 'lucide-solid/icons/x'
 import { ContextMenu } from './ContextMenu.js'
@@ -9,6 +15,20 @@ import { useAppMessage } from './locale.js'
 export interface WorkflowTabItem {
   readonly id: string
   readonly title: string
+  readonly editorKind?: string
+}
+
+export type TabRunState = 'idle' | 'running' | 'finished' | 'failed'
+
+const kindIcon = (kind: string | undefined) => {
+  switch (kind) {
+    case undefined:
+    case 'graph': return Workflow
+    case 'app': return PanelsTopLeft
+    case 'curve': return Spline
+    case 'glsl': return Code
+    default: return File
+  }
 }
 
 export interface WorkflowTabsProps<T extends WorkflowTabItem> {
@@ -16,6 +36,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly activeId: string
   readonly draggedId?: string | undefined
   readonly insertionIndex?: number | undefined
+  readonly runState?: ((tab: T) => TabRunState) | undefined
   readonly isDirty: (tab: T) => boolean
   readonly isFrozen: (tab: T) => boolean
   readonly isShared: (tab: T) => boolean
@@ -23,6 +44,12 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly setRoot: (root: HTMLElement) => void
   readonly onActivate: (event: MouseEvent, tab: T) => void
   readonly onClose: (tab: T) => void
+  readonly onRename?: ((tab: T) => void) | undefined
+  readonly onDuplicate?: ((tab: T) => void) | undefined
+  readonly onCloseOthers?: ((tab: T) => void) | undefined
+  readonly targets?: readonly { readonly id: string; readonly label: string }[] | undefined
+  readonly targetId?: ((tab: T) => string) | undefined
+  readonly onSetTarget?: ((tab: T, id: string) => void) | undefined
   readonly onPointerDown: (event: PointerEvent, tab: T) => void
   readonly onNew: () => void
   readonly canShare: (tab: T) => boolean
@@ -53,13 +80,13 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
   const [menu, setMenu] = createSignal<{ readonly tab: T; readonly x: number; readonly y: number }>()
   const menuGroups = (tab: T): readonly ResolvedMenuGroup[] => [
     {
-      group: 'workflow-tab',
-      items: [{
-        id: 'workflow.share',
-        label: message('shell.workflowTabs.share'),
-        action: { kind: 'host', action: 'workflow.share' },
-        ...(!props.canShare(tab) ? { disabled: true } : {}),
-      }],
+      group: 'workflow-document',
+      items: [
+        { id: 'workflow.rename', label: message('shell.workflowTabs.rename'),
+          action: { kind: 'host', action: 'workflow.rename' }, disabled: props.onRename === undefined },
+        { id: 'workflow.duplicate', label: message('shell.workflowTabs.duplicate'),
+          action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined },
+      ],
     },
     ...(props.onSplitRight !== undefined || props.onSplitDown !== undefined || props.onUnsplit !== undefined
       ? [{
@@ -101,6 +128,13 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           }],
         } satisfies ResolvedMenuGroup]
       : []),
+    {
+      group: 'workflow-share',
+      items: [{
+        id: 'workflow.share', label: message('shell.workflowTabs.share'),
+        action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab),
+      }],
+    },
     ...(props.previews !== undefined && props.onSetPreviews !== undefined
       ? [{
           group: 'workflow-previews',
@@ -117,6 +151,26 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           }],
         } satisfies ResolvedMenuGroup]
       : []),
+    ...(props.targets !== undefined && props.onSetTarget !== undefined
+      ? [{ group: 'workflow-target', items: [{
+          id: 'workflow.target', label: message('shell.workflowTabs.queuesTo'), disabled: props.isFrozen(tab),
+          children: props.targets.map((target) => ({
+            id: `workflow.target.${target.id}`, label: target.label,
+            checked: props.targetId?.(tab) === target.id,
+            action: { kind: 'host', action: 'workflow.target', params: { id: target.id } },
+          } satisfies MenuActionItem)),
+        }] } satisfies ResolvedMenuGroup]
+      : []),
+    {
+      group: 'workflow-close',
+      items: [
+        { id: 'workflow.close', label: message('shell.workflowTabs.closeMenu'),
+          action: { kind: 'host', action: 'workflow.close' } },
+        { id: 'workflow.closeOthers', label: message('shell.workflowTabs.closeOthers'),
+          action: { kind: 'host', action: 'workflow.closeOthers' },
+          disabled: props.onCloseOthers === undefined || props.tabs.length < 2 },
+      ],
+    },
   ]
   const focusTab = (tab: T): void => {
     document.getElementById(workflowTabDomId(tab.id))?.focus()
@@ -124,6 +178,11 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
   const invokeMenu = (tab: T, item: MenuActionItem): void => {
     setMenu(undefined)
     focusTab(tab)
+    if (item.id === 'workflow.rename') props.onRename?.(tab)
+    if (item.id === 'workflow.duplicate') props.onDuplicate?.(tab)
+    if (item.id === 'workflow.close') props.onClose(tab)
+    if (item.id === 'workflow.closeOthers') props.onCloseOthers?.(tab)
+    if (item.id.startsWith('workflow.target.')) props.onSetTarget?.(tab, item.id.slice('workflow.target.'.length))
     if (item.id === 'workflow.share') props.onShare(tab)
     if (item.id.startsWith('workflow.previews.')) {
       const suffix = item.id.slice('workflow.previews.'.length)
@@ -136,6 +195,9 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
   }
   const label = (tab: T): string => [
     tab.title,
+    props.runState?.(tab) === 'running' ? message('executionLog.status.running')
+      : props.runState?.(tab) === 'finished' ? message('executionLog.status.completed')
+      : props.runState?.(tab) === 'failed' ? message('executionLog.status.error') : undefined,
     props.isDirty(tab) ? message('shell.workflowTabs.state.unsavedChanges') : undefined,
     props.isShared(tab) ? message('shell.workflowTabs.state.shared') : undefined,
     props.isFrozen(tab) ? message('shell.workflowTabs.state.executionSnapshot') : undefined,
@@ -226,6 +288,11 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               onClick={(event) => props.onActivate(event, tab)}
               onKeyDown={(event) => onTabKeyDown(event, tab)}
             >
+              <ProductRunIcon
+                icon={kindIcon(tab.editorKind)}
+                running={props.runState?.(tab) === 'running'}
+                result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
+              />
               <span class="tab-title">{tab.title}</span>
             </button>
             <span classList={{

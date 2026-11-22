@@ -197,6 +197,15 @@ while mounted. An open context menu and preview submenu update in place without
 changing the active workflow, tab identity, focus, scroll position, preview
 override, or caller-owned workflow title.
 
+Each tab keeps its kind icon: workflow, app, curve, shader source, or a
+file for an extension-defined editor. A running job breathes that same icon
+in cyan rather than replacing it with a spinner; reduced motion keeps it
+still. The last completed run puts a cyan dot at the icon's lower right;
+an error puts a coral dot there. An edit or a new run clears the result.
+Run ownership follows the document lineage, independently of canvas overlay
+pins, and frozen tabs show only their own run. The unsaved marker is secondary
+text gray in the close button's place; hover or keyboard focus reveals Close.
+
 A workflow tab is as wide as its title and its close button, up to 220 px; a
 longer title ends in an ellipsis and shows in full in a tooltip on hover or
 keyboard focus. When the strip is crowded, tabs shrink to about three letters

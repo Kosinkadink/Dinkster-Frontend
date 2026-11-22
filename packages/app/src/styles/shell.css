@@ -122,6 +122,9 @@
 .tab.frozen { border-style: dashed; border-color: var(--dinkster-info-border); }
 
 .tab-select {
+  display: flex;
+  align-items: center;
+  gap: var(--dinkster-space-8);
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -179,8 +182,12 @@
   width: var(--dinkster-space-8);
   height: var(--dinkster-space-8);
   border-radius: var(--dinkster-radius-capsule);
-  background: var(--dinkster-warning-border);
+  background: var(--dinkster-text-secondary);
 }
+
+.tab-select .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-surface-raised); }
+.tab.active .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-surface-canvas); }
+.tab:hover .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-interaction-hover); }
 
 .tab:hover .tab-dirty,
 .tab:focus-within .tab-dirty { display: none; }
