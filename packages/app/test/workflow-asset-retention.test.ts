@@ -2141,6 +2141,7 @@ describe('retained workflow opens', () => {
   )
 
   it.each(['optional', 'required', 'linked-required'] as const)('clears a removed %s slot variant on open', async (scenario) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const updated: NodeSchema = { ...schema, items: [
       ...schema.items,
       { kind: 'input', id: 'source', displayName: 'Source', optional: scenario === 'optional',
