@@ -1,4 +1,13 @@
 {
+  "shell.panel.runs.title": "运行",
+  "runs.scope": "运行范围",
+  "runs.scope.workflow": "此工作流",
+  "runs.scope.all": "所有工作流",
+  "runs.details": "详情",
+  "runs.outputs.all": "显示全部 {count} 个输出",
+  "runs.pending": "排队中和运行中的任务",
+  "runs.search": "搜索运行记录",
+  "runs.empty": "此工作流尚无运行记录",
   "problems.selection.only": "仅显示所选项",
   "problems.selection.none": "未选择任何内容",
   "problems.selection.nodes": "{count} 个节点",

@@ -1,8 +1,18 @@
 # Output inspection
 
-The Outputs rail inspects the execution selected by the existing live,
-pinned, or frozen execution binding. It does not select executions or invent
-artifact authority. Every media URL is resolved through that execution's
+Runs combines execution rows and output previews. This workflow is the
+default scope and lists the active workflow's executions. Selecting a run
+also selects it in Log and in loop iteration inspection. All workflows shows
+browser queued/running runs followed by backend stored finished runs, retaining
+search, paging, open, resubmit, delete and guarded Clear all actions. Legacy
+backends use browser execution history instead.
+
+Each run has one thumbnail row with up to three previews. The overflow count
+opens the existing image viewer in Grid mode; a thumbnail opens it in Single
+mode. Details keeps run metadata, output identities, saved files and typed
+media inspection below the row. The separate Outputs panel is removed.
+
+Runs does not invent artifact authority. Every media URL is resolved through that execution's
 backend by `assetUrlForExecution` or its values API, including retained
 routes for a removed owner.
 

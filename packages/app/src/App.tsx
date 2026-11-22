@@ -26,7 +26,8 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
 import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
-import { ExecutionActivityCard } from './ExecutionActivityCard.js'
+import { ExecutionActivityCard, executionStatusLabel } from './ExecutionActivityCard.js'
+import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
@@ -538,7 +539,9 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), historySource(app), runsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const storedRuns = runsSource(app)
+  const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
     tabs()
     activeTabId()
@@ -575,17 +578,6 @@ export function App(props: {
       })
       return
     }
-    // Runs entries select-only on click: opening rides the explicit 'open'
-    // action, otherwise the delete affordance (rendered on the selected
-    // entry) could never be reached - selection would open a tab and close
-    // this panel.
-    if (sourceId !== 'history') return
-    const exec = app.store.executions.get().get(entry.id)
-    if (exec?.artifact) {
-      void app.openExecutionView(exec.ref).then((ok) => {
-        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
-      })
-    }
   }
   const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string): void => {
     // Remote entries carry the backend that served them (owner); every
@@ -617,16 +609,8 @@ export function App(props: {
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
     if (actionId === 'delete') void app.deleteHistoryRun(runId, entry.owner)
-    if (actionId === 'open') {
-      void app.openRunWorkflow(runId, entry.owner).then((ok) => {
-        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
-      })
-    }
-    if (actionId === 'resubmit') {
-      void app.resubmitRunWorkflow(runId, entry.owner).then((ok) => {
-        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
-      })
-    }
+    if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
+    if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
   // Clearing the whole runs scope is destructive: the button arms on the
   // first click ("Confirm clear") and executes only on a second click
@@ -1103,6 +1087,11 @@ export function App(props: {
     const tab = activeTab()
     return tab ? app.executionForTab(tab) : undefined
   }
+  const [runScope, setRunScope] = createSolidSignal('workflow')
+  const [selectedRunKey, setSelectedRunKey] = createSolidSignal<string>()
+  createEffect(() => { activeTabId(); setSelectedRunKey(undefined) })
+  const selectedRun = (): ExecutionState | undefined =>
+    selectedRunKey() === undefined ? activeExecution() : executions().get(selectedRunKey()!)
   const workflowExecutions = (): readonly ExecutionState[] => {
     executions()
     const tab = activeTab()
@@ -1211,23 +1200,31 @@ export function App(props: {
     return tab && !tab.execution ? app.backendForTab(tab) : undefined
   }
 
-  /** One rail row; captures the App closures (overlay role, live tab). */
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
-    return <ExecutionActivityCard
-      entry={p.exec}
-      title={app.tabTitleFor(p.exec.ref)}
-      testId="execution-row"
-      relation={overlayRoleOf(p.exec)}
-      cancelControl={<CancelExecutionButton app={app} execution={p.exec} />}
-      onOpen={() => { void app.openExecutionView(p.exec.ref) }}
-      onPin={live() ? () => {
-        const tab = live()
-        if (!tab) return
-        if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
-        else app.pinExecutionOverlay(tab.id, p.exec.ref)
-      } : undefined}
-    />
+    return <article class="runs-row" role="listitem" data-testid="execution-row"
+      data-status={p.exec.status} data-selected={selectedRun()?.key === p.exec.key}>
+      <div class="runs-row-heading">
+        <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
+          onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
+        <span>{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
+        <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">agent</span></Show>
+        <CancelExecutionButton app={app} execution={p.exec} />
+      </div>
+      <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
+          entry={p.exec}
+          title={app.tabTitleFor(p.exec.ref)}
+          testId="run-details"
+          relation={overlayRoleOf(p.exec)}
+          onOpen={() => { void app.openExecutionView(p.exec.ref) }}
+          onPin={live() ? () => {
+            const tab = live()
+            if (!tab) return
+            if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
+            else app.pinExecutionOverlay(tab.id, p.exec.ref)
+          } : undefined}
+        />} />
+    </article>
   }
 
   // ---- Shell panels ------------------------------------------------------
@@ -1272,10 +1269,6 @@ export function App(props: {
       refreshTick={libraryTick}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
-      sourceActions={[
-        { sourceId: 'runs', id: 'clear', label: clearArmed() ? 'Confirm clear' : 'Clear all' },
-      ]}
-      onSourceAction={librarySourceAction}
     />
     </BackendMetadataState>
   )
@@ -1323,8 +1316,8 @@ export function App(props: {
       entries={logs}
       clearArmed={logsClearArmed}
       onClear={requestLogsClear}
-      executions={workflowExecutions}
-      active={activeExecution}
+      executions={() => { executions(); return app.executionList() }}
+      active={selectedRun}
       nodeTitle={runtimeNodeTitle}
       onFocusNode={focusRuntimeNode}
       filterRequest={executionLogFocus}
@@ -1335,7 +1328,7 @@ export function App(props: {
   const RunIterations = () => {
     const inspection = createMemo(() => {
       const view = selectionContext()
-      const execution = activeExecution()
+      const execution = selectedRun()
       if (view === undefined || execution === undefined || view.context.kind !== 'node' ||
           view.context.nodeIds.length !== 1 || view.instancePath === undefined) return undefined
       const node = view.doc.graphs[view.graphId]?.nodes[view.context.nodeIds[0]!]
@@ -1351,9 +1344,59 @@ export function App(props: {
       values={(() => { backendsTick(); return app.valuesForExecution(current().execution.ref) })()}
     />}</Show>
   }
-  const QueuePanel = () => (
-    <div class="rail-panel-body" data-testid="queue-rail">
-      <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title="Nothing queued for this workflow." />}>
+  const storedExecution = (entry: CollectionEntry): ExecutionState | undefined => {
+    executions()
+    return app.executionList().find((execution) => entry.owner === undefined
+      ? execution.key === entry.id
+      : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
+  }
+  const StoredRun = (p: { entry: CollectionEntry; selected: boolean; actions: JSX.Element }) => {
+    createEffect(() => {
+      if (p.selected) setSelectedRunKey(storedExecution(p.entry)?.key ?? p.entry.id)
+    })
+    const Facts = () => <>
+      <p>{p.entry.subtitle}</p>
+      <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
+      <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
+      <Show when={storedExecution(p.entry)?.artifact}>
+        <ProductButton size="compact" onClick={() => { const execution = storedExecution(p.entry); if (execution) void app.openExecutionView(execution.ref) }}>Open snapshot</ProductButton>
+      </Show>
+    </>
+    return <div class="runs-stored-row">
+      <strong>{p.entry.title}</strong>
+      <Show when={storedExecution(p.entry)} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
+        <summary>{message('runs.details')}</summary><Facts />
+      </details>}>
+        {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+      </Show>
+      <Show when={p.selected}>{p.actions}</Show>
+    </div>
+  }
+  const pendingRuns = () => {
+    executions()
+    return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
+  }
+  const RunsPanel = () => (
+    <div class="rail-panel-body runs-panel" data-testid="runs-panel">
+      <ProductSelect testId="runs-scope" ariaLabel={message('runs.scope')}
+        selectedId={runScope()} options={[
+          { id: 'workflow', label: message('runs.scope.workflow'), value: 'workflow' },
+          { id: 'all', label: message('runs.scope.all'), value: 'all' },
+        ]} onSelect={(option) => setRunScope(option.value)} />
+      <Show when={runScope() === 'workflow'} fallback={<>
+        <Show when={activeBackend().protocol === 'dinkster'}>
+          <div role="list" aria-label={message('runs.pending')}>
+            <For each={pendingRuns()}>{(execution) => <ExecutionRow exec={execution} />}</For>
+          </div>
+        </Show>
+        <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
+          listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
+          entryContent={(entry, selected, actions) => <StoredRun entry={entry} selected={selected} actions={actions} />}
+          onAction={libraryEntryAction}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: clearArmed() ? 'Confirm clear' : 'Clear all' }]}
+          onSourceAction={librarySourceAction} />
+      </>}>
+      <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
         <For each={executionGroups()}>
           {(group) => (
             <div class="backend-group" role="list" aria-label={group.backend?.label ?? `${group.id} removed backend executions`}>
@@ -1374,19 +1417,7 @@ export function App(props: {
         </For>
         <RunIterations />
       </Show>
-    </div>
-  )
-  const OutputsPanel = () => (
-    <div class="rail-panel-body" data-testid="outputs-panel">
-      <BackendMetadataState>
-      <Show when={activeExecution()} fallback={
-        <div data-state="no-execution" role="status">
-          <ProductEmptyState title="No execution selected" hint="Run this workflow or open a recorded execution to inspect its outputs." />
-        </div>
-      }>
-        {(exec) => <Outputs app={app} execution={exec()} />}
       </Show>
-      </BackendMetadataState>
     </div>
   )
   // The indicator always counts the full list, regardless of the selection filter.
@@ -1481,14 +1512,9 @@ export function App(props: {
       </div>,
     }),
     registerBuiltinPanel({
-      id: 'queue', get title() { return message('shell.panel.executions.title') },
+      id: 'runs', get title() { return message('shell.panel.runs.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 10,
-      component: QueuePanel,
-    }),
-    registerBuiltinPanel({
-      id: 'outputs', get title() { return message('shell.panel.outputs.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
-      component: OutputsPanel,
+      component: RunsPanel,
     }),
     registerBuiltinPanel({
       id: 'extensions', get title() { return message('shell.panel.extensions.title') }, icon: Blocks,
@@ -3078,11 +3104,12 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
-function Outputs(props: { app: AppState; execution: ExecutionState }) {
+function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
-  const [imagePage, setImagePage] = createSolidSignal(0)
+  const [viewerGrid, setViewerGrid] = createSolidSignal(false)
+  const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
   const [failed, setFailed] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [loaded, setLoaded] = createSolidSignal<ReadonlySet<string>>(new Set())
   const currentExecutionKey = createMemo(() => props.execution.key)
@@ -3119,7 +3146,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
   createEffect(() => {
     currentExecutionKey()
     setViewerIndex(undefined)
-    setImagePage(0)
+    setViewerGrid(false)
     setFailed(new Set<string>())
     setLoaded(new Set<string>())
   })
@@ -3129,11 +3156,9 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
     executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
-  const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
-    for (const [offset, image] of images().slice(pageStart(), pageStart() + 4).entries()) {
-      const index = pageStart() + offset
+    for (const [index, image] of images().slice(0, 3).entries()) {
       const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
       const group = groups.get(key) ?? { label, images: [] }
       group.images.push({ image, index })
@@ -3178,6 +3203,11 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
   }
   return (
     <>
+      <details class="runs-details" onClick={(event) => event.stopPropagation()}
+        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+        <summary>{message('runs.details')}</summary>
+        <Show when={detailsOpen()}>
+        {props.details}
       <section class="output-execution-provenance output-rail-provenance" aria-label="Execution provenance">
         <div><span>Backend</span><strong>{provenance().backendLabel}</strong></div>
         <div><span>Backend ID</span><strong>{provenance().backendId}</strong></div>
@@ -3201,24 +3231,12 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
           }}</For>
         </section>
       )}</For>
-      <Show when={images().length > 4}>
-        <div class="output-viewer-toolbar" role="group" aria-label={message('outputs.pages.label')}>
-          <ProductButton size="compact" type="button" disabled={pageStart() === 0}
-            onClick={() => setImagePage(pageStart() / 4 - 1)}>{message('outputs.pages.previous')}</ProductButton>
-          <span aria-live="polite">{message('outputs.pages.position', { first: pageStart() + 1, last: Math.min(images().length, pageStart() + 4), count: images().length })}</span>
-          <ProductButton size="compact" type="button" disabled={pageStart() + 4 >= images().length}
-            onClick={() => setImagePage(pageStart() / 4 + 1)}>{message('outputs.pages.next')}</ProductButton>
-        </div>
-      </Show>
-      <div class="outputs" aria-label={`${images().length} execution images`}>
+      <For each={images()}>{(image) => <ExecutedImageFacts image={image} availability={availability(image.key)} />}</For>
+        </Show>
+      </details>
+      <div class="outputs runs-output-thumbnails" aria-label={`${images().length} execution images`}>
         <For each={imageGroups()} fallback={
-          <div data-state={emptyState().state} role={emptyState().state === 'empty' ? 'status' : undefined}>
-            <ProductEmptyState
-              tone={emptyState().state === 'error' || emptyState().state === 'owner-unavailable' ? 'error' : emptyState().state === 'waiting' || emptyState().state === 'loading' ? 'loading' : 'empty'}
-              title={emptyState().title}
-              hint={emptyState().detail}
-            />
-          </div>
+          <span data-state={emptyState().state} role="status" title={emptyState().detail}>{emptyState().title}</span>
         }>
           {(group) => (
             <section class="output-iteration-group" aria-label={group.label}>
@@ -3230,7 +3248,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
                 type="button"
                 class="output-thumbnail"
                 aria-label={`Open ${executedImageLabel(image, index, images().length)}`}
-                onClick={() => setViewerIndex(index)}
+                onClick={(event) => { event.stopPropagation(); setViewerGrid(false); setViewerIndex(index) }}
               >
                 <span class="output-thumbnail-preview">
                   <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
@@ -3238,7 +3256,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>
                 </span>
-                <ExecutedImageFacts image={image} availability={availability(image.key)} />
               </ProductButton>
               </div>
               )}</For>
@@ -3246,9 +3263,13 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
             </section>
           )}
         </For>
+        <Show when={images().length > 3}>
+          <ProductButton size="compact" aria-label={message('runs.outputs.all', { count: images().length })}
+            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - 3}</ProductButton>
+        </Show>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} initialMode={viewerGrid() ? 'grid' : 'single'} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 import type { AppLogEntry } from './app-state.js'
 import { ActivityLog } from './ActivityLog.js'
 import { ExecutionLogPanel, type ExecutionLogPanelProps } from './ExecutionLogPanel.js'
@@ -13,6 +13,8 @@ export function LogPanel(props: ExecutionLogPanelProps & {
 }) {
   const message = useAppMessage()
   const [scope, setScope] = createSignal(props.active() === undefined ? 'app' : 'run')
+  const selectedKey = createMemo(() => props.active()?.key)
+  createEffect(() => setScope(selectedKey() === undefined ? 'app' : 'run'))
   createEffect(() => {
     if (props.filterRequest?.() !== undefined) setScope('run')
   })

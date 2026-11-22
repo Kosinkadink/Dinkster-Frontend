@@ -1,4 +1,13 @@
 {
+  "shell.panel.runs.title": "Runs",
+  "runs.scope": "Runs scope",
+  "runs.scope.workflow": "This workflow",
+  "runs.scope.all": "All workflows",
+  "runs.details": "Details",
+  "runs.outputs.all": "Show all {count} outputs",
+  "runs.pending": "Queued and running runs",
+  "runs.search": "Search runs",
+  "runs.empty": "No runs for this workflow",
   "problems.selection.only": "Selection only",
   "problems.selection.none": "Nothing selected",
   "problems.selection.nodes": "{count, plural, one {# node} other {# nodes}}",

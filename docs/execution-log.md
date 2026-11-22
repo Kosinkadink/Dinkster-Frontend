@@ -35,8 +35,11 @@ truncation notice with the exact discarded count. Individual messages are
 capped at 4096 characters by the client (the backend caps them earlier at
 2000).
 
-The Run selector defaults to Current, which follows the run the active
-workflow tab shows; picking a specific run pins the view to it, and a pinned
+The Run selector defaults to Current, which follows the selected Runs row
+or the active workflow's execution when no row is selected. Choosing another
+Runs row returns Log to This run. Snapshot updates to the same run preserve a
+manual App scope choice. Picking a specific run in Log pins the view to it,
+and a pinned
 run that disappears from history falls back to Current. The Node selector
 narrows the feed to one node's rows, and the three level toggles (info,
 warning, error) hide or show each level independently. A row's node name is a

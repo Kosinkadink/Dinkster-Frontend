@@ -336,7 +336,8 @@ behavior described above.
 Panels:
 
 - **Library** (`library-toggle`, Ctrl+O): the collection browser over Packs,
-  Templates, Workflows, History, and Runs. Its body names the active backend,
+  Templates, and Workflows. Runs and browser history live in the right-side
+  Runs panel. Its body names the active backend,
   protocol, and connection state; see [Library](library.md). Activating an entry
   that opens a document closes the dock, matching the previous overlay
   behavior.
