@@ -68,7 +68,9 @@ gap. Panels end directly at the status bar without a gap above it.
 
 Selected region and minimap switches use cyan icons without a box or fill.
 The selected left bar item uses the panel fill and a 3 px cyan outer mark;
-its title is one line with an ellipsis and a full-title tooltip. Dock tabs
+the bar is 76 px wide so every default label, including Resources, fits on
+one line. Longer pack-panel titles may use an ellipsis with a full-title
+tooltip. Dock tabs
 use primary text and a 2 px underline without a box. Each split editor group
 is rounded; its selected tab uses primary text only in the focused group,
 secondary text otherwise. An unfocused group's canvas controls and notices

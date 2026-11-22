@@ -176,6 +176,22 @@ test('a zone with no renderable tabs hides without losing its saved open state',
 })
 
 test('left bar selects the panel title and each toggle activates or closes its panel', async ({ page }) => {
+  await page.evaluate(() => document.fonts.ready)
+  const labels = page.locator('.left-sidebar .sidebar-button-label')
+  await expect(labels.filter({ hasText: 'Extensions' })).toBeVisible()
+  for (const label of await labels.all()) {
+    const geometry = await label.evaluate((element) => {
+      const text = document.createRange()
+      text.selectNodeContents(element)
+      const content = text.getBoundingClientRect()
+      const available = element.getBoundingClientRect()
+      return { textWidth: content.width, width: available.width, textHeight: content.height, height: available.height, lines: text.getClientRects().length }
+    })
+    expect(geometry.lines).toBe(1)
+    expect(geometry.textWidth).toBeLessThanOrEqual(geometry.width)
+    expect(geometry.textHeight).toBeLessThanOrEqual(geometry.height)
+  }
+
   // Nothing docked by default.
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
 

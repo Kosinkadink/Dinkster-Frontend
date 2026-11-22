@@ -223,8 +223,8 @@
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
 
 .left-sidebar {
-  width: 72px;
-  flex: 0 0 72px;
+  width: 76px;
+  flex: 0 0 76px;
   display: flex;
   flex-direction: column;
   align-items: center;
