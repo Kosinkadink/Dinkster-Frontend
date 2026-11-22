@@ -1298,6 +1298,7 @@
   "shell.close.cancel": "取消关闭",
   "shell.close.confirm": "关闭 \"{title}\" 并丢弃未保存的更改？",
   "shell.contextHelp": "上下文帮助",
+  "shell.close.othersConfirm": "关闭此组中的其他标签页并放弃以下工作流的未保存更改？",
   "shell.close.discard": "关闭并丢弃",
   "shell.close.title": "关闭 \"{title}\"?",
   "shell.chrome.allTabs": "所有标签页",

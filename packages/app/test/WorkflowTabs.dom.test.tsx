@@ -53,6 +53,7 @@ function fixture(previews?: {
   const [activeId, setActiveId] = createSignal('one')
   const [runState, setRunState] = createSignal<TabRunState>('idle')
   const close = vi.fn()
+  const rename = vi.fn()
   const pointerDown = vi.fn()
   const create = vi.fn()
   const share = vi.fn()
@@ -68,6 +69,7 @@ function fixture(previews?: {
       setRoot={(element) => { tabRoot = element }}
       onActivate={(_event, tab) => setActiveId(tab.id)}
       onClose={close}
+      onRename={rename}
       onPointerDown={pointerDown}
       onNew={create}
       canShare={(tab) => tab.id !== 'two'}
@@ -76,10 +78,43 @@ function fixture(previews?: {
       onSetPreviews={previews?.set}
     />
   ), root)
-  return { root, activeId, setRunState, close, pointerDown, create, share, get tabRoot() { return tabRoot }, dispose }
+  return { root, activeId, setRunState, close, rename, pointerDown, create, share, get tabRoot() { return tabRoot }, dispose }
 }
 
 describe('workflow tabs', () => {
+  it('renames inline on Enter or blur, cancels Escape and blank names, and refuses frozen tabs', async () => {
+    const view = fixture()
+    const start = async (): Promise<HTMLInputElement> => {
+      view.root.querySelector('[data-tab-id="one"] [role="tab"]')!
+        .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      await Promise.resolve()
+      return view.root.querySelector<HTMLInputElement>('input')!
+    }
+    let input = await start()
+    expect(document.activeElement).toBe(input)
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe(3)
+    input.value = '  Renamed  '
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(view.rename).toHaveBeenLastCalledWith(tabs[0], 'Renamed')
+    input = await start()
+    input.value = 'By blur'
+    input.blur()
+    expect(view.rename).toHaveBeenLastCalledWith(tabs[0], 'By blur')
+    input = await start()
+    input.value = 'Cancelled'
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    input = await start()
+    input.value = '   '
+    input.blur()
+    expect(view.rename).toHaveBeenCalledTimes(2)
+    expect(view.root.querySelector('input')).toBeNull()
+    view.root.querySelector('[data-tab-id="two"] [role="tab"]')!
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(view.root.querySelector('input')).toBeNull()
+    view.dispose()
+  })
+
   it('keeps the kind icon and unsaved mark while running and announces result changes', () => {
     const view = fixture()
     const first = view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!

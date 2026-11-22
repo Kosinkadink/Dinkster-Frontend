@@ -713,6 +713,26 @@ export function App(props: {
     requestTabClose(pending, true)
   }
 
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
+  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+    const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
+    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+      setPendingCloseOthers(others)
+      return
+    }
+    for (const other of others) requestTabClose(other, false)
+  }
+  const confirmCloseOthers = (): void => {
+    const pending = pendingCloseOthers()
+    setPendingCloseOthers(undefined)
+    if (!pending || !pending.every(pendingCloseStillCurrent)) return
+    for (const tab of pending) requestTabClose(tab, false)
+  }
+  createEffect(() => {
+    const pending = pendingCloseOthers()
+    if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
+  })
+
   const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
   createEffect(() => {
@@ -2386,6 +2406,17 @@ export function App(props: {
             }}
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
+            onRename={(tab, title) => app.renameTab(tab.id, title)}
+            onDuplicate={(tab) => {
+              void app.duplicateTab(tab.id).then((copy) => {
+                if (!copy) return
+                updateSplitLayout((layout) => {
+                  const source = findGroup(layout, p.groupId)
+                  return source ? moveTabToGroup(layout, copy.id, p.groupId, source.tabIds.indexOf(tab.id) + 1) : layout
+                })
+              })
+            }}
+            onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
             canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
@@ -2621,6 +2652,25 @@ export function App(props: {
           </ModalSurface>
         )}
       </Show>
+      <Show when={pendingCloseOthers()} keyed>{(pending) => (
+        <ModalSurface
+          title={message('shell.workflowTabs.closeOthers')}
+          ariaLabel={message('shell.workflowTabs.closeOthers')}
+          modalId="close-other-tabs"
+          testId="close-other-tabs-dialog"
+          closeLabel={message('shell.close.cancel')}
+          onRequestClose={() => setPendingCloseOthers(undefined)}
+        >
+          <div class="close-tab-confirm">
+            <p>{message('shell.close.othersConfirm')}</p>
+            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
+            <ProductActionFooter>
+              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
+              <ProductButton variant="danger" type="button" onClick={confirmCloseOthers}>{message('shell.close.discard')}</ProductButton>
+            </ProductActionFooter>
+          </div>
+        </ModalSurface>
+      )}</Show>
       <header class="topbar" aria-label={message('shell.applicationControls')}>
         <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
         <div class="topbar-group topbar-group-left">

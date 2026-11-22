@@ -140,6 +140,32 @@ describe('tab run marks', () => {
   })
 })
 
+describe('document tab actions', () => {
+  it('duplicates live and frozen workflows with independent lineages and no run history', async () => {
+    const ref = run(basic, 100)
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 101 })
+    const copy = (await app.duplicateTab(basic.id))!
+    expect(copy.title).toBe('basic copy')
+    expect(copy.store.doc).toEqual({ ...basic.store.doc, lineage: copy.store.doc.lineage })
+    expect(copy.store.doc.lineage).not.toBe(basic.store.doc.lineage)
+    expect(copy.store).not.toBe(basic.store)
+    expect(app.backendForTab(copy)).toBe(app.backendForTab(basic))
+    expect(app.isTabDirty(copy.id)).toBe(true)
+    expect(app.tabRunState(copy)).toBe('idle')
+    expect(app.activeTabId.get()).toBe(copy.id)
+    expect((await app.duplicateTab(basic.id))?.title).toBe('basic copy 2')
+    expect(await app.openExecutionView(ref)).toBe(true)
+    const frozen = app.activeTab()!
+    app.renameTab(frozen.id, 'Not allowed')
+    expect(app.activeTab()?.title).toBe(frozen.title)
+    const thawed = (await app.duplicateTab(frozen.id))!
+    expect(thawed.title).toBe('basic copy 3')
+    expect(thawed.execution).toBeUndefined()
+    expect(thawed.editorKind).toBe('graph')
+    expect(app.isTabDirty(thawed.id)).toBe(true)
+  })
+})
+
 describe('pinning', () => {
   it('pin selects an older run and a NEW run does not replace it', () => {
     const older = run(basic, 100)

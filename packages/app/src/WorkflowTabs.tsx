@@ -1,5 +1,5 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
-import type { MenuActionItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
+import type { MenuActionItem, MenuSubmenuItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
 import { ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
@@ -10,6 +10,7 @@ import Plus from 'lucide-solid/icons/plus'
 import X from 'lucide-solid/icons/x'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
+import { ProductTextInput } from './ProductControls.js'
 import { useAppMessage } from './locale.js'
 
 export interface WorkflowTabItem {
@@ -44,7 +45,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly setRoot: (root: HTMLElement) => void
   readonly onActivate: (event: MouseEvent, tab: T) => void
   readonly onClose: (tab: T) => void
-  readonly onRename?: ((tab: T) => void) | undefined
+  readonly onRename?: ((tab: T, title: string) => void) | undefined
   readonly onDuplicate?: ((tab: T) => void) | undefined
   readonly onCloseOthers?: ((tab: T) => void) | undefined
   readonly targets?: readonly { readonly id: string; readonly label: string }[] | undefined
@@ -78,19 +79,29 @@ export const workflowTabDomId = (id: string): string => `workflow-tab-${encodeUR
 export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps<T>) {
   const message = useAppMessage()
   const [menu, setMenu] = createSignal<{ readonly tab: T; readonly x: number; readonly y: number }>()
+  const [renaming, setRenaming] = createSignal<string>()
+  const documentTab = (tab: T): boolean => tab.editorKind === undefined || tab.editorKind === 'graph' || tab.editorKind === 'app'
+  const canRename = (tab: T): boolean => documentTab(tab) && !props.isFrozen(tab) && props.onRename !== undefined
+  const startRename = (tab: T): void => {
+    if (canRename(tab)) setRenaming(tab.id)
+  }
+  const finishRename = (tab: T, title: string): void => {
+    if (renaming() !== tab.id) return
+    setRenaming(undefined)
+    if (title.trim()) props.onRename?.(tab, title.trim())
+  }
   const menuGroups = (tab: T): readonly ResolvedMenuGroup[] => [
-    {
+    ...(documentTab(tab) ? [{
       group: 'workflow-document',
       items: [
-        { id: 'workflow.rename', label: message('shell.workflowTabs.rename'),
-          action: { kind: 'host', action: 'workflow.rename' }, disabled: props.onRename === undefined },
+        ...(canRename(tab) ? [{ id: 'workflow.rename', label: message('shell.workflowTabs.rename'),
+          action: { kind: 'host', action: 'workflow.rename' } } satisfies MenuActionItem] : []),
         { id: 'workflow.duplicate', label: message('shell.workflowTabs.duplicate'),
           action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined },
       ],
-    },
-    ...(props.onSplitRight !== undefined || props.onSplitDown !== undefined || props.onUnsplit !== undefined
-      ? [{
-          group: 'workflow-split',
+    } satisfies ResolvedMenuGroup] : []),
+    {
+          group: 'workflow-placement',
           items: [
             ...(props.onSplitRight !== undefined
               ? [{
@@ -115,30 +126,18 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
                   action: { kind: 'host', action: 'workflow.unsplit' },
                 } satisfies MenuActionItem]
               : []),
+            ...(props.onPopOut !== undefined ? [{
+              id: 'workflow.openWindow', label: message('shell.chrome.moveToNewWindow'),
+              action: { kind: 'host', action: 'workflow.openWindow' },
+            } satisfies MenuActionItem] : []),
+            { id: 'workflow.share', label: message('shell.workflowTabs.share'),
+              action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab) },
           ],
-        } satisfies ResolvedMenuGroup]
-      : []),
-    ...(props.onPopOut !== undefined
-      ? [{
-          group: 'workflow-placement',
-          items: [{
-            id: 'workflow.openWindow',
-            label: message('shell.chrome.moveToNewWindow'),
-            action: { kind: 'host', action: 'workflow.openWindow' },
-          }],
-        } satisfies ResolvedMenuGroup]
-      : []),
-    {
-      group: 'workflow-share',
-      items: [{
-        id: 'workflow.share', label: message('shell.workflowTabs.share'),
-        action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab),
-      }],
     },
-    ...(props.previews !== undefined && props.onSetPreviews !== undefined
-      ? [{
-          group: 'workflow-previews',
-          items: [{
+    {
+      group: 'workflow-settings',
+      items: [
+        ...(props.previews !== undefined && props.onSetPreviews !== undefined ? [{
             id: 'workflow.previews',
             label: message('shell.workflowTabs.livePreviews'),
             ...(props.isFrozen(tab) ? { disabled: true } : {}),
@@ -148,19 +147,17 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               checked: (props.previews!(tab) ?? null) === mode,
               action: { kind: 'host', action: 'workflow.setPreviews', params: { mode } },
             } satisfies MenuActionItem)),
-          }],
-        } satisfies ResolvedMenuGroup]
-      : []),
-    ...(props.targets !== undefined && props.onSetTarget !== undefined
-      ? [{ group: 'workflow-target', items: [{
+          } satisfies MenuSubmenuItem] : []),
+        ...(props.targets !== undefined && props.onSetTarget !== undefined ? [{
           id: 'workflow.target', label: message('shell.workflowTabs.queuesTo'), disabled: props.isFrozen(tab),
           children: props.targets.map((target) => ({
             id: `workflow.target.${target.id}`, label: target.label,
             checked: props.targetId?.(tab) === target.id,
             action: { kind: 'host', action: 'workflow.target', params: { id: target.id } },
           } satisfies MenuActionItem)),
-        }] } satisfies ResolvedMenuGroup]
-      : []),
+        } satisfies MenuSubmenuItem] : []),
+      ],
+    },
     {
       group: 'workflow-close',
       items: [
@@ -178,7 +175,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
   const invokeMenu = (tab: T, item: MenuActionItem): void => {
     setMenu(undefined)
     focusTab(tab)
-    if (item.id === 'workflow.rename') props.onRename?.(tab)
+    if (item.id === 'workflow.rename') startRename(tab)
     if (item.id === 'workflow.duplicate') props.onDuplicate?.(tab)
     if (item.id === 'workflow.close') props.onClose(tab)
     if (item.id === 'workflow.closeOthers') props.onCloseOthers?.(tab)
@@ -277,6 +274,28 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             }}
           >
             {props.renderLeading?.(tab)}
+            <Show when={renaming() !== tab.id} fallback={
+              <ProductTextInput
+                class="tab-rename"
+                aria-label={message('shell.workflowTabs.rename')}
+                value={tab.title}
+                ref={(input) => queueMicrotask(() => { input.focus(); input.select() })}
+                onPointerDown={(event) => event.stopPropagation()}
+                onBlur={(event) => finishRename(tab, event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation()
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setRenaming(undefined)
+                    focusTab(tab)
+                  } else if (event.key === 'Enter') {
+                    event.preventDefault()
+                    finishRename(tab, event.currentTarget.value)
+                    focusTab(tab)
+                  }
+                }}
+              />
+            }>
             <button
               id={workflowTabDomId(tab.id)}
               class="tab-select"
@@ -288,6 +307,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               tabindex={tab.id === props.activeId ? 0 : -1}
               onClick={(event) => props.onActivate(event, tab)}
               onKeyDown={(event) => onTabKeyDown(event, tab)}
+              onDblClick={() => startRename(tab)}
             >
               <ProductRunIcon
                 icon={kindIcon(tab.editorKind)}
@@ -297,6 +317,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               />
               <span class="tab-title">{tab.title}</span>
             </button>
+            </Show>
             <span classList={{
               'tab-affordance': true,
               dirty: props.isDirty(tab),

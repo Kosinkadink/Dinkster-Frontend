@@ -139,6 +139,7 @@
   cursor: pointer;
 }
 .tab-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .tab-rename { min-width: 0; width: 100%; flex: 1; min-height: var(--dinkster-control-compact-height); padding-block: 0; }
 
 .tab-select:focus-visible,
 .tab-close:focus-visible,

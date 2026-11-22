@@ -208,6 +208,18 @@ Run ownership follows the document lineage, independently of canvas overlay
 pins, and frozen tabs show only their own run. The unsaved marker is secondary
 text gray in the close button's place; hover or keyboard focus reveals Close.
 
+The tab context menu groups document actions, placement and sharing, preview
+and queue target settings, and close actions. Rename edits the title inline:
+Enter, Tab or blur stores a trimmed nonempty name; Escape or an empty name
+cancels. Double-clicking a title starts the same edit. The new name stays
+unsaved until Save writes it to the library and is used by Export. Rename is
+not offered for frozen snapshots or non-document editors.
+Duplicate creates an independent unsaved workflow on the same backend, without
+library links or run history, immediately after its source in the same group.
+It uses "<title> copy", then "copy 2" and so on; a frozen snapshot becomes an
+editable graph. Close others affects only the current split group. If any
+others are dirty, one confirmation names them; Cancel closes none.
+
 A workflow tab is as wide as its title and its close button, up to 220 px; a
 longer title ends in an ellipsis and shows in full in a tooltip on hover or
 keyboard focus. When the strip is crowded, tabs shrink to about three letters

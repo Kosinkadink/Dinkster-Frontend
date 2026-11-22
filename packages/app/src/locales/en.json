@@ -1299,6 +1299,7 @@
   "shell.close.confirm": "Close \"{title}\" and discard unsaved changes?",
   "shell.contextHelp": "Context help",
   "shell.close.discard": "Close and discard",
+  "shell.close.othersConfirm": "Close the other tabs in this group and discard unsaved changes to these workflows?",
   "shell.close.title": "Close \"{title}\"?",
   "shell.chrome.allTabs": "All tabs",
   "shell.chrome.allZoneTabs": "All {zone} tabs",
