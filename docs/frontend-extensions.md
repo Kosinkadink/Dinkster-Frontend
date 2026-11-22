@@ -90,8 +90,9 @@ transactional registration and cleanup rules as other contributions. See
 
 Packs with `graph-editor-canvas` privilege can register an ordered background
 or foreground painter with `canvasLayer(id, layer)`. The draw callback receives
-the host's world-transformed 2D context, visible world viewport, scale, and a
-frozen projection of scene node identity and geometry. The host saves and
+the host's world-transformed 2D context, current canvas background and grid
+colors, visible world viewport, scale, and a frozen projection of scene node
+identity and geometry. The host saves and
 restores canvas state around every callback, isolates failures, and reports a
 failed layer once without stopping core rendering. A background layer is the
 bounded equivalent of ComfyUI's `beforeDrawGraph`; a foreground layer is the
