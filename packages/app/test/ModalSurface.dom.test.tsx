@@ -415,7 +415,7 @@ describe('ASSET widget modal integration', () => {
     unmount()
   })
 
-  it.each(['live'].flatMap((scenario) =>
+  it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
     [false, true].map((stored) => ({ scenario, stored }))))(
     'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {
       const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
@@ -462,23 +462,9 @@ describe('ASSET widget modal integration', () => {
             command: 'node.setValue', params: expect.objectContaining({ value: ref }),
           })))
         } else {
-          expect(dispatch).not.toHaveBeenCalled()
-          root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
-          await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-          expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name)
-          expect(dispatch).not.toHaveBeenCalled()
-          if (scenario === 'edited' || scenario === 'disconnected' || scenario === 'registry') {
-            unmount()
-            unmount = mountPicker()
-            await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
-            root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-            await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
-            await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-            root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-            await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
-              command: 'node.setValue', params: expect.objectContaining({ value: ref }),
-            })))
-          }
+          await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
+            command: 'node.setValue', params: expect.objectContaining({ value: ref }),
+          })))
         }
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
     },
