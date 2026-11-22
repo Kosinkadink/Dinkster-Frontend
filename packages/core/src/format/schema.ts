@@ -153,6 +153,20 @@ const boundaryItem = {
     // also rejects duplicates.
     alsoBinds: { type: 'array', minItems: 1, items: { $ref: '#/$defs/boundaryBinding' } },
     promoted: { type: 'boolean' },
+    // Layout only; invariants place limits and visible on inputs.
+    tooltip: { type: 'string', minLength: 1 },
+    limits: {
+      type: 'object',
+      minProperties: 1,
+      additionalProperties: false,
+      properties: { min: { type: 'number' }, max: { type: 'number' } },
+    },
+    visible: {
+      type: 'object',
+      required: ['formula'],
+      additionalProperties: false,
+      properties: { formula: { type: 'string', minLength: 1 } },
+    },
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
@@ -697,6 +711,8 @@ export const WORKFLOW_SCHEMA = {
                 allOf: [
                   { $ref: '#/$defs/boundaryItem' },
                   { not: { required: ['alsoBinds'] } },
+                  { not: { required: ['limits'] } },
+                  { not: { required: ['visible'] } },
                   { properties: { binds: { not: { required: ['viaReroute'] } } } },
                   { properties: { binds: { properties: { kind: { enum: ['port', 'family', 'widgetTap', 'unbound'] } } } } },
                 ],

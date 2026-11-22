@@ -605,7 +605,24 @@ export interface BoundaryItem {
    * inner stored value to fall back on), so `promoted` is invalid there.
    */
   readonly promoted?: boolean
+  /**
+   * Layout only, like `displayName`; none of the three reaches compile, a
+   * value or a cache key. `tooltip` is the row's help text on every
+   * instance. `limits` narrows a promoted number field's range on every
+   * instance and may never widen the inner field's range. `visible` says
+   * when an input row shows on an instance: a formula over the instance's
+   * own inputs; absent means always.
+   */
+  readonly tooltip?: string
+  readonly limits?: BoundaryLimits
+  readonly visible?: { readonly formula: string }
   readonly ext?: ExtData
+}
+
+/** A narrowed range for a promoted number field; at least one bound. */
+export interface BoundaryLimits {
+  readonly min?: number
+  readonly max?: number
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import type {
   BoundaryBinding,
+  BoundaryLimits,
   BoundaryItem,
   ControllerMode,
   DynamicPortState,
@@ -1064,6 +1065,9 @@ export interface BoundaryCut {
     readonly binds: BoundaryBinding
     readonly alsoBinds?: readonly BoundaryBinding[]
     readonly promoted?: true
+    readonly tooltip?: string
+    readonly limits?: BoundaryLimits
+    readonly visible?: { readonly formula: string }
     readonly displayName?: string
   }
   readonly promoted: boolean
@@ -1312,6 +1316,9 @@ export function auditExtractionCuts(
             binds: nestedBindings[0]!,
             ...(nestedBindings.length > 1 ? { alsoBinds: nestedBindings.slice(1) } : {}),
             ...(item.promoted === true ? { promoted: true as const } : {}),
+            ...(item.tooltip !== undefined ? { tooltip: item.tooltip } : {}),
+            ...(item.limits !== undefined ? { limits: item.limits } : {}),
+            ...(item.visible !== undefined ? { visible: item.visible } : {}),
             ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
           }
         : undefined

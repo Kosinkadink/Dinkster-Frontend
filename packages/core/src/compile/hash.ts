@@ -21,6 +21,7 @@
 
 import type {
   BoundaryBinding,
+  BoundaryItem,
   BoundaryRouteLeg,
   GraphDef,
   Json,
@@ -281,6 +282,10 @@ function semanticSelector(s: NonNullable<GraphDef['selectors']>[string]): Json {
   } as unknown as Json
 }
 
+function semanticBoundaryItem({ tooltip: _tooltip, limits: _limits, visible: _visible, ...item }: BoundaryItem): BoundaryItem {
+  return item
+}
+
 function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): Json {
   const selectors = Object.entries(g.selectors ?? {})
   return {
@@ -291,7 +296,8 @@ function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): J
     ),
     links: semanticConnections(g),
     nets: g.nets,
-    ...(g.boundary ? { boundary: g.boundary } : {}),
+    // A boundary row's help text, limits and condition are layout.
+    ...(g.boundary ? { boundary: { inputs: g.boundary.inputs.map(semanticBoundaryItem), outputs: g.boundary.outputs.map(semanticBoundaryItem) } } : {}),
     // Guarded on non-empty so `selectors: {}` and absent hash identically.
     ...(selectors.length > 0
       ? { selectors: Object.fromEntries(selectors.map(([k, s]) => [k, semanticSelector(s)])) }
