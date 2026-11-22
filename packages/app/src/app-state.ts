@@ -5875,7 +5875,6 @@ export class AppState {
    */
   private readonly retainedRegistries = new WeakMap<CompileArtifact, SchemaRegistry>()
   private readonly pendingWorkspaceRegistrations = new Map<string, WorkspaceRegistration>()
-  private readonly admittingWorkspaceRegistrations = new WeakSet<WorkspaceRegistration>()
 
   /**
    * The registry a frozen execution view must resolve with. Preference order
@@ -6484,7 +6483,7 @@ export class AppState {
     while (this.tabs.get().some((tab) => tab.id === lineage))
     const backend = this.backendForTab(source)
     const stillWanted = this.beginWorkflowOpen()
-    const copy = await this.openRetainedDocument({ ...source.store.doc, lineage }, copyTitle, backend, stillWanted, false, undefined, backend)
+    const copy = await this.openDocumentOnBackend({ ...source.store.doc, lineage }, copyTitle, backend, stillWanted, false, undefined, backend)
     if (copy && !source.execution && source.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(copy.id, APP_EDITOR_KIND)
     return copy && this.tabs.get().find((tab) => tab.id === copy.id)
   }
@@ -7009,124 +7008,9 @@ export class AppState {
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const effective = this.countAwareValueInvocation(tab, invocation)
-    const backend = this.backendForTab(tab)
-    const prepared = backend.protocol === 'dinkster' ? tab.store.prepareDispatch?.(effective) : undefined
-    if (prepared?.ok) {
-      const resolve = this.resolverWithVirtualNodes(this.registryForTab(tab)?.resolve ?? (() => undefined))
-      if (!workflowAssetRootsUnchanged(prepared, resolve)) {
-        // History and shared pending documents do not gain identities until this candidate commits.
-        // Admission still retains all of them; selection need only compare the two documents.
-        const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
-        const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
-        const candidate = workflowAssetRoots(prepared.document, history, resolve)
-        if (!workflowAssetRootsCover(current, candidate)) {
-          return this.admitPreparedWorkflowDispatch(tab, prepared)
-        }
-      }
-    }
-    const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
+    const outcome = tab.store.dispatch(effective)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
-  }
-
-  private validateWorkflowCommit(
-    current: WorkflowDocument,
-    candidate: WorkflowDocument,
-    history: HistorySnapshot,
-    resolve: SchemaResolver,
-    retainedDocuments: readonly WorkflowDocument[] = [],
-  ): readonly Diagnostic[] {
-    if (this.admittedWorkflowCandidates.has(candidate) || workflowNodeTitlesOnlyChanged(current, candidate)) return []
-    const tab = this.tabs.get().find((entry) => entry.store.doc === current)
-    if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
-    const documentHistory = { revision: history.revision, undo: [], redo: [] }
-    const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
-    const presentRoots = workflowAssetRoots(current, documentHistory, resolve)
-    if (workflowAssetRootsCover(presentRoots, proposed)) return []
-    const retainedRoots = workflowAssetRoots(current, history, resolve, retainedDocuments)
-    if (workflowAssetRootsCover(retainedRoots, proposed)) return []
-    const diagnostics = [diag('error', 'command', 'command.retention.required',
-      'New workflow assets require ownership confirmation through application dispatch')]
-    this.reportProblems(tab.id, diagnostics)
-    return diagnostics
-  }
-
-  private commitAdmittedWorkflowCandidate(prepared: Extract<ReturnType<NonNullable<DocumentSession['prepareDispatch']>>, { readonly ok: true }>): CommandOutcome {
-    this.admittedWorkflowCandidates.add(prepared.document)
-    try {
-      return prepared.commit()
-    } finally {
-      this.admittedWorkflowCandidates.delete(prepared.document)
-    }
-  }
-
-  dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
-    if (tab.execution) return Promise.resolve({ ok: false, diagnostics: [] })
-    const prepared = tab.store.prepareDispatch?.(this.countAwareValueInvocation(tab, invocation))
-    return this.admitPreparedWorkflowDispatch(tab, prepared, stillWanted)
-  }
-
-  private async admitPreparedWorkflowDispatch(
-    tab: Tab,
-    prepared: ReturnType<NonNullable<DocumentSession['prepareDispatch']>> | undefined,
-    stillWanted: () => boolean = () => true,
-  ): Promise<CommandOutcome> {
-    if (tab.execution) return { ok: false, diagnostics: [] }
-    const backend = this.backendForTab(tab)
-    const registry = this.registryForTab(tab)
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const storage = globalThis.localStorage
-    const admission = { pending: true }
-    let connectionChanged = false
-    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-    try {
-      if (backend.protocol !== 'dinkster' || registry === undefined || prepared === undefined) {
-        throw new Error('The destination cannot stage retained workflow commands')
-      }
-      const session = tab.store
-      if (!prepared.ok) {
-        this.reportProblems(tab.id, prepared.diagnostics)
-        return prepared
-      }
-      const outcome = await admitWorkflowDispatch(
-        backend.connection,
-        { ...prepared, commit: () => this.commitAdmittedWorkflowCandidate(prepared) },
-        this.resolverWithVirtualNodes(registry.resolve),
-        () => {
-          const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
-          return !this.disposed && !connectionChanged && this.backends.get().includes(backend) &&
-            live !== undefined && live.store === session && !live.execution &&
-            this.backendForTab(live) === backend && this.registryForTab(live) === registry && stillWanted()
-        },
-        storage,
-        'admission',
-        (retained) => {
-          if (!connectionChanged && this.registryForTab(tab) === registry &&
-            session.doc === prepared.document && session.revision === prepared.history.revision) {
-            this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
-            this.reportIncompleteOwnership(tab.id, workflowAssetRoots(prepared.currentDocument, prepared.currentHistory,
-              this.resolverWithVirtualNodes(registry.resolve), [prepared.document, ...(prepared.retainedDocuments ?? [])], 'admission'), retained)
-          }
-        },
-        (retained) => {
-          this.unpublishedWorkflowOwners.set(retained, { backend, registry, storage, admission, project,
-            generation, lineage: prepared.document.lineage })
-        },
-      )
-      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
-      return outcome
-    } catch (error) {
-      const outcome = { ok: false as const, diagnostics: [diag(
-        'error', 'command', 'command.retention.refused', error instanceof Error ? error.message : String(error),
-      )] }
-      this.reportProblems(tab.id, outcome.diagnostics)
-      return outcome
-    } finally {
-      admission.pending = false
-      unsubscribe()
-      queueMicrotask(() => this.retireUnpublishedWorkflowOwners())
-    }
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */
@@ -7187,8 +7071,8 @@ export class AppState {
 
   /**
    * Open (or focus) the FROZEN view of an execution: a read-only tab over the
-   * artifact's exact document snapshot. Ownership is acknowledged before a new
-   * tab is published. Foreign runs without an artifact cannot open a view.
+   * artifact's exact document snapshot. Foreign runs without an artifact
+   * cannot open a view.
    */
   async openExecutionView(ref: ExecutionRef): Promise<boolean> {
     if (this.disposed) return false
@@ -7204,42 +7088,13 @@ export class AppState {
     }
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     if (!backend) return false
-    const registry = this.registryForExecution(ref)
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    let connectionChanged = false
-    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-    let published = false
-    // The pending view needs the same entry pin as the eventual frozen tab.
+    if (!stillWanted()) return false
     this.store.retain(ref)
-    try {
-      let roots: ReturnType<typeof workflowAssetRoots> | undefined
-      let retained: RetainedAssets | undefined
-      if (backend.protocol === 'dinkster') {
-        roots = workflowAssetRoots(artifact.snapshot, { revision: artifact.revision, undo: [], redo: [] },
-          this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-        retained = await retainWorkflowAssets(backend.connection, artifact.snapshot.lineage, artifact.revision, roots)
-      }
-      if (!stillWanted() || connectionChanged || activeProjectId() !== project || this.store.get(ref)?.artifact !== artifact ||
-        this.registryForExecution(ref) !== registry ||
-        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) !== backend) return false
-      const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
-      const tab = this.makeTab(artifact.snapshot, title, ref)
-      if (retained) this.frozenAssetOwners.set(tab, { backend, retained, project, generation })
-      published = true
-      this.tabs.update((tabs) => [...tabs, tab])
-      this.activeTabId.set(id)
-      if (roots) this.reportIncompleteOwnership(id, roots, retained)
-      return true
-    } catch {
-      if (stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
-        'error', 'import', 'workflow.execution.retention', 'Execution ownership could not be confirmed; the existing tabs were kept.',
-      )])
-      return false
-    } finally {
-      unsubscribe()
-      if (!published) this.store.release(ref)
-    }
+    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+    const tab = this.makeTab(artifact.snapshot, title, ref)
+    this.tabs.update((tabs) => [...tabs, tab])
+    this.activeTabId.set(id)
+    return true
   }
 
   private readonly documentRecoveryStages = new WeakMap<DocumentSession, {
@@ -7650,34 +7505,12 @@ export class AppState {
       }),
     )
     let session: SharedDocumentSession
-    const pendingRemoteOwners: NonNullable<ReturnType<AppState['workflowAssetOwners']['get']>>[] = []
-    let adopted = false
     try {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, sessionResolver, retainedDocuments),
-        beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
-          const live = this.tabs.get().find((tab) => tab.store === session)
-          const backend = live === undefined
-            ? this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
-            : this.backendForTab(live)
-          const destination = this.tabs.get().find((tab) => tab.id === document.lineage && !tab.execution)
-          const priorStore = destination?.store
-          const priorDocument = priorStore?.doc
-          const priorRevision = priorStore?.revision
-          const priorTarget = destination === undefined ? undefined : this.backendForTab(destination)
-          return this.confirmRemoteDocumentOwnership(backend, document, revision, current, history, retainedDocuments,
-            () => {
-              if (adopted) return this.tabs.get().some((tab) =>
-                tab.store === session && this.backendForTab(tab) === backend)
-              const pending = this.tabs.get().find((tab) => tab.id === document.lineage && !tab.execution)
-              return pending?.store === priorStore && pending?.store.doc === priorDocument &&
-                pending?.store.revision === priorRevision &&
-                (pending === undefined || this.backendForTab(pending) === priorTarget)
-            }, adopted ? session : undefined, pendingRemoteOwners)
-        },
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
@@ -7698,7 +7531,7 @@ export class AppState {
       const ended = session.status.get() === 'closed'
       session.close()
       if (ended) throw new CollabSessionEndedDuringJoinError()
-      throw new Error('Shared workflow ownership could not be confirmed; the existing tabs were kept')
+      throw new Error('The shared session could not be opened; the existing tabs were kept')
     }
     let prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
     if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
@@ -7718,40 +7551,9 @@ export class AppState {
       session.adoptHistory(expect.store.historySnapshot())
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
-    const registry = backend?.registry.get()
-    const document = session.doc
-    const revision = session.revision
-    const priorStore = prior?.store
-    const priorRevision = priorStore?.revision
-    const priorDocument = priorStore?.doc
-    const priorTarget = prior === undefined ? undefined : this.backendForTab(prior)
-    const project = activeProjectId()
-    const generation = backend === undefined ? undefined : this.assetConnectionGenerations.get(backend.connection)
-    let retained: RetainedAssets
-    let connectionChanged = false
-    const unsubscribe = backend?.connection.status.subscribe(() => { connectionChanged = true })
-    try {
-      if (backend === undefined || this.disposed) throw new Error('Shared workflow backend is unavailable')
-      const roots = workflowAssetRoots(document, session.historySnapshot(),
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-      retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-      const current = this.tabs.get().find((tab) => tab.id === owner && !tab.execution)
-      if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
-        activeProjectId() !== project || this.assetConnectionGenerations.get(backend.connection) !== generation ||
-        backend.registry.get() !== registry || session.doc !== document || session.revision !== revision ||
-        session.status.get() !== 'live' ||
-        current?.store !== priorStore || current?.store.revision !== priorRevision || current?.store.doc !== priorDocument ||
-        (current !== undefined && this.backendForTab(current) !== priorTarget)) {
-        throw new Error('Shared workflow changed while ownership was being confirmed; the existing tabs were kept')
-      }
-      prior = current
-    } catch {
-      const ended = session.status.get() === 'closed'
+    if (backend === undefined || this.disposed) {
       session.close()
-      if (ended) throw new CollabSessionEndedDuringJoinError()
-      throw new Error('Shared workflow ownership could not be confirmed; the existing tabs were kept')
-    } finally {
-      unsubscribe?.()
+      throw new Error('Shared workflow backend is unavailable')
     }
     this.dropCollabFor(owner) // re-adopting over a shared tab closes the old session
     if (prior !== undefined) {
@@ -7770,15 +7572,6 @@ export class AppState {
     this.tabs.update((tabs) =>
       tabs.some((t) => t.id === tab.id) ? tabs.map((t) => (t.id === tab.id ? tab : t)) : [...tabs, tab],
     )
-    adopted = true
-    if (preservesHistory && prior !== undefined) this.continueWorkflowAssetOwner(prior.store, session)
-    this.replaceWorkflowAssetOwner(session, backend, retained, project, generation, preservesHistory ? session : prior?.store)
-    for (const pending of pendingRemoteOwners) {
-      if (pending.backend === backend && pending.project === project && pending.generation === generation) {
-        this.supersededWorkflowOwners.set(pending.retained, { session, backend, project, generation })
-      }
-    }
-    this.retireSupersededWorkflowOwners()
     if (opts?.activate !== false) this.activeTabId.set(tab.id)
     const presence = new PresenceChannel(session, actorId)
     // A session that ends REMOTELY (session_closed, terminal error) never
@@ -7986,9 +7779,9 @@ export class AppState {
     const prepared = this.prepareDocumentOpen(json, title, importVia, forkOnCollision, originalPrompt)
     if (!prepared.ok) return prepared.diagnostics
     const backend = importVia ?? this.backends.get()[0]!
-    const opened = await this.publishRetainedDocument(prepared, backend, stillWanted, null, false)
+    const opened = await this.publishOpenedDocument(prepared, backend, stillWanted, null, false)
     return opened ? [] : [diag(
-      'error', 'import', 'workflow.open.retention', 'Workflow ownership could not be confirmed; the existing tabs were kept.',
+      'error', 'import', 'workflow.open.changed', 'The workspace changed while opening the workflow; the existing tabs were kept.',
     )]
   }
 
@@ -8003,7 +7796,7 @@ export class AppState {
     const stillWanted = this.beginWorkflowOpen()
     const prepared = this.prepareDocumentOpen(source.store.doc, title, backend, true)
     if (!prepared.ok) return false
-    const recovered = await this.publishRetainedDocument(prepared, backend, stillWanted, backend)
+    const recovered = await this.publishOpenedDocument(prepared, backend, stillWanted, backend)
     if (!recovered) return false
     // A workflow window may close as soon as this returns. Its new tab must
     // reach the authority before that close tears down the submitting port.
@@ -8031,57 +7824,30 @@ export class AppState {
       })
   }
 
-  private async openRetainedDocument(
+  private async openDocumentOnBackend(
     json: unknown, title: string, backend: Backend, stillWanted: () => boolean,
     forkOnCollision = false, originalPrompt?: JsonObject, target: Backend | null = backend,
   ): Promise<Tab | undefined> {
     if (this.disposed || !stillWanted()) return undefined
     const prepared = this.prepareDocumentOpen(json, title, backend, forkOnCollision, originalPrompt)
     if (!prepared.ok) throw new Error('invalid workflow document')
-    return this.publishRetainedDocument(prepared, backend, stillWanted, target)
+    return this.publishOpenedDocument(prepared, backend, stillWanted, target)
   }
 
-  private async publishRetainedDocument(
+  private async publishOpenedDocument(
     prepared: Extract<ReturnType<AppState['prepareDocumentOpen']>, { readonly ok: true }>,
     backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true,
   ): Promise<Tab | undefined> {
     const destination = target ?? this.backends.get()[0]!
-    await this.waitForOwnershipCatalogs([backend, destination])
-    if (this.disposed || !stillWanted()) return undefined
-    const registry = backend.registry.get()
-    const destinationRegistry = destination.registry.get()
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(destination.connection)
-    let connectionChanged = false
-    const unsubscribe = destination.connection.status.subscribe(() => { connectionChanged = true })
-    try {
-      if (destination.protocol !== 'dinkster') return prepared.publish(target ?? undefined)
-      const roots = workflowAssetRoots(prepared.document, { revision: 0, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(destinationRegistry?.resolve ?? (() => undefined)), [], 'admission')
-      const retained = await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
-      if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
-        !this.backends.get().includes(destination) || !this.registryUnchanged(registry, backend.registry.get()) ||
-        !this.registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
-      const previous = this.tabs.get().find((tab) => !tab.execution && tab.id === prepared.document.lineage)
-      const tab = prepared.publish(target ?? undefined)
-      this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation, previous?.store ?? tab.store)
-      this.reportIncompleteOwnership(tab.id, roots, retained)
-      if (!awaitPromotion) return tab
-      // Complete authority adoption before the next open captures the workspace.
-      const intent = this.workflowOpenIntent
-      if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
-      if (this.disposed || intent !== this.workflowOpenIntent || connectionChanged ||
-        !this.backends.get().includes(destination) || !this.registryUnchanged(destinationRegistry, destination.registry.get())) return undefined
-      const current = this.liveTabContinuing(tab.store)
-      return current && this.backendForTab(current) === destination ? current : undefined
-    } catch {
-      if (!this.disposed && stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
-        'error', 'import', 'workflow.open.retention', 'Workflow ownership could not be confirmed; the existing tabs were kept.',
-      )])
-      return undefined
-    } finally {
-      unsubscribe()
-    }
+    if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
+      !this.backends.get().includes(destination)) return undefined
+    const tab = prepared.publish(target ?? undefined)
+    if (!awaitPromotion) return tab
+    const intent = this.workflowOpenIntent
+    if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
+    if (this.disposed || intent !== this.workflowOpenIntent || !this.backends.get().includes(destination)) return undefined
+    const current = this.liveTabContinuing(tab.store)
+    return current && this.backendForTab(current) === destination ? current : undefined
   }
 
   private prepareDocumentOpen(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject):
@@ -8600,7 +8366,7 @@ export class AppState {
       const title = file.name.replace(/\.json$/i, '') || 'Imported workflow'
       const text = await file.text()
       if (!stillWanted()) return false
-      if (!await this.openRetainedDocument(JSON.parse(text) as unknown, title, backend, stillWanted, true, originalPrompt, null)) {
+      if (!await this.openDocumentOnBackend(JSON.parse(text) as unknown, title, backend, stillWanted, true, originalPrompt, null)) {
         if (stillWanted()) this.showTransientStatus(`Could not import ${file.name}: workflow was not opened`)
         return false
       }
@@ -9190,7 +8956,7 @@ export class AppState {
         return text === undefined ? undefined : JSON.parse(text) as unknown
       }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
         if (json === undefined || !this.ownerStillLive(backend)) return false
-        tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
+        tab = await this.openDocumentOnBackend(json, record.name, backend, stillWanted)
         if (!tab || !this.tabs.get().includes(tab)) return false
         this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
         this.markTabClean(tab.id)
@@ -9225,7 +8991,7 @@ export class AppState {
       // Liveness BEFORE payload checks (see openFromLibrary).
       if (!this.ownerStillLive(backend)) return false
       if (!document) return false
-      const tab = await this.openRetainedDocument(readableRegionTemplateLayout(document), title, backend, stillWanted)
+      const tab = await this.openDocumentOnBackend(readableRegionTemplateLayout(document), title, backend, stillWanted)
       if (!tab) {
         if (stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
           diag('error', 'validation', 'template.openFailed', `template ${packId}/${templateId} was not opened - see Problems`),
@@ -9251,7 +9017,7 @@ export class AppState {
     try {
       const document = await catalog.fetchBody(template)
       if (!this.ownerStillLive(backend) || document === undefined) return false
-      const tab = await this.openRetainedDocument(readableRegionTemplateLayout(document), title, backend, stillWanted)
+      const tab = await this.openDocumentOnBackend(readableRegionTemplateLayout(document), title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
       void this.offerImportAssetResolution(tab, backend, [])
       return true
@@ -9299,7 +9065,7 @@ export class AppState {
         if (json === undefined || !this.ownerStillLive(backend)) return false
         const meta = (json as { meta?: { title?: unknown } }).meta
         const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
-        tab = await this.openRetainedDocument(json, title, backend, stillWanted)
+        tab = await this.openDocumentOnBackend(json, title, backend, stillWanted)
         return tab !== undefined && this.tabs.get().includes(tab)
       })
       if (!this.ownerStillLive(backend)) return false
@@ -10746,8 +10512,7 @@ export class AppState {
     const registry = backend?.registry.get()
     if (registry === undefined) return
     for (const [key, registration] of this.pendingWorkspaceRegistrations) {
-      if (registration.ref.connection !== connection || registration.schemaHash !== registry.hash ||
-        this.admittingWorkspaceRegistrations.has(registration)) continue
+      if (registration.ref.connection !== connection || registration.schemaHash !== registry.hash) continue
       const choices = new Map(registration.choices.map((choice) => [
         JSON.stringify([choice.graph, choice.selector]),
         choice.candidate,
@@ -10769,169 +10534,18 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      const roots = workflowAssetRoots(artifact.snapshot,
-        { revision: artifact.revision, undo: [], redo: [] }, this.resolverWithVirtualNodes(registry.resolve))
-      const publish = (): void => {
-        this.retainedRegistries.set(artifact, registry)
-        this.hydrated.delete(key)
-        this.store.register(registration.ref, artifact, registration.timestamp, {
-          ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
-          ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
-        })
-        this.pendingWorkspaceRegistrations.delete(key)
-      }
-      if (roots.complete && roots.digests.length === 0 && registration.sourceDocument === undefined) {
-        publish()
-        continue
-      }
-      if (backend === undefined || backend.protocol !== 'dinkster') continue
-      this.admittingWorkspaceRegistrations.add(registration)
-      const liveBackend = this.backendFor(connection) === backend
-      let unchanged = true
-      const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
-      const current = (): boolean => unchanged && !this.disposed &&
-        this.pendingWorkspaceRegistrations.get(key) === registration &&
-        (liveBackend ? this.backendFor(connection) : this.retiredBackends.get(connection)) === backend &&
-        backend.registry.get() === registry
-      const previous = this.pendingExecutionEvents.get(key)
-      const pending = (previous ?? Promise.resolve()).then(async () => {
-        if (!current()) return
-        const digests = [...new Set([...roots.digests,
-          ...(registration.sourceDocument === undefined ? [] : [registration.sourceDocument])])].sort()
-        const retained = await retainExecutionAssets(backend.connection, registration.ref, { ...roots, complete: false, digests })
-        if (current()) {
-          this.trackResultOwner(backend, retained, registration.ref)
-          publish()
-        }
-      }).catch((error: unknown) => {
-        if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
-          'execution.registrationRetentionFailed', `Could not retain mirrored execution assets: ${error instanceof Error ? error.message : String(error)}`)])
-      }).finally(() => {
-        unsubscribe()
-        this.admittingWorkspaceRegistrations.delete(registration)
-        if (this.pendingExecutionEvents.get(key) === pending) this.pendingExecutionEvents.delete(key)
-        if (unchanged && !this.disposed && backend.registry.get() !== registry) this.flushWorkspaceRegistrations(connection)
+      this.retainedRegistries.set(artifact, registry)
+      this.hydrated.delete(key)
+      this.store.register(registration.ref, artifact, registration.timestamp, {
+        ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
+        ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
       })
-      this.pendingExecutionEvents.set(key, pending)
-    }
-  }
-
-  private readonly previewAssetOwners = new Map<RetainedAssets, {
-    readonly payload: object
-    readonly execution: string
-    readonly backend: Backend
-    readonly project: string
-    readonly generation: number | undefined
-  }>()
-
-  private retireUnusedPreviewOwners(): void {
-    if (this.disposed || this.previewAssetOwners.size === 0) return
-    for (const [retained, owner] of this.previewAssetOwners) {
-      if (activeProjectId() !== owner.project || this.backendFor(owner.backend.id) !== owner.backend ||
-        this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) {
-        // The durable journal keeps obsolete lifetimes protected without retaining their payloads in memory.
-        this.previewAssetOwners.delete(retained)
-        continue
-      }
-      const state = this.store.executions.get().get(owner.execution)
-      const frames = [state?.lastPreview, ...Object.values(state?.previews ?? {}).flatMap(Object.values),
-        ...Object.values(state?.previewRings ?? {}).flatMap((streams) => Object.values(streams)
-          .flatMap((ring) => Object.values(ring.frames)))]
-      if (frames.some((frame) => frame?.payload === owner.payload)) continue
-      this.previewAssetOwners.delete(retained)
-      void this.retireAssetOwner(owner.backend.connection, retained)
+      this.pendingWorkspaceRegistrations.delete(key)
     }
   }
 
   private applyWorkspaceExecutionEvent(event: NormalizedEvent, onApplied?: () => void): void {
-    if (!isExecutionEvent(event)) {
-      if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
-      return
-    }
-    const key = executionKey(event.execution)
-    const previous = this.pendingExecutionEvents.get(key)
-    const payload = event.kind === 'preview' && workspaceRecord(event.payload)
-      ? event.payload : event.kind === 'nodeOutput' ? event.output : undefined
-    const incoming = payload === undefined ? undefined : executionAssetRoots({
-      outputs: { event: { payload } }, artifacts: [],
-    }, () => undefined)
-    if (previous === undefined && incoming === undefined) {
-      if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
-      return
-    }
-    const backend = this.backendFor(event.execution.connection)
-    if (backend === undefined) return
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const registration = this.pendingWorkspaceRegistrations.get(key)
-    let held = this.store.get(event.execution)
-    const registry = backend.registry.get()
-    let executionRegistry = this.registryForExecution(event.execution)
-    let firstRegistration = held?.artifact === undefined ? undefined : held
-    const unsubscribeRegistration = this.store.executions.subscribe(() => {
-      const state = this.store.get(event.execution)
-      if (firstRegistration === undefined && state?.artifact !== undefined) firstRegistration = state
-    })
-    let unchanged = true
-    const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
-    const current = (): boolean => unchanged && !this.disposed && activeProjectId() === project &&
-      this.assetConnectionGenerations.get(backend.connection) === generation &&
-      this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
-      this.registryForExecution(event.execution) === executionRegistry &&
-      this.store.get(event.execution)?.artifact === held?.artifact &&
-      this.store.get(event.execution)?.sourceDocument === held?.sourceDocument &&
-      (held === undefined || this.store.get(event.execution) !== undefined)
-    // Queue the rest of this run's events too: terminal transitions must not
-    // overtake an admitted preview and change its ring or provenance semantics.
-    const pending = (previous ?? Promise.resolve()).then(async () => {
-      if (registration !== undefined) {
-        const state = this.store.get(event.execution)
-        if (state?.artifact === undefined || state.sourceDocument !== registration.sourceDocument ||
-          canonicalJson(projectWorkspaceCompileArtifact(state.artifact)) !== canonicalJson(registration.artifact)) return
-        held = state
-        executionRegistry = this.registryForExecution(event.execution)
-      }
-      for (;;) {
-        if (!current()) {
-          const state = this.store.get(event.execution)
-          // Submit registration may follow live events. Re-admit its roots;
-          // never reuse the acknowledgment captured before that promotion.
-          if (!unchanged || this.disposed || activeProjectId() !== project ||
-            this.assetConnectionGenerations.get(backend.connection) !== generation || this.backendFor(backend.id) !== backend ||
-            backend.registry.get() !== registry || held?.artifact !== undefined || state?.artifact === undefined ||
-            state.artifact !== firstRegistration?.artifact || state.sourceDocument !== firstRegistration.sourceDocument) return
-          held = state
-          executionRegistry = this.registryForExecution(event.execution)
-        }
-        let previewOwner: RetainedAssets | undefined
-        let resultOwner: RetainedAssets | undefined
-        if (incoming !== undefined) {
-          const state = this.store.get(event.execution)
-          const roots = state === undefined ? incoming : executionAssetRoots(state,
-            this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
-          const union = { complete: false, digests: [...new Set([...roots.digests, ...incoming.digests])].sort() }
-          if (event.kind === 'preview') {
-            const preview = previewAssetRoots(event)
-            previewOwner = await retainPreviewAssets(backend.connection, preview.complete ? preview : union)
-          } else resultOwner = await retainExecutionAssets(backend.connection, event.execution, union)
-        }
-        if (!current()) continue
-        if (resultOwner !== undefined) this.trackResultOwner(backend, resultOwner, event.execution)
-        if (previewOwner?.complete && event.kind === 'preview') {
-          this.previewAssetOwners.set(previewOwner, { payload: event.payload, execution: key, backend, project, generation })
-        }
-        if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
-        return
-      }
-    }).catch((error: unknown) => {
-      if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
-        'execution.eventRetentionFailed', `Could not retain execution event assets: ${error instanceof Error ? error.message : String(error)}`)])
-    }).finally(() => {
-      unsubscribe()
-      unsubscribeRegistration()
-      if (this.pendingExecutionEvents.get(key) === pending) this.pendingExecutionEvents.delete(key)
-    })
-    this.pendingExecutionEvents.set(key, pending)
+    if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
   }
 
   private publishWorkspaceExecutionEvent(event: NormalizedEvent): boolean {
@@ -11242,32 +10856,7 @@ export class AppState {
         ...(hasPrompt ? { prompt: originalPrompt as JsonObject } : {}),
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
-      // Capture the advisory stamp before ownership awaits can change the live tab.
-      const sourceDocumentPromise = this.sourceDocumentFor(tab, backend)
-      // Catalog defaults can introduce assets or opaque roots after startup admission.
-      const roots = workflowAssetRoots(result.artifact.snapshot,
-        { revision: result.artifact.revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry.resolve), [], 'execution')
-      this.reportIncompleteOwnership(tab.id, roots)
-      if (!roots.complete || roots.digests.length > 0) {
-        const owners = this.submissionAssetOwners
-        const owned = owners.get(tab)
-        if (roots.refusal !== undefined || owned?.connection !== backend.connection ||
-          owned.document !== compiledDocument || owned.registry !== registry ||
-          owned.retained.digests.length !== roots.digests.length ||
-          !owned.retained.digests.every((digest, index) => digest === roots.digests[index])) {
-          const submittedTab = tab
-          void retainWorkflowAssets(backend.connection, result.artifact.snapshot.lineage,
-            result.artifact.revision, roots).then((retained) => {
-            if (!this.disposed && this.liveTabContinuing(submittedTab.store)?.store.doc === compiledDocument &&
-              this.registryForTab(submittedTab) === registry) {
-              owners.set(submittedTab, { connection: backend.connection, document: compiledDocument, registry, retained })
-            }
-          }).catch((error: unknown) => { console.warn('Run file-list recording failed', error) })
-        }
-        if (lease.signal.aborted) return
-      }
-      const sourceDocument = await sourceDocumentPromise
+      const sourceDocument = await this.sourceDocumentFor(tab, backend)
       if (lease.signal.aborted) return
       // Shared authority can adopt this editing session after queue entry.
       // Independent replacements do not have a recorded continuation.
