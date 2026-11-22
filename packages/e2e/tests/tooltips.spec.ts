@@ -87,6 +87,46 @@ test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ pa
   await expect(page.getByTestId('app-tooltip')).not.toContainText('Ctrl+,')
 })
 
+test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
+  const target = page.getByTestId('customize-layout-button')
+  const tooltip = page.getByTestId('app-tooltip')
+  await target.focus()
+  await expect(tooltip).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('top-right-tooltip.png') })
+  const assertPlacement = async () => {
+    await expect.poll(async () => {
+      const anchor = (await target.boundingBox())!
+      const box = (await tooltip.boundingBox())!
+      const expectedX = Math.max(8, Math.min(anchor.x + (anchor.width - box.width) / 2, page.viewportSize()!.width - box.width - 8))
+      return Math.abs(box.x - expectedX) + Math.abs(box.y - anchor.y - anchor.height - 8)
+    }).toBeLessThan(0.1)
+  }
+  await assertPlacement()
+  await target.evaluate((element) => { (element as HTMLElement).dataset['tooltipDetail'] = 'Additional layout information that changes the measured tooltip width.|Second detail line.' })
+  await page.keyboard.down('Alt')
+  await expect(tooltip).toContainText('Second detail line.')
+  await assertPlacement()
+  await page.keyboard.up('Alt')
+  await expect(tooltip).not.toContainText('Second detail line.')
+  await assertPlacement()
+})
+
+test('bottom-edge tooltip flips above its element without overlapping it', async ({ page }, testInfo) => {
+  const target = page.getByTestId('canvas-fit-view')
+  const tooltip = page.getByTestId('app-tooltip')
+  await target.focus()
+  await expect(tooltip).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('bottom-edge-tooltip.png') })
+  await expect.poll(async () => {
+    const anchor = (await target.boundingBox())!
+    const box = (await tooltip.boundingBox())!
+    return Math.abs(box.y + box.height + 8 - anchor.y)
+  }).toBeLessThan(0.1)
+  const box = (await tooltip.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(8)
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width - 8)
+})
+
 test('node palette port product tooltip preserves hover and keyboard wording', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
