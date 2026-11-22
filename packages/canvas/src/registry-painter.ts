@@ -116,10 +116,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       // shared read-only style for every widget kind, drawn over the shared
       // row chrome - never the view's interactive presentation.
       const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
-      ctx.fillStyle = tokens.colors.widgetBackground
-      ctx.beginPath()
-      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-      ctx.fill()
+      if (row.viewId !== 'core.compositor') {
+        ctx.fillStyle = tokens.colors.widgetBackground
+        ctx.beginPath()
+        ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+        ctx.fill()
+      }
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
       const formatted = formatWidgetValue(args.companion.value, row.spec)
@@ -135,10 +137,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
-    ctx.fillStyle = tokens.colors.widgetBackground
-    ctx.beginPath()
-    ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-    ctx.fill()
+    if (row.viewId !== 'core.compositor') {
+      ctx.fillStyle = tokens.colors.widgetBackground
+      ctx.beginPath()
+      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+      ctx.fill()
+    }
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'

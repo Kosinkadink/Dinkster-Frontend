@@ -964,21 +964,6 @@ const canvasCreateSubgraph: MenuContribution = {
   },
 }
 
-const canvasCreateRegions: MenuContribution = {
-  id: 'core.canvas.createRegions',
-  targets: ['canvas'],
-  group: '10-nav',
-  order: 2,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'canvas') return []
-    return (['map', 'fold', 'while'] as const).map((kind) => ({
-      id: `core.canvas.create${kind[0]!.toUpperCase()}${kind.slice(1)}Region`,
-      label: `Create ${kind} region`,
-      action: { kind: 'host' as const, action: 'createRegion', params: { kind } },
-    }))
-  },
-}
-
 // ---------------------------------------------------------------------------
 // Groups: view-only rectangles. Creation at the cursor is a plain command;
 // creation AROUND a selection is a host action (the bounding box needs node
@@ -1307,6 +1292,5 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     widgetSubgraphNode,
     nodePreviewExpose,
     canvasCreateSubgraph,
-    canvasCreateRegions,
   ]
 }
