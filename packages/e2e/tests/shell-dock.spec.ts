@@ -177,6 +177,14 @@ test('a zone with no renderable tabs hides without losing its saved open state',
 })
 
 test('left bar selects the panel title and each toggle activates or closes its panel', async ({ page }) => {
+  // Include a longer built-in title moved from the right rail without changing defaults.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      dock: { dock(id: string, zone: 'left'): boolean; setOpen(zone: 'left', open: boolean): void }
+    }
+    app.dock.dock('extensions', 'left')
+    app.dock.setOpen('left', false)
+  })
   await page.evaluate(() => document.fonts.ready)
   const labels = page.locator('.left-sidebar .sidebar-button-label')
   await expect(labels.filter({ hasText: 'Extensions' })).toBeVisible()
