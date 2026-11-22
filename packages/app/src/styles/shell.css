@@ -88,7 +88,7 @@
 /* A tab is as wide as its title and close button, up to 220px; when the
    strip is crowded it shrinks to about three letters and the close button. */
 .tab {
-  min-width: calc(2 * var(--dinkster-space-8) + 2px + 5ch + var(--dinkster-space-4) + 24px);
+  min-width: calc(2 * var(--dinkster-space-8) + 2px + 3ch + var(--dinkster-icon-size) + var(--dinkster-space-8) + var(--dinkster-space-4) + 24px);
   max-width: 220px;
 }
 
