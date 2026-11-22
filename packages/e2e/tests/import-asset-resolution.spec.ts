@@ -86,10 +86,7 @@ async function openImportedDocument(page: Page, json: unknown, title: string) {
   const opened = await page.evaluate(async ({ json, title, url }) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.baseUrl === url)!
-    const retained = app as unknown as {
-      openRetainedDocument(json: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
-    }
-    return await retained.openRetainedDocument(json, title, backend, () => true) !== undefined
+    return (await app.openDocument(json, title, backend)).length === 0
   }, { json, title, url: MOCK })
   expect(opened).toBe(true)
   return opened
