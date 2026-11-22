@@ -95,9 +95,13 @@ selection also admits its replacement inventory. After publication, the previous
 locally admitted owner retires only after its in-flight body reads finish, while
 independent owners remain untouched. Cancel discards the local
 draft without releasing acknowledged owners. The staged selection keeps its
-acknowledged reader: a changed document, registry, connection, or closed session
-refuses further staging and Apply until the picker is reopened. Apply still confirms the document
-command separately. This does not enable backend cleanup eligibility.
+acknowledged reader across a planned stream resume and a semantically equivalent
+registry replacement. Any real change to the complete admission catalog, including
+an unrelated node's schema or widget fields, invalidates that reader; locale-only
+labels do not. A changed project, document, revision, connection generation,
+backend, or closed session also refuses further staging and Apply until the picker
+is reopened. Apply still confirms the document command separately. This does not
+enable backend cleanup eligibility.
 
 Missing model selections say "Not on disk" and explain that download is offered
 when the workflow runs. The picker does not start downloads or show a disabled

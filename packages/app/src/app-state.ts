@@ -6531,7 +6531,7 @@ export class AppState {
     const destinationCurrent = (): boolean => !this.disposed && activeProjectId() === project &&
       session.doc === document && session.revision === revision &&
       generation === this.assetConnectionGenerations.get(backend.connection) &&
-      this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
+      this.backendFor(backend.id) === backend && this.registryUnchanged(registry, backend.registry.get()) &&
       this.tabs.get().some((candidate) => candidate.store === session && !candidate.execution &&
         this.backendForTab(candidate) === backend)
     const current = (): boolean => active && destinationCurrent()
@@ -6571,7 +6571,7 @@ export class AppState {
     const before = this.pickerAssetOwners.get(previous)
     const after = this.pickerAssetOwners.get(replacement)
     if (previous === replacement || !before || !after || !previous.current() || !replacement.current() ||
-      before.session !== after.session || before.backend !== after.backend || before.registry !== after.registry ||
+      before.session !== after.session || before.backend !== after.backend || !this.registryUnchanged(before.registry, after.registry) ||
       before.project !== after.project || before.generation !== after.generation || !publish() ||
       !replacement.current() || this.pickerAssetOwners.get(previous) !== before) return false
     before.invalidate()
@@ -8020,16 +8020,6 @@ export class AppState {
     if (this.disposed || !stillWanted()) return undefined
     const registry = backend.registry.get()
     const destinationRegistry = destination.registry.get()
-    const registryUnchanged = (before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean => {
-      before = before && (this.packLocaleSources.get(before) ?? before)
-      after = after && (this.packLocaleSources.get(after) ?? after)
-      if (before === after) return true
-      if (before === undefined || after === undefined) return false
-      // A refetch can replace the registry without changing its admission contract.
-      const content = (value: SchemaRegistry) => ({ ...value, resolve: undefined,
-        schemas: Object.fromEntries(value.schemas), packs: value.packs && Object.fromEntries(value.packs) })
-      return canonicalJson(content(before)) === canonicalJson(content(after))
-    }
     const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(destination.connection)
     let connectionChanged = false
@@ -8040,8 +8030,8 @@ export class AppState {
         this.resolverWithVirtualNodes(destinationRegistry?.resolve ?? (() => undefined)), [], 'admission')
       const retained = await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
       if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
-        !this.backends.get().includes(destination) || !registryUnchanged(registry, backend.registry.get()) ||
-        !registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
+        !this.backends.get().includes(destination) || !this.registryUnchanged(registry, backend.registry.get()) ||
+        !this.registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
       const previous = this.tabs.get().find((tab) => !tab.execution && tab.id === prepared.document.lineage)
       const tab = prepared.publish(target ?? undefined)
       this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation, previous?.store ?? tab.store)
@@ -8051,7 +8041,7 @@ export class AppState {
       const intent = this.workflowOpenIntent
       if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
       if (this.disposed || intent !== this.workflowOpenIntent || connectionChanged ||
-        !this.backends.get().includes(destination) || !registryUnchanged(destinationRegistry, destination.registry.get())) return undefined
+        !this.backends.get().includes(destination) || !this.registryUnchanged(destinationRegistry, destination.registry.get())) return undefined
       const current = this.liveTabContinuing(tab.store)
       return current && this.backendForTab(current) === destination ? current : undefined
     } catch {
@@ -9511,6 +9501,17 @@ export class AppState {
 
   /** Locale labels do not change the schema snapshot used for asset admission. */
   private readonly packLocaleSources = new WeakMap<SchemaRegistry, SchemaRegistry>()
+
+  private registryUnchanged(before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean {
+    before = before && (this.packLocaleSources.get(before) ?? before)
+    after = after && (this.packLocaleSources.get(after) ?? after)
+    if (before === after) return true
+    if (before === undefined || after === undefined) return false
+    // A refetch can replace the registry without changing its admission contract.
+    const content = (value: SchemaRegistry) => ({ ...value, resolve: undefined,
+      schemas: Object.fromEntries(value.schemas), packs: value.packs && Object.fromEntries(value.packs) })
+    return canonicalJson(content(before)) === canonicalJson(content(after))
+  }
 
   private async refreshPackLocaleOverlay(
     backend: Backend & { readonly protocol: 'dinkster' },

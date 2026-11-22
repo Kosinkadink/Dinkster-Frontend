@@ -1903,6 +1903,87 @@ describe('retained app dispatch', () => {
 
 describe('retained picker consumers', () => {
 
+  it('preserves picker authority across equivalent planned-resume catalogs but rejects real changes', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test', href: 'http://test/' })
+    const sockets: FakeSocket[] = []
+    class FakeSocket {
+      binaryType = ''
+      onopen: ((event: unknown) => void) | null = null
+      onclose: ((event: unknown) => void) | null = null
+      onmessage = null
+      onerror = null
+      constructor() { sockets.push(this) }
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', FakeSocket)
+    vi.stubGlobal('fetch', async (url: string) => new Response('{}', {
+      status: url.endsWith('/api/library/retention-clients') ? 404 : 503,
+    }))
+    const unrelated: NodeSchema = { ...schema, type: 'Unrelated', items: [{ kind: 'input', id: 'mode',
+      optional: false, type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'COMBO', options: { options: ['first', 'second'] } },
+    }] }
+    const app = createWorkflowApp([schema, unrelated], session().doc)
+    try {
+      const tab = app.activeTab()!
+      const backend = app.backendForTab(tab)
+      const original = backend.registry.get()!
+      const freshRegistry = () => {
+        const schemas = new Map([...original.schemas].map(([type, value]) => [type, structuredClone(value)]))
+        return { ...original, schemas, resolve: (type: string) => schemas.get(type) }
+      }
+      vi.spyOn(backend.connection, 'fetchSchemas').mockImplementation(async () => freshRegistry())
+      const receipts = new Map<string, RetainedAssets>()
+      vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
+        const receipt = { ...receipts.get(owner.ownerId)!, revision: 2, digests: [], complete: true }
+        receipts.set(owner.ownerId, receipt)
+        return receipt
+      })
+      backend.connection.connect()
+      await vi.waitFor(() => expect(sockets).toHaveLength(1))
+      sockets[0]!.onopen?.({})
+      await vi.waitFor(() => expect(backend.schemaState.get().status).toBe('ready'))
+      const reader = await app.retainPickerAssets(tab, backend, asset('b'))
+      const capturedRegistry = backend.registry.get()
+      expect(reader.current()).toBe(true)
+      const statuses: string[] = []
+      const stop = backend.connection.status.subscribe((status) => statuses.push(status))
+      await expect(backend.connection.fetchLibraryStorage()).rejects.toThrow('GET library storage failed: 503')
+      await vi.waitFor(() => expect(sockets).toHaveLength(2))
+      sockets[1]!.onopen?.({})
+      await vi.waitFor(() => expect(backend.schemaState.get().status).toBe('ready'))
+      stop()
+      expect(statuses).toEqual([])
+      expect(backend.registry.get()).not.toBe(capturedRegistry)
+      expect(reader.current()).toBe(true)
+      await expect(reader.read(async () => 'selected asset')).resolves.toBe('selected asset')
+      const replacement = await app.retainPickerAssets(tab, backend, asset('c'))
+      expect(await app.replacePickerAssets(reader, replacement, () => true)).toBe(true)
+      expect(reader.current()).toBe(false)
+      expect(replacement.current()).toBe(true)
+      const changed = freshRegistry()
+      changed.schemas.set(unrelated.type, { ...unrelated, items: unrelated.items.map((item) => item.kind === 'input'
+        ? { ...item, widget: { widgetType: 'COMBO', options: { options: ['different'] } } } : item) })
+      backend.registry.set(changed)
+      expect(replacement.current()).toBe(false)
+      await expect(replacement.read(async () => 'stale catalog')).rejects.toThrow('Retained asset reader is closed')
+      const edited = await app.retainPickerAssets(tab, backend, asset('d'))
+      expect(edited.current()).toBe(true)
+      tab.store.dispatch({ command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n0', title: 'Changed after picker admission',
+      } })
+      expect(edited.current()).toBe(false)
+      await expect(edited.read(async () => 'stale document')).rejects.toThrow('Retained asset reader is closed')
+    } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
   it.each(['accepted', 'closed', 'edited', 'registry', 'disconnected', 'disposed', 'refused'] as const)(
     'confirms a separate complete selection owner before a picker can publish: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
