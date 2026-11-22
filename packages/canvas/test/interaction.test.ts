@@ -11,9 +11,10 @@ import {
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
 import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT, type LayoutRow } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, layoutNode, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene } from '../src/scene.js'
+import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
+import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -62,6 +63,7 @@ function interactionHarness(
     },
     getToolboxLayout: () => typeof toolbox === 'function' ? toolbox() : toolbox,
     getBadges: () => badges,
+    getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
     showsArrivingValue: () => false,
@@ -173,6 +175,135 @@ describe('lens preview-surface affordance', () => {
 
     expect(activate).toHaveBeenCalledOnce()
     expect(harness.dispatched).toEqual([])
+  })
+})
+
+describe('preview caption row', () => {
+  const withRegion = (folded: boolean, minimized: boolean, region: 'panel' | 'pending') => {
+    const base = interactionScene()
+    const node = base.nodes[0]!
+    const previewNode = {
+      ...node,
+      ...(folded && !minimized ? { previewFolded: true as const } : {}),
+      ...(!folded && minimized ? { minimizedPreviewOpen: true as const } : {}),
+      layout: {
+        ...node.layout,
+        ...(minimized ? { minimized: true as const } : {}),
+        height: 140,
+        preview: region === 'panel'
+          ? { x: 10, y: 56, width: 80, height: 72 }
+          : { x: 10, y: 56, width: 80, height: 22, compact: true as const },
+      },
+    }
+    return { scene: { ...base, nodes: [previewNode, ...base.nodes.slice(1)] } as Scene, node: previewNode }
+  }
+
+  it('folds or opens the preview on a click, and leaves a drag and a pending caption alone', () => {
+    const open = withRegion(false, false, 'panel')
+    const harness = interactionHarness(open.scene)
+    const x = open.node.x + 50
+    const y = open.node.y + 56 + 11
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setPreviewFolded',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, folded: true },
+    }])
+    // A minimized node starts folded: its caption opens it.
+    const minimized = withRegion(true, true, 'pending')
+    const folded = { ...minimized.node, layout: { ...minimized.node.layout, preview: { ...minimized.node.layout.preview!, folded: true as const } } }
+    const minimizedHarness = interactionHarness({ ...minimized.scene, nodes: [folded, ...minimized.scene.nodes.slice(1)] } as Scene)
+    minimizedHarness.fire('pointerdown', x, y)
+    minimizedHarness.fire('pointerup', x, y)
+    expect(minimizedHarness.dispatched).toEqual([{
+      command: 'view.setPreviewFolded',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, folded: false },
+    }])
+    const dragHarness = interactionHarness(open.scene)
+    dragHarness.fire('pointerdown', x, y)
+    dragHarness.fire('pointermove', x + 30, y + 30)
+    dragHarness.fire('pointerup', x + 30, y + 30)
+    expect(JSON.stringify(dragHarness.dispatched)).not.toContain('view.setPreviewFolded')
+    // "No picture yet", loading and failed captions have nothing to open.
+    const pending = withRegion(false, false, 'pending')
+    const pendingHarness = interactionHarness(pending.scene)
+    pendingHarness.fire('pointerdown', x, y)
+    pendingHarness.fire('pointerup', x, y)
+    expect(pendingHarness.dispatched).toEqual([])
+  })
+
+  it('sizes only the node height from the bottom edge of an open preview, and nothing when it is folded', () => {
+    const open = withRegion(false, false, 'panel')
+    const harness = interactionHarness(open.scene)
+    // Off center, so a corner or width change would show; 2 below the edge.
+    const x = open.node.x + 30
+    const bottom = open.node.y + open.node.layout.height
+    harness.fire('pointermove', x, bottom + 2)
+    expect(harness.overlays.at(-1)).toMatchObject({ previewEdge: open.node.id })
+    harness.fire('pointerdown', x, bottom + 2)
+    harness.fire('pointermove', x + 40, bottom + 32)
+    harness.fire('pointerup', x + 40, bottom + 32)
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setNodeSize',
+      params: {
+        graphId: open.scene.graphId, nodeId: open.node.id,
+        size: { width: open.node.layout.width, height: open.node.layout.height + 30 },
+        position: { x: open.node.x, y: open.node.y },
+      },
+    }])
+    const pending = withRegion(false, false, 'pending')
+    const pendingHarness = interactionHarness(pending.scene)
+    pendingHarness.fire('pointermove', x, bottom + 2)
+    expect(pendingHarness.overlays.at(-1) ?? {}).not.toHaveProperty('previewEdge')
+    pendingHarness.fire('pointerdown', x, bottom + 2)
+    pendingHarness.fire('pointermove', x + 40, bottom + 32)
+    pendingHarness.fire('pointerup', x + 40, bottom + 32)
+    expect(JSON.stringify(pendingHarness.dispatched)).not.toContain('view.setNodeSize')
+  })
+
+  it('steps a pressed bar 10 for a picture and one row for an open text result, and gives a folded text result no bar', () => {
+    const open = withRegion(false, false, 'panel')
+    const x = open.node.x + 30
+    const bottom = open.node.y + open.node.layout.height
+    const size = (height: number) => ({
+      command: 'view.setNodeSize',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, size: { width: open.node.layout.width, height } },
+    })
+    const picture = interactionHarness(open.scene)
+    picture.fire('pointerdown', x, bottom + 2)
+    picture.fire('pointerup', x, bottom + 2)
+    expect(picture.dispatched).toEqual([])
+    picture.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    picture.fireWindow('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
+    expect(picture.dispatched).toEqual([size(140 + 10), size(140 - 10)])
+    picture.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    picture.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(picture.dispatched).toHaveLength(2)
+
+    const { preview: _preview, ...layout } = open.node.layout
+    const withText = (folded: boolean) => {
+      const node = {
+        ...open.node,
+        layout: { ...layout, minHeight: 100, textOutput: { x: 10, y: 56, width: 80, height: folded ? 22 : 72, ...(folded ? { folded: true as const } : {}) } },
+      }
+      return { ...open.scene, nodes: [node, ...open.scene.nodes.slice(1)] } as Scene
+    }
+    const text = interactionHarness(withText(false))
+    text.fire('pointermove', x, bottom + 2)
+    expect(text.overlays.at(-1)).toMatchObject({ previewEdge: open.node.id })
+    text.fire('pointerdown', x, bottom + 2)
+    text.fire('pointerup', x, bottom + 2)
+    text.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(text.dispatched).toEqual([size(140 + defaultTokens.rowHeight)])
+
+    const foldedText = interactionHarness(withText(true))
+    foldedText.fire('pointermove', x, bottom + 2)
+    expect(foldedText.overlays.at(-1) ?? {}).not.toHaveProperty('previewEdge')
+    foldedText.fire('pointerdown', x, bottom + 2)
+    foldedText.fire('pointermove', x + 40, bottom + 32)
+    foldedText.fire('pointerup', x + 40, bottom + 32)
+    foldedText.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(JSON.stringify(foldedText.dispatched)).not.toContain('view.setNodeSize')
   })
 })
 
@@ -573,12 +704,18 @@ describe('canvas hover targets', () => {
     scene.nodes[0].layout.rows[0].spec = { widgetType: 'STRING', options: {}, multiline: true }
     const harness = interactionHarness(scene)
 
-    harness.fire('pointermove', 50, 99)
+    harness.fire('pointermove', 50, 92)
     expect(harness.overlays.at(-1)).toMatchObject({
       hoveredWidget: { nodeId: 'n1', valueKey: 'amount' },
     })
-    harness.fire('pointermove', 50, 103)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('textBoxEdge')
+    // The band along the box's bottom edge belongs to its height bar.
+    harness.fire('pointermove', 50, 99)
+    expect(harness.overlays.at(-1)).toMatchObject({ textBoxEdge: { nodeId: 'n1', valueKey: 'amount' } })
     expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredWidget')
+    harness.fire('pointermove', 50, 106)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredWidget')
+    expect(harness.overlays.at(-1)).not.toHaveProperty('textBoxEdge')
   })
 
   it('idle hover over a visible widget tap sets tap identity on the second tap move and clears on leave and scene replacement', () => {
@@ -734,10 +871,10 @@ describe('canvas hover targets', () => {
 
   it('emits a badge before the underlying node header', () => {
     const hover = vi.fn()
-    const badge = { id: 'core.error', glyph: '!', color: '#f00' }
+    const badge = { id: 'core.subgraph', glyph: 'Subgraph', placement: 'title' as const, color: '#f00' }
     const harness = interactionHarness(interactionScene(), { onHoverTarget: hover }, { n1: [badge] })
 
-    // n1 badge rect: x=88..102, y=13..27. This is also inside the header.
+    // n1 mark rect: x=84..100, y=12..28. This is also inside the header.
     harness.fire('pointermove', 95, 20)
 
     expect(hover).toHaveBeenCalledWith(expect.objectContaining({
@@ -2462,8 +2599,8 @@ describe('gesture ownership and cancellation', () => {
   it('a re-press after a dropped release commits the stale drag and starts fresh', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointermove', 50, 35, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointermove', 80, 35, { buttons: 1, pointerType: 'mouse' })
     // The release was dropped while the pointer was stationary; the next
     // press of the same button arrives over empty canvas.
     harness.fire('pointerdown', 150, 15, { buttons: 1, pointerType: 'mouse' })
@@ -2482,8 +2619,8 @@ describe('gesture ownership and cancellation', () => {
   it('a re-press on a stuck motionless press cancels the stale gesture', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
     expect(harness.dispatched).toEqual([])
     expect(harness.controller.dumpPointerTrace()).toEqual(expect.arrayContaining([
       expect.objectContaining({ gestureKind: 'node', event: 'cancel', reason: 'pointerdown-repress' }),
@@ -3344,15 +3481,93 @@ describe('node title double-click minimization', () => {
     })
   })
 
-  it('keeps subgraph opening ahead of minimization', () => {
+  it('minimizes a subgraph node from its title and enters it only from its mark', () => {
     const scene = interactionScene()
     const subgraph = { ...scene.nodes[0]!, isSubgraph: true }
     const open = vi.fn()
-    const harness = interactionHarness({ ...scene, nodes: [subgraph, ...scene.nodes.slice(1)] }, {
-      onOpenSubgraph: open,
-    })
+    const badgeClick = vi.fn()
+    const harness = interactionHarness(
+      { ...scene, nodes: [subgraph, ...scene.nodes.slice(1)] },
+      { onOpenSubgraph: open, onBadgeClick: badgeClick },
+      { n1: [SUBGRAPH_BADGE] },
+    )
     harness.fire('dblclick', 50, 15)
+    expect(open).not.toHaveBeenCalled()
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1'], collapsed: true },
+    }])
+    harness.fire('dblclick', 50, 40)
+    expect(open).not.toHaveBeenCalled()
+
+    // The mark is drawn 16 px at x 84..100; its target reaches 82..102.
+    harness.fire('pointerdown', 83, 20)
+    expect(badgeClick).not.toHaveBeenCalled()
+    harness.fire('pointerup', 83, 20)
+    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 84, y: 12, width: 16, height: 16 })
+    harness.fire('dblclick', 92, 20)
     expect(open).toHaveBeenCalledWith(subgraph)
+    expect(harness.dispatched).toHaveLength(1)
+  })
+
+  it('drags a node from its subgraph mark without opening the panel', () => {
+    const badgeClick = vi.fn()
+    const harness = interactionHarness(interactionScene(), { onBadgeClick: badgeClick }, { n1: [SUBGRAPH_BADGE] })
+    harness.fire('pointerdown', 92, 20, { buttons: 1 })
+    harness.fire('pointermove', 112, 40, { buttons: 1 })
+    harness.fire('pointerup', 112, 40)
+    expect(badgeClick).not.toHaveBeenCalled()
+    expect(harness.dispatched).toEqual([
+      { command: 'node.move', params: { graphId: 'g0', positions: { n1: { x: 30, y: 30 } } } },
+    ])
+  })
+
+  it('toggles from the title-bar arrow for the selection, or for an unselected node alone', () => {
+    const scene = interactionScene()
+    const harness = interactionHarness(scene)
+    const clickArrow = () => {
+      harness.fire('pointerdown', 24, 20, { buttons: 1 })
+      harness.fire('pointerup', 24, 20)
+    }
+    harness.controller.setSelection(['n2'])
+    clickArrow()
+    expect(harness.dispatched.at(-1)).toEqual({
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1'], collapsed: true },
+    })
+    expect([...harness.controller.getSelection()]).toEqual(['n2'])
+
+    // Any open node in the selection minimizes all of them.
+    harness.swapScene({ ...scene, nodes: [{ ...scene.nodes[0]!, layout: { ...scene.nodes[0]!.layout, minimized: true as const } }, scene.nodes[1]!] })
+    harness.controller.setSelection(['n1', 'n2'])
+    clickArrow()
+    expect(harness.dispatched.at(-1)).toEqual({
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1', 'n2'], collapsed: true },
+    })
+    expect([...harness.controller.getSelection()]).toEqual(['n1', 'n2'])
+
+    // Each click of a double-click already toggled; the double-click adds nothing.
+    harness.fire('dblclick', 24, 20)
+    expect(harness.dispatched).toHaveLength(2)
+  })
+
+  it('moves the node when the press on the arrow drags', () => {
+    const harness = interactionHarness(interactionScene())
+    harness.fire('pointerdown', 24, 20, { buttons: 1 })
+    harness.fire('pointermove', 44, 40, { buttons: 1 })
+    harness.fire('pointerup', 44, 40)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.move', params: { graphId: 'g0', positions: { n1: { x: 30, y: 30 } } } },
+    ])
+  })
+
+  it('takes no arrow click at the overview zoom', () => {
+    const harness = interactionHarness(interactionScene())
+    harness.setViewportTransform(0, 0, 0.25)
+    // World (24, 20), the arrow's middle, at a quarter scale.
+    harness.fire('pointerdown', 6, 5, { buttons: 1 })
+    harness.fire('pointerup', 6, 5)
     expect(harness.dispatched).toEqual([])
   })
 
@@ -3794,12 +4009,12 @@ describe('two-finger touch navigation', () => {
   it('a second finger cancels a one-finger touch drag instead of committing it', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { ...touch, pointerId: 1 })
-    harness.fire('pointermove', 50, 35, { ...touch, pointerId: 1 })
+    harness.fire('pointerdown', 60, 15, { ...touch, pointerId: 1 })
+    harness.fire('pointermove', 80, 35, { ...touch, pointerId: 1 })
     harness.fire('pointerdown', 300, 300, { ...touch, pointerId: 2 })
     harness.fire('pointermove', 320, 300, { ...touch, pointerId: 2 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
-    harness.fire('pointerup', 50, 35, { pointerType: 'touch', pointerId: 1 })
+    harness.fire('pointerup', 80, 35, { pointerType: 'touch', pointerId: 1 })
     harness.fire('pointerup', 320, 300, { pointerType: 'touch', pointerId: 2 })
     // The interrupted node drag never dispatches: cancelled, not committed.
     expect(harness.dispatched).toEqual([])
@@ -4166,6 +4381,22 @@ describe('Inputs panel fields', () => {
     expect(activated).toEqual(['radius'])
   })
 
+  it('shows a promoted input reached through a reroute as a field of the entered node', () => {
+    const base = workflow()
+    const sub = base.graphs['g1']!
+    const store = new DocumentStore({ ...base, graphs: { ...base.graphs, g1: {
+      ...sub,
+      reroutes: { r: { id: 'r' } },
+      links: { leg: { id: 'leg', from: { reroute: 'r' }, to: { node: 'inner', port: 'radius' } } },
+      boundary: { ...sub.boundary!, inputs: sub.boundary!.inputs.map((item) => item.id === 'radius'
+        ? { ...item, binds: { kind: 'port', node: 'inner', port: 'radius', viaReroute: 'r' } } : item) },
+    } } } as unknown as WorkflowDocument, coreCommandRegistry())
+    pressPlus(store, 'soft')
+    expect(radiusOf(store, 'g0', 'soft')).toBe(7)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+    expect(radiusOf(store, 'g1', 'inner')).toBeUndefined()
+  })
+
   it('shows a dropdown that leads options with its option\'s fields, edited on the entered node', () => {
     const gain: NodeSchema['items'][number] = { kind: 'input', id: 'gain', type: { kind: 'concrete', name: 'INT' }, optional: true,
       widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 } }
@@ -4260,5 +4491,80 @@ describe('Inputs panel fields', () => {
     expect(links[0]!.y1).toBe(panel.y + rows[0]!.y + defaultTokens.rowHeight / 2)
     const leaf = scene.nodes.find((node) => node.id === 'leaf')!
     expect(leaf.layout.rows.flatMap((row) => row.kind === 'widget' && row.subgraphMark !== undefined ? [row.address.port] : [])).toEqual(['mode'])
+  })
+})
+
+describe('text box height', () => {
+  const text = (id: string): NodeSchema['items'][number] => ({
+    kind: 'input',
+    id,
+    type: { kind: 'concrete', name: 'STRING' },
+    optional: false,
+    widget: { widgetType: 'STRING', options: { multiline: true } },
+  })
+  const schema: NodeSchema = {
+    type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: false,
+    items: [text('first'), text('second')],
+  }
+  const sceneWith = (size?: { width: number; height: number }): Scene => {
+    const node = { id: asNodeId('n1'), type: 'Prompt', values: {} }
+    const layout = layoutNode(schema, node, defaultTokens, (value) => value.length * 6,
+      () => ({ viewId: 'core.text', rows: 2 }), size === undefined ? {} : { size })
+    return {
+      graphId: 'g',
+      nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
+      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+    } as unknown as Scene
+  }
+  const lines = defaultTokens.multilineText.lineHeight
+
+  it('drags one box taller in whole lines while the node keeps its other rows and resize surplus', () => {
+    const natural = sceneWith().nodes[0]!.layout
+    const scene = sceneWith({ width: natural.width, height: natural.height + 50 })
+    const first = scene.nodes[0]!.layout.rows[0]!
+    const edgeY = first.y + first.height - 3
+    const harness = interactionHarness(scene)
+
+    harness.fire('pointerdown', 60, edgeY)
+    harness.fire('pointermove', 60, edgeY + 3 * lines + 4)
+    expect(harness.overlays.at(-1)).toMatchObject({
+      textBoxLines: { nodeId: 'n1', valueKey: 'first', lines: 5 },
+      textBoxEdge: { nodeId: 'n1', valueKey: 'first' },
+    })
+    harness.fire('pointerup', 60, edgeY + 3 * lines + 4)
+    // One undo step: the box's lines, and the node's stored height moved by
+    // the same three lines so the second box keeps its 50 px surplus.
+    expect(harness.dispatched).toEqual([{
+      command: 'batch',
+      params: {
+        invocations: [
+          { command: 'view.setTextBoxLines', params: { graphId: 'g', nodeId: 'n1', inputId: 'first', lines: 5 } },
+          {
+            command: 'view.setNodeSize',
+            params: { graphId: 'g', nodeId: 'n1', size: { width: natural.width, height: natural.height + 50 + 3 * lines } },
+          },
+        ],
+      },
+    }])
+  })
+
+  it('steps a focused edge one line per arrow key and stops at two lines', () => {
+    const scene = sceneWith()
+    const second = scene.nodes[0]!.layout.rows[1]!
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', 60, second.y + second.height - 3)
+    harness.fire('pointerup', 60, second.y + second.height - 3)
+    expect(harness.dispatched).toEqual([])
+
+    harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(harness.dispatched).toEqual([
+      { command: 'view.setTextBoxLines', params: { graphId: 'g', nodeId: 'n1', inputId: 'second', lines: 3 } },
+    ])
+    // Two lines is the floor: stepping up from the declared two changes nothing.
+    harness.fireWindow('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
+    expect(harness.dispatched).toHaveLength(1)
+    harness.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(harness.dispatched).toHaveLength(1)
   })
 })

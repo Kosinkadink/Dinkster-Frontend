@@ -28,7 +28,7 @@ import {
   type SharedDocumentSession,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { DinksterConnection, buildDinksterRegistry, type RetainedAssets } from '@dinkster/client'
+import { buildDinksterRegistry } from '@dinkster/client'
 import { SharedWorkerDocumentAuthority } from '../src/shared-worker-authority.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
@@ -233,8 +233,6 @@ const editableApps: AppState[] = []
 beforeEach(() => {
   vi.stubGlobal('sessionStorage', undefined)
   vi.stubGlobal('localStorage', fakeStorage())
-  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
 })
 afterEach(() => {
   for (const app of editableApps.splice(0)) app.dispose()
@@ -452,150 +450,43 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
-  it.each([
-    { keepWorkflow: false, ordered: true },
-    { keepWorkflow: true, ordered: true },
-    { keepWorkflow: true, ordered: false },
-    { keepWorkflow: true, ordered: true, pendingAdmission: true },
-    { keepWorkflow: true, ordered: true, peerWindow: true },
-    { keepWorkflow: true, ordered: true, peerWindow: true, peerJoin: true },
-    { keepWorkflow: true, ordered: true, unsettledRecovery: true },
-  ])('retires document receipts after End and Close, another workflow=$keepWorkflow, ordered=$ordered, pending=$pendingAdmission, peer=$peerWindow, joined=$peerJoin, unsettled=$unsettledRecovery', async ({ keepWorkflow, ordered, pendingAdmission, peerWindow, peerJoin, unsettledRecovery }) => {
-    let lock = Promise.resolve()
-    vi.stubGlobal('navigator', { locks: { request: (_name: string, _options: unknown, callback: () => unknown) => {
-      const next = lock.then(callback)
-      lock = next.then(() => undefined, () => undefined)
-      return next
-    } } })
-    const server = new FakeCollabServer()
-    const app = makeApp(server, false)
-    const peer = peerWindow ? makeApp(server, false) : undefined
-    const documents = new SharedWorkerDocumentAuthority()
-    const workspace = new SharedWorkerTabAuthority()
-    const channels: MessageChannel[] = []
-    const connect = (authority: SharedWorkerDocumentAuthority | SharedWorkerTabAuthority): MessagePort => {
-      const channel = new MessageChannel()
-      channels.push(channel)
-      authority.connect(channel.port1)
-      channel.port1.start()
-      return channel.port2
-    }
-    const receipts = new Map<string, RetainedAssets>()
-    let holdAdmissions = false
-    const pendingAdmissions: Array<() => void> = []
-    for (const backend of [...app.backends.get(), ...(peer?.backends.get() ?? [])]) {
-      vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-        const receipt = { ...owner, ...declaration, revision: 1 }
-        receipts.set(owner.ownerId, receipt)
-        if (holdAdmissions && app.backends.get().includes(backend) && (declaration.digests.length > 0 || peerWindow)) {
-          await new Promise<void>((resolve) => pendingAdmissions.push(resolve))
-        }
-        return receipt
-      })
-      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-        const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
-        receipts.set(owner.ownerId, receipt)
-        return receipt
-      })
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
-    }
-    const digest = `blake3:${'e'.repeat(64)}`
-    try {
-      await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
-      const prior = activeTab(app)
-      await until(() => 'status' in activeTab(app).store, 'initial promotion')
-      const tab = activeTab(app)
-      expect((await app.dispatchRetainedTo(tab, { command: 'node.add', params: {
-        graphId: tab.store.doc.root, type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
-          held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
-        },
-      } })).ok).toBe(true)
-      await (tab.store as SharedDocumentSession).settle()
-      if (unsettledRecovery) expect(await app.openDocument(tab.store.doc, 'Imported asset workflow')).toEqual([])
-      expect(await app.shareActiveTab()).toBeUndefined()
-      const shared = activeTab(app)
-      expect([...receipts.values()].some((receipt) => receipt.digests.includes(digest))).toBe(true)
-      const node = Object.values(shared.store.doc.graphs[shared.store.doc.root]!.nodes).find((entry) => entry.type === 'AssetHolder')!
-      expect((await app.dispatchRetainedTo(shared, { command: 'node.remove', params: {
-        graphId: shared.store.doc.root, nodeIds: [node.id],
-      } })).ok).toBe(true)
-      if (ordered) await sharedSession(app, shared.id).settle()
-      expect(shared.store.undo()).toBe(true)
-      await sharedSession(app, shared.id).settle()
-      if (!unsettledRecovery) {
-        await tick()
-        app.flushPersistTabs(true)
-        await until(() => {
-          const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? '{}')
-          return canonical.assetRetention?.complete === true && canonical.tabs?.some((entry: { doc: WorkflowDocument }) =>
-            JSON.stringify(entry.doc) === JSON.stringify(shared.store.doc))
-        }, 'settled shared recovery')
-      }
-      if (peer !== undefined) {
-        await peer.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
-        await until(() => peer.tabs.get().some((entry) => entry.id === shared.id && 'status' in entry.store), 'peer promotion')
-        if (peerJoin) expect(await peer.joinCollabSession(app.collabFor(shared.id)!.descriptor.sessionId)).toBeUndefined()
-        peer.flushPersistTabs(true)
-        await tick()
-      }
-      holdAdmissions = pendingAdmission === true
-      expect(await app.endCollabSession(shared.id)).toBeUndefined()
-      if (pendingAdmission) await until(() => pendingAdmissions.length > 0, 'pending ownership admission')
-      if (keepWorkflow) app.createWorkflow()
-      if (peer !== undefined) {
-        const nextId = app.activeTabId.get()
-        await until(() => peer.tabs.get().some((entry) => entry.id === nextId), 'peer new workflow')
-        app.flushPersistTabs(true)
-        await tick()
-        holdAdmissions = !peerJoin
-      }
-      expect(app.requestCloseTab(prior.id, () => true)).toBe(true)
-      if (peer !== undefined) {
-        await until(() => !peer.tabs.get().some((entry) => entry.id === prior.id), 'peer close')
-        peer.flushPersistTabs(true)
-        await vi.waitFor(() => {
-          const canonical = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? '{}')
-          expect(canonical.assetRetention?.complete).toBe(true)
-          expect(canonical.tabs?.some((entry: { doc: WorkflowDocument }) => entry.doc.lineage === prior.id)).toBe(false)
-        })
-      }
-      holdAdmissions = false
-      for (const resolve of pendingAdmissions) resolve()
-      await vi.waitFor(() => expect([...receipts.values()].filter((receipt) => receipt.digests.includes(digest))).toEqual([]))
-      await vi.waitFor(() => expect(localStorage.getItem(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(prior.id)}`)).toBeNull())
-    } finally {
-      app.dispose()
-      peer?.dispose()
-      for (const channel of channels) { channel.port1.close(); channel.port2.close() }
-    }
-  })
 
-  it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
+  it.each(['option', 'group', 'choice', 'slot'] as const)('shares removed %s data without stripping leftovers', async (part) => {
     const server = new FakeCollabServer()
-    const app = prepareWorkflowApp(makeApp(server))
-    const prior = activeTab(app)
-    const backend = app.collabBackend()!
-    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
-      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-    const added = await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
-    expect(added.ok).toBe(true)
-    const node = Object.values(prior.store.doc.graphs[prior.store.doc.root]!.nodes)[0]!
-    expect((await app.dispatchTo(prior, { command: 'node.setValue', params: { graphId: prior.store.doc.root,
-      nodeId: node.id, inputId: 'held', value: asset('b') } })).ok).toBe(true)
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('a').digest, asset('b').digest] })
-      return { ...owner, ...declaration, revision: accepted ? 1 : 2 }
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    expect(await app.shareActiveTab() === undefined).toBe(accepted)
-    expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
-    expect(activeTab(app).store.canUndo).toBe(true)
-    expect(activeTab(app).store.undo()).toBe(true)
-    expect(activeTab(app).store.doc.graphs[prior.store.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
-    if (!accepted) {
-      expect(activeTab(app).store).toBe(prior.store)
-      expect(server.sessions.size).toBe(0)
+    const app = makeApp(server)
+    const asset = { digest: `blake3:${'c'.repeat(64)}`, name: 'old.bin', size: 7,
+      mediaType: 'application/octet-stream', virtualPath: '' }
+    const candidate: NodeSchema = { type: 'Updated', displayName: 'Updated', category: 'test', source: 'v3',
+      isOutputNode: true, items: [{ kind: 'input', id: 'mode', optional: false,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: part === 'slot'
+          ? { kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' },
+            inputs: [], variants: [{ key: 'current', type: { kind: 'concrete', name: 'STRING' }, inputs: [] }] }
+          : { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'current', inputs: [] }] },
+      }] }
+    for (const target of app.backends.get()) target.registry.set({ connection: target.id, schemas: new Map([['Updated', candidate]]),
+      diagnostics: [], hash: 'updated-pack', resolve: (type) => type === 'Updated' ? candidate : undefined })
+    const before = activeTab(app).store.doc
+    const graph = before.graphs[before.root]!
+    const dynamic = part === 'group' ? { removed: { members: ['m0'], seq: 1 } }
+      : part === 'choice' ? { removed: { selected: 'old' } } : { mode: { selected: 'old' } }
+    const incoming: WorkflowDocument = { ...before, graphs: { [before.root]: { ...graph, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Updated', dynamic,
+        values: { 'removed.file': asset, 'removed.opaque': { ext: { future: 'unreadable' } } } },
+    } } } }
+    expect(await app.openDocument(incoming, 'Updated pack')).toEqual([])
+    const tab = activeTab(app)
+    await vi.waitFor(() => expect(app.problems.get().some((entry) => entry.code === 'upgrade.removedDynamicParts')).toBe(true))
+    const snapshot = structuredClone(tab.store.doc)
+    expect(await app.shareActiveTab()).toBeUndefined()
+    expect(app.collabFor(tab.id)).toBeDefined()
+    const published = [...server.sessions.values()][0]!.snapshot as WorkflowDocument
+    expect(published.graphs).toEqual(snapshot.graphs)
+    expect(published.graphs[before.root]!.nodes.n0!.values).toEqual(incoming.graphs[before.root]!.nodes.n0!.values)
+    if (part === 'slot') {
+      const compiled = app.compileTab(activeTab(app))
+      expect(compiled?.ok).toBe(false)
+      if (compiled === undefined || compiled.ok) throw new Error('required slot compiled without a variant')
+      expect(compiled.diagnostics.some((entry) => entry.code === 'prompt.missing_dynamic_choice')).toBe(true)
     }
   })
 
@@ -708,121 +599,7 @@ describe('share', () => {
 })
 
 describe('join and convergence', () => {
-  it.each(['buffered', 'late'] as const)('joins from an older snapshot with %s transport baseline', async (baseline) => {
-    const server = new FakeCollabServer()
-    const sharer = makeApp(server)
-    expect(await sharer.shareActiveTab()).toBeUndefined()
-    const shared = activeTab(sharer)
-    const sessionId = sharer.collabFor(shared.id)!.descriptor.sessionId
-    expect((await addNode(sharer, shared)).ok).toBe(true)
-    await sharedSession(sharer, shared.id).settle()
 
-    const joiner = makeApp(server)
-    const prior = activeTab(joiner)
-    const connect = server.transport.connect
-    let releaseOps!: () => void
-    let requested!: () => void
-    const fetching = new Promise<void>((resolve) => { requested = resolve })
-    const operations = new Promise<void>((resolve) => { releaseOps = resolve })
-    let announce = () => {}
-    const backend = joiner.collabBackend()!
-    const retain = backend.connection.retainAssets.bind(backend.connection)
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (...args) => {
-      announce()
-      return retain(...args)
-    })
-    server.transport.connect = (options) => {
-      const connection = connect(options)
-      const onEvent = connection.onEvent.bind(connection)
-      connection.onEvent = (listener) => onEvent((event) => {
-        if (baseline === 'late' && event.kind === 'connected') announce = () => listener(event)
-        else listener(event)
-      })
-      const fetchOps = connection.fetchOps.bind(connection)
-      connection.fetchOps = async (after) => {
-        requested()
-        await operations
-        return fetchOps(after)
-      }
-      return connection
-    }
-    const joining = joiner.joinCollabSession(sessionId)
-    await fetching
-    expect(activeTab(joiner)).toBe(prior)
-    releaseOps()
-    expect(await joining).toBeUndefined()
-    const joined = activeTab(joiner)
-    expect(joined.store.doc).toEqual(shared.store.doc)
-    expect(joiner.collabFor(joined.id)?.session.status.get()).toBe('live')
-
-    expect((await addNode(sharer, shared)).ok).toBe(true)
-    await sharedSession(sharer, shared.id).settle()
-    await until(() => nodeCount(joined) === nodeCount(shared), 'remote edit after caught-up join')
-    expect(joined.store.doc).toEqual(shared.store.doc)
-  })
-
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'registry', 'disconnected', 'disposed', 'remote-edit', 'ended', 'projection'] as const)(
-    'holds a joined snapshot before ownership acknowledgment: %s', async (scenario) => {
-      const server = new FakeCollabServer()
-      const app = prepareWorkflowApp(makeApp(server))
-      const prior = activeTab(app)
-      const backend = app.collabBackend()!
-      const digest = `blake3:${'a'.repeat(64)}`
-      expect((await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-        type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
-          held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
-        } } })).ok).toBe(true)
-      const shared = server.createSession(COLLAB_SCOPE, prior.id, prior.store.doc)
-      const acknowledgments: (() => void)[] = []
-      let released = false
-      let requested!: () => void
-      const request = new Promise<void>((resolve) => { requested = resolve })
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
-        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        expect(declaration).toEqual({ revision: 0, complete: true, digests: [digest] })
-        requested()
-        return new Promise((resolve) => {
-          const acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-          if (released) acknowledge()
-          else acknowledgments.push(acknowledge)
-        })
-      })
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const joining = app.joinCollabSession(shared.sessionId)
-      await request
-      expect(app.collabFor(prior.id)).toBeUndefined()
-      expect(activeTab(app)).toBe(prior)
-      if (scenario === 'edited') expect((await addNode(app, prior)).ok).toBe(true)
-      if (scenario === 'closed') app.closeTab(prior.id)
-      if (scenario === 'retargeted') app.setTabTarget(prior.id, app.connection.id)
-      if (scenario === 'removed') app.removeBackend(backend.id)
-      if (scenario === 'registry') backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
-      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'disposed') app.dispose()
-      if (scenario === 'remote-edit') {
-        await [...shared.connections][0]!.postOp({ protocolVersion: COLLAB_PROTOCOL_VERSION,
-          opId: 'remote-edit', actorId: 'other', baseRevision: 0, patch: [], })
-      }
-      if (scenario === 'ended') [...shared.connections][0]!.emit({ kind: 'session-closed' })
-      if (scenario === 'projection') {
-        app.settings.set('features.appView.enabled', true)
-        app.setTabEditorKind(prior.id, APP_EDITOR_KIND)
-      }
-      released = true
-      for (const acknowledge of acknowledgments) acknowledge()
-      const accepted = scenario === 'accepted' || scenario === 'projection'
-      expect(await joining === undefined).toBe(accepted)
-      expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
-      if (accepted) {
-        expect(activeTab(app).store.doc).toEqual(prior.store.doc)
-        expect(app.backendForTab(activeTab(app))).toBe(backend)
-        if (scenario === 'projection') expect(activeTab(app).editorKind).toBe(APP_EDITOR_KIND)
-      } else {
-        expect(shared.connections.size).toBe(0)
-        if (scenario !== 'closed') expect(activeTab(app).store).toBe(prior.store)
-      }
-    },
-  )
 
   it('two apps discover the same session and converge in both directions', async () => {
     const server = new FakeCollabServer()
@@ -1577,7 +1354,13 @@ describe('lifecycle races', () => {
     expect(tabB.store.doc.graphs[root]!.nodes[winnerNodeId]?.type).toBe(`#${fixedGraphId}`)
     expect(tabB.store.doc.graphs[root]!.nodes[loserNodeId]).toBeUndefined()
     expect(tabB.store.doc.graphs[fixedGraphId]).toEqual(tabA.store.doc.graphs[fixedGraphId])
-    expect(tabB.store.doc.view.graphs[fixedGraphId]).toEqual({ nodes: {} })
+    expect(tabB.store.doc.view.graphs[fixedGraphId]).toEqual({
+      nodes: {},
+      boundary: {
+        inputs: { position: { x: -260, y: 0 } },
+        outputs: { position: { x: 440, y: 0 } },
+      },
+    })
     expect(tabB.graphStack.get()).toEqual([root])
     expect(tabB.instancePath.get()).toEqual([])
     expect(appB.problems.get()).toContainEqual(expect.objectContaining({
@@ -1631,30 +1414,6 @@ describe('reload rejoin', () => {
   const storedSessions = (): unknown[] =>
     (JSON.parse(g.localStorage!.getItem(COLLAB_SESSIONS_KEY) ?? '{"sessions":[]}') as { sessions: unknown[] }).sessions
 
-  it('keeps the restored tab and pending membership when ownership is refused, then rejoins on retry', async () => {
-    const server = new FakeCollabServer()
-    const first = makeApp(server)
-    expect(await first.shareActiveTab()).toBeUndefined()
-    expect((await addNode(first, activeTab(first))).ok).toBe(true)
-    await sharedSession(first, activeTab(first).id).settle()
-    first.flushPersistTabs()
-    const second = makeApp(server)
-    const restored = activeTab(second)
-    const backend = second.collabBackend()!
-    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: 2 }))
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    await second.rejoinCollabSessions()
-    expect(activeTab(second).store).toBe(restored.store)
-    expect(second.collabFor(restored.id)).toBeUndefined()
-    expect(storedSessions()).toHaveLength(1)
-    expect([...server.sessions.values()][0]!.connections.size).toBe(1)
-    retain.mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
-    await second.rejoinCollabSessions()
-    expect(second.collabFor(restored.id)).toBeDefined()
-    expect(second.backendForTab(activeTab(second))).toBe(backend)
-    expect(storedSessions()).toHaveLength(1)
-  })
 
   it('sharing persists the membership; a fresh app rejoins it and converges', async () => {
     const server = new FakeCollabServer()

@@ -125,7 +125,7 @@ describe('widgetEditorAnchorAlive', () => {
     const spec: WidgetSpec = { widgetType: 'INT', options: { min: 1, max: 10000 } }
     const type = { kind: 'concrete', name: 'INT' } as unknown as TypeExpr
     // The field box: the row's 100 px box at inset 4, 2 px in from its top and bottom.
-    const ed = editorState({ spec, declaredType: type, rect: { x: 54, y: 82, width: 100, height: 20 }, inRow: { look: 'flat-title', nodeBottom: 200, storedAtOpen: 20 } })
+    const ed = editorState({ spec, declaredType: type, rect: { x: 54, y: 82, width: 100, height: 20 }, inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 200, storedAtOpen: 20 } })
     const row = widgetRow({ spec, type, y: 30 } as never)
     expect(widgetEditorAnchorAlive(ed, [node([row], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(true)
     expect(widgetEditorAnchorAlive(ed, [node([row], 'n0', { x: 60, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
@@ -189,13 +189,13 @@ describe('inRowValueKept', () => {
   const spec: WidgetSpec = { widgetType: 'INT', options: {} }
 
   it('closes a field in its row only when its own stored value changes', () => {
-    const ed = editorState({ spec, target: { kind: 'input', nodeId: 'n0', valueKey: 'seed' }, inRow: { look: 'flat-title', nodeBottom: 0, storedAtOpen: 7 } })
+    const ed = editorState({ spec, target: { kind: 'input', nodeId: 'n0', valueKey: 'seed' }, inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 0, storedAtOpen: 7 } })
     expect(inRowValueKept(ed, doc({ seed: 7, cfg: 9 }))).toBe(true)
     expect(inRowValueKept(ed, doc({ seed: 8 }))).toBe(false)
   })
 
   it('treats a value that was never stored as unchanged until one is stored', () => {
-    const ed = editorState({ spec, target: { kind: 'input', nodeId: 'n0', valueKey: 'seed' }, inRow: { look: 'flat-title', nodeBottom: 0, storedAtOpen: null } })
+    const ed = editorState({ spec, target: { kind: 'input', nodeId: 'n0', valueKey: 'seed' }, inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 0, storedAtOpen: null } })
     expect(inRowValueKept(ed, doc({}))).toBe(true)
     expect(inRowValueKept(ed, doc({ seed: 3 }))).toBe(false)
   })

@@ -23,15 +23,23 @@ const tabIn = (group: Locator, title: string): Locator =>
 const stripTitles = (group: Locator): Promise<string[]> =>
   group.locator('.tab-select').allTextContents()
 
-const laidOutBox = async (locator: Locator): Promise<NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>> => {
-  await expect(locator).toBeVisible()
-  const box = await locator.boundingBox()
+const laidOutBox = async (page: Page, selector: string): Promise<NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>> => {
+  await expect(page.locator(selector)).toBeVisible()
+  // Query and measure together so metadata publication cannot detach a captured array.
+  const box = await page.evaluate((selector) => {
+    const elements = document.querySelectorAll(selector)
+    if (elements.length !== 1) return null
+    const element = elements[0]!
+    if (element.getClientRects().length === 0) return null
+    const { x, y, width, height } = element.getBoundingClientRect()
+    return { x, y, width, height }
+  }, selector)
   expect(box).not.toBeNull()
   return box!
 }
 
-const center = async (locator: Locator): Promise<{ x: number; y: number }> => {
-  const box = await laidOutBox(locator)
+const center = async (page: Page, selector: string): Promise<{ x: number; y: number }> => {
+  const box = await laidOutBox(page, selector)
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
 }
 
@@ -57,7 +65,9 @@ const dragTabTo = async (
   tab: Locator,
   to: { x: number; y: number },
 ): Promise<void> => {
-  const from = await center(tab.locator('.tab-select'))
+  const id = await tab.locator('.tab-select').getAttribute('id')
+  expect(id).not.toBeNull()
+  const from = await center(page, `[id=${JSON.stringify(id)}]`)
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(from.x + 4, from.y)
@@ -106,7 +116,7 @@ test('split right renders two groups side by side; unsplit merges them back', as
 test('divider drag and keyboard arrows change the split ratio', async ({ page }) => {
   await contextMenuAction(groups(page), 'Subgraph', 'workflow.splitRight')
   const divider = page.getByTestId('editor-split-divider')
-  const start = await center(divider)
+  const start = await center(page, '[data-testid="editor-split-divider"]')
   const widthBefore = (await groupById(page, 'group-1').boundingBox())!.width
 
   await page.mouse.move(start.x, start.y)
@@ -138,14 +148,14 @@ test('dragging a tab moves it into a pane center or splits at a pane edge', asyn
 
   // Center drop moves the tab into the other group and focuses it.
   const first = groupById(page, 'group-1')
-  await dragTabTo(page, tabIn(second, 'Untitled'), await center(first.locator('[role="tabpanel"]')))
+  await dragTabTo(page, tabIn(second, 'Untitled'), await center(page, '[data-group-id="group-1"] [role="tabpanel"]'))
   await expect.poll(() => stripTitles(first)).toEqual(['Basic', 'Untitled'])
   expect(await stripTitles(second)).toEqual(['Subgraph'])
   await expect(first).toHaveAttribute('data-focused', 'true')
   expect(await activeTitle(page)).toBe('Untitled')
 
   // Edge drop splits the pane, putting the tab in a new group.
-  const firstPane = await laidOutBox(first.locator('[role="tabpanel"]'))
+  const firstPane = await laidOutBox(page, '[data-group-id="group-1"] [role="tabpanel"]')
   await dragTabTo(page, tabIn(first, 'Untitled'), {
     x: firstPane.x + firstPane.width - 20,
     y: firstPane.y + firstPane.height / 2,
@@ -160,7 +170,7 @@ test('dragging a tab moves it into a pane center or splits at a pane edge', asyn
 test('the split survives reload and repairs itself when a tab closes', async ({ page }) => {
   await contextMenuAction(groups(page), 'Subgraph', 'workflow.splitRight')
   const divider = page.getByTestId('editor-split-divider')
-  const start = await center(divider)
+  const start = await center(page, '[data-testid="editor-split-divider"]')
   await page.mouse.move(start.x, start.y)
   await page.mouse.down()
   await page.mouse.move(start.x - 150, start.y, { steps: 4 })
@@ -185,11 +195,37 @@ test('the split survives reload and repairs itself when a tab closes', async ({ 
 })
 
 test('per-group activation moves focus and F6 cycles between groups', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
   await contextMenuAction(groups(page), 'Subgraph', 'workflow.splitRight')
   const first = groupById(page, 'group-1')
   const second = groupById(page, 'group-2')
   await expect(second).toHaveAttribute('data-focused', 'true')
   expect(await activeTitle(page)).toBe('Subgraph')
+  await page.mouse.move(0, 0)
+  await expect(first.locator('.canvas-view-control').first()).toHaveCSS('opacity', '0.5')
+  await expect(second.locator('.canvas-view-control').first()).toHaveCSS('opacity', '1')
+  await expect(first.locator('.workflow-queue-control')).toBeHidden()
+  await expect(second.locator('.workflow-queue-control')).toBeVisible()
+  await expect(first.getByTestId('minimap')).toHaveCSS('opacity', '0.5')
+  await expect(first.locator('.canvas-corner-bar')).toHaveCSS('opacity', '0.5')
+  await first.getByTestId('canvas-zoom-in').hover()
+  await expect(first.locator('.canvas-corner-bar')).toHaveCSS('opacity', '1')
+  await expect(first.getByTestId('minimap')).toHaveCSS('opacity', '0.5')
+  await expect(first).toHaveAttribute('data-focused', 'false')
+
+  const lens = first.locator('.canvas-view-control').last().locator('button').first()
+  await lens.hover()
+  await expect(first.locator('.canvas-view-control').last()).toHaveCSS('opacity', '1')
+  await expect(first).toHaveAttribute('data-focused', 'false')
+  await lens.click()
+  await expect(first).toHaveAttribute('data-focused', 'true')
+  await expect(first.locator('.lens-menu')).toBeVisible()
+  await expect(first.locator('.workflow-queue-control')).toBeVisible()
+  await expect(second.locator('.workflow-queue-control')).toBeHidden()
+  await page.keyboard.press('Escape')
+  await second.getByTestId('minimap').click({ position: { x: 24, y: 24 } })
+  await expect(second).toHaveAttribute('data-focused', 'true')
+  await expect(second.getByTestId('minimap')).toHaveCSS('opacity', '1')
 
   // Activating a tab in the other group moves focus and the global active tab.
   await tabIn(first, 'Basic').locator('.tab-select').click()
@@ -223,8 +259,7 @@ test('a narrow App View pane renders mobile while its wide sibling stays desktop
   await expect(second.locator('[data-app-breakpoint]')).toHaveAttribute('data-app-breakpoint', 'desktop')
 
   // Narrow the first pane below the App View mobile breakpoint (640px).
-  const divider = page.getByTestId('editor-split-divider')
-  const start = await center(divider)
+  const start = await center(page, '[data-testid="editor-split-divider"]')
   const region = (await page.getByTestId('editor-split-region').boundingBox())!
   await page.mouse.move(start.x, start.y)
   await page.mouse.down()

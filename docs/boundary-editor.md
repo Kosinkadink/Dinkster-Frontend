@@ -74,7 +74,8 @@ the canvas menu. Tab, Enter and Escape move through the panel's fields as
 through a node's, skipping wired ones, and the canvas keyboard list names
 each as a row of Inputs. A choice whose options are edited on the node
 itself (editable choices, family members) stays a name and a pin. A field
-row is renamed in the Boundary panel, not by double-clicking it.
+row is renamed in the Boundary panel, not by double-clicking it. A text box
+has the height the subgraph node gives it and is resized there.
 
 A dropdown that leads options is a field too, whichever binding forwards
 it: forwarded alone it is the dropdown, and forwarded with its options
@@ -84,6 +85,30 @@ the choice, edited there; the input's pin sits on the dropdown. An option's
 field that node has not set shows the value the inner node receives, which
 is the value a run uses. The inner node's own dropdown stays its editor of
 the same choice.
+
+A field whose input reaches the inner node through a reroute is the same
+field, and the inner field shows its value through the reroute. A
+forwarded group, a forwarded slot and a field inside a group member stay a
+name and a pin.
+
+## Subgraph field values
+
+A subgraph node displays the value a run sends: a value set on the instance
+wins, otherwise a forwarded option field inherits the inner node's stored
+value. Scene construction derives this state when no occurrence view is
+supplied, including gallery and standalone canvas callers, without writing
+inherited values into the document.
+
+## Canvas panel positions
+
+The Inputs and Outputs panels inside a subgraph keep their own saved positions.
+Moving, adding, removing or resizing other graph items does not move them. Drag a
+panel, alone or in a selection, to reposition it.
+
+New definitions store their initial content-bound positions during extraction,
+paste or import. Opening an older document does not change it: the first command
+that edits a definition stores its previously drawn panel positions in that same
+undo step. Undo restores the edited items and the panels' original places.
 
 ## Showing a field on the subgraph node
 

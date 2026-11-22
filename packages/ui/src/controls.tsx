@@ -24,6 +24,25 @@ export function ProductIcon(props: { icon: LucideIcon }) {
   return <props.icon class="dinkster-icon" aria-hidden="true" />
 }
 
+export function ProductRunIcon(props: {
+  readonly icon: LucideIcon
+  readonly running?: boolean | undefined
+  readonly queued?: boolean | undefined
+  readonly result?: 'finished' | 'failed' | undefined
+}) {
+  return (
+    <span
+      class="dinkster-run-icon"
+      data-running={props.running ? '' : undefined}
+      data-queued={props.queued ? '' : undefined}
+      data-result={props.running || props.queued ? undefined : props.result}
+      aria-hidden="true"
+    >
+      <ProductIcon icon={props.icon} />
+    </span>
+  )
+}
+
 function Button(
   props: ButtonAttributes & {
     intent: ProductRole | undefined
@@ -109,14 +128,18 @@ export function ProductButton(
 export function ProductWindowAction(
   props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
     label: string
+    labelContent?: JSX.Element
     icon: LucideIcon
+    shortcut?: string
     intent?: ProductRole
     pending?: boolean
   },
 ) {
   const [local, button] = splitProps(props, [
     'label',
+    'labelContent',
     'icon',
+    'shortcut',
     'intent',
     'pending',
   ])
@@ -127,12 +150,21 @@ export function ProductWindowAction(
         intent={local.intent ?? 'neutral'}
         pending={local.pending ?? false}
         aria-label={local.label}
-        title={local.label}
+        title={
+          local.shortcut ? `${local.label} (${local.shortcut})` : local.label
+        }
       >
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
         </span>
-        <span class="dinkster-window-action-label">{local.label}</span>
+        <span class="dinkster-window-action-label">
+          {local.labelContent ?? local.label}
+        </span>
+        <Show when={local.shortcut}>
+          {(shortcut) => (
+            <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>
+          )}
+        </Show>
       </ProductButton>
     </span>
   )
@@ -164,6 +196,7 @@ export function ProductIconButton(
     label: string
     icon: LucideIcon
     intent?: ProductRole
+    'data-tooltip-label'?: string
   },
 ) {
   const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
@@ -174,7 +207,7 @@ export function ProductIconButton(
       fill="quiet"
       iconOnly
       aria-label={local.label}
-      title={local.label}
+      title={button['data-tooltip-label'] ? undefined : local.label}
     >
       <ProductIcon icon={local.icon} />
     </Button>

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_EXECUTION_LOG_PROOF_DIR']
@@ -23,7 +23,7 @@ async function seedRun(page: Page): Promise<Seed> {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
@@ -100,7 +100,8 @@ test('execution log panel shows live records and changes mounted chrome locale',
   })
   await page.setViewportSize({ width: 1600, height: 1000 })
   const seed = await seedRun(page)
-  await page.getByTestId('execution-log-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('dock-zone-bottom').getByRole('tab', { name: 'Execution log', exact: true }).click()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
 
   const rows = page.getByTestId('execution-log-row')
@@ -193,7 +194,8 @@ test('execution log panel shows live records and changes mounted chrome locale',
 
 test('tail follow pauses on scroll-up and resumes from the jump button', async ({ page }) => {
   const seed = await seedRun(page)
-  await page.getByTestId('execution-log-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('dock-zone-bottom').getByRole('tab', { name: 'Execution log', exact: true }).click()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
 
   await page.evaluate(({ execution }) => {
@@ -237,12 +239,12 @@ async function bottomBadgePoint(page: Page, nodeId: string): Promise<{ x: number
     const vp = r.getViewport()
     const node = r.getScene().nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`no scene node '${nodeId}'`)
+    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.placement === 'below')
+    if (!tab) throw new Error(`no bottom tab on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    // Mirrors badgeRect() for placement 'below': the lane starts at the
-    // node's left edge on its bottom edge; 8,7 lands inside the first badge.
     return {
-      x: rect.left + (node.x + 8) * vp.scale + vp.x,
-      y: rect.top + (node.y + node.layout.height + 7) * vp.scale + vp.y,
+      x: rect.left + (tab.x + 8) * vp.scale + vp.x,
+      y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y,
     }
   }, nodeId)
 }

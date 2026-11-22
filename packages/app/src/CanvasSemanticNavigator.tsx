@@ -20,6 +20,8 @@ export const CANVAS_SEMANTIC_WINDOW_SIZE = 5
 
 export type CanvasSemanticTarget =
   | { readonly kind: 'node'; readonly id: string }
+  /** The title bar's minimize arrow of one node. */
+  | { readonly kind: 'minimize'; readonly nodeId: string }
   | { readonly kind: 'port'; readonly nodeId: string; readonly id: string; readonly direction: 'in' | 'out'; readonly widgetTap?: true }
   | { readonly kind: 'widget'; readonly nodeId: string; readonly valueKey: string }
   | { readonly kind: 'boundary'; readonly id: string }
@@ -251,6 +253,12 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       category: 'node',
       label: `Node: ${node.layout.title}, ${details.join(', ')}`,
       target: { kind: 'node', id: node.id },
+    })
+    items.push({
+      key: `minimize:${node.id}`,
+      category: 'minimize',
+      label: `Button: ${node.layout.minimized ? 'Restore' : 'Minimize'} ${node.layout.title}`,
+      target: { kind: 'minimize', nodeId: node.id },
     })
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {

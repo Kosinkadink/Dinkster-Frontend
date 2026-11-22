@@ -16,12 +16,16 @@ import {
   executionBlockedBadge,
   executionExpandedBadge,
   executionErrorBadge,
+  isCanvasIconName,
   LOG_INFO_BADGE,
   logWarningBadge,
+  mediaDiagnosticBadge,
   PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
+  regionIterationBadge,
   subgraphBadge,
+  UNAVAILABLE_BADGE,
   type CompanionMap,
   type NodeBadge,
   type NodeOutputText,
@@ -52,7 +56,6 @@ import {
   type NodeProgress,
   type NodeSchema,
   type NodeDecoration,
-  type NodeDecorationBadge,
   type NodeDecorationContribution,
   type ValueDiagnostic,
   type WidgetRegistry,
@@ -129,8 +132,6 @@ export interface RetainedExecutionView {
   readonly execution: ExecutionState
   /** Runtime occurrences whose data was copied from an older execution. */
   readonly retainedRuntimeIds: ReadonlySet<string>
-  /** Original stored executions, never the composite presentation state. */
-  readonly executionOwners?: ReadonlyMap<string, ExecutionState>
 }
 
 const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
@@ -191,7 +192,6 @@ export function retainProvenExecution(
     ...current.artifacts.map((artifact) => artifact.nodeId),
   ])
   const selected = new Set<string>()
-  const executionOwners = new Map([...occupied].map((runtimeId) => [runtimeId, current]))
   const candidates = executions
     .filter((candidate) => candidate.key !== current.key && candidate.queuedAt < current.queuedAt)
     .sort((a, b) => b.queuedAt - a.queuedAt)
@@ -246,12 +246,11 @@ export function retainProvenExecution(
       artifacts.push(...priorArtifacts)
       if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined || priorArtifacts.length > 0) {
         selected.add(runtimeId)
-        executionOwners.set(runtimeId, candidate)
       }
     }
   }
   if (selected.size === 0) return unchanged()
-  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected, executionOwners }
+  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected }
 }
 
 /** One derivation pass, ready for the host to install on the renderer. */
@@ -319,9 +318,9 @@ const decorationText = (value: unknown, field: string, max: number): string => {
   return value
 }
 
-const decorationBadge = (value: unknown): NodeDecorationBadge => {
+const decorationBadge = (value: unknown): NodeBadge => {
   if (!plainRecord(value)) throw new Error('badge must be a plain object')
-  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color'])
+  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color', 'icon'])
   if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('badge contains an unsupported field')
   const id = decorationText(value['id'], 'badge id', 128)
   if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id)) throw new Error('badge id must be namespaced lowercase ASCII')
@@ -335,19 +334,19 @@ const decorationBadge = (value: unknown): NodeDecorationBadge => {
     throw new Error("badge placement must be 'above' or 'below'")
   }
   if (value['interactive'] !== undefined && value['interactive'] !== false) throw new Error('extension badges cannot be interactive')
+  const icon = value['icon']
+  if (icon !== undefined && (typeof icon !== 'string' || !isCanvasIconName(icon))) throw new Error('badge icon must name a canvas icon')
   return Object.freeze({
     id,
     glyph,
     color,
-    ...(value['fallbackGlyph'] === undefined ? {} : { fallbackGlyph: value['fallbackGlyph'] as string }),
-    ...(value['variant'] === undefined ? {} : { variant: 'label' as const }),
-    ...(value['appearance'] === undefined ? {} : { appearance: 'policy' as const }),
     ...(value['placement'] === undefined ? {} : { placement: value['placement'] as 'above' | 'below' }),
     ...(value['interactive'] === undefined ? {} : { interactive: false as const }),
+    ...(icon === undefined ? {} : { icon }),
   })
 }
 
-const normalizedDecoration = (value: unknown): NodeDecoration | undefined => {
+const normalizedDecoration = (value: unknown): (Omit<NodeDecoration, 'badges'> & { readonly badges?: readonly NodeBadge[] }) | undefined => {
   if (value === undefined) return undefined
   if (!plainRecord(value)) throw new Error('decoration must be a plain object')
   const allowed = new Set(['badges', 'color', 'titleSuffix', 'status'])
@@ -528,7 +527,6 @@ export function deriveSceneOverlays(args: {
   readonly exactProducer: ((runtimeId: string) => boolean) | undefined
   /** Runtime occurrences explicitly retained from older executions. */
   readonly retainedRuntimeIds?: ReadonlySet<string> | undefined
-  readonly executionOwners?: ReadonlyMap<string, ExecutionState> | undefined
   /** Current compile + widget/solver diagnostics projected onto this view. */
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
@@ -786,14 +784,7 @@ export function deriveSceneOverlays(args: {
       const port = diagnostic.code === 'alpha_dropped' ? diagnostic.outputId : diagnostic.inputId
       const id = `core.media.${diagnostic.code}.${diagnostic.nodeId}.${port}`
       if (list.some((badge) => badge.id === id)) continue
-      list.push({
-        id,
-        glyph: `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`,
-        variant: 'label',
-        placement: 'below',
-        interactive: false,
-        color: '#8a6d1f',
-      })
+      list.push(mediaDiagnosticBadge(id, `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`))
     }
     for (const problem of args.nodeProblems?.[n.id] ?? []) {
       // Execution errors already own the runtime error badge + its
@@ -803,7 +794,7 @@ export function deriveSceneOverlays(args: {
         problem.diagnostics.length > 0 && problem.diagnostics.every((d) => d.origin === 'runtime')) continue
       list.push(problem.kind === 'error'
         ? problem.diagnostics.some((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable')
-          ? { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable' }
+          ? UNAVAILABLE_BADGE
           : PROBLEM_ERROR_BADGE
         : problem.kind === 'blocking-warning'
           ? PROBLEM_BLOCKING_WARNING_BADGE
@@ -817,15 +808,7 @@ export function deriveSceneOverlays(args: {
     }
     else if (args.reviewReplacements === true && (args.replacementNodes?.has(n.id) || s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
-    if (iterationLabel !== undefined) {
-      list.push({
-        id: 'core.region.iteration',
-        glyph: iterationLabel,
-        variant: 'label',
-        interactive: false,
-        color: '#315d73',
-      })
-    }
+    if (iterationLabel !== undefined) list.push(regionIterationBadge(iterationLabel))
     if (list.length > 0) badges[n.id] = list
   }
 
@@ -854,7 +837,6 @@ export function deriveSceneOverlays(args: {
       frozen: args.frozen,
       exactProducer: args.exactProducer,
       ...(args.retainedRuntimeIds === undefined ? {} : { retainedRuntimeIds: args.retainedRuntimeIds }),
-      ...(args.executionOwners === undefined ? {} : { executionOwners: args.executionOwners }),
       companionSources: derived.sources,
       values: args.values,
       selectedAsset: representedAsset ?? selectedPreviewAssetForNode(n, args.previewRendererFor),

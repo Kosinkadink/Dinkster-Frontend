@@ -88,6 +88,118 @@ for (const width of [1280, 390]) {
   })
 }
 
+test('Rich toolbar labels preserve branding, compact geometry and pending focus', async ({
+  page,
+}) => {
+  let release!: () => void
+  const imagesReady = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/*wordmark*.svg', async (route) => {
+    await imagesReady
+    await route.continue()
+  })
+  await page.goto('/#window-toolbar')
+  await page.addStyleTag({
+    content:
+      '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
+  })
+  await page.getByLabel('Brand presentation').selectOption('wordmark')
+  const sections = page.locator('section[aria-label]')
+  for (const width of [1440, 929, 928, 873, 872, 793, 792, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const section of await sections.all()) {
+      const bar = section.locator('header')
+      const platform = await bar.getAttribute('data-platform')
+      const left = platform === 'darwin' ? 92 : 12
+      const right = width - (platform === 'win32' ? 148 : 12)
+      const compact = right - left <= 768
+      const action = bar.getByRole('button', { name: 'Dinkster', exact: true })
+      await expect(action).toHaveAttribute('title', 'Dinkster')
+      const image = action.locator('img')
+      const light = (await section.getAttribute('aria-label'))!.includes(
+        ' light ',
+      )
+      await expect(image).toHaveAttribute(
+        'src',
+        new RegExp(`wordmark-color-${light ? 'light' : 'dark'}`),
+      )
+      expect(
+        await image.evaluate((node: HTMLImageElement) => node.complete),
+      ).toBe(false)
+      const bounds = (await action.boundingBox())!
+      const label = action.locator('.dinkster-window-action-label')
+      if (compact) {
+        await expect(action.locator('svg')).toBeVisible()
+        await expect(label).toHaveCSS('clip-path', 'inset(50%)')
+        expect(bounds.width).toBe(32)
+      } else {
+        await expect(action.locator('svg')).toBeHidden()
+        await expect(label).toHaveCSS('clip-path', 'none')
+        const geometry = (await image.boundingBox())!
+        expect(geometry.width).toBe(99)
+        expect(geometry.height).toBe(30)
+        expect(bounds.width).toBeGreaterThan(99)
+      }
+      expect((await bar.boundingBox())!.height).toBe(56)
+      for (const button of await bar.getByRole('button').all()) {
+        const rect = (await button.boundingBox())!
+        expect(rect.x).toBeGreaterThanOrEqual(left)
+        expect(rect.x + rect.width).toBeLessThanOrEqual(right)
+      }
+    }
+  }
+  release()
+  await expect
+    .poll(() =>
+      sections
+        .first()
+        .locator('img')
+        .evaluate((node: HTMLImageElement) => node.naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const theme of ['dark', 'light'])
+      await page
+        .getByRole('region', { name: `qa ${theme} win32`, exact: true })
+        .locator('header')
+        .screenshot({
+          path: `test-results/captures/window-toolbar-wordmark-${theme}-${width}.png`,
+        })
+  }
+  const action = sections
+    .first()
+    .getByRole('button', { name: 'Dinkster', exact: true })
+  await action.click()
+  await expect(page.getByRole('status')).toHaveText('Dinkster opened')
+  await sections
+    .first()
+    .getByRole('button', { name: 'Search', exact: true })
+    .click()
+  await action.focus()
+  await page.getByLabel('Execution state').selectOption('pending')
+  await expect(action).toBeFocused()
+  await expect(action).toBeDisabled()
+  await expect(action).toHaveAttribute('aria-busy', 'true')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('status')).toHaveText('Search opened')
+  await expect(action.locator('svg')).toBeHidden()
+  await sections.first().locator('header').screenshot({
+    path: 'test-results/captures/window-toolbar-wordmark-pending-390.png',
+  })
+  await page.getByLabel('Execution state').selectOption('idle')
+  await expect(action).toBeEnabled()
+  await page.getByLabel('Brand presentation').selectOption('menu')
+  await expect(
+    sections
+      .first()
+      .getByRole('button', { name: 'Dinkster', exact: true })
+      .locator('img'),
+  ).toHaveCount(0)
+})
+
 test('Window toolbar keeps actions and identity inside native reservations', async ({
   page,
 }) => {
@@ -117,8 +229,20 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
         const right = width - (platform === 'win32' ? 148 : 12)
         const search = bar.getByRole('button', { name: 'Search', exact: true })
         const compact = right - left <= 768
-        if (compact) await expect(search.locator('svg')).toBeVisible()
-        else await expect(search.locator('svg')).toBeHidden()
+        await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
+        await expect(search).toHaveAccessibleDescription('Search (Ctrl+K)')
+        if (compact) {
+          await expect(search.locator('svg')).toBeVisible()
+          await expect(search.locator('kbd')).toBeHidden()
+        } else {
+          await expect(search.locator('svg')).toBeHidden()
+          await expect(search.locator('kbd')).toBeVisible()
+          const hint = (await search.locator('kbd').boundingBox())!
+          const action = (await search.boundingBox())!
+          expect(hint.x + hint.width).toBeLessThanOrEqual(
+            action.x + action.width,
+          )
+        }
         for (const metadata of await bar
           .locator(
             '.dinkster-window-identity, .dinkster-window-toolbar-service',
@@ -201,7 +325,16 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
   }
   await page.getByLabel('Execution state').selectOption('running')
   const first = sections.first()
-  await first.getByRole('button', { name: 'Search', exact: true }).click()
+  const search = first.getByRole('button', { name: 'Search', exact: true })
+  await page.getByLabel('Search shortcut').selectOption('Alt+K')
+  await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(search.locator('kbd')).toHaveText('Alt+K')
+  await expect(search.locator('kbd')).toBeVisible()
+  await page.getByLabel('Search shortcut').selectOption('')
+  await expect(search.locator('kbd')).toHaveCount(0)
+  await expect(search).toHaveAttribute('title', 'Search')
+  await search.click()
   await expect(page.getByRole('status')).toHaveText('Search opened')
   await first.getByRole('button', { name: 'Cancel run' }).click()
   await expect(page.getByRole('status')).toHaveText('Run cancelled')

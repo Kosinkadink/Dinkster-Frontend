@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 interface Point {
   readonly x: number
@@ -131,7 +131,7 @@ test('outside per-family ghost growth advances, persists, drills, and refuses fa
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await openWorkflow(page)
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -196,12 +196,8 @@ test('outside per-family ghost growth advances, persists, drills, and refuses fa
     ],
   })
 
-  const occurrenceHeader = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'occurrence')!
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: canvas.left + node.x + node.layout.width / 2, y: canvas.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(occurrenceHeader.x, occurrenceHeader.y)
+  const mark = await subgraphMarkPoint(page, 'occurrence')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))

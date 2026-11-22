@@ -5,7 +5,7 @@
  * backend; the only synthetic piece is an injected runtime-error event,
  * pushed through the SAME ExecutionStore.apply path the connection uses.
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -43,9 +43,12 @@ async function pointOn(page: Page, nodeId: string, part: Part): Promise<{ x: num
           if (!row) throw new Error(`no widget row '${part.inputId}' on '${nodeId}'`)
           return toPage(node.x + l.width / 2, node.y + row.y + row.height / 2)
         }
-        case 'badge':
-          // Runtime badges use the left-aligned lane below the node.
-          return toPage(node.x + 8 + part.index * 18, node.y + l.height + 7)
+        case 'badge': {
+          // Runtime badges are tabs below the node.
+          const tab = r.getNodeBadgeLayout(node).filter((entry) => entry.badge.placement === 'below')[part.index]
+          if (!tab) throw new Error(`no bottom tab ${part.index} on '${nodeId}'`)
+          return toPage(tab.x + tab.width / 2, tab.y + tab.height / 2)
+        }
       }
     },
     { nodeId, part },
@@ -105,7 +108,7 @@ const rootValues = (page: Page, tabId?: string) =>
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {

@@ -29,6 +29,7 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
+  ProductWordmark,
   ProductAccountMenu,
   ProductCodeBlock,
   ProductCopyValue,
@@ -44,6 +45,7 @@ import {
   ProductField,
   ProductForm,
   ProductIcon,
+  ProductRunIcon,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -328,6 +330,15 @@ function Gallery() {
                   A sentence can carry a{' '}
                   <ProductLink href="#lists">link to another page</ProductLink>.
                 </p>
+              </Section>
+              <Section title="Run icons" components="ProductRunIcon">
+                <div class="dinkster-actions">
+                  <span>Idle <ProductRunIcon icon={Settings} /></span>
+                  <span>Queued <ProductRunIcon icon={Settings} queued /></span>
+                  <span>Running <ProductRunIcon icon={Settings} running /></span>
+                  <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
+                  <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>
+                </div>
               </Section>
               <Section
                 title="Text fields"
@@ -921,6 +932,8 @@ const narrowQuery = matchMedia(
 
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
+  const [shortcut, setShortcut] = createSignal('Ctrl+K')
+  const [brand, setBrand] = createSignal('menu')
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -941,6 +954,31 @@ function WindowToolbarGallery() {
               <For each={['idle', 'running', 'pending']}>
                 {(value) => <option value={value}>{value}</option>}
               </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Brand presentation">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={brand()}
+              onChange={(event) => setBrand(event.currentTarget.value)}
+            >
+              <option value="menu">Plain menu</option>
+              <option value="wordmark">Wordmark action</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Search shortcut">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={shortcut()}
+              onChange={(event) => setShortcut(event.currentTarget.value)}
+            >
+              <option value="Ctrl+K">Ctrl+K</option>
+              <option value="Alt+K">Alt+K</option>
+              <option value="">No shortcut</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -973,21 +1011,36 @@ function WindowToolbarGallery() {
                       qa={service === 'qa'}
                       development={service !== 'production'}
                       brand={
-                        <ProductMenu
-                          label="Dinkster"
-                          icon={Menu}
-                          items={[
-                            {
-                              label: 'Projects',
-                              onSelect: () => setActivity('Projects opened'),
-                            },
-                          ]}
-                        />
+                        <Show
+                          when={brand() === 'wordmark'}
+                          fallback={
+                            <ProductMenu
+                              label="Dinkster"
+                              icon={Menu}
+                              items={[
+                                {
+                                  label: 'Projects',
+                                  onSelect: () =>
+                                    setActivity('Projects opened'),
+                                },
+                              ]}
+                            />
+                          }
+                        >
+                          <ProductWindowAction
+                            label="Dinkster"
+                            labelContent={<ProductWordmark theme={theme} />}
+                            icon={Menu}
+                            pending={state() === 'pending'}
+                            onClick={() => setActivity('Dinkster opened')}
+                          />
+                        </Show>
                       }
                       search={
                         <ProductWindowAction
                           label="Search"
                           icon={Search}
+                          shortcut={shortcut()}
                           onClick={() => setActivity('Search opened')}
                         />
                       }

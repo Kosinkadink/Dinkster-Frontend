@@ -8,6 +8,8 @@ import xml.etree.ElementTree as ET
 from copy import deepcopy
 from pathlib import Path
 
+from palette import PALETTE
+
 import build_d as geometry
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -143,14 +145,26 @@ def main():
             check=True,
         )
     font = ImageFont.truetype("DejaVuSans.ttf", 18)
-    sheet = Image.new("RGB", (1600, 2890), "#E4E8EC")
+    sheet = Image.new("RGB", (1600, 2890), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(sheet)
     for column, ((name, label, offset), image) in enumerate(zip(variants, renders)):
         x = column * 800
-        draw.text((x + 16, 16), label, fill="#1F242A", font=font)
+        draw.text(
+            (x + 16, 16), label, fill=PALETTE["light"]["text"]["primary"], font=font
+        )
         for theme, background, foreground, y in (
-            ("dark", "#111316", "#F2F4F5", 50),
-            ("light", "#F7F8FA", "#1F242A", 1470),
+            (
+                "dark",
+                PALETTE["dark"]["bg"]["canvas"],
+                PALETTE["dark"]["text"]["primary"],
+                50,
+            ),
+            (
+                "light",
+                PALETTE["light"]["bg"]["canvas"],
+                PALETTE["light"]["text"]["primary"],
+                1470,
+            ),
         ):
             draw.rectangle((x + 10, y, x + 789, y + 1399), fill=background)
             draw.text(

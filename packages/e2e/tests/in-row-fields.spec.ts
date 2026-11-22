@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 
 async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): Promise<{ x: number; y: number }> {
@@ -21,8 +21,7 @@ async function openSampler(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
-    .some((problem) => problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(false)
+  await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
   else await page.evaluate(() => (window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(v: boolean): void } }).templateGalleryOpen.set(false))
@@ -107,9 +106,11 @@ test('past a limit the side part says what Enter stores; the field follows the c
       const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
       const { x, y, scale } = renderer.getViewport()
       const width = steps.width ?? node.layout.width - steps.inset * 2
+      // The canvas is drawn on whole pixels from its rounded page position,
+      // so its row is there, not at the element's fractional position.
       return {
-        left: rect.left + (node.x + steps.inset) * scale + x,
-        top: rect.top + (node.y + steps.y + inset) * scale + y,
+        left: Math.round(rect.left) + (node.x + steps.inset) * scale + x,
+        top: Math.round(rect.top) + (node.y + steps.y + inset) * scale + y,
         width: width * scale,
         height: (steps.height - inset * 2) * scale,
       }

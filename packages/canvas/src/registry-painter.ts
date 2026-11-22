@@ -286,6 +286,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multilineTop = chrome.y + multilineLabelHeight
     const multilineBottom = chrome.y + chrome.height
     const multilinePadding = tokens.multilineText.padding
+    const multilineTextInset = tokens.multilineText.textInset
 
     let multilineExtraRows = 0
     let multilineVisualRows = 0
@@ -448,7 +449,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.fillStyle = tokens.colors.label
             ctx.font = `italic ${ctx.font}`
           }
-          const multilineAvailableWidth = Math.max(0, zoneWidth - multilinePadding * 2)
+          const multilineAvailableWidth = Math.max(0, zoneWidth - multilineTextInset - multilinePadding)
           // Native schemas carry the input label separately from WidgetSpec;
           // use it when the placeholder-marked view has no display_name.
           const texts = wrapText(ctx, placeholder && run === '' ? row.label : run, multilineAvailableWidth)
@@ -466,7 +467,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.beginPath()
             ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
             ctx.clip()
-            const textX = alignRight ? zoneRight - multilinePadding : px + reserveLeft + multilinePadding
+            const textX = alignRight ? zoneRight - multilinePadding : px + reserveLeft + multilineTextInset
             const textY = lineTop + multilineHeight / 2
             ctx.fillText(text, textX, textY)
             const role = style['role']
@@ -488,7 +489,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     if (declaredSlider) paintLabel()
     const visibleHeight = Math.max(0, multilineBottom - multilineTop - multilinePadding * 2)
     const contentHeight = multilineVisualRows * multilineHeight
-    if (multiline && args.hovered && contentHeight > visibleHeight) {
+    // Text that does not fit shows the quiet scrollbar; the box never grows to fit.
+    if (multiline && contentHeight > visibleHeight) {
       const scrollbarWidth = tokens.multilineText.scrollbarWidth
       const trackHeight = Math.max(0, multilineBottom - multilineTop)
       const thumbHeight = Math.min(

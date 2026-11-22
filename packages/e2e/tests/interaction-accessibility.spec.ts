@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForStartupOwnership, type Locator, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Locator, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_INTERACTION_ACCESSIBILITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -133,7 +133,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('touch reaches the in-row field and its after-run modes on a narrow viewport', async ({ page }, testInfo) => {
@@ -175,6 +175,16 @@ test('an open field keeps its after-run modes reachable through a short canvas r
   await page.mouse.click(widget.x, widget.y)
   await expect(page.getByTestId('canvas-row-field').locator('.dinkster-canvas-field-side')).toBeVisible()
   await page.setViewportSize({ width: 390, height: 360 })
+  // Put the canvas at a fractional page position past the half pixel, as
+  // other font metrics do; it is drawn from its rounded position.
+  await page.evaluate(() => { document.body.style.marginTop = '0.3px' })
+  // The side part stays whole on the visible canvas; the canvas does not move.
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const side = document.querySelector('[data-testid=canvas-row-field] .dinkster-canvas-field-side')!.getBoundingClientRect()
+    return side.left >= canvas.left && side.top >= canvas.top &&
+      side.right <= canvas.right && side.bottom <= canvas.bottom
+  })).toBe(true)
 
   const randomize = page.getByRole('group', { name: 'After each run' }).getByRole('button', { name: 'randomize' })
   await expect(randomize).toBeInViewport()

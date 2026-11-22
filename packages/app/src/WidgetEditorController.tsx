@@ -124,6 +124,7 @@ export interface WidgetEditorState {
    */
   readonly inRow?: {
     readonly look: 'original' | 'flat-title'
+    readonly nodeTop: number
     readonly nodeBottom: number
     readonly help?: string
     /** The raw stored value when the field opened (null when none was stored). */
@@ -133,6 +134,10 @@ export interface WidgetEditorState {
     /** Where a click opened a text row, in client coordinates. */
     readonly caret?: { readonly x: number; readonly y: number }
   }
+  /** Where a click opened a text box, in client coordinates. */
+  readonly caret?: { readonly x: number; readonly y: number }
+  /** How far a text box's row extends above and below `rect`, in world units; its bar sits near the row's bottom. */
+  readonly rowInsetY?: number
   /** Current materialized member names for schema-declared completion sources. */
   readonly inputFamilyMembers?: Readonly<Record<string, readonly string[]>>
   /** Editor anchor rect in canvas world coordinates. */
