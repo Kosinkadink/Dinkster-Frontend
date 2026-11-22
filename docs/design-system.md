@@ -922,9 +922,13 @@ The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
 and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
 scoped shared CSS with embedded Noto fonts plus token-derived native overlay
 colors/height and macOS traffic-light position. The installer reuses the first
-`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
-without one it prepends `ProductWindowChrome`. If the app later creates or
-replaces its bar, the installer moves its markings there and removes its own
+`.dinkster-window-toolbar-host`, `.topbar`, `.dinkster-topbar` or direct body
+header, preserving its children. On a shared toolbar it mounts identity inside
+the toolbar grid; a host-managed toolbar leaves its component `qa` and
+`development` flags unset so the installer alone owns those markings. The
+artifact includes the canonical toolbar container rules, including the compact
+metadata row. Without an application bar it prepends `ProductWindowChrome`.
+If the app later creates or replaces its bar, the installer moves its markings there and removes its own
 fallback; removing the app bar restores the fallback. Reinstallation disconnects
 the prior observer and replaces only its own markings/fallback. The host inserts
 the supplied CSS and runs the

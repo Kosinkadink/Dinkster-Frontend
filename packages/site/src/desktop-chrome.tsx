@@ -19,7 +19,7 @@ export function install(options: DesktopChromeOptions): void {
   let clear: (() => void) | undefined
   function reconcile(): void {
     const existing = document.querySelector<HTMLElement>(
-      '.topbar, .dinkster-topbar, body > header',
+      '.dinkster-window-toolbar-host, .topbar, .dinkster-topbar, body > header',
     )
     if (
       bar?.isConnected &&
@@ -34,7 +34,7 @@ export function install(options: DesktopChromeOptions): void {
     if (existing) {
       bar = existing
       mount.className = 'dinkster-window-identity-host'
-      bar.append(mount)
+      ;(bar.querySelector('.dinkster-window-toolbar') ?? bar).append(mount)
       unmount = render(
         () => (
           <ProductWindowIdentity
