@@ -60,6 +60,7 @@ for (const theme of ['dark', 'light'] as const) {
     const wordmarkReady = new Promise<void>((resolve) => { releaseWordmark = resolve })
     let delayedWordmarks = 0
     await page.route(/\/branding\/svg\/dinkster-wordmark-color-.*\.svg(?:\?.*)?$/, async (route) => {
+      if (route.request().resourceType() !== 'image') return route.continue()
       delayedWordmarks += 1
       await wordmarkReady
       await route.continue()
@@ -119,6 +120,21 @@ for (const theme of ['dark', 'light'] as const) {
       expect(box.x + box.width).toBeLessThanOrEqual(242)
       expect(box.y + box.height).toBeLessThanOrEqual(56)
     }
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
+    })
+    const rail = page.getByTestId('rail-toggle')
+    const attention = rail.locator('.panel-indicator')
+    await expect(attention).toBeVisible()
+    await expect(attention).toHaveCSS('position', 'absolute')
+    const railBox = (await rail.boundingBox())!
+    const iconBox = (await rail.locator('svg').boundingBox())!
+    const badgeBox = (await attention.boundingBox())!
+    expect(iconBox.width).toBe(20)
+    expect(iconBox.height).toBe(18)
+    expect(badgeBox.y).toBeLessThan(railBox.y)
+    expect(badgeBox.x).toBeGreaterThan(iconBox.x)
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')

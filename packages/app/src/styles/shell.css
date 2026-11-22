@@ -182,15 +182,8 @@
   cursor: pointer;
 }
 
-.shell-region-toggle.product-button {
-  width: var(--dinkster-control-compact-height);
-  height: var(--dinkster-control-compact-height);
-  padding: var(--dinkster-space-4);
-}
-
 .sidebar-button:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 
-.shell-region-toggle[aria-pressed='true'],
 .sidebar-button[aria-pressed='true'] {
   color: var(--dinkster-accent-foreground);
   background: var(--dinkster-interaction-selected);
