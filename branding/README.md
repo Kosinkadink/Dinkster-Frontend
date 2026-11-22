@@ -1,14 +1,21 @@
 # Dinkster vector brand
 
-The approved D is `sources/dinkster-d.svg`. Its path is copied unchanged
-into `sources/Dinkster_Master.svg`. `sources/build_d.py --export-master`
-derives the silhouette from the selected dark-on-light trace in
-`sources/reference-d.svg`, with a local upward rounding at the body's
-bottom-left tip. The original traced input remains unchanged.
-The analytic construction is historical, not the active silhouette.
-The regular e is accepted. The master regular wordmark uses the selected
-1.35x lettering with its baseline at the D bottom; the k leg descends below
-the D. Application header and favicon assets are not changed here.
+The approved outlined D is `sources/dinkster-d.svg`; regular letter contours
+are `sources/letter-contours.svg`. The master copies these vectors without
+raster tracing. Outward D corners tighter than radius 24 use tangent r24
+arcs; the inward stem/foot junction is r38.4. Existing broad curves stay.
+Letters have r2.47 outward corners and unchanged inward corners. The k has
+a flat left stem foot and a 49.4-degree arm; its 45-degree leg descends below
+the baseline. Letter spacing and the selected 1.35x placement are unchanged.
+
+The symbol uses cyan `#32E6C5` and coral `#FF7468`. Its coral foot band is
+58 mark units wide, starting at y395, with a concentric r96.4 inner edge.
+The front coral plane is unchanged. Yellow is not part of the artwork;
+its separate interface palette token is unchanged.
+
+Production symbols, wordmarks, raster sets, favicons and platform containers
+all derive from these sources. Reference traces, analytic constructions,
+heavier lettering and vetoed small-icon comparisons are historical.
 
 ## Editing and export
 
@@ -21,10 +28,13 @@ The authoring environment uses Python 3.12, fonttools 4.68.0, Pillow,
 numpy, scipy and cairosvg. These are standalone artwork-authoring tools;
 the frontend build and test dependencies are unchanged.
 
-Run `python sources/build_d.py --export-master sources/dinkster-d.svg`
-from this directory to regenerate the silhouette without reference-image
-scratch renders. Then run `python sources/build_brand.py --inkscape /path/to/inkscape`, followed by
-`python sources/export_brand.py --inkscape /path/to/inkscape`.
+Edit the outlined D and letter contours directly. From this directory run
+`python sources/build_brand.py --inkscape /path/to/inkscape`, followed by
+`python sources/export_brand.py --inkscape /path/to/inkscape` and
+`python sources/export_favicons.py --inkscape /path/to/inkscape`.
+The favicon exporter queries the new silhouette bounds, squares by width
+and centers vertically; the opaque 180px touch icon retains its 0.9 inset.
+There are no separate small-size contours or pixel edits.
 `sources/export-commands.txt` records the renderer build and exact commands.
 The current renderer is Ubuntu's Inkscape 1.2.2
 (`b0a8486541`, 2022-12-01), package `1.2.2-2ubuntu12`, extracted into the
@@ -45,11 +55,11 @@ stays an external input, not a production SVG raster dependency.
 The regular-only guided comparison uses `export_brand.py
 --regular-wordmark-only` to leave symbol rasters and heavier exports
 untouched. These commands are recorded in `wordmark-export-commands.txt`.
-`--wordmarks-only` regenerates both wordmark weights without exporting
-symbol SVGs, rasters or platform assets. The full command regenerates all
+`--wordmarks-only` regenerates production wordmarks without exporting
+symbol SVGs, rasters or platform assets. The full command regenerates active
 assets, including color wordmarks for both themes and platform containers.
-Heavier lettering is historical and unselected; its contours and placements
-remain frozen. The regular 1.35x wordmark is the production selection.
+Heavier lettering is historical and unselected; its contours, placements,
+D and standalone exports remain frozen. The regular 1.35x wordmark is the production selection.
 Separate 16/24 objects retain the exact selected path. The wider
 channel masks are rejected and retained only as comparison controls in
 `previews/small-vetoed/`. Production small PNGs and platform containers
@@ -74,10 +84,10 @@ The enlarged k also carries its x + y = 63 cut/arm continuation guide.
 The regular e is traced directly from the supplied reference at 2x.
 The blue line is the start of the k/t top slopes, not their highest
 point; the i dot's top edge ends on that line and never rises above it.
-The regular k beam ends in a triangle at (7,56), with its cut
-meeting the lower leg at approximately (20.1005,42.8995). Both diagonal
-strokes have the bar's 14-unit perpendicular thickness, not a 14-unit
-horizontal span. The i's opposing faces have slope -0.7 and retain the
+Before rounding, the regular k has a six-unit flat foot from (7,56) to
+(13,56). The arm's lower edge joins (13,56) to (49,14), with its parallel
+upper edge 14 perpendicular units away. The descending leg remains at
+45 degrees. The r2.47 corner arcs leave a flat part on the baseline. The i's opposing faces have slope -0.7 and retain the
 accepted 4/sqrt(1+(8/19)^2) perpendicular clearance (about 3.687 units).
 Its dot extends 2 units beyond the 15-unit stem on the right. The t's
 lower-right face runs from (23,44) to (29,56).
@@ -100,11 +110,10 @@ change, so the 1.35 lettering is not clipped. The 1.35/y188 transform is
 also applied to all three regular master wordmarks and SVG exports.
 Other size transforms remain historical preview options.
 `size-export-commands.txt` records the Inkscape build and each export.
-The yellow cut is vertical at master x331.6546762589928.
-The yellow starts at y395, above the lower-left accent
-but below the top body, so its hidden horizontal boundary cannot create
-a visible step. The body tip is locally rounded above the yellow plane;
-no yellow falls on the body, and the negative-space channel stays open.
+The coral foot band follows the stem's vertical left edge, concentric
+inward turn and parallel diagonal. It starts at y395 so its horizontal
+top is hidden within the stem, without a visible step. The shared
+silhouette clips both coral bands; the negative-space channel stays open.
 Coral uses the selected thinner upper boundary from (323,28) through
 (444,149), with its radius-45 turn, then continues vertically at x444
 past the D bottom. The historical construction transform maps the band;
@@ -122,8 +131,9 @@ comparison files are historical, not additional production selections.
 
 ## Product integration inventory
 
-- Editable source: `sources/Dinkster_Master.svg`; immutable selected trace
-  in `sources/reference-d.svg` and derived mono silhouette in `sources/dinkster-d.svg`.
+- Editable contours: `sources/dinkster-d.svg` and `sources/letter-contours.svg`;
+  generated layered master: `sources/Dinkster_Master.svg`. The immutable
+  `sources/reference-d.svg` trace is a historical input, not the active outline.
 - Header/website: `svg/dinkster-wordmark-color-dark.svg` and
   `svg/dinkster-wordmark-color-light.svg`; mono lettering/mark alternatives
   are `dinkster-wordmark-dark.svg`, `-light.svg` and `-mono.svg`.
