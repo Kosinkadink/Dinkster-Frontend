@@ -1,4 +1,4 @@
-import { asLinkId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema, type CompileArtifact } from '@dinkster/core'
+import { asLinkId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, elaborateInterface, importLitegraph, parseDinksterSchema, type CompileArtifact, type NodeSchema } from '@dinkster/core'
 import { createWidgetRegistry } from '@dinkster/widgets'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -9,19 +9,23 @@ import type { ExecutionState, RetainedAssets } from '@dinkster/client'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-it.each([
-  ...(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as const)
-    .map((scenario) => ({ scenario, nodeType: 'Painter' })),
-  { scenario: 'live', nodeType: 'dinkster.image.painter' },
-])(
-  'keeps the connected IMAGE receipt through $nodeType decode and draw: $scenario', async ({ scenario, nodeType }) => {
-    const schema = parseDinksterSchema(nodeType, { replacements: [
-      { from: 'Painter', cases: [{ to: nodeType }] },
-    ], body: [
+// Painter's editor row as the engine declares it: it writes the mask row and reads the node's image.
+const painterRow = { kind: 'editor', id: 'painter', widget: { type: 'PAINTER', writes: { mask: 'mask' }, reads: { image: 'image' } } } as const
+const maskRow = { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+  widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
+  sourceFilename: { kind: 'media/image', category: 'input' } } as const
+// What the canvas hands the editor when the Painter row is opened.
+const painterEditor = (schema: NodeSchema) => {
+  const row = elaborateInterface(schema, { values: {} }).items.find((item) => item.kind === 'editor')!
+  return { spec: row.widget, target: { kind: 'input' as const, nodeId: 'n1', valueKey: 'mask', parts: row.parts } }
+}
+
+it.each(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as const)(
+  'keeps the connected IMAGE receipt the Painter row reads through decode and draw: %s', async (scenario) => {
+    const nodeType = 'dinkster.image.painter'
+    const schema = parseDinksterSchema(nodeType, { body: [
       { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
-      { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
-        widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
-        sourceFilename: { kind: 'media/image', category: 'input' } },
+      maskRow, painterRow,
     ] }).schema!
     const imported = importLitegraph({ nodes: [{ id: 1, type: nodeType }], links: [] }, () => schema).document!
     const graph = imported.graphs.g0!
@@ -64,8 +68,7 @@ it.each([
     vi.stubGlobal('createImageBitmap', decode)
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
-      target: { kind: 'input', nodeId: 'n1', valueKey: 'mask' }, label: 'Mask',
-      spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
+      ...painterEditor(schema), label: 'Mask',
       multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: null,
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     try {
@@ -99,9 +102,7 @@ it.each([
 
 it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)('keeps Painter edits undoable and authority-bound on %s', async (outcome) => {
   const schema = parseDinksterSchema('Painter', { body: [
-    { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
-      widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
-      sourceFilename: { kind: 'media/image', category: 'input' } },
+    maskRow, painterRow,
   ] }).schema!
   const metadata = { mediaType: 'image/png', name: 'old.png', size: 1, virtualPath: 'old.png' }
   const initial = outcome === 'local'
@@ -144,8 +145,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
   const root = document.createElement('div'); document.body.append(root)
   let closed = false
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'mask' }, label: 'Mask',
-    spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
+    tab, graphId: 'g0', ...painterEditor(schema), label: 'Mask',
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { closed = true }} />, root)
   const button = (name: string) => Array.from(document.querySelectorAll('button')).find((item) => item.textContent === name)!
@@ -178,9 +178,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
 it.each(['live', 'refused', 'closed-before', 'closed-decode', 'edited', 'disconnected', 'disposed'] as const)(
   'borrows the saved Painter mask owner through bitmap decode: %s', async (scenario) => {
     const schema = parseDinksterSchema('Painter', { body: [
-      { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
-        widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
-        sourceFilename: { kind: 'media/image', category: 'input' } },
+      maskRow, painterRow,
     ] }).schema!
     const initial = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'mask.png', size: 7, virtualPath: '' }
     const doc = importLitegraph({ nodes: [{ id: 1, type: 'Painter', widgets_values: [initial] }], links: [] }, () => schema).document!
@@ -203,8 +201,7 @@ it.each(['live', 'refused', 'closed-before', 'closed-decode', 'edited', 'disconn
     vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{
-      tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'mask' }, label: 'Mask',
-      spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
+      tab, graphId: 'g0', ...painterEditor(schema), label: 'Mask',
       multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     try {

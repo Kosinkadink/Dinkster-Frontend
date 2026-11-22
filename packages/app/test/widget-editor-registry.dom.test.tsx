@@ -128,7 +128,9 @@ it('edits camera siblings atomically with schema defaults, validation and undo w
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'view' }, label: 'View',
+    tab, graphId: 'g0', label: 'View',
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'view', parts: { reads: {},
+      writes: { horizontal_angle: 'horizontal_angle', vertical_angle: 'vertical_angle', zoom: 'zoom' } } },
     spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
     rect: { x: 0, y: 0, width: 180, height: 24 },
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -151,6 +153,61 @@ it('edits camera siblings atomically with schema defaults, validation and undo w
   expect(store.undo()).toBe(true)
   expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
   dispose()
+})
+
+it('writes only the named, unwired camera rows and writes nothing on open or cancel', async () => {
+  const schema = parseDinksterSchema('CameraRowsFixture', { body: [
+    { kind: 'input', id: 'yaw', type: { kind: 'concrete', types: ['INT'] }, default: 10 },
+    { kind: 'input', id: 'pitch', type: { kind: 'concrete', types: ['INT'] }, default: 20 },
+    { kind: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
+    { kind: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
+  const graph = imported.graphs.g0!
+  const store = new DocumentStore({ ...imported, graphs: { g0: { ...graph,
+    nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: 'Source', values: {} } },
+    links: { pitch: { id: asLinkId('pitch'), from: { node: asNodeId('source'), port: asPortId('INT') },
+      to: { node: asNodeId('n1'), port: asPortId('pitch') } } },
+  } } }, coreCommandRegistry())
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const open = () => {
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <WidgetEditor app={app} ed={{
+      tab, graphId: 'g0', label: 'View',
+      // zoom is a row of the node, but the widget does not name it.
+      target: { kind: 'input', nodeId: 'n1', valueKey: 'view', parts: { reads: {}, writes: { horizontal_angle: 'yaw', vertical_angle: 'pitch' } } },
+      spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
+      rect: { x: 0, y: 0, width: 180, height: 24 },
+    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    return { root, dispose }
+  }
+  const field = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`#camera-angle-${name}`)!
+  const button = (root: HTMLElement, text: string) => Array.from(root.querySelectorAll('button')).find((item) => item.textContent === text)!
+
+  const revision = store.revision
+  const first = open()
+  expect(field(first.root, 'horizontal_angle').value).toBe('10')
+  expect(field(first.root, 'horizontal_angle').disabled).toBe(false)
+  expect(field(first.root, 'vertical_angle').disabled).toBe(true)
+  expect(field(first.root, 'zoom').disabled).toBe(true)
+  expect(first.root.textContent).toContain('Fields with a link are not changed here.')
+  button(first.root, 'Cancel').click()
+  first.dispose()
+  expect(store.revision).toBe(revision)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+
+  const second = open()
+  field(second.root, 'horizontal_angle').value = '90'
+  field(second.root, 'horizontal_angle').dispatchEvent(new Event('input', { bubbles: true }))
+  button(second.root, 'Apply camera angle').click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, yaw: 90 }))
+  second.dispose()
 })
 
 it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
@@ -200,7 +257,8 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     vi.stubGlobal('createImageBitmap', decode)
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{
-      tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: inputId }, label: 'Preview',
+      tab, graphId: 'g0', label: 'Preview', target: { kind: 'input', nodeId: 'n1', valueKey: inputId,
+        parts: { writes: {}, reads: kind === 'BOUNDING_BOX' ? { image: 'image' } : { image_a: 'image_a' } } },
       spec: inputsOf(schema)[1]!.widget, multiline: false, initial,
       rect: { x: 0, y: 0, width: 180, height: 24 },
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)

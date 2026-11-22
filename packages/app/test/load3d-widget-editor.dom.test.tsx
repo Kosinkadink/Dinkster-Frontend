@@ -32,6 +32,13 @@ vi.mock('../src/model3d-viewer.js', () => ({
   },
 }))
 
+// The rows a LOAD_3D widget names: it reads each viewport row by its own name
+// and writes its own row when that row is the separate viewport state.
+const viewportParts = (own: string) => ({
+  writes: own === 'viewport_state' ? { state: own } : {},
+  reads: Object.fromEntries(['model_3d', 'model_file', 'camera_info', 'model_3d_info', 'width', 'height'].map((row) => [row, row])),
+})
+
 afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fixtures.mount = undefined; fixtures.capture = undefined; fixtures.disposed = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('opens %s as a point cloud', async (type) => {
@@ -58,7 +65,7 @@ it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('op
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
-    target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport',
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state', parts: viewportParts('viewport_state') }, label: 'Viewport',
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: {},
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -116,7 +123,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const open = () => render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Viewport',
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image', parts: viewportParts('image') }, label: 'Viewport',
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: store.doc.graphs.g0!.nodes.n1!.values.image,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -301,7 +308,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Viewport',
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image', parts: viewportParts('image') }, label: 'Viewport',
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -414,7 +421,7 @@ it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edite
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport',
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state', parts: viewportParts('viewport_state') }, label: 'Viewport',
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -616,7 +623,7 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
-    target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state', parts: viewportParts('viewport_state') }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
     declaredType: inputsOf(schema)[1]!.type, multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
   if (variant.startsWith('bytes-')) {

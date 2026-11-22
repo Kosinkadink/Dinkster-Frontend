@@ -20,14 +20,19 @@ non-empty legacy `interface` list.
 - **Row**: two to four fields side by side. Layout only: each field is drawn
   beside the one before it when both are in the same section.
 - **Note**, **Editor** and **Button**: decoded with the schema. The canvas
-  does not draw them, and the editor never runs a button's steps. An editor
-  row is a custom or compositor widget with no value of its own; it must name
-  at least one row it writes or reads.
+  does not draw notes or buttons, and the editor never runs a button's steps.
+  An editor row is a custom or compositor widget with no value of its own; it
+  must name at least one row it writes or reads. The canvas draws it as a
+  widget line with no label and no pin, and opening it opens its widget's
+  editor, titled by the node.
 
 A custom or compositor widget, on an editor row or on an input, may carry
-`writes` and `reads`: its own part names mapped to row ids of its scope. The
-editor keeps them on the widget spec, apart from the widget's own options, and
-does not hand those rows to the widget yet.
+`writes` and `reads`: its own part names mapped to row names of its scope.
+Elaboration resolves each name as a formula does, to the flattened id of that
+row; a name under an unchosen option, or one that names no row, is absent.
+The widget's editor reads and writes the resolved rows instead of fixed row
+names. An editor row whose widget writes exactly one row shows and edits that
+row's value. The editor never changes a written row that has a link.
 - **Group**, **Choice**, **Type choice** and **Described**: the rows below.
 
 Every row's `visible` (a boolean or a formula) and an input's or output's

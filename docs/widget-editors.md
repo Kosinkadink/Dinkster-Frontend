@@ -20,15 +20,16 @@ Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
 Connected inputs disable this composer instead of showing invented dimensions.
 
 CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
-horizontal angle, vertical angle and zoom fields. Apply camera angle updates
-the three real numeric inputs as one undoable edit; the presentation-only view
-string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
-applied. Connected numeric inputs disable this composer rather than pretending
-to override their drivers; edit the source inputs or disconnect them first.
-Cancel and outside dismissal discard the draft.
+horizontal angle, vertical angle and zoom fields. Each field edits the row its
+widget writes under that part name. Apply camera angle updates those rows as
+one undoable edit; the presentation-only view string is unchanged. Blank,
+fractional angle and out-of-range drafts cannot be applied. A field whose row
+has a link, or that the widget does not name, is disabled and not written; the
+other fields stay editable. Opening and Cancel write nothing, and outside
+dismissal discards the draft.
 
-IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
-image_b preview streams. The divider supports pointer and keyboard controls;
+IMAGECOMPARE opens a wipe comparison of the previews the executed node streams
+under the rows its widget reads as `image_a` and `image_b`. The divider supports pointer and keyboard controls;
 each side has an independent frame selector. A single connected side fills
 the preview without a divider. Unequal image sizes fit without distortion.
 The divider and frame choices are local display state, not graph values.
@@ -40,7 +41,8 @@ BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
 region shows four named fields; Apply crop stores the complete region as one
 undoable edit. Coordinates must be nonnegative whole pixels and dimensions
 must be positive whole pixels. Cancel or outside dismissal discards the draft.
-After running the connected image source, the editor shows its first frame
+After running the image source of the row its widget reads as `image`, the
+editor shows its first frame
 with the selected crop outlined and the excluded area shaded. The outline
 matches the backend's edge clamping. An unavailable or stale source leaves
 the numeric controls usable without showing an unrelated image.
@@ -129,16 +131,21 @@ continues independently; closing one selection does not cancel other borrowers.
 
 The AUDIO_RECORD input on Record Audio opens the recording editor. Recording
 and applying a clip stores its audio asset on the node for the next run.
-The LOAD_3D input opens the 3D viewport on Load 3D, Load 3D Advanced, and the
-advanced mesh, gaussian-splat and point-cloud preview/save nodes. Preview Point
+The LOAD_3D widget opens the 3D viewport on Load 3D, Load 3D Advanced, and the
+advanced mesh, gaussian-splat and point-cloud preview/save nodes. It reads the
+model, camera and model information, width and height from the rows its widget
+names under `model_3d`, `model_file`, `camera_info`, `model_3d_info`, `width`
+and `height`. Preview Point
 Cloud and Save Point Cloud use point rendering rather than mesh surfaces.
 Stored model inputs retain their concrete typed-literal envelopes when the
 input accepts several file formats; the viewport reads the enclosed model.
-Applying the viewport retains the node's camera and model state; Load 3D also
-captures its image, mask and normal assets.
+Applying the viewport retains the node's camera and model state. A viewport
+on an editor row writes that state to the row it writes as `state`; a viewport
+widget on its own input also captures its image, mask and normal assets.
 
 The WEBCAM row opens a camera capture dialog. Capture frame requests browser
-camera permission, takes one PNG resized to the node's width and height, stages
+camera permission, takes one PNG resized to the rows its widget reads as
+`width` and `height`, stages
 it on the node's native backend, and releases the camera tracks. A zero width
 uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
@@ -216,14 +223,14 @@ numbers and booleans, including duplicate entries and an empty array.
 
 ## Painter
 
-The native Painter node's mask row opens an RGBA canvas over its background
-color or a connected image's current first frame. The served schema's replacement
-of `Painter` identifies this editor after node migration; other asset mask rows
-keep the ordinary asset picker. A connected source must have
+A PAINTER editor row shows Paint mask and opens an RGBA canvas over the background color its widget
+reads as `bg_color`, or over the current first frame of the image it reads as
+`image`. The widget type alone selects this editor; asset rows, including the
+mask row it writes, keep the ordinary asset picker. A connected source must have
 a completed, unchanged native execution; stale, unavailable or ambiguous
 sources require another run before painting. The editor scrolls on small screens
 while Cancel and Apply stay visible. Connected images set the canvas
-dimensions; otherwise it uses the authored width and height. Connected IMAGE
+dimensions; otherwise it uses the rows it reads as `width` and `height`. Connected IMAGE
 decoding and drawing borrow the exact descriptor's admitted value reader;
 connection changes refuse drawing even after rendition bytes arrived. The bitmap
 closes before that read settles, without releasing its retained owner. Brush color and
@@ -238,7 +245,7 @@ bytes or decoding the bitmap. Closing, editing or an observed connection change
 refuses late mask publication; bitmap cleanup finishes without releasing the
 retained owner. Apply uploads a PNG
 through the tab's native media authority and stores the returned ASSET
-reference in one undoable edit.
+reference in the row it writes as `mask`, in one undoable edit.
 The shared upload destination picker selects a granted mount and subfolder;
 remembered destinations are scoped to the backend and project.
 Cancel and close discard the draft. Missing files, failed uploads or a changed

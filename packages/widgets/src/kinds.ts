@@ -151,6 +151,15 @@ export const imageCompareKind: WidgetKind<null> = {
   defaultView: () => 'core.imageCompare',
 }
 
+/** The painter: an editor row that writes a mask file; it has no value of its own. */
+export const painterKind: WidgetKind<Json> = {
+  type: 'PAINTER',
+  valueSchema: { version: 1, validate: (value): value is Json => value === null || isAssetRef(value) },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.painter',
+}
+
 export const cameraAngleKind: WidgetKind<string> = {
   type: 'CAMERA_ANGLE_VIEW',
   valueSchema: stringSchema,
@@ -952,6 +961,13 @@ export const imageCompareView: WidgetView<null> = {
       t('imageCompareWidget.open'), state, 'widget.edit')
   },
 }
+export const painterView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.painter', 'PAINTER'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('painterWidget.open'), state, 'widget.edit')
+  },
+}
 export const cameraAngleView: WidgetView<string> = {
   ...makeCompactView<string>('core.cameraAngle', 'CAMERA_ANGLE_VIEW'),
   drawCompact(ctx, _value, spec, state) {
@@ -1028,11 +1044,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

@@ -4965,7 +4965,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setEditor({
         tab,
         graphId,
-        label: hit.row.label,
+        // An editor row has no label of its own; its editor is titled by its node.
+        label: hit.row.editor === true ? hit.node.layout.title : hit.row.label,
         target: {
           kind: 'input',
           nodeId,
