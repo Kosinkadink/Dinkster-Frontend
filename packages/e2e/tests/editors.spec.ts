@@ -29,6 +29,21 @@ test.beforeEach(async ({ page }) => {
     dinkster: { version: 'editor-role-e2e', schemaWire: 1 },
     packs: { test: { displayName: 'Test' } },
     nodes: {
+      'synthetic.compositor': {
+        schemaVersion: 1,
+        nodeType: 'synthetic.compositor',
+        displayName: 'Synthetic Compositor',
+        category: 'test',
+        pack: 'test',
+        signature: 'editor-role-e2e-compositor',
+        editorRole: 'compositor',
+        interface: [{
+          role: 'input', id: 'recipe', required: true,
+          type: { kind: 'concrete', types: ['COMPOSITOR'] },
+          widget: { type: 'COMPOSITOR' },
+          default: { version: 2, documentDigest: null, commands: [] },
+        }],
+      },
       'synthetic.curve': {
         schemaVersion: 1,
         nodeType: 'synthetic.curve',
@@ -67,6 +82,45 @@ test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)
+})
+
+test('clicking the compositor summary leaves its stored recipe unchanged', async ({ page }) => {
+  const recipe = {
+    version: 2,
+    documentDigest: `blake3:${'a'.repeat(64)}`,
+    commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }],
+  }
+  await page.evaluate(async (value) => {
+    const app = window.__dinksterTest!.app
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-summary', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'Compositor summary',
+        nodes: { compositor: { id: 'compositor', type: 'synthetic.compositor', values: { recipe: value } } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      } },
+      view: { graphs: { g0: { nodes: { compositor: { position: { x: 160, y: 120 } } } } } },
+    }, 'Compositor summary')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, recipe)
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) =>
+    node.id === 'compositor' && node.layout.rows.some((row) => row.inputId === 'recipe')))
+  const point = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'compositor')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'recipe')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(point.x, point.y)
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
+  await expect(page.getByTestId('editor-missing')).toHaveCount(0)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.editorKind)).toBe('graph')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.compositor!.values.recipe)).toEqual(recipe)
 })
 
 test('a synthetic node opens its editor from the schema role', async ({ page }) => {

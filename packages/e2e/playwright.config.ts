@@ -67,8 +67,6 @@ const BACKEND_SERIAL_SPECS = [
   'string-split-output-lifecycle.spec.ts',
   'curve-editor.spec.ts',
   'trellis2-official-workflow-live.spec.ts',
-  'compositor-editor.spec.ts',
-  'image-bake-live.spec.ts',
   'audio-recording-live.spec.ts',
   'recording-3d-editors-live.spec.ts',
   'painter-live.spec.ts',
