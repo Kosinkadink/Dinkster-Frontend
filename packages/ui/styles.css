@@ -298,7 +298,7 @@
 .dinkster-canvas-field-glyph { width: var(--dinkster-space-12); height: var(--dinkster-space-12); stroke-width: 3; }
 .dinkster-canvas-field-label { position: relative; flex: none; max-width: 50%; padding-left: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-field-row[data-steppers='false'] .dinkster-canvas-field-label { padding-left: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
-.dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; }
+.dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; min-width: 0; }
 .dinkster-canvas-field-mark { position: relative; display: grid; place-items: center; flex: none; margin-left: auto; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-field-input { position: relative; flex: 0 1 auto; field-sizing: content; min-width: var(--dinkster-space-24); margin-left: auto; height: 100%; padding: 0 calc(var(--dinkster-space-4) / 2); border: 0; outline: 0; background: transparent; color: var(--dinkster-text-primary); font: inherit; text-align: right; }
 /* The open field's outline marks its focus; the input draws no ring of its own. */
@@ -317,6 +317,8 @@
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-mark { color: var(--dinkster-text-muted); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-input { height: var(--dinkster-type-canvas-line); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-label, .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-input { margin-bottom: calc(2 * var(--dinkster-border-width)); }
+/* Zoomed in, the field is drawn scaled. Its text is laid out on whole pixels of the unscaled field, while the canvas centers the row's text half a pixel lower at its exact scaled place. The text moves down that half pixel so it stays where the canvas drew it. At normal size both land on the same whole pixel. */
+.dinkster-canvas-field[data-look='flat-title'][data-zoomed='true'] .dinkster-canvas-field-label, .dinkster-canvas-field[data-look='flat-title'][data-zoomed='true'] .dinkster-canvas-field-input { transform: translateY(calc(var(--dinkster-border-width) / 2)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side { min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='right'] { border-left: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='left'] { border-right: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }

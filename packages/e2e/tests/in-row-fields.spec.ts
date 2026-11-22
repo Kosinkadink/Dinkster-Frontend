@@ -107,9 +107,11 @@ test('past a limit the side part says what Enter stores; the field follows the c
       const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
       const { x, y, scale } = renderer.getViewport()
       const width = steps.width ?? node.layout.width - steps.inset * 2
+      // The canvas is drawn on whole pixels from its rounded page position,
+      // so its row is there, not at the element's fractional position.
       return {
-        left: rect.left + (node.x + steps.inset) * scale + x,
-        top: rect.top + (node.y + steps.y + inset) * scale + y,
+        left: Math.round(rect.left) + (node.x + steps.inset) * scale + x,
+        top: Math.round(rect.top) + (node.y + steps.y + inset) * scale + y,
         width: width * scale,
         height: (steps.height - inset * 2) * scale,
       }

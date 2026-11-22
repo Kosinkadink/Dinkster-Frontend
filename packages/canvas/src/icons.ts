@@ -80,6 +80,20 @@ import Layers from 'lucide/dist/esm/icons/layers.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Ruler from 'lucide/dist/esm/icons/ruler.mjs'
 
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import CircleX from 'lucide/dist/esm/icons/circle-x.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ListTree from 'lucide/dist/esm/icons/list-tree.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ScrollText from 'lucide/dist/esm/icons/scroll-text.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Forward from 'lucide/dist/esm/icons/forward.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Archive from 'lucide/dist/esm/icons/archive.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Unplug from 'lucide/dist/esm/icons/unplug.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Repeat from 'lucide/dist/esm/icons/repeat.mjs'
 import type { ToolboxButton } from './toolbox.js'
 import { canvasPaintTokens } from './tokens.js'
 
@@ -153,7 +167,18 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'sliders-horizontal': SlidersHorizontal,
   'panel-top-close': PanelTopClose,
   'panel-top-open': PanelTopOpen,
+  'circle-x': CircleX,
+  'list-tree': ListTree,
+  'scroll-text': ScrollText,
+  forward: Forward,
+  archive: Archive,
+  unplug: Unplug,
+  repeat: Repeat,
+  lock: Lock,
 }
+
+/** Whether a name from outside the canvas, such as an extension badge's icon, is one the canvas paints. */
+export const isCanvasIconName = (name: string): name is NonNullable<ToolboxButton['icon']> => Object.hasOwn(ICONS, name)
 
 /** Paint Lucide's 24px SVG node data into a square canvas button. */
 export function paintToolboxIcon(
