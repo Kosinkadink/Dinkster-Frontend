@@ -417,7 +417,7 @@ describe('ASSET widget modal integration', () => {
 
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
     [false, true].map((stored) => ({ scenario, stored }))))(
-    'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {
+    'applies picks only while their captured context is current: $scenario stored=$stored', async ({ scenario, stored }) => {
       const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
           widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } } }],
@@ -454,7 +454,11 @@ describe('ASSET widget modal integration', () => {
           app.connection.connect(); app.connection.disconnect()
         }
         if (scenario === 'registry') app.registry.set({ ...app.registry.get()!, hash: 'replacement' })
-        if (scenario === 'disposed') app.dispose()
+        if (scenario === 'disposed') {
+          vi.stubGlobal('WebSocket', class { close() {} })
+          app.connection.connect()
+          app.dispose()
+        }
         dispatch.mockClear()
         root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
         if (scenario === 'live') {
@@ -462,9 +466,9 @@ describe('ASSET widget modal integration', () => {
             command: 'node.setValue', params: expect.objectContaining({ value: ref }),
           })))
         } else {
-          await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
-            command: 'node.setValue', params: expect.objectContaining({ value: ref }),
-          })))
+          expect(root.querySelector('.asset-error')?.textContent)
+            .toContain('Picker selection changed; reopen the asset picker')
+          expect(dispatch).not.toHaveBeenCalled()
         }
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
     },

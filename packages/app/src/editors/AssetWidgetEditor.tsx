@@ -144,6 +144,21 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
   const uploadBackend = props.app.backendForTab(ed.tab)
   const project = activeProjectId()
+  const openedTab = ed.tab
+  const openedStore = openedTab.store
+  const openedDocument = openedStore?.doc
+  const openedRevision = openedStore?.revision
+  const openedRegistry = props.app.registryForTab?.(openedTab)
+  let connectionChanged = false
+  const unsubscribeConnection = uploadBackend.connection.status?.subscribe?.(() => { connectionChanged = true }) ?? (() => {})
+  onCleanup(unsubscribeConnection)
+  const pickerContextCurrent = (): boolean =>
+    openedStore === undefined || props.app.registryForTab === undefined || props.app.tabs === undefined
+      ? live
+      : live && !connectionChanged && ed.tab === openedTab && openedTab.store === openedStore &&
+        openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
+        props.app.tabs.get().includes(openedTab) && props.app.backendForTab(openedTab) === uploadBackend &&
+        props.app.registryForTab(openedTab) === openedRegistry && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
@@ -993,6 +1008,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 data-testid="asset-apply"
                 disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
+                  if (!pickerContextCurrent()) {
+                    setAssetError('Picker selection changed; reopen the asset picker')
+                    return
+                  }
                   const selection = assetSelection()
                   if (!assetMulti) {
                     commitEditorValue(selection[0] ?? null)
