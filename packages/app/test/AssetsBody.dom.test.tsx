@@ -89,18 +89,17 @@ describe('Assets dock body', () => {
     } finally { dispose() }
   })
 
-  it.skip.each(['accepted', 'closed', 'late-body', 'stale-connection'])(
+  it.each(['accepted', 'closed', 'late-body', 'stale-connection'])(
     'loads card and detail image bodies without publishing stale local URLs: %s', async (scenario) => {
       const digest = `blake3:${'a'.repeat(64)}`
       let finish!: () => void
       const body = new Promise<ArrayBuffer>((resolve) => { finish = () => resolve(new Uint8Array([17, 31, 7]).buffer) })
-      const listeners = new Set<() => void>()
       const createUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:image-${createUrl.mock.calls.length}`)
       const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
-      const fetchAssetBytes = vi.fn(() => body)
+      const fetchAsset = vi.fn(async () => new Response(await body, { headers: { 'content-type': 'image/png' } }))
+      vi.stubGlobal('fetch', fetchAsset)
       const connection = stubConnection({
-        assetUrl: (digest: string) => `/api/assets/${digest}`, fetchAssetBytes,
-        status: { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } },
+        assetUrl: (digest: string) => `/api/assets/${digest}`,
         listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready' }],
         listMountEntries: async () => ({ entries: [{ virtualPath: 'a.png', name: 'a.png', digest, size: 3, mediaType: 'image/png', kind: 'media/image' }] }),
       })
@@ -109,21 +108,17 @@ describe('Assets dock body', () => {
       const dispose = render(() => <AssetsBody connection={selected()} backendId="native" />, root)
       let closed = false
       try {
-        await vi.waitFor(() => expect(fetchAssetBytes).toHaveBeenCalledTimes(1))
+        await vi.waitFor(() => expect(fetchAsset).toHaveBeenCalledTimes(1))
         root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-        await vi.waitFor(() => expect(fetchAssetBytes).toHaveBeenCalledTimes(2))
+        await vi.waitFor(() => expect(fetchAsset).toHaveBeenCalledTimes(2))
         expect(root.querySelectorAll('img')).toHaveLength(0)
         if (scenario === 'closed') { dispose(); closed = true }
         if (scenario === 'closed') {
-          await vi.waitFor(() => expect(listeners.size).toBe(0))
         } else {
-          expect(listeners.size).toBe(2)
           if (scenario === 'late-body') { dispose(); closed = true }
           if (scenario === 'stale-connection') setSelected(stubConnection({ assetUrl: () => '/other', listMounts: async () => [] }))
           expect(createUrl).not.toHaveBeenCalled()
-          await vi.waitFor(() => expect(listeners.size).toBe(2))
           finish()
-          await vi.waitFor(() => expect(listeners.size).toBe(0))
           if (scenario === 'accepted') {
             await vi.waitFor(() => expect(root.querySelectorAll('img')).toHaveLength(2))
             for (const image of root.querySelectorAll('img')) expect(image.getAttribute('src')).toMatch(/^blob:image-/)
@@ -377,7 +372,7 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it.skip('defaults to All assets, shows offline reasons and digest facts, and persists view', async () => {
+  it('defaults to All assets, shows offline reasons and digest facts, and persists view', async () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:asset-image')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     registerCatalog('de-DE', { 'assets.preview.alt': '[Vorschau von {name}]' })
@@ -393,6 +388,7 @@ describe('Assets dock body', () => {
       assetUrl: (digest: string) => `/api/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
     })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 7, 3]), { headers: { 'content-type': 'image/png' } })))
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
