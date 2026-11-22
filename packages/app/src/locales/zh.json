@@ -934,6 +934,7 @@
   "resources.disk": "磁盘",
   "resources.exactLimitHelp": "输入精确大小，例如 1.5 GB。也接受整数字节数和 K/M/G/T 大小。自动选项会移除显式预算。",
   "resources.memoryLimit": "显存限制",
+  "resources.automatic": "自动",
   "resources.cardLimit": "显存限制，{name}",
   "resources.keepFree": "始终保留可用",
   "resources.confirmUnload": "卸载所选模型？需要时会重新加载。",

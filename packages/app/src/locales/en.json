@@ -932,6 +932,7 @@
   "resources.disk": "Disk",
   "resources.exactLimitHelp": "Enter an exact size such as 1.5 GB. Integer bytes and K/M/G/T sizes are also accepted. Automatic removes the explicit budget.",
   "resources.memoryLimit": "Memory limit",
+  "resources.automatic": "Automatic",
   "resources.cardLimit": "Memory limit, {name}",
   "resources.keepFree": "Always keep free",
   "resources.confirmUnload": "Unload the selected models? They will reload when needed.",

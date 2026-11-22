@@ -74,6 +74,7 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   expect(field('System memory').value).toBe('10.0 GB')
   expect(field('Disk').value).toBe('25.0 GB')
   expect(field('vram:cuda:1').value).toBe('6.0 GB')
+  expect(root.querySelectorAll('.dinkster-resource-card')).toHaveLength(1)
   expect(field('custom').value).toBe('0.123456789 GB')
   expect(root.querySelectorAll('[role="slider"]')).toHaveLength(1)
   const input = (name: string, value: string) => { const element = field(name); element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })) }
@@ -93,6 +94,35 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   input('System memory', 'bad size'); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
   expect(root.textContent).toContain('Exact budget rejected.')
   expect(field('System memory').value).toBe('bad size')
+  unmount()
+})
+
+it('offers measured-card limits without inventing a reported budget and unloads unmeasured residency', async () => {
+  const status: MemoryStatus = { ...payload, memoryGovernor: {
+    'vram:cuda:0': { ...payload.memoryGovernor!['vram:cuda:0']!, budgetBytes: null },
+    ram: { ...payload.memoryGovernor!['vram:cuda:0']!, measured: null },
+  } }
+  const updateRuntimeSetting = vi.fn(async (_category: string, value: unknown) => ({ value, writable: true }))
+  const unloadMemory = vi.fn(async () => ({ requestedBytes: 3e9, freedBytes: 3e9 }))
+  const connection = { status: coreSignal<ConnectionStatus>('connected'), fetchMemoryStatus: async () => status, onMemoryStatus: () => () => {}, fetchRuntimeSettings: async () => ({ categories: { granted: ['memory-budgets'], available: ['memory-budgets'] }, settings: { 'memory-budgets': { value: {}, writable: true } } }), updateRuntimeSetting, unloadMemory } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
+  await flush()
+  const slider = root.querySelector('[role="slider"]')!
+  expect(slider.getAttribute('aria-valuemax')).toBe('12000000000')
+  expect(slider.getAttribute('aria-valuenow')).toBe('12000000000')
+  expect(slider.parentElement!.textContent).toContain('Automatic')
+  expect(root.querySelector('.dinkster-resource-limit')).toBeNull()
+  expect(updateRuntimeSetting).not.toHaveBeenCalled()
+  slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+  await flush()
+  expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 11945377792 })
+  const all = [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Unload all')!
+  all.click(); await flush()
+  expect(unloadMemory).not.toHaveBeenCalled()
+  const confirm = [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Unload').at(-1)!
+  confirm.click(); await flush()
+  expect(unloadMemory.mock.calls).toEqual([['vram:cuda:0'], ['ram']])
   unmount()
 })
 
