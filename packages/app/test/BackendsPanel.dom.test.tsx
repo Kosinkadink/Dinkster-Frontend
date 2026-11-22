@@ -14,7 +14,8 @@ const button = (root: Element, text: string) => [...root.querySelectorAll<HTMLBu
 function mount(app = new AppState()) {
   const root = document.createElement('div')
   document.body.append(root)
-  disposers.push(render(() => <BackendsPanel app={app} />, root))
+  const unmount = render(() => <BackendsPanel app={app} />, root)
+  disposers.push(() => { unmount(); app.dispose() })
   return { app, root }
 }
 
@@ -58,8 +59,7 @@ describe('BackendsPanel', () => {
     card.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
     button(card, 'Remove backend').click()
     button(card, 'Remove backend').click()
-    await flush()
-    expect(app.backendFor(extra.id)).toBeUndefined()
+    await vi.waitFor(() => expect(app.backendFor(extra.id)).toBeUndefined())
   })
 
   it('relabels mounted chrome without translating server facts or resetting a pending restart', async () => {
@@ -106,6 +106,25 @@ describe('BackendsPanel', () => {
     expect(restart.textContent).toBe('[RESTART ENGINE]')
   })
 
+  it('disconnects without forgetting the server, then reconnects the same line', async () => {
+    const { app, root } = mount()
+    const backend = app.addBackend('https://studio.test', 'Studio', false, 'dinkster')!
+    ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
+    const row = root.querySelector('[data-connection="https://studio.test"]')!
+    button(row, 'Disconnect').click()
+    expect(row.getAttribute('data-status')).toBe('disconnected')
+    expect(app.backendFor(backend.id)).toBe(backend)
+    vi.spyOn(AppState.prototype, 'startBackend').mockResolvedValue(undefined)
+    const restored = new AppState()
+    expect(restored.backends.get().some((saved) => saved.baseUrl === backend.baseUrl)).toBe(true)
+    restored.dispose()
+    vi.spyOn(app, 'startBackend').mockImplementation(async () => { (backend.connection.status as Signal<ConnectionStatus>).set('connected') })
+    button(row, 'Connect').click()
+    await flush()
+    expect(row.getAttribute('data-status')).toBe('connected')
+    expect(root.querySelector('[data-connection="https://studio.test"]')).toBe(row)
+  })
+
   it('opens the address form explicitly, reports discovery and refuses duplicate addresses', async () => {
     const { app, root } = mount()
     let finish!: () => void
@@ -123,7 +142,7 @@ describe('BackendsPanel', () => {
     expect(root.querySelector('[data-testid="backend-add"]')?.getAttribute('aria-disabled')).toBe('true')
     input.closest('form')!.requestSubmit()
     expect(discover).toHaveBeenCalledTimes(1)
-    expect(root.textContent).toContain('Discovering...')
+    expect(root.textContent).toContain('Connecting...')
     finish()
     await flush()
     expect(root.textContent).toContain('could not be added')

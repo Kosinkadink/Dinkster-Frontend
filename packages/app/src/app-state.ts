@@ -4910,6 +4910,12 @@ export class AppState {
     if (persist) this.persistBackendRemove(id)
   }
 
+  /** Stop transport and supervisor polling without forgetting the server or its targets. */
+  disconnectBackend(backend: Backend): void {
+    this.supervisorPolls.get(backend.id)?.()
+    backend.connection.disconnect()
+  }
+
   /** Removed backends, retained only so their executions' /view URLs resolve. */
   private readonly retiredBackends = new Map<ConnectionId, Backend>()
 
@@ -7749,7 +7755,7 @@ export class AppState {
   }
 
   /** Connect a backend and load its schema registry; failures land in Problems. */
-  private async startBackend(backend: Backend): Promise<void> {
+  async startBackend(backend: Backend): Promise<void> {
     backend.connection.connect()
     if (backend.protocol === 'dinkster') this.superviseBackend(backend)
     await this.loadBackendSchemas(backend)

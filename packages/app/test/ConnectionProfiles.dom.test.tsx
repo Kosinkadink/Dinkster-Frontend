@@ -3,13 +3,21 @@
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerCatalog, setLocale } from '@dinkster/core'
-import { ConnectionProfilesSection } from '../src/ConnectionProfiles.js'
+import { BackendsPanel } from '../src/BackendsPanel.js'
 import { createConnectionProfile, listConnectionProfiles } from '../src/connection-profiles.js'
-import type { AppState } from '../src/app-state.js'
+import { AppState } from '../src/app-state.js'
 import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
+import { scopedStorageKey } from '../src/projects.js'
 
-const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
+const disposers: (() => void)[] = []
+const flush = async (): Promise<void> => { for (let i = 0; i < 12; i += 1) await Promise.resolve() }
+const profileRow = (root: Element) => root.querySelector('[data-connection="https://host:8443"]')!
+const startRemoval = (root: Element) => {
+  const row = profileRow(root)
+  row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+  row.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+}
 
 function fakeBridge(overrides: Partial<DinksterDesktopBridge> = {}): DinksterDesktopBridge {
   return {
@@ -39,21 +47,25 @@ function fakeBridge(overrides: Partial<DinksterDesktopBridge> = {}): DinksterDes
 
 function mount(bridge: DinksterDesktopBridge) {
   window.dinksterDesktop = bridge
-  const app = { addBackendByUrl: vi.fn(async () => true) } as unknown as AppState
+  const app = new AppState()
+  vi.spyOn(app, 'addBackendByUrl').mockResolvedValue(undefined)
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <ConnectionProfilesSection app={app} />, root)
-  return { root, unmount }
+  const unmount = render(() => <BackendsPanel app={app} />, root)
+  disposers.push(() => { unmount(); app.dispose() })
+  return { root, unmount, app }
 }
 
 afterEach(() => {
+  for (const dispose of disposers.splice(0)) dispose()
+  vi.restoreAllMocks()
   delete window.dinksterDesktop
   document.body.replaceChildren()
   localStorage.clear()
   setLocale('en')
 })
 
-describe('ConnectionProfilesSection removal', () => {
+describe('Backend saved connections', () => {
   it('updates an open token editor and visible failure when the locale changes', async () => {
     registerCatalog('de-DE', {
       'connectionProfiles.action.clearToken': '[Token loschen]',
@@ -62,7 +74,8 @@ describe('ConnectionProfilesSection removal', () => {
       'connectionProfiles.badge.tokenInKeychain': '[Token im Schlusselbund]',
       'connectionProfiles.error.clearToken': '[Token nicht geloscht: {error}]',
       'connectionProfiles.label.accessTokenFor': '[Zugriffstoken fur {name}]',
-      'connectionProfiles.title': '[Gespeicherte Verbindungen]',
+      'backendsPanel.title': '[Backend connections]',
+      'backendsPanel.aria.actions': '[Actions for {backend}]',
     })
     const profile = createConnectionProfile('Studio source', 'https://host:8443')!
     const bridge = fakeBridge({
@@ -74,38 +87,42 @@ describe('ConnectionProfilesSection removal', () => {
     ;(root.querySelector('[data-testid="profile-token-edit"]') as HTMLButtonElement).click()
     ;(root.querySelector('[data-testid="profile-token-clear"]') as HTMLButtonElement).click()
     await flush()
-    expect(root.querySelector('h2')?.textContent).toBe('Saved connections')
+    expect(root.querySelector('[data-testid="backends-panel"]')?.getAttribute('aria-label')).toBe('Backend connections')
     expect(root.querySelector('[role="alert"]')?.textContent).toBe('The token was not cleared: keychain locked')
 
     setLocale('de-DE')
 
-    expect(root.querySelector('h2')?.textContent).toBe('[Gespeicherte Verbindungen]')
-    expect(root.querySelector('[data-testid="connection-profiles"]')?.getAttribute('aria-label')).toBe('[Gespeicherte Verbindungen]')
+    expect(root.querySelector('[data-testid="backends-panel"]')?.getAttribute('aria-label')).toBe('[Backend connections]')
     expect(root.querySelector('[data-testid="profile-credential-badge"]')?.textContent).toBe('[Token im Schlusselbund]')
     expect(root.querySelector('[data-testid="profile-token-clear"]')?.textContent?.trim()).toBe('[Token loschen]')
     expect(root.querySelector('[data-testid="profile-token-save"]')?.textContent?.trim()).toBe('[Token speichern]')
     expect(root.querySelector('.connection-profile-token-editor label')?.textContent).toContain('[Zugriffstoken fur Studio source]')
-    expect(root.querySelector('[data-testid="profile-remove"]')?.getAttribute('aria-label')).toBe('[Profil entfernen: Studio source]')
+    expect(profileRow(root).querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('[Actions for Studio source]')
     expect(root.querySelector('[role="alert"]')?.textContent).toBe('[Token nicht geloscht: keychain locked]')
-    expect(root.querySelector('[data-testid="profile-row"]')?.textContent).toContain('Studio source')
-    expect(root.querySelector('[data-testid="profile-row"] code')?.textContent).toBe('https://host:8443')
+    expect(root.querySelector('[data-connection="https://host:8443"]')?.textContent).toContain('Studio source')
+    expect(root.querySelector('[data-connection="https://host:8443"] code')?.textContent).toBe('https://host:8443')
   })
 
-  it('retires the stored credential before removing the profile', async () => {
+  it('unifies an added server and duplicate saved profiles, retiring every credential on removal', async () => {
     const profile = createConnectionProfile('Studio', 'https://host:8443')!
+    const duplicate = createConnectionProfile('Other saved name', 'https://host:8443/')!
     const calls: string[] = []
     const bridge = fakeBridge({
       retireConnectionProfile: vi.fn(async (profileId: string) => { calls.push(profileId) }),
     })
-    const { root } = mount(bridge)
+    const { root, app } = mount(bridge)
+    const backend = app.addBackend('https://host:8443', 'Studio', false, 'dinkster')!
     await flush()
-    ;(root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
-    expect(listConnectionProfiles()).toEqual([profile])
+    expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(2)
+    expect(listConnectionProfiles()).toEqual([profile, duplicate])
+    startRemoval(root)
+    expect(listConnectionProfiles()).toEqual([profile, duplicate])
     ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
-    expect(calls).toEqual([profile.id])
+    expect(calls).toEqual([profile.id, duplicate.id])
     expect(listConnectionProfiles()).toEqual([])
-    expect(root.querySelector('[data-testid="profile-row"]')).toBeNull()
+    expect(app.backendFor(backend.id)).toBeUndefined()
+    expect(root.querySelector('[data-connection="https://host:8443"]')).toBeNull()
   })
 
   it('keeps the profile and reports the failure when the credential cannot be cleared', async () => {
@@ -115,41 +132,42 @@ describe('ConnectionProfilesSection removal', () => {
     })
     const { root } = mount(bridge)
     await flush()
-    ;(root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
+    startRemoval(root)
     expect(listConnectionProfiles()).toEqual([profile])
     ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
     expect(listConnectionProfiles()).toEqual([profile])
-    expect(root.querySelector('[data-testid="profile-row"]')).not.toBeNull()
+    expect(root.querySelector('[data-connection="https://host:8443"]')).not.toBeNull()
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('keychain locked')
   })
 
   it('blocks other credential mutations while a removal is pending', async () => {
     const profile = createConnectionProfile('Studio', 'https://host:8443')!
+    const other = createConnectionProfile('Other', 'https://other.test')!
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     const retireConnectionProfile = vi.fn(() => gate)
     const setConnectionCredential = vi.fn(async () => undefined)
     const bridge = fakeBridge({
-      connectionCredentials: vi.fn(async () => ({ custody: true, profiles: [profile.id] })),
+      connectionCredentials: vi.fn(async () => ({ custody: true, profiles: [profile.id, other.id] })),
       retireConnectionProfile,
       setConnectionCredential,
     })
     const { root } = mount(bridge)
     await flush()
-    ;(root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
-    expect(listConnectionProfiles()).toEqual([profile])
+    startRemoval(root)
+    expect(listConnectionProfiles()).toEqual([profile, other])
     ;(root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
     await flush()
-    const clear = root.querySelector('[data-testid="profile-token-clear"]') as HTMLButtonElement
+    const clear = root.querySelector<HTMLButtonElement>('[data-connection="https://other.test"] [data-testid="profile-token-clear"]')!
     expect(clear.disabled).toBe(true)
-    clear.click() // must be refused even if the disabled state were bypassed
+    clear.click()
     expect(retireConnectionProfile).toHaveBeenCalledTimes(1)
     expect(setConnectionCredential).not.toHaveBeenCalled()
     release()
     await flush()
-    expect(listConnectionProfiles()).toEqual([])
-    expect(root.querySelector('[data-testid="profile-row"]')).toBeNull()
+    expect(listConnectionProfiles()).toEqual([other])
+    expect(root.querySelector('[data-connection="https://host:8443"]')).toBeNull()
   })
 
   it('clears the failure alert once a retried token clear succeeds', async () => {
@@ -177,15 +195,49 @@ describe('ConnectionProfilesSection removal', () => {
     await flush()
     const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota') })
     try {
-      ;(root.querySelector('[data-testid="profile-url-input"]') as HTMLInputElement).value = 'https://host:8443'
-      root.querySelector('[data-testid="profile-url-input"]')!.dispatchEvent(new Event('input', { bubbles: true }))
-      ;(root.querySelector('[data-testid="profile-add"]') as HTMLButtonElement).click()
+      ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Add backend')!.click()
+      const address = root.querySelector<HTMLInputElement>('[data-testid="backend-url-input"]')!
+      address.value = 'https://host:8443'
+      address.dispatchEvent(new Event('input', { bubbles: true }))
+      const token = root.querySelector<HTMLInputElement>('[data-testid="profile-token-input"]')!
+      token.value = 'secret'
+      token.dispatchEvent(new Event('input', { bubbles: true }))
+      ;(root.querySelector('[data-testid="backend-add"]') as HTMLButtonElement).click()
       await flush()
       expect(root.querySelector('[role="alert"]')?.textContent).toContain('storage')
       expect(bridge.setConnectionCredential).not.toHaveBeenCalled()
     } finally {
       setItem.mockRestore()
     }
+  })
+
+  it('uses one Connect form and retains a credential-backed line after failed discovery', async () => {
+    const ids: string[] = []
+    const { root } = mount(fakeBridge({
+      connectionCredentials: vi.fn(async () => ({ custody: true, profiles: [...ids] })),
+      setConnectionCredential: vi.fn(async (id: string) => { ids.push(id) }),
+    }))
+    await flush()
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Add backend')!.click()
+    expect(root.querySelectorAll('form')).toHaveLength(1)
+    const enter = (selector: string, value: string) => {
+      const input = root.querySelector<HTMLInputElement>(selector)!
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    enter('[data-testid="backend-url-input"]', 'https://host:8443')
+    enter('[data-testid="profile-name-input"]', 'Studio')
+    enter('[data-testid="profile-token-input"]', 'private-token')
+    ;(root.querySelector('[data-testid="backend-add"]') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(root.querySelector('#backend-add-error')?.textContent).toContain('could not be added'))
+    expect(listConnectionProfiles().map(({ name, url }) => ({ name, url }))).toEqual([{ name: 'Studio', url: 'https://host:8443' }])
+    expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(2)
+    expect(profileRow(root).getAttribute('data-status')).toBe('disconnected')
+    expect(profileRow(root).querySelector('[data-testid="profile-credential-badge"]')?.textContent).toBe('Token in OS keychain')
+    const saved = localStorage.getItem(scopedStorageKey('dinkster.connectionProfiles'))!
+    expect(saved).toContain('Studio')
+    expect(saved).not.toContain('private-token')
+    expect(profileRow(root).querySelector('[data-testid="profile-connect"]')).not.toBeNull()
   })
 
   it('refuses a token save that lost the cross-window lock race to a removal', async () => {
@@ -220,7 +272,7 @@ describe('ConnectionProfilesSection removal', () => {
 
       // Window A starts removing the profile; its credential clear stalls
       // while holding the lock.
-      ;(windowA.root.querySelector('[data-testid="profile-remove"]') as HTMLButtonElement).click()
+      startRemoval(windowA.root)
       ;(windowA.root.querySelector('[data-fill="solid"]') as HTMLButtonElement).click()
       await flush()
 

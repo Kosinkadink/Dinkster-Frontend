@@ -460,19 +460,25 @@ release assets or test CUDA; local checks do not establish hosted execution.
 
 ## Remote connections
 
-The Backends panel keeps **Saved connections**: named profiles holding the
-address of a remote Dinkster server. Profiles are project-scoped and store only
-non-secret fields (name, canonical http(s) URL). **Connect** adds the profile's
-server through the ordinary backend discovery path; a failed probe is reported
-and nothing is persisted.
+The Backends panel shows one line per server address, including disconnected
+saved connections. Existing project-scoped backend and profile records remain
+intact; profiles with the same canonical address share one line without losing
+their credential identities. **Add backend** opens one form: address, optional
+name, and an optional access token where desktop credential storage is available.
+**Connect** discovers the server and remembers it across reloads. If token storage
+succeeds but discovery fails, its disconnected line stays reachable for retry,
+token editing, or removal.
 
-Saved profiles use ProductListRow for identity and address, with a wrapping
-ProductActionFooter below the copy so credential actions do not squeeze long
-names. Profile forms use ProductTextInput and ProductButton; credential custody,
-pending-action disabling and token-editor placement remain unchanged.
-Invalid addresses and failed connection or credential actions use ProductNotice
-error feedback. Rejected addresses remain editable and a successful save clears
-the error without creating a profile for the rejected address.
+An opened line offers **Disconnect**, which stops the connection without
+forgetting the server or workflow targets, and **Connect** to reconnect it.
+**Remove backend** asks for confirmation, retires every matching profile's
+credential, then forgets the profiles and added backend. A credential retirement
+failure leaves its profile reachable. The default server cannot be removed.
+
+Rows use ProductDisclosure and ProductMenu; the one connection form uses
+ProductField, ProductTextInput and ProductButton. Credential actions wrap inside
+the opened line. Field errors remain next to the address, and credential errors
+use a dismissible ProductErrorBanner. Invalid addresses remain editable.
 
 ![Saved connections in the Backends panel](assets/remote-connections/saved-connections.png)
 
