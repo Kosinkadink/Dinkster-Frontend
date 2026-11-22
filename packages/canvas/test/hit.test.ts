@@ -977,12 +977,12 @@ describe('boundary pseudo-node hit testing', () => {
   })
 
   it('a boundary slot label row resolves as a renameable boundary-pin row', () => {
-    const row = inputs.layout.rows.find((candidate) =>
-      candidate.kind === 'ports' && (candidate.input ?? candidate.output)?.portId === 'color')!
-    const hit = hitTest(scene, inputs.x + inputs.layout.width / 2, inputs.y + row.y + row.height / 2)
+    const row = outputs.layout.rows.find((candidate) =>
+      candidate.kind === 'ports' && (candidate.input ?? candidate.output)?.portId === 'image')!
+    const hit = hitTest(scene, outputs.x + outputs.layout.width / 2, outputs.y + row.y + row.height / 2)
     expect(hit.kind).toBe('boundary-pin')
     if (hit.kind === 'boundary-pin') {
-      expect(hit.item).toBe('color')
+      expect(hit.item).toBe('image')
       expect(hit.row).toBe(true)
     }
   })

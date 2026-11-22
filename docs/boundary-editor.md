@@ -46,6 +46,28 @@ acceptance clears the draft. Navigating away clears transient drafts and
 notices without cancelling a submitted command. Its later completion cannot
 clear a newer draft or report a refusal in another view.
 
+## Fields on the canvas Inputs panel
+
+Inside an open subgraph, the Inputs panel drawn on the canvas shows each
+input that the subgraph node outside shows as a field as the same field, in
+the same order, with its pin and wire to the inner node kept. An input that
+is only a pin outside stays a name and a pin. The Outputs panel is unchanged.
+
+The fields carry the values of the subgraph node the editor came in through,
+and the title says whose they are ("Inputs of Soften"). Editing a field
+there is the same command as editing it on that node outside and is one undo
+step; two subgraph nodes of one definition keep their own values. In a
+subgraph inside a subgraph the same rule applies one level down, and an edit
+is written to whichever outer node owns the value. Entered with no node, the
+panel shows and edits the defaults a new subgraph node starts with (the inner
+node's stored value), and the quieter text after the title says "defaults".
+
+The inner field the row is wired to shows the same value dimmed, as an
+arriving value. A field that the entered node receives by a wire outside the
+subgraph is dimmed and not editable, and shows the arriving value when the
+document fixes it. A frozen run view shows the values that run used and
+edits nothing.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become
