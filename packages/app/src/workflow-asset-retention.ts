@@ -31,7 +31,6 @@ import {
   IMAGE_OUTPUT_POLICY_EXTENSION,
   imageOutputPolicyOf,
   parseTypedLiteralWire,
-  planReplacement,
   replayHistoryOps,
   typeExprFromTypeId,
   valueSourceConsumersOf,
@@ -308,7 +307,7 @@ function censusWorkflowAssetRoots(
       dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
     }
   }
-  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
+  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
     const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
@@ -323,7 +322,7 @@ function censusWorkflowAssetRoots(
     checkedSchemas.add(schema)
     if (node.ext !== undefined && Object.keys(node.ext).length > 0) complete = false
     checkedExtensions.add(node)
-    for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
+    for (const [key, value] of Object.entries(node)) if (!['ext', 'values'].includes(key)) checkExtensions(value as Json)
     for (const value of Object.values(node.values)) opaqueRoots(value)
     if (node.ext !== undefined) opaqueRoots(node.ext)
     if (node.dynamic !== undefined) opaqueRoots(node.dynamic as Json)
@@ -362,33 +361,21 @@ function censusWorkflowAssetRoots(
         message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
       })
     }
-    const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
-    if (missingChoices.length > 0) {
-      complete = false
-      incompleteDiagnostics.push(...missingChoices)
-    }
-    // An absent required choice is editable, but cannot certify ownership or execute.
+    // Removed constructs are inert storage. A missing required slot is an execution
+    // error, not an asset-ownership error: its dormant inputs are still censused.
     const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
-      !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
+      !['prompt.missing_dynamic_choice', 'elab.dynamic.unknownState'].includes(diagnostic.code)
     if (active.diagnostics.some(invalidIdentity) ||
       stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
-        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
+        invalidIdentity(diagnostic) && diagnostic.code !== 'elab.dormant.unsupported' &&
         (purpose !== 'admission' || ![
           'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
           'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
         ].includes(diagnostic.code)))
-      // A planned historical migration can consume state the current schema
-      // no longer describes. Retain its opaque roots, never certify it complete.
-      const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
-        .every((diagnostic) => diagnostic.severity !== 'error' || diagnostic.code === 'elab.dynamic.unknownState') && schema.replacements?.some((rule) => {
-        if (rule.migration === undefined) return false
-        const result = planReplacement(snapshot, graph.id, node.id, rule, resolve)
-        return result.plan !== undefined && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-      })
-      if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
+      if (invalidIdentities || purpose !== 'admission') refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
@@ -415,6 +402,10 @@ function censusWorkflowAssetRoots(
     }
     for (const [input, value] of Object.entries(node.values)) {
       const candidates = inputs.filter((item) => valueKeyOf(item) === input)
+      // Values for fields removed by a pack are inert. opaqueRoots above keeps
+      // recognizable assets without pretending to interpret the old field type.
+      if (candidates.length === 0) continue
+      checkExtensions(value)
       const conflicting = candidates.some((item) => item.wire15Materialization) &&
         new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
       const typed = parseTypedLiteralWire(value)
@@ -466,12 +457,12 @@ function censusWorkflowAssetRoots(
         return node === undefined ? [] : [[node, graph!] as const]
       }))
       if ([...nodes.keys()].every((node) => !node.type.startsWith('#'))) {
-        for (const [node, graph] of nodes) visitNode(node, schemas, graph, snapshot)
+        for (const [node, graph] of nodes) visitNode(node, schemas, graph)
         return
       }
     }
     for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph, snapshot)
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
       for (const source of Object.values(graph.valueSources ?? {})) {
         opaqueRoots(source.value)
         if (source.spec?.options !== undefined) complete = false

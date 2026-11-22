@@ -1,5 +1,7 @@
 import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
+test.use({ trace: 'retain-on-failure' })
+
 const MOCK = 'http://logical-model-picker.test'
 const A = `blake3:${'a'.repeat(64)}`
 const B = `blake3:${'b'.repeat(64)}`
