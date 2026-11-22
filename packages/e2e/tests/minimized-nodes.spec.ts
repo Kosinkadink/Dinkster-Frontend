@@ -173,16 +173,18 @@ test('toolbar, title, shortcut, context menu, save, and clipboard preserve minim
     context.fillRect(0, 0, 120, 60)
     renderer.setNodePreviews({ target: { image, width: 120, height: 60, state: 'cached' } })
     return {
-      layout: node.layout,
+      bare: node.layout,
+      layout: renderer.getScene().nodes.find((candidate) => candidate.id === 'target')!.layout,
       incoming: { x: incoming.x2, y: incoming.y2 },
       outgoing: { x: outgoing.x1, y: outgoing.y1 },
       expectedInput: { x: node.x, y: node.y + node.layout.headerHeight / 2 },
       expectedOutput: { x: node.x + node.layout.width, y: node.y + node.layout.headerHeight / 2 },
     }
   })
-  expect(minimized.layout).toMatchObject({ minimized: true, rows: [], preview: { compact: true } })
-  expect(minimized.layout.width).toBeGreaterThanOrEqual(80)
-  expect(minimized.layout.minWidth).toBeGreaterThanOrEqual(80)
+  // The node keeps its open width and has no strip until a picture arrives.
+  expect(minimized.bare).toMatchObject({ minimized: true, rows: [], width: 360 })
+  expect(minimized.bare.preview).toBeUndefined()
+  expect(minimized.layout).toMatchObject({ minimized: true, rows: [], width: 360, preview: { compact: true } })
   expect(minimized.incoming).toEqual(minimized.expectedInput)
   expect(minimized.outgoing).toEqual(minimized.expectedOutput)
   expect((await activeDoc(page)).view.graphs.g0!.nodes.target).toMatchObject({
