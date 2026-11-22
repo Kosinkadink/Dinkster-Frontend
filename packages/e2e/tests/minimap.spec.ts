@@ -22,15 +22,16 @@ test.beforeEach(async ({ page }) => {
 
 const viewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
 
-/** Count minimap pixels that differ from the canvas background (#181818). */
+/** Count minimap pixels that differ from its panel background. */
 const paintedPixels = (page: Page) =>
   page.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=minimap]')!
+    const background = getComputedStyle(canvas).backgroundColor.match(/\d+/g)!.slice(0, 3).map(Number)
     const ctx = canvas.getContext('2d')!
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
     let n = 0
     for (let i = 0; i < data.length; i += 4) {
-      if (data[i] !== 0x18) n++
+      if (data[i] !== background[0] || data[i + 1] !== background[1] || data[i + 2] !== background[2]) n++
     }
     return n
   })
