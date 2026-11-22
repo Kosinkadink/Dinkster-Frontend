@@ -127,7 +127,7 @@ for (const existing of [false, true]) {
     expect(artifact.format).toBe('dinkster.desktop-chrome/1')
     expect(artifact.native).toEqual({
       overlay: {
-        dark: { color: '#1C1F23', symbolColor: '#F2F4F5', height: 56 },
+        dark: { color: '#141C1D', symbolColor: '#F0F5F5', height: 56 },
         light: { color: '#FFFFFF', symbolColor: '#20252A', height: 56 },
       },
       trafficLightPosition: { x: 14, y: 16 },

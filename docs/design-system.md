@@ -17,6 +17,11 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 
 ## Source of truth
 
+The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
+raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
+is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+Light-theme colors remain unchanged.
+
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
 identity values. `dinkster-components.json` beside it owns spacing, typography,
 regular/bold weights, shape, motion, interaction and layout values. The private

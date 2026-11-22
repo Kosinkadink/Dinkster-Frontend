@@ -23,23 +23,24 @@
   },
   "dark": {
     "bg": {
-      "canvas": "#111316",
-      "surface": "#1C1F23",
-      "raised": "#282C31",
-      "hover": "#343940"
+      "frame": "#090D0D",
+      "canvas": "#0E1414",
+      "surface": "#141C1D",
+      "raised": "#1E292A",
+      "hover": "#283537"
     },
     "border": {
-      "default": "#3B4148",
-      "hover": "#5B636C"
+      "default": "#324143",
+      "hover": "#4F6265"
     },
     "text": {
-      "primary": "#F2F4F5",
-      "secondary": "#AAB3BC",
-      "muted": "#7D8792"
+      "primary": "#F0F5F5",
+      "secondary": "#A4B5B7",
+      "muted": "#74888B"
     },
     "action": {
       "primaryBg": "#32E6C5",
-      "primaryText": "#111316"
+      "primaryText": "#0E1414"
     },
     "status": {
       "success": "#32E6A5",
@@ -50,6 +51,7 @@
   },
   "light": {
     "bg": {
+      "frame": "#F7F8FA",
       "canvas": "#F7F8FA",
       "surface": "#FFFFFF",
       "raised": "#EDEFF2",
