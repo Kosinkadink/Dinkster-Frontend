@@ -16,6 +16,9 @@ import {
   CircleAlert,
   LayoutList,
   MousePointer,
+  Menu,
+  Search,
+  Square,
   Plus,
   Settings,
   Trash2,
@@ -24,6 +27,8 @@ import {
 import {
   ProductAbout,
   ProductWindowChrome,
+  ProductWindowToolbar,
+  ProductWindowAction,
   ProductAccountMenu,
   ProductCodeBlock,
   ProductCopyValue,
@@ -180,6 +185,9 @@ function Gallery() {
                 title="Native window chrome"
                 components="ProductWindowChrome"
               >
+                <ProductLink href="#window-toolbar">
+                  Inspect responsive window toolbar
+                </ProductLink>
                 <For each={['win32', 'linux', 'darwin'] as const}>
                   {(platform) => {
                     const [error, setError] = createSignal(true)
@@ -911,6 +919,121 @@ const narrowQuery = matchMedia(
   `(max-width: ${components.layout.sidebarBreakpoint}px)`,
 )
 
+function WindowToolbarGallery() {
+  const [state, setState] = createSignal('idle')
+  const [activity, setActivity] = createSignal('No action yet')
+  return (
+    <main class="dinkster-stack">
+      <ProductPage
+        title="Window toolbar"
+        description="Shared native geometry and responsive actions; these previews do not exercise OS controls."
+      >
+        <ProductLink href="#desktop-about">
+          Back to Desktop information
+        </ProductLink>
+        <ProductField label="Execution state">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={state()}
+              onChange={(event) => setState(event.currentTarget.value)}
+            >
+              <For each={['idle', 'running', 'pending']}>
+                {(value) => <option value={value}>{value}</option>}
+              </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p role="status">{activity()}</p>
+      </ProductPage>
+      <For each={['dark', 'light'] as const}>
+        {(theme) => (
+          <For each={['production', 'qa', 'custom'] as const}>
+            {(service) => (
+              <For each={['win32', 'darwin', 'linux'] as const}>
+                {(platform) => (
+                  <section
+                    class="dinkster-stack dinkster-root"
+                    data-theme={theme}
+                    aria-label={`${service} ${theme} ${platform}`}
+                  >
+                    <h2 class="dinkster-heading">
+                      {service} / {theme} / {platform}
+                    </h2>
+                    <ProductWindowToolbar
+                      title="Application controls"
+                      platform={platform}
+                      service={
+                        service === 'production'
+                          ? undefined
+                          : service === 'qa'
+                            ? 'QA services'
+                            : 'Custom services'
+                      }
+                      qa={service === 'qa'}
+                      development={service !== 'production'}
+                      brand={
+                        <ProductMenu
+                          label="Dinkster"
+                          icon={Menu}
+                          items={[
+                            {
+                              label: 'Projects',
+                              onSelect: () => setActivity('Projects opened'),
+                            },
+                          ]}
+                        />
+                      }
+                      search={
+                        <ProductWindowAction
+                          label="Search"
+                          icon={Search}
+                          onClick={() => setActivity('Search opened')}
+                        />
+                      }
+                      actions={
+                        <>
+                          <Show when={state() !== 'idle'}>
+                            <ProductWindowAction
+                              label="Cancel run"
+                              icon={Square}
+                              intent="remove"
+                              pending={state() === 'pending'}
+                              onClick={() => setActivity('Run cancelled')}
+                            />
+                          </Show>
+                          <For
+                            each={
+                              [
+                                ['Projects', LayoutList],
+                                ['Images', Plus],
+                                ['Collaboration', User],
+                                ['Toggle panels', Settings],
+                              ] as const
+                            }
+                          >
+                            {([label, icon]) => (
+                              <ProductIconButton
+                                label={label}
+                                icon={icon}
+                                onClick={() => setActivity(`${label} opened`)}
+                              />
+                            )}
+                          </For>
+                        </>
+                      }
+                    />
+                  </section>
+                )}
+              </For>
+            )}
+          </For>
+        )}
+      </For>
+    </main>
+  )
+}
+
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
   const [narrow, setNarrow] = createSignal(narrowQuery.matches)
@@ -920,7 +1043,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : route() !== '#canvas' && narrow()
+      : route() !== '#canvas' && route() !== '#window-toolbar' && narrow()
         ? 'site'
         : 'app'
   })
@@ -935,7 +1058,14 @@ function GalleryRoot() {
     onCleanup(() => window.removeEventListener('hashchange', update))
   })
   return (
-    <Show when={route().startsWith('#site-')} fallback={<Gallery />}>
+    <Show
+      when={route().startsWith('#site-')}
+      fallback={
+        <Show when={route() === '#window-toolbar'} fallback={<Gallery />}>
+          <WindowToolbarGallery />
+        </Show>
+      }
+    >
       <SiteGallery
         route={route()}
         onNavigate={(href) => {

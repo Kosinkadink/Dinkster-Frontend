@@ -122,7 +122,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
+import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab, type WorkerCatalogState } from './app-state.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -152,7 +152,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -1356,22 +1356,6 @@ export function visibleOutputPagerRect(
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-export async function commitRegionCreation(
-  app: AppState,
-  tab: Tab,
-  graphId: string,
-  position: { x: number; y: number },
-  kind: RegionKind,
-  selectOccurrence: (nodeId: string) => void,
-): Promise<CommandOutcome> {
-  if (tab.execution) return { ok: false, diagnostics: [] }
-  const occurrenceNodeId = tab.store.predictedNodeId(graphId)
-  if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
-  const outcome = await app.createRegion(tab, graphId, position, kind)
-  if (outcome.ok) selectOccurrence(occurrenceNodeId)
-  return outcome
-}
-
 /**
  * Production occurrence mutation planner: the core trusted-plan pipeline
  * behind the canvas planner seam. Snapshot-backed planning keeps stale or
@@ -2372,16 +2356,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         kind: 'utility',
         fields: [{ text: 'Reroute', weight: 3 }, { text: 'utility junction dot', weight: 1 }],
       },
-      ...(['map', 'fold', 'while'] as const).map((kind): PaletteEntry => ({
-        type: `__dinkster.region.${kind}`,
-        name: `${kind[0]!.toUpperCase()}${kind.slice(1)} region`,
-        category: 'Regions',
-        kind: 'utility',
-        fields: [
-          { text: `${kind} region`, weight: 3 },
-          { text: 'loop repetition subgraph', weight: 1 },
-        ],
-      })),
     ]
     for (const kind of props.app.virtualNodeKinds.values()) {
       entries.push({
@@ -2806,15 +2780,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         target.dispose()
       }
     }
-    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
-      const target = captureLifecycleTarget(tab, graphId)
-      try {
-        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => target.selectNodes([occurrenceNodeId]))
-        return outcome.ok
-      } finally {
-        target.dispose()
-      }
-    }
     const beginExtractSubgraph = async (): Promise<boolean> => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
@@ -2998,10 +2963,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const scopes = menuNodeIds.length > 0
         ? props.app.previewSelectionExecutionScopes(tab, menuNodeIds)
         : undefined
-      const hasExplicitImageEntry = additionalGroups.some((group) => group.items.some((item) => item.id === 'core.image.edit'))
-      const selectionImageTarget = hasExplicitImageEntry
-        ? undefined
-        : props.app.imageTargetForSelection(tab, currentGraphId(tab), ctx.selection.nodes)
       const resolvedGroups = [
         ...resolveNodeMenuGroups(
           props.app.menuRegistry,
@@ -3031,17 +2992,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ],
         }),
         ...(placementGroup === undefined ? [] : [placementGroup]),
-        ...(selectionImageTarget ? [{
-          group: '46-image-editor',
-          items: [{
-            id: 'core.image.edit',
-            label: 'Edit image',
-            action: { kind: 'host' as const, action: 'openImageEditor', params: {
-              nodeId: selectionImageTarget.nodeId,
-              inputId: selectionImageTarget.inputId,
-            } },
-          }],
-        }] : []),
         ...additionalGroups,
       ]
       const submenu = submenuId === undefined
@@ -3488,15 +3438,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
           })
           if (representationGroup !== undefined) additionalGroups.push(representationGroup)
-          const imageTarget = props.app.imageTargetForInput(tab, address.graphId, address.nodeId, address.inputId)
-          if (imageTarget) additionalGroups.push({
-            group: '46-image-editor',
-            items: [{
-              id: 'core.image.edit',
-              label: 'Edit image',
-              action: { kind: 'host', action: 'openImageEditor', params: { graphId: address.graphId, nodeId: address.nodeId, inputId: address.inputId } },
-            }],
-          })
         }
         openCanvasMenu(menuTargetOf(hit), worldX, worldY, additionalGroups)
       },
@@ -3843,12 +3784,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           y: Math.round(m.worldY),
         })
       },
-      createRegion: (params, m) => {
-        if (frozen() || !params || typeof params !== 'object' || Array.isArray(params)) return
-        const kind = (params as JsonObject)['kind']
-        if (kind !== 'map' && kind !== 'fold' && kind !== 'while') return
-        createRegionAt(m.tab, m.graphId, { x: Math.round(m.worldX), y: Math.round(m.worldY) }, kind)
-      },
       extractSubgraph: () => { beginExtractSubgraph() },
       flattenSubgraph: () => { flattenSelectedSubgraph() },
       runOnMachine: (params, m) => {
@@ -3975,15 +3910,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const sel = tab.store.doc.graphs[currentGraphId(tab)]?.selectors?.[selectorId]
         if (!sel) return
         setSelectorPrompt({ x: m.x, y: m.y, selectorId, initial: sel.title ?? 'Select' })
-      },
-      openImageEditor: (params, m) => {
-        if (!params || typeof params !== 'object' || Array.isArray(params)) return
-        const nodeId = (params as JsonObject)['nodeId']
-        const inputId = (params as JsonObject)['inputId']
-        const graphId = (params as JsonObject)['graphId']
-        if (typeof nodeId !== 'string' || typeof inputId !== 'string') return
-        const target = props.app.imageTargetForInput(m.tab, typeof graphId === 'string' ? graphId : m.graphId, nodeId, inputId)
-        if (target) props.app.openImageEditor(target)
       },
       copySelection: () => { void copySelection() },
       pasteSelection: (_params, m) => { void pasteFromClipboard({ x: m.worldX, y: m.worldY }) },
@@ -4158,16 +4084,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const type = entry.type
       setRecentNodeTypes((items) => [type, ...items.filter((item) => item !== type)].slice(0, 10))
       closePalette()
-      if (type.startsWith('__dinkster.region.')) {
-        const kind = type.slice('__dinkster.region.'.length)
-        const tab = activeTab()
-        if (tab && !frozen() && (kind === 'map' || kind === 'fold' || kind === 'while')) {
-          createRegionAt(tab, currentGraphId(tab), {
-            x: Math.round(p.worldX), y: Math.round(p.worldY),
-          }, kind)
-        }
-        return
-      }
       // Dropped noodles and link splices own an exact release point and must
       // remain one immediate atomic insertion. Ordinary picks instead enter
       // the same pointer-attached lifecycle as Search Dinkster.
@@ -5073,6 +4989,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueNodeId = hit.row.familyOwner?.nodeId ?? nodeId
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
+      if (spec.widgetType === 'COMPOSITOR') return
       const curveTarget = spec.widgetType === 'CURVE'
         ? props.app.curveTargetForInput(
             tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
@@ -5143,15 +5060,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (roleEditor?.id === CURVE_EDITOR_KIND) {
         if (curveTarget) {
           props.app.openCurveEditor(curveTarget)
-          return
-        }
-      }
-      if (roleEditor?.id === IMAGE_EDITOR_KIND && schema?.editorRole === 'compositor') {
-        const target = props.app.compositorTargetForInput(
-          tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
-        )
-        if (target) {
-          props.app.openCompositorEditor(target)
           return
         }
       }
@@ -6352,16 +6260,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
         }
         return (await props.app.createEmptySubgraph(tab, currentGraphId(tab), center)).ok
-      },
-      createRegion: (kind, position) => {
-        const tab = activeTab()
-        if (!tab || frozen()) return false
-        const vp = renderer.getViewport()
-        const center = position ?? {
-          x: (canvasEl.clientWidth / 2 - vp.x) / vp.scale,
-          y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
-        }
-        return createRegionAt(tab, currentGraphId(tab), center, kind)
       },
       extractSubgraph: beginExtractSubgraph,
       flattenSubgraph: flattenSelectedSubgraph,

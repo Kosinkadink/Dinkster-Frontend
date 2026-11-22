@@ -79,6 +79,6 @@
   "view": { "graphs": {} },
   "meta": {
     "title": "Retired scalar member shape",
-    "description": "Pre-release document saved before PortRef.member became the members path array; exercises canonicalization of link endpoints, net sinks, and boundary binds."
+    "description": "Invalid document with scalar member fields on link endpoints, net sinks, and boundary binds; loading must refuse these fields."
   }
 }
