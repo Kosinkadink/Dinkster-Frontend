@@ -28,6 +28,10 @@ interface DinksterBridgeSceneNode {
       inputId?: string
       viewId?: string
       representationId?: string
+      /** Field rows: the input port (and members) the row edits. */
+      address?: { port: string; members?: readonly string[] }
+      /** Field rows shown on the subgraph node without a wire. */
+      subgraphMark?: { item: string; label: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -610,6 +614,7 @@ interface DinksterTestBridge {
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
     getBadges(): Readonly<Record<string, readonly { id: string }[]>>
+    getDesignTokens(): { rowHeight: number; rowGeometry: { stepperZone: number; stepperLabelInset: number } }
     getScene(): {
       graphId: string
       nodes: readonly DinksterBridgeSceneNode[]
@@ -631,6 +636,7 @@ interface DinksterTestBridge {
         netId?: string
         netName?: string
         hidden?: true
+        boundary?: true
         mismatch?: true
       }>
       reroutes: ReadonlyArray<{

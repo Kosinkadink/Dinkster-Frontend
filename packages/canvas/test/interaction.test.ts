@@ -5,12 +5,13 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  asNodeId, coreCommandRegistry, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
+  asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
   type CommandInvocation, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
-import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
+import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
+import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT, layoutNode } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, layoutNode, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
 import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
@@ -65,6 +66,7 @@ function interactionHarness(
     getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
+    showsArrivingValue: () => false,
     getOverlay: () => overlay,
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
@@ -4141,6 +4143,117 @@ describe('two-finger touch navigation', () => {
   })
 })
 
+describe('a wire dragged from the Inputs panel to a field', () => {
+  const int = { kind: 'concrete', name: 'INT' } as const
+  const image = { kind: 'concrete', name: 'IMAGE' } as const
+  const blur: NodeSchema = {
+    type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: true,
+    items: [
+      { kind: 'input', id: 'image', type: image, optional: false },
+      { kind: 'input', id: 'radius', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 4 } },
+      { kind: 'output', id: 'IMAGE', type: image },
+    ],
+  }
+  const document = (): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'inputs-panel-field', root: 'g0',
+    graphs: {
+      g0: { id: 'g0', name: 'Root', nextOrdinal: 5, nodes: { s: { id: 's', type: '#sub', values: {} } }, links: {}, nets: {}, reroutes: {} },
+      sub: {
+        id: 'sub', name: 'Soften', nextOrdinal: 5, links: {}, nets: {}, reroutes: {},
+        nodes: { blur: { id: 'blur', type: 'Blur', values: { radius: 6 } } },
+        boundary: { inputs: [], outputs: [] },
+      },
+    },
+    view: { graphs: { sub: { nodes: { blur: { position: { x: 300, y: 100 } } } } } },
+  } as unknown as WorkflowDocument)
+  const resolve = (type: string) => (type === 'Blur' ? blur : undefined)
+  const sceneOf = (doc: WorkflowDocument) => buildScene({
+    document: doc, graphId: 'sub', resolve: documentResolver(doc, resolve), tokens: defaultTokens,
+    measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+  })
+
+  it('gives the subgraph node a field, with the wire drawn', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const scene = sceneOf(store.doc)
+    const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+    const slot = panel.layout.pins.find((pin) => pin.portId === BOUNDARY_ADD_SLOT)!
+    const node = scene.nodes.find((candidate) => candidate.id === 'blur')!
+    const field = node.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'radius')!
+    const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', panel.x + panel.layout.width, panel.y + slot.y)
+    harness.fire('pointermove', node.x + 40, node.y + field.y)
+    harness.fire('pointermove', node.x, node.y + field.y)
+    harness.fire('pointerup', node.x, node.y + field.y)
+
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    const derived = deriveBoundarySchema(store.doc.graphs.sub!, documentResolver(store.doc, resolve)).schema
+    expect(derived?.items.find((item) => item.kind === 'input' && item.id === 'radius')).toMatchObject({ widget: { widgetType: 'INT', default: 6 } })
+    expect(sceneOf(store.doc).links.filter((link) => link.boundary === true).map((link) => link.to))
+      .toEqual([{ kind: 'port', node: 'blur', port: 'radius' }])
+  })
+
+  it('draws a field shown without its wire with no wire or pin and the subgraph mark, until a wire is dragged to it', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'blur', port: 'radius' } }).ok).toBe(true)
+    const hidden = sceneOf(store.doc)
+    const panel = hidden.boundaryNodes.find((node) => node.side === 'inputs')!
+    const markOf = (rows: readonly LayoutRow[]) => {
+      const row = rows.find((candidate) => candidate.kind === 'widget' && candidate.address.port === 'radius')
+      return row?.kind === 'widget' ? row.subgraphMark : undefined
+    }
+    const blurNode = (scene: Scene) => scene.nodes.find((candidate) => candidate.id === 'blur')!
+    expect(hidden.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
+      .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, true]])
+    expect(panel.layout.pins.map((pin) => pin.portId)).toEqual([BOUNDARY_ADD_SLOT])
+    expect(markOf(panel.layout.rows)).toEqual({ item: 'radius', label: 'radius' })
+    expect(markOf(blurNode(hidden).layout.rows)).toEqual({ item: 'radius', label: 'radius' })
+
+    const slot = panel.layout.pins.find((pin) => pin.portId === BOUNDARY_ADD_SLOT)!
+    const node = blurNode(hidden)
+    const field = node.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'radius')!
+    const harness = interactionHarness(hidden, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', panel.x + panel.layout.width, panel.y + slot.y)
+    harness.fire('pointermove', node.x + 40, node.y + field.y)
+    harness.fire('pointermove', node.x, node.y + field.y)
+    harness.fire('pointerup', node.x, node.y + field.y)
+
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    const wired = sceneOf(store.doc)
+    expect(wired.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
+      .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, undefined]])
+    expect(markOf(blurNode(wired).layout.rows)).toBeUndefined()
+  })
+
+  it('names the row when the mark is hovered and selects it when the mark is clicked', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'blur', port: 'radius' } })
+    const scene = sceneOf(store.doc)
+    const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget')! as Extract<LayoutRow, { kind: 'widget' }>
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, false, true)
+    const markX = panel.x + row.inset + mark.x + mark.size / 2
+    const rowY = panel.y + row.y + mark.y + mark.size / 2
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+
+    harness.fire('pointermove', markX, rowY)
+    expect(hovers.at(-1)?.kind).toBe('subgraphMark')
+    harness.fire('pointerdown', markX, rowY)
+    harness.fire('pointerup', markX, rowY)
+    expect(activated).toEqual(['radius'])
+    expect(harness.dispatched).toEqual([])
+
+    // The rest of the row stays the field: hovering its name is not the mark.
+    harness.fire('pointermove', markX + mark.size * 2, rowY)
+    expect(hovers.at(-1)?.kind).toBe('widget')
+  })
+})
+
 describe('Inputs panel fields', () => {
   const blur: NodeSchema = {
     type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: false,
@@ -4320,6 +4433,32 @@ describe('Inputs panel fields', () => {
     expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)
   })
 
+  it('keeps the subgraph mark of a field wired outside the subgraph clickable', () => {
+    const doc = structuredClone(workflow()) as any
+    doc.graphs.g1.boundary.inputs[1].wireHidden = true
+    doc.graphs.g0.links = { l: { id: 'l', from: { node: 'strong', port: 'image_out' }, to: { node: 'soft', port: 'radius' } } }
+    const scene = panelScene(doc as WorkflowDocument, 'soft')
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    expect(Object.hasOwn(panel.fields!.wired, 'radius')).toBe(true)
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius') as Extract<LayoutRow, { kind: 'widget' }>
+    expect(row.subgraphMark?.item).toBe('radius')
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, panel.fields!.wired['radius']!.value !== undefined, true)
+    const x = panel.x + row.inset + mark.x + mark.size / 2
+    const y = panel.y + row.y + mark.y + mark.size / 2
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+    harness.fire('pointermove', x, y)
+    expect(hovers.at(-1)?.kind).toBe('subgraphMark')
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(activated).toEqual(['radius'])
+  })
+
   it('shows a promoted input reached through a reroute as a field of the entered node', () => {
     const base = workflow()
     const sub = base.graphs['g1']!
@@ -4389,6 +4528,47 @@ describe('Inputs panel fields', () => {
     expect(store.doc.graphs['g1']!.nodes['leaf']!.values).toEqual({ 'mode.[a].gain': 3 })
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs['g0']!.nodes['right']!.values['choice.[b].gain']).toBe(8)
+  })
+
+  it('draws a dropdown shown without its wire with no pin or wire, and the mark on the dropdown only', () => {
+    const gain: NodeSchema['items'][number] = { kind: 'input', id: 'gain', type: { kind: 'concrete', name: 'INT' }, optional: true,
+      widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 } }
+    const modal: NodeSchema = {
+      type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: true, dynamic: {
+        kind: 'dynamicCombo', options: [{ key: 'a', inputs: [gain] }, { key: 'b', inputs: [gain] }],
+      } }],
+    }
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-choice-hidden', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+          right: { id: 'right', type: '#g1', values: {}, dynamic: { choice: { selected: 'b' } } },
+        } },
+        g1: { id: 'g1', name: 'Shaper', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { leaf: { id: 'leaf', type: 'Modal', values: {}, dynamic: { mode: { selected: 'a' } } } },
+          boundary: { inputs: [{ id: 'choice', binds: { kind: 'dynamicCombo', node: 'leaf', port: 'mode' }, wireHidden: true }], outputs: [] } },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { leaf: { position: { x: 400, y: 100 } } } } } },
+    }).document as WorkflowDocument
+    const resolve = documentResolver(doc, (type) => type === 'Modal' ? modal : undefined)
+    const scene = buildScene({
+      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      occurrence: { owner: { instancePath: [], node: asNodeId('right') }, plannerAvailable: false },
+      occurrenceView: occurrenceDynamicView(doc, resolve, ['right']),
+    })
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const rows = panel.layout.rows.flatMap((row) => row.kind === 'widget' ? [row] : [])
+    expect(rows.map((row) => row.subgraphMark?.item)).toEqual(['choice', undefined])
+    expect(panel.layout.pins.map((pin) => pin.portId)).toEqual([BOUNDARY_ADD_SLOT])
+    const links = scene.links.filter((link) => link.boundary === true)
+    expect(links.map((link) => link.hidden)).toEqual([true])
+    // The hidden link starts at the dropdown's row.
+    expect(links[0]!.y1).toBe(panel.y + rows[0]!.y + defaultTokens.rowHeight / 2)
+    const leaf = scene.nodes.find((node) => node.id === 'leaf')!
+    expect(leaf.layout.rows.flatMap((row) => row.kind === 'widget' && row.subgraphMark !== undefined ? [row.address.port] : [])).toEqual(['mode'])
   })
 })
 

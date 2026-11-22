@@ -188,7 +188,8 @@ export const canvasPaintTokens = {
     dividerMinWorld: 0.75,
     dividerMaxWorld: canvasSemanticTokens.space[4],
     diamondScale: 1.25,
-    hoverScale: 1.35,
+    /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
+    hoverGrowth: 1,
     statusRingGap: 3.5,
     statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
     outlineStroke: 1,
@@ -441,6 +442,8 @@ export const canvasPaintTokens = {
   },
   widget: {
     opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    /** The subgraph icon before the name of a field shown on the subgraph node without a wire. */
+    subgraphMark: { size: 12, gap: canvasSemanticTokens.space[4] },
     curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },
@@ -691,6 +694,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
+    readonly subgraphMark: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -894,6 +899,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // The dot on a closed section that hides changed values. Yellow is kept
     // for problems.
     modifiedIndicator: tokens.meaning.accent.foreground,
+    subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,

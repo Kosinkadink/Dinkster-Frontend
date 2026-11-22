@@ -11,7 +11,8 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
@@ -80,6 +81,62 @@ const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon'
   'core.resolution': 'ruler',
 }
 
+type WidgetRow = WidgetPaintArgs['row']
+
+/** The icon a raised opener row shows before its name, if any. */
+function openerIconOf(row: WidgetRow, tokens: DesignTokens): NonNullable<ToolboxButton['icon']> | undefined {
+  return tokens.widgetRowLook === 'raised-editors'
+    ? PARKED_EDITOR_VIEWS.has(row.viewId) ? undefined : RAISED_ROW_ICONS[row.viewId]
+    : row.viewId === 'core.asset' ? 'image'
+      : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+      : undefined
+}
+
+/** Space a field's name gives up to the subgraph mark before it. */
+const subgraphMarkReserve = (row: WidgetRow): number =>
+  row.subgraphMark === undefined ? 0 : paint.subgraphMark.size + paint.subgraphMark.gap
+
+/**
+ * Row-local square of the cyan subgraph icon before the name of a field
+ * shown on the subgraph node without a wire. Shared by painting and pointer
+ * hit testing; `companion` is whether the row shows a value arriving by wire,
+ * `numeric` whether it is a number row with steppers.
+ */
+export function subgraphMarkRect(
+  row: WidgetRow,
+  width: number,
+  rowHeight: number,
+  tokens: DesignTokens,
+  companion: boolean,
+  numeric: boolean,
+): { readonly x: number; readonly y: number; readonly size: number } {
+  const geometry = tokens.rowGeometry
+  const size = paint.subgraphMark.size
+  if (companion) {
+    const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
+    return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
+  }
+  const opener = openerIconOf(row, tokens)
+  const multiline = row.viewId === 'core.text'
+  const leftControl = multiline ? 0 : opener !== undefined ? paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
+  return {
+    x: leftControl + (numeric && opener === undefined ? geometry.stepperLabelInset : paint.labelInset),
+    y: multiline ? geometry.fieldInsetY + (tokens.multilineText.labelHeight - size) / 2 : (rowHeight - size) / 2,
+    size,
+  }
+}
+
+function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: boolean): void {
+  const { ctx, row, x, y, width, rowHeight, tokens } = args
+  if (row.subgraphMark === undefined) return
+  const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion, numeric)
+  const alpha = ctx.globalAlpha
+  // The mark keeps its full color on a dimmed (driven) row.
+  if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
+  paintToolboxIcon(ctx, 'boxes', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
+  ctx.globalAlpha = alpha
+}
+
 /** Measured ASCII ellipsis shared by every registry-backed compact view.
  * Cached: see text-fit.ts (memoized measure + binary-search truncation). */
 export const ellipsize = fitText
@@ -112,8 +169,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const formatted = summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
       const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
-      const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
-      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+      const lead = subgraphMarkReserve(row)
+      const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
+      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+      paintSubgraphMark(args, true, numeric)
       paintCompanionValue(args, summary)
       return
     }
@@ -133,11 +192,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     // In-row editing draws a number's after-run mode as an icon before its value instead of the chip.
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
     const rowsRaisedForEditors = tokens.widgetRowLook === 'raised-editors'
-    const openerIcon = rowsRaisedForEditors
-      ? PARKED_EDITOR_VIEWS.has(row.viewId) ? undefined : RAISED_ROW_ICONS[row.viewId]
-      : row.viewId === 'core.asset' ? 'image'
-        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
-        : undefined
+    const openerIcon = openerIconOf(row, tokens)
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
@@ -158,7 +213,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       || (rowsRaisedForEditors && row.viewId === 'core.mount')
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
     const usableWidth = Math.max(0, width - leftControl - rightControl)
-    const naturalLabelWidth = measureWidth(ctx, row.label) + paint.labelWidthPadding
+    const lead = subgraphMarkReserve(row)
+    const naturalLabelWidth = lead + measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
     // the label takes exactly its natural width; when they do not, each side
     // shrinks in proportion to its natural width with the label biased to
@@ -211,10 +267,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
       ctx.fillText(
-        ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - paint.labelClipPadding)),
-        x + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
+        ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - lead - paint.labelClipPadding)),
+        x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
       )
+      paintSubgraphMark(args, false, numeric)
     }
     const sliderMin = row.spec.options['min']
     const sliderMax = row.spec.options['max']
