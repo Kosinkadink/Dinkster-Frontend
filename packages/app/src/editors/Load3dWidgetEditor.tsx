@@ -101,6 +101,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
           || execution.ref.connection !== backend.id || ran.connection !== backend.id || current.connection !== backend.id
           || ran.snapshot.lineage !== ed.tab.store.doc.lineage || current.snapshot.lineage !== ed.tab.store.doc.lineage) throw unavailable()
         producerExecution = execution.ref
+        const values = backend.connection.values()
         sourcesCurrent = () => {
           const navigation = viewInstancePath(ed.tab)
           const fresh = props.editor.app.compileTabCached(ed.tab)
@@ -108,7 +109,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
             && navigation.every((id, index) => id === path[index])
             && fresh?.ok === true && fresh.artifact.schemaHash === current.schemaHash
             && props.editor.app.executionForTab(ed.tab)?.key === execution.key
-            && backendCurrent()
+            && backendCurrent() && backend.connection.values() === values
         }
         const occurrences = occurrencesForView({
           instancePath: path.slice(0, ownerDepth),
@@ -121,7 +122,6 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
           ]),
           toSource: ran.provenance.toSource,
         })
-        const values = backend.connection.values()
         for (const { inputId, source } of producers) {
           const ids = occurrences.own.get(source.node) ?? []
           if (!live || !sourcesCurrent() || !ids.length || ids.some((id) => !exact(id)

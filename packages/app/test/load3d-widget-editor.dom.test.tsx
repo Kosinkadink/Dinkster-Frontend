@@ -420,7 +420,7 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
   dispose()
 })
 
-it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'bytes-held', 'bytes-refused', 'bytes-close', 'bytes-edited', 'bytes-result', 'stored-manifest'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
+it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'values-invalidated', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'bytes-held', 'bytes-refused', 'bytes-close', 'bytes-edited', 'bytes-result', 'stored-manifest'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:producer')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DProducerFixture', { interface: [
@@ -465,31 +465,33 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   let byteAdmissionStarted = false
   let renditionCount = 0
   const reads: string[] = []
+  let values = {
+    read: async <T,>(_query: ValueQuery, _descriptor: unknown, consume: () => Promise<T>): Promise<T> => consume(),
+    peek: async (query: ValueQuery) => {
+      started = true
+      if (variant === 'close' || variant === 'edited') await paused
+      if (variant === 'refused') return { available: false, status: 404, reason: 'evicted' }
+      if (query.outputId === 'model_file') return { available: true, descriptor: { typeId: 'ASSET', fingerprint: primary.digest,
+        meta: variant === 'malformed-asset' ? { ...primary, size: -1 } : primary }, renditions: [] }
+      const fileType = variant === 'base-file' ? 'FILE_3D' : variant === 'splat-file' ? 'FILE_3D_SPLAT_ANY' : variant === 'cloud-file' ? 'FILE_3D_POINT_CLOUD_ANY' : 'FILE_3D_GLTF'
+      const typeId = query.outputId === 'width' ? 'INT' : query.outputId === 'model_3d' ? fileType : query.outputId === 'model_3d_info' ? 'LOAD3D_MODEL_INFO' : 'LOAD3D_CAMERA'
+      return { available: true, descriptor: { typeId, fingerprint: variant === 'divergent' && query.nodeId === 'other' ? 'different' : 'same' },
+        ...(query.outputId === 'width' ? { descriptor: { typeId, fingerprint: 'same', value: variant === 'width-overflow' ? 4097 : 257 } } : {}),
+        renditions: variant === 'no-rendition' ? [] : [{ kind: query.outputId === 'model_3d' ? 'manifest' : 'json', mime: 'application/json' }] }
+    },
+    rendition: async (query: ValueQuery) => {
+      renditionCount++
+      if (variant === 'values-invalidated') await paused
+      if (nested && query.nodeId !== 'current') throw new Error('wrong instance')
+      if (variant === 'changed-result') execution = { ...execution, key: 'owner:new-job' }
+      const value = query.outputId === 'model_3d' ? { format: variant === 'splat-file' || variant === 'cloud-file' ? 'ply' : 'gltf', source: primary,
+        resources: variant === 'bytes-held' ? { 'buffers/mesh.bin': { ...primary, digest: `blake3:${'a'.repeat(64)}`, name: 'mesh.bin' } } : {} }
+        : query.outputId === 'camera-output' ? cameraInfo : models
+      return { available: true, mime: 'application/json', fingerprint: variant === 'rendition-mismatch' ? 'different' : 'same', bytes: new TextEncoder().encode(JSON.stringify(value)).buffer }
+    },
+  }
   const connection = {
-    values: () => ({
-      read: async <T,>(_query: ValueQuery, _descriptor: unknown, consume: () => Promise<T>): Promise<T> => consume(),
-      peek: async (query: ValueQuery) => {
-        started = true
-        if (variant === 'close' || variant === 'edited') await paused
-        if (variant === 'refused') return { available: false, status: 404, reason: 'evicted' }
-        if (query.outputId === 'model_file') return { available: true, descriptor: { typeId: 'ASSET', fingerprint: primary.digest,
-          meta: variant === 'malformed-asset' ? { ...primary, size: -1 } : primary }, renditions: [] }
-        const fileType = variant === 'base-file' ? 'FILE_3D' : variant === 'splat-file' ? 'FILE_3D_SPLAT_ANY' : variant === 'cloud-file' ? 'FILE_3D_POINT_CLOUD_ANY' : 'FILE_3D_GLTF'
-        const typeId = query.outputId === 'width' ? 'INT' : query.outputId === 'model_3d' ? fileType : query.outputId === 'model_3d_info' ? 'LOAD3D_MODEL_INFO' : 'LOAD3D_CAMERA'
-        return { available: true, descriptor: { typeId, fingerprint: variant === 'divergent' && query.nodeId === 'other' ? 'different' : 'same' },
-          ...(query.outputId === 'width' ? { descriptor: { typeId, fingerprint: 'same', value: variant === 'width-overflow' ? 4097 : 257 } } : {}),
-          renditions: variant === 'no-rendition' ? [] : [{ kind: query.outputId === 'model_3d' ? 'manifest' : 'json', mime: 'application/json' }] }
-      },
-      rendition: async (query: ValueQuery) => {
-        renditionCount++
-        if (nested && query.nodeId !== 'current') throw new Error('wrong instance')
-        if (variant === 'changed-result') execution = { ...execution, key: 'owner:new-job' }
-        const value = query.outputId === 'model_3d' ? { format: variant === 'splat-file' || variant === 'cloud-file' ? 'ply' : 'gltf', source: primary,
-          resources: variant === 'bytes-held' ? { 'buffers/mesh.bin': { ...primary, digest: `blake3:${'a'.repeat(64)}`, name: 'mesh.bin' } } : {} }
-          : query.outputId === 'camera-output' ? cameraInfo : models
-        return { available: true, mime: 'application/json', fingerprint: variant === 'rendition-mismatch' ? 'different' : 'same', bytes: new TextEncoder().encode(JSON.stringify(value)).buffer }
-      },
-    }),
+    values: () => values,
     fetchAssetBytes: async (digest: string) => { reads.push(digest); return new Uint8Array([1]) },
   }
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry, registryForTab: () => ({ resolve: () => schema }),
@@ -515,6 +517,11 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
     target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
     declaredType: inputsOf(schema)[1]!.type, multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant === 'values-invalidated') {
+    await vi.waitFor(() => expect(renditionCount).toBeGreaterThan(0))
+    values = { ...values }
+    release!()
+  }
   if (variant.startsWith('bytes-')) {
     await vi.waitFor(() => expect(byteAdmissionStarted).toBe(true))
     expect(reads).toEqual([])
