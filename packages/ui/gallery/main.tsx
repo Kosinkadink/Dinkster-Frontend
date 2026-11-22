@@ -890,6 +890,7 @@ function Gallery() {
 
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
+  const [shortcut, setShortcut] = createSignal('Ctrl+K')
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -910,6 +911,19 @@ function WindowToolbarGallery() {
               <For each={['idle', 'running', 'pending']}>
                 {(value) => <option value={value}>{value}</option>}
               </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Search shortcut">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={shortcut()}
+              onChange={(event) => setShortcut(event.currentTarget.value)}
+            >
+              <option value="Ctrl+K">Ctrl+K</option>
+              <option value="Alt+K">Alt+K</option>
+              <option value="">No shortcut</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -957,6 +971,7 @@ function WindowToolbarGallery() {
                         <ProductWindowAction
                           label="Search"
                           icon={Search}
+                          shortcut={shortcut()}
                           onClick={() => setActivity('Search opened')}
                         />
                       }
