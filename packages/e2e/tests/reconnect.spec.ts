@@ -10,7 +10,6 @@
  */
 import { expect, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')

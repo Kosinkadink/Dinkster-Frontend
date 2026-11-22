@@ -773,7 +773,7 @@ describe('dynamicCombo', () => {
     expect(elabInputsOf(explicit)[0]?.derivedValue).toBe('scale by multiplier')
   })
 
-  it('uses the first wire-15 option without a default and keeps invalid stored state loud', () => {
+  it('uses the first wire-15 option when a saved option has been removed', () => {
     const combo: InputSpec = {
       ...comboConstruct('mode', [
         { key: 'first', inputs: [intInput('value')] },
@@ -796,8 +796,9 @@ describe('dynamicCombo', () => {
       values: {},
       dynamic: { mode: { selected: 'gone' } },
     })
-    expect(invalid.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['prompt.bad_dynamic_choice'])
-    expect(elabInputsOf(invalid)).toEqual([])
+    expect(invalid.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.combo.removedOption'])
+    expect(elabInputsOf(invalid).map((input) => input.address.port)).toEqual(['mode', 'mode.value'])
+    expect(elabInputsOf(invalid)[0]?.derivedValue).toBe('first')
     expect(invalid.submissionValues).toEqual([])
   })
 

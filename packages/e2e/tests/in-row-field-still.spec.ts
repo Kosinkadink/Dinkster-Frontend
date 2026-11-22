@@ -3,7 +3,7 @@
 // steppers, a text box's lines, its bar and its scrollbar stay on the pixels
 // the canvas drew them on, at normal size and zoomed in. Only the outline
 // and the cursor appear.
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 type Clip = { x: number; y: number; width: number; height: number }
 /** One run of ink along the row, such as a word or an icon: its centre of ink. */
@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{

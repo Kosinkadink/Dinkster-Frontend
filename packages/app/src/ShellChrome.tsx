@@ -3,6 +3,7 @@ import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
+import PanelLeft from 'lucide-solid/icons/panel-left'
 import { ProductIconButton } from '@dinkster/ui'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
@@ -86,9 +87,7 @@ export function ActivityBarButton(props: {
       aria-pressed={props.pressed}
       onClick={props.onActivate}
     >
-      <Show when={props.icon} keyed>{(icon) => (
-        <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={icon} /></span>
-      )}</Show>
+      <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
       <span class="sidebar-button-label">{props.label}</span>
     </button>
   )
@@ -263,6 +262,7 @@ function DockZoneSection(props: {
   /** This section's share of the zone axis; undefined when it is alone. */
   readonly share: number | undefined
   readonly showClose: boolean
+  readonly titleOnly: boolean
   readonly closeLabel: string
   readonly menuOpen: () => boolean
   readonly onActivate: (id: string) => void
@@ -333,6 +333,10 @@ function DockZoneSection(props: {
   let overflowRoot: HTMLDivElement | undefined
   let overflowButton: HTMLButtonElement | undefined
   const measureTabs = (): void => {
+    if (props.titleOnly) {
+      if (hiddenTabIds().size > 0) setHiddenTabIds(new Set<string>())
+      return
+    }
     const tablist = root.querySelector<HTMLElement>('[role="tablist"]')
     const tab = tablist?.querySelector<HTMLElement>('[role="tab"]')
     if (tablist === null || tab === null || tab === undefined) {
@@ -373,7 +377,7 @@ function DockZoneSection(props: {
   })
   // Panel and active-tab changes can alter complete-tab fit without resizing
   // the strip itself, which the observer cannot see.
-  createEffect(on([() => props.panels, () => props.activeId], () => queueMicrotask(measureTabs)))
+  createEffect(on([() => props.panels, () => props.activeId, () => props.titleOnly], () => queueMicrotask(measureTabs)))
   // When resizing clears clipping, the hidden menu must not stay logically
   // open, or the next clip would show it without user activation.
   createEffect(() => {
@@ -406,14 +410,20 @@ function DockZoneSection(props: {
       style={props.share === undefined ? undefined : { flex: `${props.share} 1 0%` }}
     >
       <ProductTabs
-        class="dock-zone-tabs"
+        class={`dock-zone-tabs${props.titleOnly ? ' dock-zone-title-only' : ''}`}
         ariaLabel={props.label}
         selectedId={props.activeId}
         onSelect={props.onActivate}
         tabs={tabs()}
         trailing={
           <div class="dock-zone-actions">
-            <Show when={tabsClipped()}>
+            <Show when={props.titleOnly}>
+              <h2 class="dock-title" tabindex="0" data-panel-title data-tab-id={props.activeId}>
+                {active()?.title}
+                <Show when={active() && activePanelIndicator(active()!)} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
+              </h2>
+            </Show>
+            <Show when={!props.titleOnly && tabsClipped()}>
               <div ref={overflowRoot} class="dock-zone-overflow">
                 <button
                   ref={overflowButton}
@@ -485,6 +495,7 @@ function DockZoneSection(props: {
 export function DockZoneHost(props: {
   readonly zone: DockZoneId
   readonly ariaLabel: string
+  readonly titleOnly?: boolean
   /** Rendered sections in visual order (caller filters visibility). */
   readonly sections: readonly DockZoneSectionView[]
   /** First section's share of the zone axis when two sections render. */
@@ -534,8 +545,8 @@ export function DockZoneHost(props: {
     // trailing header actions or all-tabs overflow entries keep the native
     // event rather than opening a menu for a panel the user did not click.
     if (event.target.closest('[role="tabpanel"]') !== null) return
-    const tab = event.target.closest('[role="tab"]')
-    if (tab === null || tab.closest('[role="tablist"]') === null) return
+    const tab = event.target.closest('[role="tab"], [data-panel-title]')
+    if (tab === null) return
     const panel = allPanels().find((candidate) => candidate.id === tab.getAttribute('data-tab-id'))
     if (panel === undefined) return
     const groups = placementMenuGroups(panel)
@@ -552,7 +563,8 @@ export function DockZoneHost(props: {
     })
   }
   const focusPanelTab = (panelId: string): void => {
-    zoneRoot.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(panelId)}"]`)?.focus()
+    const selector = props.titleOnly ? '[data-panel-title]' : '[role="tab"]'
+    zoneRoot.querySelector<HTMLElement>(`${selector}[data-tab-id="${CSS.escape(panelId)}"]`)?.focus()
   }
   const invokePlacementMenu = (panel: PanelDescriptor, item: MenuActionItem): void => {
     setPlacementMenu(undefined)
@@ -594,6 +606,7 @@ export function DockZoneHost(props: {
             activeId={slot()?.activeId}
             share={renderedCount() < 2 ? undefined : index === 0 ? props.split : 1 - props.split}
             showClose={firstRenderedSection() === index}
+            titleOnly={props.titleOnly === true}
             closeLabel={message('shell.chrome.closeZone', { zone: props.ariaLabel })}
             menuOpen={() => placementMenu() !== undefined}
             onActivate={props.onActivate}

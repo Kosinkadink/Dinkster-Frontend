@@ -89,6 +89,7 @@
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-action-primary-bg); filter: brightness(0.9); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-action-primary-bg); filter: brightness(0.8); }
 .dinkster-button[data-role='remove'][data-fill='solid']:not(:disabled, [aria-disabled='true']):is(:hover, :active) { background: var(--dinkster-danger-foreground); }
+.dinkster-button[data-icon-only][data-fill='quiet'][aria-pressed='true'] { color: var(--dinkster-accent-foreground); background: transparent; border-color: transparent; }
 .dinkster-root :is(button, input, select, textarea):disabled, .dinkster-root [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
@@ -139,7 +140,7 @@
 :is(.dinkster-desktop-bar, [data-desktop-chrome]) .dinkster-brand-title { flex: 1; min-width: 0; }
 :is(.dinkster-desktop-bar, [data-desktop-chrome]) .dinkster-brand-mark { width: var(--dinkster-space-24); height: var(--dinkster-space-24); flex: none; }
 .dinkster-window-identity { display: flex; flex-direction: column; align-items: flex-end; flex: none; margin-left: auto; color: var(--dinkster-warning-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-bold); white-space: nowrap; }
-.dinkster-window-toolbar-host { container-type: inline-size; }
+.dinkster-window-toolbar-host[data-platform] { container-type: inline-size; background: var(--dinkster-surface-frame); }
 .dinkster-window-toolbar-host > .dinkster-window-toolbar { -webkit-app-region: drag; }
 .dinkster-window-toolbar > * { -webkit-app-region: no-drag; }
 .dinkster-window-toolbar { display: grid; grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto; align-items: center; gap: var(--dinkster-space-4); width: 100%; min-width: 0; }

@@ -1,11 +1,9 @@
-# Log
+# Execution log
 
-Log is the bottom-zone panel for run records and app activity. Its scope
-selector opens on This run when an execution is selected, or App otherwise.
-This run shows one execution's backend log records and errors; App shows
-frontend and connection events. Clear is available only for App and keeps its
-two-press confirmation. Opening a node's log badge selects This run and applies
-that node's filter.
+The Execution log is the per-run structured feed of what a workflow execution
+reported while it ran. It is a bottom-zone registered panel, separate from the
+app Activity panel: Activity records frontend and connection events, while the
+Execution log shows one selected run's backend log records and errors.
 
 Each row keeps a UTC timestamp, a level, the originating node when the record
 carries one, and the message. Rows come from two sources and only two. Log
@@ -35,11 +33,8 @@ truncation notice with the exact discarded count. Individual messages are
 capped at 4096 characters by the client (the backend caps them earlier at
 2000).
 
-The Run selector defaults to Current, which follows the selected Runs row
-or the active workflow's execution when no row is selected. Choosing another
-Runs row returns Log to This run. Snapshot updates to the same run preserve a
-manual App scope choice. Picking a specific run in Log pins the view to it,
-and a pinned
+The Run selector defaults to Current, which follows the run the active
+workflow tab shows; picking a specific run pins the view to it, and a pinned
 run that disappears from history falls back to Current. The Node selector
 narrows the feed to one node's rows, and the three level toggles (info,
 warning, error) hide or show each level independently. A row's node name is a

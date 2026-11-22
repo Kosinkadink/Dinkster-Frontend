@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, nativeTest as test, waitForStartupOwnership, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!
@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('bottom zone repairs its rendered active tab across when flips and runtime registration', async ({ page }) => {
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const zone = page.getByTestId('dock-zone-bottom')
   await expect(zone.getByRole('tablist', { name: 'Bottom panels' })).toBeVisible()
 
@@ -62,9 +62,9 @@ test('bottom zone repairs its rendered active tab across when flips and runtime 
     ;(window as unknown as { __unregisterRuntimeBottom?: () => void }).__unregisterRuntimeBottom = unregister
   })
 
-  await page.getByTestId('runtime-bottom-toggle').click()
   const runtime = zone.getByRole('tab', { name: 'Runtime bottom' })
-  const logs = zone.getByRole('tab', { name: 'Log' })
+  await runtime.click()
+  const logs = zone.getByRole('tab', { name: 'Activity' })
   await expect(runtime).toHaveAttribute('aria-selected', 'true')
   await expect(runtime).toHaveAttribute('tabindex', '0')
   await expect(logs).toHaveAttribute('tabindex', '-1')
@@ -119,6 +119,7 @@ test('a zone with no renderable tabs hides without losing its saved open state',
     bridge.__dockSoleVisible = true
     const panels = bridge.__dinksterTest.app.panels
     panels.setPlacement('logs', 'floating')
+    panels.setPlacement('execution-log', 'floating')
     panels.register({
       id: 'runtime-bottom-only',
       title: 'Runtime bottom only',
@@ -136,7 +137,7 @@ test('a zone with no renderable tabs hides without losing its saved open state',
   })
 
   const regionToggle = page.getByTestId('bottom-panel-toggle')
-  await page.getByTestId('runtime-bottom-only-toggle').click()
+  await regionToggle.click()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   await expect(regionToggle).toHaveAttribute('aria-pressed', 'true')
   await expect(regionToggle).toBeEnabled()
@@ -175,7 +176,31 @@ test('a zone with no renderable tabs hides without losing its saved open state',
   await expect(regionToggle).toBeEnabled()
 })
 
-test('left zone hosts multiple tabs and each toggle activates or closes its panel', async ({ page }) => {
+test('left bar selects the panel title and each toggle activates or closes its panel', async ({ page }) => {
+  // Include a longer built-in title moved from the right rail without changing defaults.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      dock: { dock(id: string, zone: 'left'): boolean; setOpen(zone: 'left', open: boolean): void }
+    }
+    app.dock.dock('extensions', 'left')
+    app.dock.setOpen('left', false)
+  })
+  await page.evaluate(() => document.fonts.ready)
+  const labels = page.locator('.left-sidebar .sidebar-button-label')
+  await expect(labels.filter({ hasText: 'Extensions' })).toBeVisible()
+  for (const label of await labels.all()) {
+    const geometry = await label.evaluate((element) => {
+      const text = document.createRange()
+      text.selectNodeContents(element)
+      const content = text.getBoundingClientRect()
+      const available = element.getBoundingClientRect()
+      return { textWidth: content.width, width: available.width, textHeight: content.height, height: available.height, lines: text.getClientRects().length }
+    })
+    expect(geometry.lines).toBe(1)
+    expect(geometry.textWidth).toBeLessThanOrEqual(geometry.width)
+    expect(geometry.textHeight).toBeLessThanOrEqual(geometry.height)
+  }
+
   // Nothing docked by default.
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
 
@@ -185,20 +210,17 @@ test('left zone hosts multiple tabs and each toggle activates or closes its pane
   const zone = page.getByTestId('dock-zone-left')
   await expect(dock).toHaveAttribute('data-active-panel', 'library')
   await expect(page.getByTestId('library-overlay')).toBeVisible()
-  await expect(zone.getByRole('tab', { name: 'Library' })).toHaveAttribute('aria-selected', 'true')
-  await expect(zone.getByRole('tab', { name: 'Backends' })).toBeVisible()
-  const tablist = zone.getByRole('tablist', { name: 'Primary dock panels' })
-  const overflowButton = zone.getByTestId('dock-zone-overflow-button')
-  await expect(overflowButton).not.toBeVisible()
-  await expectWholeTabs(tablist, zone.locator('[role="tab"]'))
+  await expect(zone.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+  await expect(zone.getByRole('tablist')).not.toBeVisible()
+  await expect(zone.getByTestId('dock-zone-overflow-button')).toHaveCount(0)
 
-  // Switching to Backends selects its tab while both tabs remain available.
+  // The left bar switches the active panel while its inactive body stays mounted.
   await page.getByTestId('backends-sidebar-toggle').click()
   await expect(dock).toHaveAttribute('data-active-panel', 'backends')
   await expect(page.getByTestId('backends-panel')).toBeVisible()
   await expect(page.getByTestId('library-overlay')).not.toBeVisible()
-  await expect(zone.getByRole('tab', { name: 'Library' })).toBeVisible()
-  await expect(zone.getByRole('tab', { name: 'Backends' })).toHaveAttribute('aria-selected', 'true')
+  await expect(zone.getByRole('heading', { name: 'Backends', exact: true })).toBeVisible()
+  await expect(page.getByTestId('library-overlay')).toHaveCount(1)
 
   // The statusbar Backends button closes the active zone.
   await page.getByTestId('backends-toggle').click()
@@ -215,7 +237,7 @@ test('left zone hosts multiple tabs and each toggle activates or closes its pane
 test('a dock tab floats its panel through the right-click context menu, not a chrome button', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
   const zone = page.getByTestId('dock-zone-left')
-  const tab = zone.getByRole('tab', { name: 'Library' })
+  const tab = zone.getByRole('heading', { name: 'Library', exact: true })
   await expect(tab).toBeVisible()
 
   // No literal Float or pop-out button remains anywhere in the zone chrome.
@@ -240,7 +262,7 @@ test('a dock tab floats its panel through the right-click context menu, not a ch
   await expect(menu).not.toBeVisible()
   const floating = page.locator('[data-testid="floating-panel"][data-panel="library"]')
   await expect(floating).toBeVisible()
-  await expect(zone.getByRole('tab', { name: 'Library' })).toHaveCount(0)
+  await expect(zone.getByRole('heading', { name: 'Library', exact: true })).toHaveCount(0)
 
   // The floating chrome keeps Dock as a visible button but carries no
   // move-to-new-window button; the header context menu owns both moves.
@@ -256,13 +278,13 @@ test('a dock tab floats its panel through the right-click context menu, not a ch
   await floatingMenu.locator('[data-item-id="panel.dock"]').click()
   await expect(floatingMenu).not.toBeVisible()
   await expect(floating).toHaveCount(0)
-  await expect(zone.getByRole('tab', { name: 'Library' })).toBeVisible()
+  await expect(zone.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
 })
 
 test('the floating header menu opens at the pointer and is keyboard reachable', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
   const zone = page.getByTestId('dock-zone-left')
-  await zone.getByRole('tab', { name: 'Library' }).click({ button: 'right' })
+  await zone.getByRole('heading', { name: 'Library', exact: true }).click({ button: 'right' })
   await page.getByTestId('context-menu').locator('[data-item-id="panel.float"]').click()
   const floating = page.locator('[data-testid="floating-panel"][data-panel="library"]')
   await expect(floating).toBeVisible()
@@ -301,7 +323,7 @@ test('the floating header menu opens at the pointer and is keyboard reachable', 
 test('the dock tab context menu is keyboard reachable and floats the panel', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
   const zone = page.getByTestId('dock-zone-left')
-  const tab = zone.getByRole('tab', { name: 'Library' })
+  const tab = zone.getByRole('heading', { name: 'Library', exact: true })
   await tab.focus()
   await page.keyboard.press('Shift+F10')
   const menu = page.getByTestId('context-menu')
@@ -344,7 +366,7 @@ test('a panel floated and docked back finishes loading and keeps reacting', asyn
   await expect(zone.getByTestId('assets-overlay').getByTestId('collection-search')).toBeVisible()
 
   // Float the panel, then dock it back through the context menus.
-  await zone.getByRole('tab', { name: 'Assets' }).click({ button: 'right' })
+  await zone.getByRole('heading', { name: 'Assets', exact: true }).click({ button: 'right' })
   await page.getByTestId('context-menu').locator('[data-item-id="panel.float"]').click()
   const floating = page.locator('[data-testid="floating-panel"][data-panel="assets"]')
   await expect(floating).toBeVisible()
@@ -362,7 +384,7 @@ test('a panel floated and docked back finishes loading and keeps reacting', asyn
   // Zone membership changes after the return must not freeze the body:
   // another panel joins the zone, and the redocked search still reacts.
   await page.getByTestId('library-toggle').click()
-  await zone.getByRole('tab', { name: 'Assets' }).click()
+  await page.getByTestId('assets-toggle').click()
   await search.fill('amber')
   await expect(docked.getByTestId('collection-search-clear')).toBeVisible()
   await expect(docked.getByRole('option', { name: /amber\.png/ })).toBeVisible()
@@ -416,11 +438,11 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
 
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const zone = page.getByTestId('dock-zone-bottom')
   await expect(page.getByTestId('bottom-panel')).toHaveAttribute('data-active-panel', 'logs')
   await expect(page.getByTestId('logs-panel')).toBeVisible()
-  await expect(zone.getByRole('tab', { name: 'Log' })).toHaveAttribute('aria-selected', 'true')
+  await expect(zone.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
   // Opening the bottom panel never opens the left dock.
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
 
@@ -434,12 +456,12 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   await zone.getByTestId('dock-zone-close').click()
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
-  await expect(page.getByTestId('logs-toggle')).toBeFocused()
+  await expect(page.getByTestId('bottom-panel-toggle')).toBeFocused()
 })
 
 test('bottom panel and rail toggles are independent of the dock', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await expect(page.getByTestId('dock-panel')).toBeVisible()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   await expect(page.getByTestId('queue-rail')).toBeVisible()
@@ -473,7 +495,7 @@ test('open bottom panel shrinks the canvas instead of covering it', async ({ pag
   const canvas = page.getByTestId('graph-canvas')
   const before = (await canvas.boundingBox())!
 
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   const after = (await canvas.boundingBox())!
 
@@ -549,7 +571,7 @@ test('rail and bottom panel are drag-resizable within bounds', async ({ page }) 
   expect(railAfter.width).toBeGreaterThan(railBefore.width + 100)
 
   // Bottom: drag its top-edge handle upward to grow, then far down to clamp.
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const panel = page.getByTestId('bottom-panel')
   const panelBefore = (await panel.boundingBox())!
   const topHandle = (await page.getByTestId('bottom-resize').boundingBox())!
@@ -571,7 +593,7 @@ test('rail and bottom panel are drag-resizable within bounds', async ({ page }) 
 
 test('layout persists across reload: open panels, rail state, and sizes', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await page.getByTestId('rail-toggle').click() // close the rail
 
   // Resize the dock so a persisted width is observable.
@@ -615,9 +637,9 @@ test('Customize Layout toggles supported regions and persists status bar visibil
     return settings.list().some((setting) => setting.id === 'templates.registryUrl')
   })
   await waitForTemplateSetting()
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await page.getByTestId('dinkster-menu-button').click()
   await page.locator('[data-item-id="layout.customize"]').click()
   await expect(page.getByTestId('customize-layout')).toBeVisible()
@@ -638,6 +660,9 @@ test('Customize Layout toggles supported regions and persists status bar visibil
   await page.getByTestId('status-bar').evaluate((element) => { element.dataset['mountedMarker'] = 'same-status-bar' })
   const statusContent = await page.getByTestId('status-bar').textContent()
   await region('activity-bar').click()
+  const leftZone = page.getByTestId('dock-zone-left')
+  await expect(leftZone.getByRole('tab', { name: 'Library', exact: true })).toBeVisible()
+  await expect(leftZone.getByRole('heading', { name: 'Library', exact: true })).toHaveCount(0)
   await region('primary-dock').click()
   await region('bottom-panel').click()
   await region('right-rail').click()
@@ -656,7 +681,7 @@ test('Customize Layout toggles supported regions and persists status bar visibil
   await page.reload()
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await waitForTemplateSetting()
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect(page.getByTestId('status-bar')).toBeHidden()
 
   await page.getByTestId('dinkster-menu-button').click()
