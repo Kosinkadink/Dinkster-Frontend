@@ -393,8 +393,9 @@ describe('autogrow grouped templates', () => {
     expect(inputs.map((i) => i.spec.displayName)).toEqual([
       'item0.image',
       'item0.mask',
-      'item1.image',
-      'item1.mask',
+      // The offered member reads the name it will have: prefix and position.
+      'item 2.image',
+      'item 2.mask',
     ])
     // Provisional nested wire names for grouped templates; ghosts never compile.
     expect(inputs.map((i) => i.apiName)).toEqual([
@@ -662,8 +663,8 @@ describe('autogrow grouped templates', () => {
     expect(outs.map((o) => [elabKeyOf(o.address), o.spec.displayName])).toEqual([
       ['results.image#m0', 'result0.image'],
       ['results.mask#m0', 'result0.mask'],
-      ['results.image#m1', 'result1.image'], // ghost group affordance
-      ['results.mask#m1', 'result1.mask'],
+      ['results.image#m1', 'result 2.image'], // ghost group affordance
+      ['results.mask#m1', 'result 2.mask'],
     ])
     expect(outs[1]!.spec.type).toEqual({ kind: 'concrete', name: 'MASK' })
   })
@@ -1238,10 +1239,30 @@ describe('dynamic outputs', () => {
     expect(outs.map((o) => [o.address.members, o.spec.displayName])).toEqual([
       [['m0'], 'result0'],
       [['m1'], 'result1'],
-      [['m2'], 'result2'], // ghost affordance, symmetric with inputs
+      [['m2'], 'result 3'], // ghost affordance, symmetric with inputs
     ])
     expect(outs[0]!.spec.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
     expect(e.outputMembers).toEqual({ results: ['m0', 'm1'] })
+  })
+
+  it('labels the offered member by the position it will take, not its generated id', () => {
+    const familyOf = (prefix: string): OutputSpec => ({
+      kind: 'output',
+      id: 'results',
+      type: { kind: 'wildcard' },
+      dynamic: {
+        kind: 'autogrow',
+        template: [socketInput('item', 'IMAGE')],
+        naming: { kind: 'prefix', prefix, min: 0, max: 8 },
+      },
+    })
+    // m1 was removed: the next member is the third, not "4" or "result3".
+    const node = { values: {}, dynamic: { results: { members: ['m0', 'm2'], seq: 3 } } }
+    const labels = (prefix: string) =>
+      elabOutputsOf(elaborateInterface(schemaOf([familyOf(prefix)]), node)).map((o) => o.spec.displayName)
+    expect(labels('image').at(-1)).toBe('image 3')
+    expect(labels('').at(-1)).toBe('3')
+    expect(labels('image').slice(0, -1)).toEqual(['image0', 'image1'])
   })
 
 })
