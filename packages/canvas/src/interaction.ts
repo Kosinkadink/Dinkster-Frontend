@@ -962,7 +962,7 @@ export class InteractionController {
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedTextEdge !== undefined &&
           this.gesture.kind === 'idle' && !isEditable(e.target)) {
         e.preventDefault()
-        this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown' ? 1 : -1)
+        this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
@@ -4920,7 +4920,7 @@ export class InteractionController {
     }]))
   }
 
-  private stepTextBox(edge: { readonly nodeId: string; readonly valueKey: string }, step: 1 | -1): void {
+  private stepTextBox(edge: { readonly nodeId: string; readonly valueKey: string }, down: boolean): void {
     const scene = this.renderer.getScene()
     const row = scene.nodes.find((node) => node.id === edge.nodeId)?.layout.rows.find((candidate) =>
       candidate.kind === 'widget' && candidate.viewId === 'core.text' && candidate.valueKey === edge.valueKey)
@@ -4929,8 +4929,9 @@ export class InteractionController {
       return
     }
     this.textBoxFit = undefined
+    const step = canvasPaintTokens.widget.textBoxEdge.keyStepLines
     this.commitTextBoxLines(scene, edge.nodeId, edge.valueKey,
-      clampTextBoxLines(visibleTextBoxLines(row, this.renderer.getDesignTokens()) + step))
+      clampTextBoxLines(visibleTextBoxLines(row, this.renderer.getDesignTokens()) + (down ? step : -step)))
   }
 
   /** Fit a box to its wrapped text; the same double-click again restores the height before. */

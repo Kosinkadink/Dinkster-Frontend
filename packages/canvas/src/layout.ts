@@ -342,12 +342,11 @@ const previewPanelMinHeight = (tokens: DesignTokens): number =>
 const previewPanelDefaultHeight = (tokens: DesignTokens): number =>
   tokens.previewDefaultHeight + tokens.previewCaptionHeight
 
-/** A text box the user sizes is never shorter or taller than these, in lines. */
-export const TEXT_BOX_MIN_LINES = 2
-export const TEXT_BOX_MAX_LINES = 16
-
-export const clampTextBoxLines = (lines: number): number =>
-  Math.min(TEXT_BOX_MAX_LINES, Math.max(TEXT_BOX_MIN_LINES, Math.round(lines)))
+/** A text box the user sizes stays within its line limits. */
+export const clampTextBoxLines = (lines: number): number => Math.min(
+  canvasPaintTokens.widget.textBoxEdge.maxLines,
+  Math.max(canvasPaintTokens.widget.textBoxEdge.minLines, Math.round(lines)),
+)
 
 const isTextBoxRow = (row: LayoutRow): row is Extract<LayoutRow, { kind: 'widget' }> =>
   row.kind === 'widget' && row.viewId === 'core.text'

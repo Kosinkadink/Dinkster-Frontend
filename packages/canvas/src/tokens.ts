@@ -467,6 +467,10 @@ export const canvasPaintTokens = {
       bottomOffset: 5,
       hitAbove: 7,
       hitBelow: 3,
+      /** A box is 2 to 16 lines tall; an arrow key steps one line. */
+      minLines: 2,
+      maxLines: 16,
+      keyStepLines: 1,
     },
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
