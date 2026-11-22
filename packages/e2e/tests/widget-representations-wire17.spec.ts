@@ -271,9 +271,14 @@ test('multiline preview expands with node height while representation, editor, a
   const natural = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
     const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
-    return { width: node.layout.width, height: node.layout.height, rowHeight: row.height }
+    // Two visible lines under the floating label, inside the field's inset.
+    const renderer = window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): any }
+    const tokens = renderer.getDesignTokens()
+    const expectedRowHeight = tokens.rowGeometry.fieldInsetY * 2 + tokens.multilineText.labelHeight +
+      2 * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
+    return { width: node.layout.width, height: node.layout.height, rowHeight: row.height, expectedRowHeight }
   })
-  expect(natural.rowHeight).toBe(74)
+  expect(natural.rowHeight).toBe(natural.expectedRowHeight)
   const compact = await paintAt(natural.width, natural.height, 'multiline-natural')
   expect(compact.calls.map((call) => call.text)).toContain('first line')
   expect(compact.calls.map((call) => call.text)).toContain('second line')
@@ -294,7 +299,9 @@ test('multiline preview expands with node height while representation, editor, a
   await page.locator('[data-item-id="core.widget.representation"]').hover()
   await page.locator('[data-item-id="core.widget.representation.single-line"]').click()
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
-  expect((await textRow(page)).height).toBe(24)
+  // A single-line representation takes exactly one row.
+  expect((await textRow(page)).height).toBe(await page.evaluate(() =>
+    (window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { rowHeight: number } }).getDesignTokens().rowHeight))
 
   const single = await textRow(page)
   await page.mouse.click(single.x, single.y, { button: 'right' })

@@ -257,6 +257,8 @@
 .dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; }
 .dinkster-canvas-field-mark { position: relative; display: grid; place-items: center; flex: none; margin-left: auto; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-field-input { position: relative; flex: 0 1 auto; field-sizing: content; min-width: var(--dinkster-space-24); margin-left: auto; height: 100%; padding: 0 calc(var(--dinkster-space-4) / 2); border: 0; outline: 0; background: transparent; color: var(--dinkster-text-primary); font: inherit; text-align: right; }
+/* The open field's outline marks its focus; the input draws no ring of its own. */
+.dinkster-canvas-field .dinkster-canvas-field-input:focus-visible { outline: 0; }
 .dinkster-canvas-field-row[data-steppers='false'] .dinkster-canvas-field-input { padding-right: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-step { width: var(--dinkster-space-24); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-glyph { stroke-width: 2; }
@@ -275,6 +277,9 @@
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='right'] { border-left: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='left'] { border-right: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='below-field'] { border-top-color: var(--dinkster-border-divider); border-radius: 0 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
+/* A row the keyboard is on with nothing open: the canvas draws the row, so the frame is clear over it and leaves the pointer to the canvas. */
+.dinkster-canvas-field[data-focus='true'] { pointer-events: none; }
+.dinkster-canvas-field[data-focus='true'] .dinkster-canvas-field-row { background: transparent; }
 .dinkster-canvas-field-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-field-input::placeholder { color: var(--dinkster-text-muted); font-style: italic; opacity: 1; }
 .dinkster-canvas-field-side { position: absolute; top: 0; box-sizing: border-box; min-height: var(--dinkster-input-canvas-height); width: max-content; min-width: calc(var(--dinkster-space-32) * 5); max-width: calc(var(--dinkster-space-32) * 8); padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }
@@ -303,7 +308,9 @@
 .dinkster-canvas-side-mode:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
 .dinkster-canvas-side-mode-glyph { position: relative; width: var(--dinkster-space-12); height: var(--dinkster-space-12); stroke-width: 2.5; }
 .dinkster-canvas-side-mode-meaning { margin: 0; color: var(--dinkster-text-secondary); }
-.dinkster-canvas-side-link { padding: 0; border: 0; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); background: transparent; color: var(--dinkster-text-secondary); font: inherit; cursor: pointer; }
+/* At least 24px wide to click, however short the value; the dotted line stays under the text. */
+.dinkster-canvas-side-link { min-width: var(--dinkster-space-24); padding: 0; border: 0; background: transparent; color: var(--dinkster-text-secondary); font: inherit; text-align: left; cursor: pointer; }
+.dinkster-canvas-side-link > span { display: inline-block; vertical-align: top; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .dinkster-canvas-side-link:hover { color: var(--dinkster-text-primary); }
 .dinkster-canvas-steps { display: flex; justify-content: space-between; gap: var(--dinkster-space-16); padding-top: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-canvas-steps .dinkster-link { display: grid; gap: var(--dinkster-space-4); text-decoration: none; }
