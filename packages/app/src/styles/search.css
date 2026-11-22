@@ -260,4 +260,3 @@
 }
 .settings-button { min-width: var(--dinkster-control-compact-height); }
 .settings-button.product-button { padding-inline: var(--dinkster-space-4); }
-.customize-layout-button { width: var(--dinkster-control-compact-height); height: var(--dinkster-control-compact-height); outline: none; }
