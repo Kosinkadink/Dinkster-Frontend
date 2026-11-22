@@ -432,8 +432,9 @@ panel; both reflect pressed state via `aria-pressed`.
 The 76 px activity rail stacks each centered label beneath its thin 20 px
 glyph in a 56 px tall action. Default labels stay whole on one line; longer
 pack-panel labels truncate with an ellipsis. Every action participates in the rail's custom tooltip
-session: the full title is the label and the description is its detail,
-including while selected. Buttons retain normal document tab order,
+session: an unselected item shows its description, or its title when it has no
+description, without a modifier key. Selected items suppress the tooltip on
+hover and keyboard focus. Buttons retain normal document tab order,
 explicit accessible names, pressed state for panel toggles, hover feedback,
 and a visible keyboard focus ring. Left-region panel toggles occupy a
 scrolling placement-driven stack. Settings is a separate labeled gear button
@@ -447,7 +448,7 @@ the same rail session replaces it immediately without a hidden frame. A
 visible tooltip may bridge empty rail space for 300 ms, then hides if no
 target is reached. Leaving the rail boundary hides immediately, so a later
 re-entry uses the configured delay again. Opening a dock panel dismisses
-the shown tooltip; hovering or focusing its selected toggle can show it again.
+the shown tooltip, including while keyboard focus remains on its selected toggle.
 
 ## The bottom panel
 

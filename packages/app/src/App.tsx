@@ -2816,10 +2816,10 @@ export function App(props: {
                     icon={panel.icon}
                     label={panel.title}
                     accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.title}
-                    tooltipDetail={panel.description}
+                    tooltip={panel.description ?? panel.title}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
+                    suppressTooltipWhenPressed={true}
                     testId={panel.toggleTestId}
                     onActivate={() => {
                       tooltips.hide()
