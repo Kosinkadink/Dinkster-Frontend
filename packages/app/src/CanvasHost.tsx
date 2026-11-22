@@ -5125,6 +5125,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         rect: inRow || hit.row.viewId === 'core.text'
           ? { x: hit.x, y: hit.y + fieldInsetY, width: hit.width, height: hit.height - fieldInsetY * 2 }
           : { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+        ...(caret === undefined || inRow || hit.row.viewId !== 'core.text' ? {} : { caret }),
+        ...(hit.row.viewId === 'core.text' && !inRow ? { rowInsetY: fieldInsetY } : {}),
         ...(inRow ? { inRow: {
           look: tokens.nodeLook,
           nodeTop: hit.node.y,

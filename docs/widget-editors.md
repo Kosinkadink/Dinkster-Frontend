@@ -863,6 +863,17 @@ moves each onto the row the canvas painted it on
 `packages/app/src/widget-editor-position.ts`). It measures again when the
 camera moves while the box is open.
 
+The open box also keeps everything else the canvas paints in it, so nothing
+appears or disappears except the outline, the cursor and a selection. It
+opens scrolled to its top, as the canvas paints it, with the cursor where the
+click landed. It keeps the bar near the bottom edge, and it masks the top and
+bottom padding so scrolled text is clipped where the canvas clips it. Its
+scrollbar is drawn with the canvas's track and thumb formula and follows the
+scroll; the browser's scrollbar stays over it, unseen, so it can still be
+dragged. `packages/e2e/tests/in-row-field-still.spec.ts` compares the ink of
+the label, each line, the bar and the scrollbar closed and open at 100, 150
+and 200 percent, for a default box, a box made taller and a box that scrolls.
+
 ### Text box height
 
 A text box's text starts 2 units left of the label over it (the label at 6,

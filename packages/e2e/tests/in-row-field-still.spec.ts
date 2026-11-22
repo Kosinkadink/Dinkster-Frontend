@@ -1,5 +1,6 @@
-// Clicking into a number, text or seed row moves nothing drawn in it: the
-// label, the value, a seed's mode icon and the steppers stay on the pixels
+// Clicking into a number, text or seed row, or into a text box, moves
+// nothing drawn in it: the label, the value, a seed's mode icon, the
+// steppers, a text box's lines, its bar and its scrollbar stay on the pixels
 // the canvas drew them on, at normal size and zoomed in. Only the outline
 // and the cursor appear.
 import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
@@ -30,6 +31,8 @@ test.beforeEach(async ({ page }) => {
         { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 0, max: 9007199254740991 }, default: 42,
             controller: 'after_generate', controllerInitial: 'fixed' } },
+        { kind: 'input', id: 'notes', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'STRING', options: { multiline: true }, default: '' } },
       ],
     }])
     await app.openDocument({
@@ -39,7 +42,7 @@ test.beforeEach(async ({ page }) => {
       root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
-        nodes: { proof: { id: 'proof', type: 'StillFieldProof', values: { steps: 20, filename_prefix: 'Dinkster', seed: 42 }, controllers: { seed: 'fixed' } } },
+        nodes: { proof: { id: 'proof', type: 'StillFieldProof', values: { steps: 20, filename_prefix: 'Dinkster', seed: 42, notes: 'a red fox\\nin deep snow' }, controllers: { seed: 'fixed' } } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
       } },
       view: { graphs: { g0: { nodes: { proof: { position: { x: 24, y: 40 } } } } } },
@@ -54,7 +57,7 @@ test.beforeEach(async ({ page }) => {
   const close = page.getByRole('button', { name: 'Close', exact: true })
   if (await close.isVisible()) await close.click()
   // The cursor is not under test.
-  await page.addStyleTag({ content: 'input { caret-color: transparent !important; }' })
+  await page.addStyleTag({ content: 'input, textarea { caret-color: transparent !important; }' })
 })
 
 /** The row's box on screen at a zoom, inset past the open field's outline. */
@@ -135,6 +138,88 @@ for (const scale of [1, 1.5, 2]) {
         expect(Math.abs(mark.y - closed[index]!.y), `${key}: run ${index} down`).toBeLessThan(0.75)
       }
       await input.press('Escape')
+      await page.keyboard.press('Escape')
+    }
+  })
+}
+
+
+/**
+ * Strips of an open or closed text box, each holding one thing the canvas
+ * draws: the label, every visible line, the padding under the lines with the
+ * bar, and the scrollbar's gutter. They stay clear of the box's outline.
+ */
+async function textBoxStrips(page: Page, scale: number): Promise<Clip[]> {
+  return page.evaluate((scale) => {
+    const renderer = window.__dinksterTest!.renderer!
+    renderer.setViewport({ x: 0, y: 0, scale })
+    ;(renderer as unknown as { renderNow(): void }).renderNow()
+    const tokens = (renderer as unknown as { getDesignTokens(): {
+      multilineText: { labelHeight: number; padding: number; lineHeight: number; scrollbarWidth: number; scrollbarInset: number }
+      rowGeometry: { fieldInsetY: number }
+    } }).getDesignTokens()
+    const box = tokens.multilineText
+    const node = renderer.getScene().nodes.find((item) => item.id === 'proof')!
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'notes')! as
+      { inset: number; y: number; width?: number; height: number }
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const left = canvas.left + (node.x + row.inset) * scale
+    const top = canvas.top + (node.y + row.y + tokens.rowGeometry.fieldInsetY) * scale
+    const width = (row.width ?? node.layout.width - row.inset * 2) * scale
+    const height = (row.height - tokens.rowGeometry.fieldInsetY * 2) * scale
+    const gutter = (box.scrollbarWidth + box.scrollbarInset) * scale
+    // Clear of the outline and its rounded corners.
+    const edge = 2
+    const corner = 4 * scale
+    const strip = (y: number, h: number, x = left + corner, w = width - gutter - corner) => ({ x, y, width: w, height: h })
+    const strips = [strip(top + edge, box.labelHeight * scale - edge)]
+    const linesTop = top + (box.labelHeight + box.padding) * scale
+    const linesBottom = top + height - box.padding * scale
+    for (let y = linesTop; y + box.lineHeight * scale <= linesBottom + 0.5; y += box.lineHeight * scale) {
+      strips.push(strip(y, box.lineHeight * scale))
+    }
+    strips.push(strip(linesBottom, top + height - edge - linesBottom))
+    strips.push(strip(top + box.labelHeight * scale, height - box.labelHeight * scale - corner, left + width - gutter, gutter - edge))
+    return strips
+  }, scale)
+}
+
+for (const scale of [1, 1.5, 2]) {
+  test(`clicking into a text box moves nothing in it at ${scale * 100} percent`, async ({ page }) => {
+    const boxes: [string, string, number | null][] = [
+      ['a text box', 'a red fox\nin deep snow', null],
+      ['a text box made taller', 'a red fox\nin deep snow\nat dawn', 6],
+      ['a text box that scrolls', 'one\ntwo\nthree\nfour\nfive\nsix\nseven', 2],
+    ]
+    for (const [name, value, lines] of boxes) {
+      await page.evaluate(([value, lines]) => {
+        const store = window.__dinksterTest!.app.activeTab()!.store
+        store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'proof', inputId: 'notes', value } })
+        store.dispatch({ command: 'view.setTextBoxLines', params: { graphId: 'g0', nodeId: 'proof', inputId: 'notes', lines } })
+      }, [value, lines] as const)
+      const strips = await textBoxStrips(page, scale)
+      await page.mouse.move(1, 1)
+      const closed = []
+      for (const strip of strips) closed.push(await marks(page, strip))
+      expect(closed[0]!.length, `${name}: the label is found`).toBeGreaterThanOrEqual(1)
+      expect(closed[1]!.length, `${name}: the first line is found`).toBeGreaterThanOrEqual(1)
+      expect(closed.at(-2)!.length, `${name}: the bar is found`).toBe(1)
+      expect(closed.at(-1)!.length, `${name}: a scrollbar only where the text does not fit`).toBe(lines === 2 ? 1 : 0)
+
+      // A click on the second line puts the cursor there.
+      await page.mouse.click(strips[2]!.x + strips[2]!.width * 0.3, strips[2]!.y + strips[2]!.height / 2)
+      const area = page.getByTestId('widget-editor').locator('textarea')
+      await expect(area).toBeFocused()
+      await page.mouse.move(1, 1)
+      for (const [index, strip] of strips.entries()) {
+        const open = await marks(page, strip)
+        expect(open.length, `${name}: strip ${index} has the same runs of ink`).toBe(closed[index]!.length)
+        for (const [run, mark] of open.entries()) {
+          expect(Math.abs(mark.x - closed[index]![run]!.x), `${name}: strip ${index} run ${run} across`).toBeLessThan(0.75)
+          expect(Math.abs(mark.y - closed[index]![run]!.y), `${name}: strip ${index} run ${run} down`).toBeLessThan(0.75)
+        }
+      }
+      await area.press('Escape')
       await page.keyboard.press('Escape')
     }
   })
