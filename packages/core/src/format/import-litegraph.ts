@@ -485,7 +485,7 @@ const decodePositionalFamilyWidgets = (
  */
 const positionalRowsOf = (schema: NodeSchema): PlacedRow[] => {
   const rows = placedRows(schema.body)
-  const mount = (row: PlacedRow): boolean => row.kind === 'input' && row.widget?.widgetType === 'MOUNT'
+  const mount = (row: PlacedRow): boolean => row.kind === 'input' && row.id === 'mount'
   return [...rows.filter((row) => !mount(row)), ...rows.filter(mount)]
 }
 

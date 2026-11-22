@@ -1535,8 +1535,14 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
   )
   let widget = decoded.widget
   if (afterRun !== undefined) {
-    const comboPin = widget === undefined && decoded.type.kind === 'concrete' && decoded.type.name === 'COMBO'
-    if (!comboPin && (widget === undefined || (widget.widgetType !== 'INT' && widget.widgetType !== 'FLOAT' && widget.widgetType !== 'COMBO'))) {
+    // As the engine checks it: every field the row can show is a number or
+    // list field, or the row has no field and a number or list type.
+    const field = entry['widget'] as Record<string, unknown> | undefined
+    const shown = field?.['type'] === 'REPRESENTATIONS'
+      ? (field['representations'] as readonly { readonly widget: Record<string, unknown> }[]).map((item) => item.widget)
+      : [field]
+    const numeric = decoded.type.kind === 'concrete' && ['INT', 'FLOAT', 'COMBO'].includes(decoded.type.name)
+    if (!shown.every((item) => item === undefined ? numeric : item['type'] === 'NUMBER' || item['type'] === 'COMBO')) {
       throw new Error(`${where}.afterRun needs a number or list field`)
     }
     if (widget !== undefined) widget = { ...widget, controller: 'after_generate', controllerInitial: afterRun as NonNullable<WidgetSpec['controllerInitial']> }

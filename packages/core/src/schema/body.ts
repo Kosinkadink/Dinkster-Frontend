@@ -254,15 +254,21 @@ const VALUE_KINDS: Readonly<Record<string, FormulaNameKind>> = {
   STRING: 'text',
   COMBO: 'choice',
 }
-const OPAQUE_WIDGETS = new Set(['MOUNT', 'CURVE', 'COMPOSITOR', 'CUSTOM'])
+/** Fields whose value a formula reads differently from the row's type. */
+const WIDGET_KINDS: Readonly<Record<string, FormulaNameKind>> = {
+  MOUNT: 'opaque',
+  CURVE: 'opaque',
+  COMPOSITOR: 'opaque',
+  CUSTOM: 'opaque',
+  MULTI_COMBO: 'text[]',
+}
 
 function rowKind(row: InputSpec | StateSpec): FormulaNameKind {
   if (row.kind === 'input' && row.widget !== undefined) {
     const widgets = row.widget.representations?.representations.map((item) => item.widget) ?? [row.widget]
-    if (widgets.some((widget) => OPAQUE_WIDGETS.has(widget.widgetType) || widget.widgetType.startsWith('CUSTOM'))) {
-      return 'opaque'
-    }
-    if (widgets.some((widget) => widget.widgetType === 'MULTI_COMBO')) return 'text[]'
+    const kinds = widgets.map((widget) => widget.widgetType.startsWith('CUSTOM') ? 'opaque' : WIDGET_KINDS[widget.widgetType])
+    if (kinds.includes('opaque')) return 'opaque'
+    if (kinds.includes('text[]')) return 'text[]'
   }
   return row.type.kind === 'concrete' ? VALUE_KINDS[row.type.name] ?? 'opaque' : 'opaque'
 }
