@@ -109,6 +109,7 @@ export function ProductButton(
 export function ProductWindowAction(
   props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
     label: string
+    labelContent?: JSX.Element
     icon: LucideIcon
     shortcut?: string
     intent?: ProductRole
@@ -117,6 +118,7 @@ export function ProductWindowAction(
 ) {
   const [local, button] = splitProps(props, [
     'label',
+    'labelContent',
     'icon',
     'shortcut',
     'intent',
@@ -136,7 +138,9 @@ export function ProductWindowAction(
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
         </span>
-        <span class="dinkster-window-action-label">{local.label}</span>
+        <span class="dinkster-window-action-label">
+          {local.labelContent ?? local.label}
+        </span>
         <Show when={local.shortcut}>
           {(shortcut) => (
             <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>

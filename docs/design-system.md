@@ -948,9 +948,17 @@ the expanded action label; compact mode hides the hint but retains it in the
 button's title and accessible description without changing its action name.
 Changing or removing the shortcut updates both presentations. The hint is
 informational: the caller still owns shortcut registration and activation.
-Pending actions reuse the shared disabled/focus and spinner behavior. The gallery's Window toolbar page demonstrates production,
-QA/custom services, all three platforms, both app themes and idle/running/pending
-states. Supply a brand menu with an icon and the fixed QA/custom service labels;
+An optional `labelContent` replaces only the expanded visible label, for example
+`ProductWordmark` with the host's `theme`. The required string `label` still owns
+the accessible name and title; rich content must be non-interactive. Compact
+mode clips that content and shows the action's icon without changing activation
+or menu ownership. Toolbar wordmarks reserve their shared token width and height
+before the image loads. `ProductWordmark` defaults to dark artwork when no theme
+is supplied. Pending actions reuse the shared disabled/focus and spinner behavior.
+The gallery's Window toolbar page demonstrates plain menu and rich brand
+presentations across production and QA/custom services, all three platforms,
+both app themes and idle/running/pending states. Supply an icon-bearing brand
+menu or action and the fixed QA/custom service labels;
 arbitrary environment names are outside this toolbar contract. These are shared
 patterns, not app adoption or OS-input acceptance.
 
