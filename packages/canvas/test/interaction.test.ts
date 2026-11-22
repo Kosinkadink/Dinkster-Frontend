@@ -4,9 +4,10 @@
  * modifier precedence covered through the pure decision used by pointerdown.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { asNodeId, type NodeSchema } from '@dinkster/core'
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, layoutNode } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
 import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
@@ -560,12 +561,18 @@ describe('canvas hover targets', () => {
     scene.nodes[0].layout.rows[0].spec = { widgetType: 'STRING', options: {}, multiline: true }
     const harness = interactionHarness(scene)
 
-    harness.fire('pointermove', 50, 99)
+    harness.fire('pointermove', 50, 92)
     expect(harness.overlays.at(-1)).toMatchObject({
       hoveredWidget: { nodeId: 'n1', valueKey: 'amount' },
     })
-    harness.fire('pointermove', 50, 103)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('textBoxEdge')
+    // The band along the box's bottom edge belongs to its height bar.
+    harness.fire('pointermove', 50, 99)
+    expect(harness.overlays.at(-1)).toMatchObject({ textBoxEdge: { nodeId: 'n1', valueKey: 'amount' } })
     expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredWidget')
+    harness.fire('pointermove', 50, 106)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredWidget')
+    expect(harness.overlays.at(-1)).not.toHaveProperty('textBoxEdge')
   })
 
   it('idle hover over a visible widget tap sets tap identity on the second tap move and clears on leave and scene replacement', () => {
@@ -3822,5 +3829,80 @@ describe('two-finger touch navigation', () => {
     harness.fire('pointerdown', 200, 100, { ...touch, pointerId: 6 })
     harness.fire('pointermove', 300, 100, { ...touch, pointerId: 6 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('text box height', () => {
+  const text = (id: string): NodeSchema['items'][number] => ({
+    kind: 'input',
+    id,
+    type: { kind: 'concrete', name: 'STRING' },
+    optional: false,
+    widget: { widgetType: 'STRING', options: { multiline: true } },
+  })
+  const schema: NodeSchema = {
+    type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: false,
+    items: [text('first'), text('second')],
+  }
+  const sceneWith = (size?: { width: number; height: number }): Scene => {
+    const node = { id: asNodeId('n1'), type: 'Prompt', values: {} }
+    const layout = layoutNode(schema, node, defaultTokens, (value) => value.length * 6,
+      () => ({ viewId: 'core.text', rows: 2 }), size === undefined ? {} : { size })
+    return {
+      graphId: 'g',
+      nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
+      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+    } as unknown as Scene
+  }
+  const lines = defaultTokens.multilineText.lineHeight
+
+  it('drags one box taller in whole lines while the node keeps its other rows and resize surplus', () => {
+    const natural = sceneWith().nodes[0]!.layout
+    const scene = sceneWith({ width: natural.width, height: natural.height + 50 })
+    const first = scene.nodes[0]!.layout.rows[0]!
+    const edgeY = first.y + first.height - 3
+    const harness = interactionHarness(scene)
+
+    harness.fire('pointerdown', 60, edgeY)
+    harness.fire('pointermove', 60, edgeY + 3 * lines + 4)
+    expect(harness.overlays.at(-1)).toMatchObject({
+      textBoxLines: { nodeId: 'n1', valueKey: 'first', lines: 5 },
+      textBoxEdge: { nodeId: 'n1', valueKey: 'first' },
+    })
+    harness.fire('pointerup', 60, edgeY + 3 * lines + 4)
+    // One undo step: the box's lines, and the node's stored height moved by
+    // the same three lines so the second box keeps its 50 px surplus.
+    expect(harness.dispatched).toEqual([{
+      command: 'batch',
+      params: {
+        invocations: [
+          { command: 'view.setTextBoxLines', params: { graphId: 'g', nodeId: 'n1', inputId: 'first', lines: 5 } },
+          {
+            command: 'view.setNodeSize',
+            params: { graphId: 'g', nodeId: 'n1', size: { width: natural.width, height: natural.height + 50 + 3 * lines } },
+          },
+        ],
+      },
+    }])
+  })
+
+  it('steps a focused edge one line per arrow key and stops at two lines', () => {
+    const scene = sceneWith()
+    const second = scene.nodes[0]!.layout.rows[1]!
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', 60, second.y + second.height - 3)
+    harness.fire('pointerup', 60, second.y + second.height - 3)
+    expect(harness.dispatched).toEqual([])
+
+    harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(harness.dispatched).toEqual([
+      { command: 'view.setTextBoxLines', params: { graphId: 'g', nodeId: 'n1', inputId: 'second', lines: 3 } },
+    ])
+    // Two lines is the floor: stepping up from the declared two changes nothing.
+    harness.fireWindow('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
+    expect(harness.dispatched).toHaveLength(1)
+    harness.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(harness.dispatched).toHaveLength(1)
   })
 })

@@ -364,7 +364,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     if (declaredSlider) paintLabel()
     const visibleHeight = Math.max(0, multilineBottom - multilineTop - multilinePadding * 2)
     const contentHeight = multilineVisualRows * multilineHeight
-    if (multiline && args.hovered && contentHeight > visibleHeight) {
+    // Text that does not fit shows the quiet scrollbar; the box never grows to fit.
+    if (multiline && contentHeight > visibleHeight) {
       const scrollbarWidth = tokens.multilineText.scrollbarWidth
       const trackHeight = Math.max(0, multilineBottom - multilineTop)
       const thumbHeight = Math.min(

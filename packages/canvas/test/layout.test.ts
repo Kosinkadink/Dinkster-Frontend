@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { InputSpec, NodeData, NodeSchema, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface } from '@dinkster/core'
-import { layoutNode, projectNodeLayoutHeight, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -667,25 +667,58 @@ describe('manual size override', () => {
     expect(grown.minHeight).toBe(natural.height)
   })
 
-  it('shares extra height across active core.text rows in schema order with remainder on the final row', () => {
+  it('keeps each text box at its own height in lines and gives extra height only to the last one', () => {
     const text = (id: string) => widget(id, {
       type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })
     const items = [text('first'), widget('number'), text('second'), input('after')]
-    const natural = doLayout(items)
+    const box = (lines: number) => defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
+      lines * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
+    const sized = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      textBoxLines: { first: 5, second: 3 },
+    })
+    expect(sized.rows.map((row) => row.height)).toEqual([
+      box(5), defaultTokens.rowHeight, box(3), defaultTokens.rowGeometry.portRowHeight,
+    ])
     const grown = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
-      size: { width: natural.width, height: natural.height + 61 },
+      textBoxLines: { first: 5, second: 3 },
+      size: { width: sized.width, height: sized.height + 61 },
     })
     expect(grown.rows.map((row) => row.height)).toEqual([
-      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 30,
-      defaultTokens.rowHeight,
-      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 31,
-      defaultTokens.rowGeometry.portRowHeight,
+      box(5), defaultTokens.rowHeight, box(3) + 61, defaultTokens.rowGeometry.portRowHeight,
     ])
-    expect(grown.rows[1]!.y - natural.rows[1]!.y).toBe(30)
-    expect(grown.rows[2]!.y - natural.rows[2]!.y).toBe(30)
-    expect(grown.rows[3]!.y - natural.rows[3]!.y).toBe(61)
+    expect(grown.rows[3]!.y - sized.rows[3]!.y).toBe(61)
+    expect(grown.minHeight).toBe(sized.height)
+    // Stored heights outside the limits clamp to 2 and 16 lines.
+    const clamped = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      textBoxLines: { first: 1, second: 40 },
+    })
+    expect(clamped.rows.map((row) => row.kind === 'widget' ? row.rows : undefined)).toEqual([2, 1, 16, undefined])
+  })
+
+  it('projects one text box to a new line count while the rows below and the surplus row follow', () => {
+    const text = (id: string) => widget(id, {
+      type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'STRING', options: { multiline: true } },
+    })
+    const items = [text('first'), text('second'), input('after')]
+    const natural = doLayout(items)
+    const grown = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      size: { width: natural.width, height: natural.height + 50 },
+    })
+    // The first box grows by three lines; the second keeps its 50 px surplus.
+    const first = projectTextBoxLines(grown, 'first', 5, defaultTokens)
+    const lines = defaultTokens.multilineText.lineHeight
+    expect(first.rows[0]).toMatchObject({ rows: 5, height: natural.rows[0]!.height + 3 * lines })
+    expect(first.rows[1]!.height).toBe(grown.rows[1]!.height)
+    expect(first.height).toBe(grown.height + 3 * lines)
+    expect(first.pins.find((pin) => pin.portId === 'after')!.y - grown.pins.find((pin) => pin.portId === 'after')!.y).toBe(3 * lines)
+    // Sizing the surplus row itself replaces the surplus with whole lines.
+    const second = projectTextBoxLines(grown, 'second', 4, defaultTokens)
+    expect(second.rows[1]).toMatchObject({ rows: 4, height: natural.rows[1]!.height + 2 * lines })
+    expect(second.height).toBe(natural.height + 2 * lines)
+    expect(second.minHeight).toBe(natural.height + 2 * lines)
   })
 
   it('does not give manual height surplus to an inactive core.text branch', () => {
@@ -761,7 +794,7 @@ describe('manual size override', () => {
 
 describe('in-node preview region', () => {
 
-  it('expands and clears without changing a manually sized multiline row', () => {
+  it('gives the resize surplus to the preview while a text box keeps its own height', () => {
     const items = [widget('text', {
       type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
@@ -776,41 +809,17 @@ describe('in-node preview region', () => {
     })
     const compact = withCompactPreviewRegion(base, defaultTokens)
     const active = withPreviewRegion(compact, defaultTokens)
-    expect(compact.rows[0]!.height).toBe(natural.rows[0]!.height + 90)
+    expect(compact.rows[0]!.height).toBe(natural.rows[0]!.height)
     expect(active.rows).toEqual(compact.rows)
-    expect(active.height - compact.height).toBe(
-      defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight - defaultTokens.rowHeight,
-    )
-    expect(compact.resizeHeightOffset).toBe(compact.height - active.height)
+    expect(active.preview?.height).toBe(defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 90)
+    expect(active.height).toBe(base.height)
+    expect(withPreviewRegion(base, defaultTokens)).toMatchObject({ rows: active.rows, height: active.height, preview: active.preview })
     expect(active.resizeHeightOffset).toBeUndefined()
     expect(withCompactPreviewRegion(base, defaultTokens)).toEqual(compact)
-  })
-
-  it('gives resize surplus to preview only when no active core.text row exists', () => {
-    const plain = doLayout([widget('w')])
-    const plainRequested = {
-      ...plain,
-      height: plain.minHeight + defaultTokens.previewGap + defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    }
-    expect(withPreviewRegion(plainRequested, defaultTokens).preview?.height).toBe(
-      defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    )
-
-    const textItems = [widget('text', {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'STRING', options: { multiline: true } },
-    })]
-    const text = doLayout(textItems)
-    const textRequested = {
-      ...text,
-      height: text.minHeight + defaultTokens.previewGap + defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    }
-    const grown = withPreviewRegion(textRequested, defaultTokens)
-    expect(grown.preview?.height).toBe(defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight)
-    expect(grown.rows[0]!.height).toBe(
-      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight +
-      2 * defaultTokens.multilineText.padding + 40,
-    )
+    // Resizing the node sizes the picture, never the text box.
+    const resized = projectNodeLayoutHeight(active, active.height + 30, defaultTokens)
+    expect(resized.rows).toEqual(active.rows)
+    expect(resized.preview!.height).toBe(active.preview!.height + 30)
   })
 })
 

@@ -152,7 +152,7 @@ test('A page link opens its heading, and the foot steps in list order', async ({
   const previous = steps.locator('a[rel="prev"]')
   const next = steps.locator('a[rel="next"]')
   // Each names the page it leads to.
-  await expect(previous).toHaveText(/^Previous page\s*Widget states$/)
+  await expect(previous).toHaveText(/^Previous page\s*Text box heights$/)
   await expect(next).toHaveText(/^Next page\s*Structural parts$/)
   await next.click()
   expect(new URL(page.url()).searchParams.get('page')).toBe('structure')

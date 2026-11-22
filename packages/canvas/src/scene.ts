@@ -147,7 +147,7 @@ const onlyNodePositionsChanged = (
     const after = next.nodes[id]!
     return before === after || (
       before.size === after.size && before.collapsed === after.collapsed && before.views === after.views &&
-      before.sections === after.sections && before.color === after.color && before.ext === after.ext
+      before.textLines === after.textLines && before.sections === after.sections && before.color === after.color && before.ext === after.ext
     )
   })
 }
@@ -1290,6 +1290,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           // Subgraph instances resolve to boundary-derived schemas, so a
           // forwarded family's suffix ghost elaborates here like any node's.

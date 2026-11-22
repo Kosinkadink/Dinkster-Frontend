@@ -454,6 +454,20 @@ export const canvasPaintTokens = {
     },
     chevron: { stroke: 1.5, topOffset: -2, bottomOffset: 1 },
     scrollbarMinThumbRatio: 2,
+    /**
+     * The short bar on a text box's bottom edge, measured from the row's
+     * bottom. The bar widens under the pointer, while dragged and with
+     * keyboard focus; the hit band spans the box's full width.
+     */
+    textBoxEdge: {
+      width: 22,
+      hotWidth: 34,
+      height: 3,
+      radius: 1.5,
+      bottomOffset: 5,
+      hitAbove: 7,
+      hitBelow: 3,
+    },
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
