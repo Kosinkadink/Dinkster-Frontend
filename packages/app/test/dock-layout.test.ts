@@ -244,19 +244,6 @@ describe('encode/decode read boundary (FR11)', () => {
 })
 
 describe('DockLayout persistence', () => {
-  it('drops removed core panels without moving surviving core or extension panels', () => {
-    const raw = JSON.stringify({ v: 2, zones: {
-      left: { sections: [{ tabs: ['context', 'library', 'pack.tools'], activeTab: 'context' }], split: 0.5, open: true },
-      right: { sections: [{ tabs: ['queue', 'outputs', 'problems'], activeTab: 'outputs' }], split: 0.5, open: true },
-      bottom: { sections: [{ tabs: ['execution-log', 'logs'], activeTab: 'execution-log' }], split: 0.5, open: true },
-    } })
-    const restored = decodeDockState(raw)!
-    expect(restored.zones.left.sections).toEqual([{ tabs: ['library', 'pack.tools'], activeTab: 'library' }])
-    expect(restored.zones.right.sections).toEqual([{ tabs: ['problems'], activeTab: 'problems' }])
-    expect(restored.zones.bottom.sections).toEqual([{ tabs: ['logs'], activeTab: 'logs' }])
-    expect(zoneTabs(restored.zones.right)).not.toContain('runs')
-  })
-
   it('persists mutations and restores across reconstruction', () => {
     const store = storage()
     const first = new DockLayout(new SettingsRegistry(store))

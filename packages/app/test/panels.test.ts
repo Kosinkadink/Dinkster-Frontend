@@ -31,17 +31,6 @@ describe('PanelRegistry', () => {
     expect(other.placementOf('f')).toBe('dock')
   })
 
-  it('drops removed core floating ids while preserving extension placements', () => {
-    const data = new Map([['dinkster.floatingPanels', JSON.stringify(['queue', 'outputs', 'context', 'execution-log', 'pack.tools'])]])
-    const store = { getItem: (key: string) => data.get(key) ?? null } as Storage
-    const registry = new PanelRegistry(store)
-    for (const id of ['queue', 'outputs', 'context', 'execution-log', 'pack.tools', 'runs']) {
-      registry.register(desc({ id, allowedPlacements: ['dock', 'floating'] }))
-    }
-    expect(registry.inPlacement('floating').map((panel) => panel.id)).toEqual(['pack.tools'])
-    expect(registry.placementOf('runs')).toBe('dock')
-  })
-
   it('registers, lists by placement in order, and unregisters', () => {
     const reg = new PanelRegistry()
     const un = reg.register(desc({ id: 'b', order: 20 }))

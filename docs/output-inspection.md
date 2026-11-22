@@ -1,25 +1,8 @@
 # Output inspection
 
-Runs combines execution rows and output previews. This workflow is the
-default scope and lists the active workflow's executions. Selecting a run
-also selects it in Log and in loop iteration inspection. All workflows shows
-browser queued/running runs followed by backend stored finished runs, retaining
-search, paging, open, resubmit, delete and guarded Clear finished actions. Clearing
-or deleting confirmed-absent stored records removes their finished runs from
-both scopes without clearing canvas results. Queued and running runs stay.
-Clear finished covers every workflow on that backend; its confirmation says
-saved files stay, because history deletion removes records, not files. Legacy
-backends use browser execution history instead.
-
-Each run has one thumbnail row with up to three previews. The overflow count
-opens the existing image viewer in Grid mode; a thumbnail opens it in Single
-mode. Details keeps run metadata, output identities, saved files and typed
-media inspection below the row. Failures retain their full error message in
-Details even when the run produced no images. Execution updates keep the
-same run's Details open and preserve media inspection state. The separate
-Outputs panel is removed.
-
-Runs does not invent artifact authority. Every media URL is resolved through that execution's
+The Outputs rail inspects the execution selected by the existing live,
+pinned, or frozen execution binding. It does not select executions or invent
+artifact authority. Every media URL is resolved through that execution's
 backend by `assetUrlForExecution` or its values API, including retained
 routes for a removed owner.
 

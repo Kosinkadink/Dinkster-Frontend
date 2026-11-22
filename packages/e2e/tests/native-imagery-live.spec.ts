@@ -235,10 +235,10 @@ test('a native run decodes real pixels into the outputs panel and the node previ
   await expect(row).toBeVisible({ timeout: 30_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
 
-  // Runs thumbnails: the produced IMAGE rendition decoded - real pixels,
+  // Outputs panel: the produced IMAGE rendition decoded - real pixels,
   // not just an <img> with a src.
-  await page.getByRole('tab', { name: 'Runs', exact: true }).click()
-  const outputImg = page.getByTestId('runs-panel').locator('.output-thumbnail img').first()
+  await page.getByRole('tab', { name: 'Outputs' }).click()
+  const outputImg = page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()
   await expect(outputImg).toBeVisible({ timeout: 15_000 })
   expect(await outputImg.getAttribute('src')).toMatch(/^blob:/)
   await expect
