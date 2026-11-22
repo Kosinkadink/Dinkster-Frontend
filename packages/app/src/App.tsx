@@ -3186,9 +3186,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
     setLoaded(new Set<string>())
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
-    readAsset: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4
@@ -3221,8 +3219,8 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
       detail: props.execution.errors.map((error) => error.message).join(' ') || 'The execution reported an error before producing inspectable images.',
     }
     if (!provenance().backendAvailable) return {
-      state: 'owner-unavailable', title: 'Output owner unavailable',
-      detail: 'The execution backend was removed or disconnected. Retained output media cannot be confirmed.',
+      state: 'owner-unavailable', title: 'Output backend unavailable',
+      detail: 'The execution backend was removed or disconnected. Output media may no longer be available.',
     }
     if (props.execution.status === 'queued' || props.execution.status === 'running') return {
       state: 'waiting', title: 'Waiting for image outputs',
@@ -3246,7 +3244,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
         <div><span>Execution</span><strong>{provenance().executionId}</strong></div>
         <div><span>Status</span><strong>{provenance().executionStatus}</strong></div>
         <Show when={!provenance().backendAvailable && images().length > 0}>
-          <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
+          <p role="status">{message('outputs.backendDisconnected')}</p>
         </Show>
         <Show when={props.execution.errors.length > 0 && images().length > 0}>
           <p class="output-execution-error" role="alert">{props.execution.errors.map((error) => error.message).join(' ')}</p>

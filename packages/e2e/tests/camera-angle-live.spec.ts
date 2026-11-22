@@ -1,11 +1,10 @@
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 test('camera composer writes real siblings, executes orbit coordinates and preserves undo', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'camera-angle-live', root: 'g0',

@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, openRailPanel, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
@@ -310,7 +310,7 @@ test('unavailable vision capability identifies and anchors Preprocess Realistic 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
 
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',

@@ -2,7 +2,6 @@ import { join } from 'node:path'
 import type { Diagnostic } from '@dinkster/core'
 import { expect, nativeTest as test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 const proofDir = process.env['DINKSTER_FEATURE_PROOF_DIR']
 
 async function pinPoint(page: Page, nodeId: string, portId: string, direction: 'in' | 'out') {
