@@ -132,15 +132,12 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
-import { ResultOwnerCensus } from './result-owner-census.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
   EngineNotReadyError,
   PackInstallError,
   ExecutionStore,
-  RetentionClient,
-  retainedAssetAcknowledgment,
   createScopedClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
@@ -163,7 +160,6 @@ import {
   type CompatSkip,
   type PackInferenceUnavailable,
   type RefreshableScopedClient,
-  type RetainedAssets,
   type ReplacementProblem,
   type SchemaRegistry,
   type SupervisorProgress,
@@ -217,7 +213,6 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { validFile3dAsset } from './file3d-preview.js'
 import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, resultReceiptCurrent, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged, workflowNodeTitlesOnlyChanged } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -239,7 +234,6 @@ import {
   clearExecutionResults,
   loadExecutionResults,
   persistedCompileProof,
-  persistedResultReferences,
   removeExecutionResult,
   saveExecutionResult,
   type ExecutionResultBackendIdentity,
@@ -1948,56 +1942,6 @@ function loadWorkspaceOperations(): readonly WorkspaceTabMutation[] {
   return orderWorkspaceOperations(operations)
 }
 
-/** Losing recovery sources remain holders until their actual storage slots retire. */
-function persistedWorkflowAssetRoots(
-  resolve: SchemaResolver,
-  acknowledgedRoots: (key: string, raw: string) => ReadonlySet<string> | undefined,
-): ReadonlySet<string> | undefined {
-  try {
-    const storage = globalThis.localStorage
-    if (!storage) return undefined
-    const documents: unknown[] = []
-    const digests = new Set<string>()
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index)
-      if (key === null) return undefined
-      if (key !== tabsKey() && !key.startsWith(tabsCandidatePrefix()) &&
-        !key.startsWith(documentCandidatePrefix()) && !key.startsWith(workspaceOperationPrefix())) continue
-      const raw = storage.getItem(key)
-      if (raw === null) return undefined
-      const acknowledged = acknowledgedRoots(key, raw)
-      if (acknowledged !== undefined) {
-        for (const digest of acknowledged) digests.add(digest)
-        continue
-      }
-      if (key === tabsKey() || key.startsWith(tabsCandidatePrefix())) {
-        const state = parsePersistedTabs(raw)
-        if (!state || state.tabs.length !== JSON.parse(raw).tabs.length) return undefined
-        documents.push(...state.tabs.map((tab) => tab.doc))
-      } else if (key.startsWith(documentCandidatePrefix())) {
-        const candidate = parsePersistedDocumentCandidate(raw)
-        if (!candidate || key !== `${documentCandidatePrefix()}${encodeURIComponent(persistedTabId(candidate.tab)!)}`) return undefined
-        documents.push(candidate.tab.doc)
-      } else if (key.startsWith(workspaceOperationPrefix())) {
-        const operation = JSON.parse(raw) as Partial<WorkspaceTabMutation> | null
-        if (!operation || typeof operation.opId !== 'string' ||
-          key !== `${workspaceOperationPrefix()}${operation.opId}` || !Array.isArray(operation.additions)) return undefined
-        documents.push(...operation.additions.map((entry) => entry?.document))
-      }
-    }
-    for (const json of documents) {
-      const document = loadDocument(json).document
-      if (!document) return undefined
-      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, resolve, [], 'admission')
-      if (!roots.complete || roots.refusal !== undefined) return undefined
-      for (const digest of roots.digests) digests.add(digest)
-    }
-    return digests
-  } catch {
-    return undefined
-  }
-}
-
 export function orderWorkspaceOperations(
   operations: readonly WorkspaceTabMutation[],
 ): readonly WorkspaceTabMutation[] {
@@ -2950,20 +2894,6 @@ export class AppState {
   readonly collabTabs: Signal<ReadonlyMap<string, CollabTabState>> = createSignal<ReadonlyMap<string, CollabTabState>>(new Map())
   /** This browser's durable collab identity (joint actorId pin; collab.ts). */
   collabActorId: string
-  private readonly retentionClients = new Map<string, RetentionClient>()
-
-  private retentionClientFor(baseUrl: string): RetentionClient {
-    const base = canonicalBackendUrl(baseUrl)
-    let client = this.retentionClients.get(base)
-    if (client === undefined) {
-      let storage: Storage | undefined
-      try { storage = globalThis.sessionStorage } catch { /* Session-only identity. */ }
-      client = new RetentionClient(base, undefined, storage)
-      this.retentionClients.set(base, client)
-    }
-    return client
-  }
-
   readonly collabTransport: CollabTransport
   /**
    * Single-flight keys for in-progress collab operations (`share:<tabId>`,
@@ -3029,7 +2959,6 @@ export class AppState {
   }
   private readonly receiveStorage = (event: StorageEvent): void => {
     this.settings.refreshFromStorage(event.key)
-    this.retireUnusedResultOwners()
     if (event.key === scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY) && event.newValue !== null) {
       this.refreshPersistedExecutionResults()
     }
@@ -3350,7 +3279,6 @@ export class AppState {
         const identity = backend === undefined ? undefined : this.executionResultIdentity(backend)
         if (identity !== undefined) saveExecutionResult(execution, identity)
       }
-      this.retireUnusedResultOwners()
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
     })
@@ -3592,10 +3520,6 @@ export class AppState {
     this.persistWatchers.clear()
     for (const check of this.workflowAssetChecks.values()) check.controller.abort()
     this.workflowAssetChecks.clear()
-    for (const controller of this.workflowRetentionRecoveries.values()) controller.abort()
-    this.workflowRetentionRecoveries.clear()
-    for (const unsubscribe of this.retirementObservers.values()) unsubscribe()
-    this.retirementObservers.clear()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -3607,11 +3531,6 @@ export class AppState {
     }
     for (const cancel of this.supervisorPolls.values()) cancel()
     for (const backend of [...this.backends.get(), ...this.retiredBackends.values()]) backend.connection.disconnect()
-    for (const client of this.retentionClients.values()) {
-      void client.disconnect().catch((error: unknown) => {
-        this.log('warn', 'Storage', `Client disconnect unconfirmed: ${error instanceof Error ? error.message : String(error)}`)
-      })
-    }
   }
 
   /**
@@ -4306,10 +4225,6 @@ export class AppState {
     completion: Promise<void>
   }>()
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
-  private readonly workflowRetentionRecoveries = new Map<DinksterConnection, AbortController>()
-  private pendingRetentionRecoveries = 0
-  private readonly workflowRetentionTimers = new Set<DinksterConnection>()
-  private readonly retirementObservers = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
   private refreshWorkflowAssets(tab: Tab): void {
@@ -4520,7 +4435,6 @@ export class AppState {
       if (!this.disposed && this.tabs.get().some((tab) => this.documentPersistenceDirty.has(tab.id))) {
         this.schedulePersistTabs()
       }
-      this.retireSupersededWorkflowOwners()
     }, (retired, committed) => {
       if (this.tabs.get().filter((tab) => !tab.execution).every((tab) => committed.tabs.some((saved) =>
         persistedTabId(saved) === tab.id && canonicalJson(saved.doc) === canonicalJson(tab.store.doc)))) {
@@ -4531,7 +4445,6 @@ export class AppState {
           this.workspaceAcknowledgedOperations.delete(opId)
         }
       }
-      this.retireSupersededWorkflowOwners()
     }, (candidate, workspace) => {
       const id = persistedTabId(candidate.tab)
       return id !== undefined && this.workspaceAuthorityEnabled && !this.tabs.get().some((tab) => tab.id === id) &&
@@ -6219,17 +6132,6 @@ export class AppState {
     for (const tab of this.tabs.get()) {
       if (tab.id !== id || !tab.execution) continue
       this.store.release(tab.execution)
-      const owner = this.frozenAssetOwners.get(tab)
-      if (!owner) continue
-      this.frozenAssetOwners.delete(tab)
-      // Removal, not renderer unmount or process disposal, ends this holder.
-      queueMicrotask(() => {
-        // A same-id replacement needs its own acknowledged handoff, not an id match.
-        if (this.disposed || this.tabs.get().some((candidate) => candidate.id === tab.id) || activeProjectId() !== owner.project ||
-          (this.backendFor(owner.backend.id) ?? this.retiredBackends.get(owner.backend.id)) !== owner.backend ||
-          this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) return
-        void this.retireAssetOwner(owner.backend.connection, owner.retained)
-      })
     }
   }
 
@@ -6408,7 +6310,6 @@ export class AppState {
     local.graphStack.set(tab.graphStack.get())
     local.instancePath.set(tab.instancePath.get())
     this.tabs.update((tabs) => tabs.map((t) => (t.id === tabId ? local : t)))
-    this.continueWorkflowAssetOwner(entry.session, local.store)
   }
 
   /** DELETE the server session for every participant, then fall back local. */
@@ -6492,7 +6393,6 @@ export class AppState {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
-        validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, sessionResolver, retainedDocuments),
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
@@ -7294,10 +7194,6 @@ export class AppState {
     let url: string | undefined
     let anchor: HTMLAnchorElement | undefined
     try {
-      const registry = this.registryForTab(tab)
-      const roots = workflowAssetRoots(tab.store.doc, { revision: tab.store.revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-      if (roots.refusal !== undefined) throw new Error(roots.refusal)
       const snapshot = await this.documentWithAssetLocations(tab)
       if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
       const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {
@@ -7438,7 +7334,7 @@ export class AppState {
   /**
    * Per-tab digest of the last uploaded source document, validated by the
    * connection lifetime, document and schema the stamp depends on. Repeated
-   * queues reuse bytes but independently acknowledge ownership. Keyed by
+   * queues reuse the uploaded bytes. Keyed by
    * the Tab OBJECT, not its id: tab ids are lineages, a same-lineage
    * replacement session starts back at revision 0, and an id-keyed entry
    * could answer with the OLD session's digest for a revision-0 lookup.
@@ -7795,7 +7691,6 @@ export class AppState {
       const deleted = await backend.connection.deleteHistoryRun(runId, LIBRARY_SCOPE)
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
-        this.retireUnusedResultOwners()
         this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
@@ -7818,7 +7713,6 @@ export class AppState {
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
-      this.retireUnusedResultOwners()
       if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
