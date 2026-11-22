@@ -293,6 +293,11 @@ export interface ElaboratedInterface {
   readonly outputMembers?: Readonly<Record<string, readonly string[]>>
   /** The key of every choice and type choice that takes part in the run, by flattened id. */
   readonly choices?: Readonly<Record<string, string>>
+  /**
+   * Required choices that take part in the node with no stored key and no
+   * leader, with the start key the node shows for each (view mode only).
+   */
+  readonly unstoredChoices?: Readonly<Record<string, string>>
   readonly diagnostics: readonly Diagnostic[]
 }
 
@@ -470,6 +475,7 @@ export function elaborateInterface(
   const items: ElaboratedItem[] = []
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
+  const unstoredChoices: Record<string, string> = {}
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
   const emittedOutputs = new Set<string>()
@@ -835,24 +841,6 @@ export function elaborateInterface(
       return
     }
 
-    // Members the node offers beyond the stored ones: up to the minimum, and
-    // one spare for a group that grows by link or by filling a field.
-    const offered: string[] = []
-    let seq = Math.max(stateOf(path)?.seq ?? 0, ...keys.map((key) => keyPosition(row.keys, key)! + 1))
-    const fresh = (): string | undefined => {
-      if (row.keys.kind === 'named') return row.keys.names.find((name) => !keys.includes(name) && !offered.includes(name))
-      if (seq >= Number.MAX_SAFE_INTEGER) return undefined
-      return memberKeyAt(row.keys, seq++)
-    }
-    const spare = (grows === 'link' || grows === 'filled') && !scope.ghost ? 1 : 0
-    if (view && typeof grows === 'string') {
-      const shown = Math.min(limit, Math.max(row.minMembers, storedCount + spare))
-      while (keys.length + offered.length < shown) {
-        const key = fresh()
-        if (key === undefined) break
-        offered.push(key)
-      }
-    }
     const holdsOutput = memberRowsOf(row).some(function holds(item: OptionRow): boolean {
       switch (item.kind) {
         case 'output': return true
@@ -865,21 +853,27 @@ export function elaborateInterface(
       }
     })
     if (holdsOutput && typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
-      outputMembers[path] = keys.slice(0, storedCount)
+      outputMembers[path] = [...keys]
     }
 
-    const all = [...keys, ...offered]
-    for (const [position, key] of all.entries()) {
-      if (halted) return
+    let seq = Math.max(stateOf(path)?.seq ?? 0, ...keys.map((key) => keyPosition(row.keys, key)! + 1))
+    const offered: string[] = []
+    const fresh = (): string | undefined => {
+      if (row.keys.kind === 'named') return row.keys.names.find((name) => !keys.includes(name) && !offered.includes(name))
+      if (seq >= Number.MAX_SAFE_INTEGER) return undefined
+      return memberKeyAt(row.keys, seq++)
+    }
+    const growthLabel = literalText(row.addLabel) ?? literalText(row.displayName) ?? row.id
+    const frameFor = (members: readonly string[]): MaterializeFrame => ({
+      construct: path,
+      members,
+      ...(row.keys.kind === 'numbered' ? { seq: keyPosition(row.keys, members.at(-1)!)! + 1 } : {}),
+    })
+
+    /** Emit one member; returns whether it is in use (a stored value or a wire). */
+    const member = (position: number, key: string, ghost: boolean): boolean => {
       membersVisited++
-      const ghost = position >= storedCount
-      const frames = ghost
-        ? [...(scope.frames ?? []), {
-            construct: path,
-            members: offered.slice(0, position - storedCount + 1),
-            ...(row.keys.kind === 'numbered' ? { seq: keyPosition(row.keys, key)! + 1 } : {}),
-          }]
-        : scope.frames
+      const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
       const label = memberLabelOf(row, path, key, position, scope)
       const memberScope: Scope = {
@@ -914,30 +908,57 @@ export function elaborateInterface(
           formulaFrames: [...scope.formulaFrames, { prefix, rows: row.member ?? [], index: position, key }],
         })
       }
-      if (ghost && items.length === before && position === all.length - 1) {
+      const emitted = items.slice(before)
+      if (ghost && emitted.length === 0 && position === storedCount + offered.length - 1) {
         push({
           kind: 'growth',
           construct: path,
           side: holdsOutput && !memberRowsOf(row).some((item) => item.kind === 'input') ? 'output' : 'input',
-          label: literalText(row.addLabel) ?? literalText(row.displayName) ?? row.id,
+          label: growthLabel,
           frames: frames!,
           ...(scope.section !== undefined ? { section: scope.section } : {}),
         })
       }
+      return emitted.some((item) =>
+        (item.kind === 'input' && (Object.hasOwn(node.values, item.address.port) || linked(item.address.port))) ||
+        (item.kind === 'output' && connectivity.isOutputConnected(item.address.port)))
     }
-    if (view && grows === 'button' && !scope.ghost && !scope.dormant && all.length < limit) {
+
+    let allUsed = true
+    for (const [position, key] of keys.entries()) {
+      if (halted) return
+      if (!member(position, key, false)) allUsed = false
+    }
+
+    // Members the node offers beyond the stored ones: up to the minimum, and
+    // one spare once every member of a group that grows by link or by a
+    // filled field is in use, so a minimum of five shows five until the
+    // fifth is used.
+    if (!view || typeof grows !== 'string' || scope.dormant) return
+    const spare = (grows === 'link' || grows === 'filled') && !scope.ghost && allUsed ? 1 : 0
+    const shown = Math.min(limit, Math.max(row.minMembers, storedCount + spare))
+    while (storedCount + offered.length < shown) {
+      const key = fresh()
+      if (key === undefined) break
+      offered.push(key)
+    }
+    if (membersVisited + offered.length > budget.maxMembers) {
+      exhaust('elab.budget.members', `group members exceed ${budget.maxMembers}; elaboration stopped`)
+      return
+    }
+    for (const [index, key] of offered.entries()) {
+      if (halted) return
+      member(storedCount + index, key, true)
+    }
+    if (grows === 'button' && !scope.ghost && storedCount + offered.length < limit) {
       const key = fresh()
       if (key !== undefined) {
         push({
           kind: 'growth',
           construct: path,
           side: 'input',
-          label: literalText(row.addLabel) ?? literalText(row.displayName) ?? row.id,
-          frames: [...(scope.frames ?? []), {
-            construct: path,
-            members: [...offered, key],
-            ...(row.keys.kind === 'numbered' ? { seq: keyPosition(row.keys, key)! + 1 } : {}),
-          }],
+          label: growthLabel,
+          frames: [...(scope.frames ?? []), frameFor([...offered, key])],
           ...(scope.section !== undefined ? { section: scope.section } : {}),
         })
       }
@@ -973,12 +994,18 @@ export function elaborateInterface(
         return
       }
       key = storedKey
+    } else if (row.required && !view && !scope.ghost && !scope.dormant) {
+      // The editor stores a required choice's start key on every command
+      // (storeStartChoices); a run never makes one up.
+      report('prompt.bad_dynamic_choice', `required choice '${path}' has no stored option`, path)
+      return
     } else {
       key = row.default ?? (row.required ? keys[0] : undefined)
     }
     chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
     if (key !== undefined && inRun) choices[path] = key
+    if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
     if (row.leader === undefined) {
       const label = literalText(row.displayName) ?? row.id
       const startKey = row.default ?? (row.required ? keys[0] : undefined)
@@ -1250,6 +1277,7 @@ export function elaborateInterface(
     } } : {}),
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
+    ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
     diagnostics,
   }
 }

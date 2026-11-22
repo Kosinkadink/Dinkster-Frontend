@@ -6,8 +6,7 @@
  *
  * Splitting entries on '.' is the `slots` field's OWN grammar, not id
  * parsing - template slot ids never legally contain dots (elaboration warns
- * via elab.id.reserved). A bare id selects a slot - for a nested autogrow
- * construct, its WHOLE subtree, tracking nested schema evolution. A dotted
+ * via elab.id.reserved). A bare id selects a slot - for a nested group, its WHOLE subtree, tracking nested schema evolution. A dotted
  * path narrows the construct to the listed descendants; ancestor exposure
  * is implied. Whole-subtree and narrowed selection of the same construct
  * are mutually exclusive.
@@ -16,7 +15,12 @@
  * without a document, a store, or a DOM.
  */
 
-import type { InputSpec } from './model.js'
+import { scopeRowsOf, type BodyRow, type OptionRow } from './model.js'
+import { memberRowsOf } from './body.js'
+
+/** The rows of one scope that a selection can name, by id. */
+const namedRows = (rows: readonly OptionRow[]): readonly (BodyRow & { readonly id: string })[] =>
+  scopeRowsOf(rows).filter((row): row is BodyRow & { readonly id: string } => row.kind !== 'use' && row.kind !== 'row')
 
 /**
  * Selection parsed from dotted entries: 'all' marks a whole-subtree entry
@@ -96,18 +100,18 @@ export function exposureAt(tree: SelectionTree, path: string): SlotExposure {
   return cur === 'all' ? 'whole' : 'narrowed'
 }
 
-/** The slot spec chain along a dotted path, or undefined if it does not
- * exist / descends into a non-autogrow construct. */
-function specChainAt(template: readonly InputSpec[], segs: readonly string[]): InputSpec[] | undefined {
-  const chain: InputSpec[] = []
-  let scope: readonly InputSpec[] = template
+/** The row chain along a dotted path, or undefined if it does not exist or
+ * descends into anything but a group. */
+function specChainAt(template: readonly BodyRow[], segs: readonly string[]): BodyRow[] | undefined {
+  const chain: BodyRow[] = []
+  let scope: readonly BodyRow[] = template
   for (let i = 0; i < segs.length; i++) {
-    const slot = scope.find((s) => s.id === segs[i])
+    const slot = namedRows(scope).find((s) => s.id === segs[i])
     if (!slot) return undefined
     chain.push(slot)
     if (i < segs.length - 1) {
-      if (slot.dynamic?.kind !== 'autogrow') return undefined
-      scope = slot.dynamic.template
+      if (slot.kind !== 'group') return undefined
+      scope = memberRowsOf(slot)
     }
   }
   return chain
@@ -136,7 +140,7 @@ export type ToggleResult =
  * canonical (sorted) entries ready for boundary.setSlots.
  */
 export function toggleSlotSelection(
-  template: readonly InputSpec[],
+  template: readonly BodyRow[],
   entries: readonly string[],
   path: string,
 ): ToggleResult {
@@ -207,20 +211,20 @@ export function toggleSlotSelection(
   const chain = specChainAt(template, segs)!
   const holder = nodes[coveredAt]
   if (!(holder instanceof Map)) return { ok: false, reason: 'invalid' }
-  let scope: readonly InputSpec[] = chain[coveredAt]!.dynamic!.kind === 'autogrow'
-    ? (chain[coveredAt]!.dynamic as { template: readonly InputSpec[] }).template
-    : []
+  const holderRow = chain[coveredAt]!
+  let scope: readonly BodyRow[] = holderRow.kind === 'group' ? memberRowsOf(holderRow) : []
   let cur: SelectionTree = new Map()
   holder.set(segs[coveredAt]!, cur)
   for (let i = coveredAt + 1; i < segs.length; i++) {
-    for (const sibling of scope) {
+    for (const sibling of namedRows(scope)) {
       if (sibling.id !== segs[i]) cur.set(sibling.id, 'all')
     }
     if (i < segs.length - 1) {
       const next = new Map<string, SelectionTree | 'all'>()
       cur.set(segs[i]!, next)
       cur = next
-      scope = (chain[i]!.dynamic as { template: readonly InputSpec[] }).template
+      const next_ = chain[i]!
+      scope = next_.kind === 'group' ? memberRowsOf(next_) : []
     }
   }
   // Prune: the expansion may leave empty narrowed nodes when the toggled

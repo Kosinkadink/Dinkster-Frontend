@@ -2,7 +2,7 @@ import { compositorRecipeFingerprint, copyCompositorRecipe, isCompositorRecipe }
 import type { GraphDef, Json, WorkflowDocument } from '../../format/document.js'
 import { asNodeId, asPortId, sameEndpoint, samePortRef } from '../../ids.js'
 import { subgraphDefIdOf } from '../../invariants.js'
-import { canonicalTypeIdOf, type NodeSchema } from '../../schema/model.js'
+import { canonicalTypeIdOf, inputsOf, type NodeSchema } from '../../schema/model.js'
 import { effectiveOccurrenceTopology, effectiveTopologyDrivesPort } from '../../compile/effective-topology.js'
 import { commandError, isCommandObject, schemaResolverForCommand } from '../../commands/command-support.js'
 import type { CommandDefinition } from '../../commands/contract.js'
@@ -77,8 +77,8 @@ function imageCompositorApplyOf(resolve?: (type: string) => NodeSchema | undefin
       if (!nodeHasCommandRole(doc, node.type, COMPOSITOR_ROLE, context, resolve)) {
         return [commandError('image.compositorInputInvalid', 'image.compositorApply: target node does not own the compositor role')]
       }
-      const input = schema.items.find((item) => item.kind === 'input' && item.id === params.inputId)
-      if (input?.kind !== 'input' || input.widget?.widgetType !== 'COMPOSITOR' || canonicalTypeIdOf(input.type) !== 'COMPOSITOR') {
+      const input = inputsOf(schema).find((item) => item.id === params.inputId)
+      if (input === undefined || input.widget?.widgetType !== 'COMPOSITOR' || canonicalTypeIdOf(input.type) !== 'COMPOSITOR') {
         return [
           commandError(
             'image.compositorInputInvalid',

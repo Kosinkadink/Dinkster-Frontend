@@ -3,7 +3,7 @@ import { asDynamicMemberId, asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPo
 import { subgraphDefIdOf } from '../invariants.js'
 import { memberHopsOf, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import { elabKeyOf } from '../schema/elaborate.js'
-import { buildBoundaryCrossings, crossingTargets, isSubtreeCrossing, overlayNodeDynamic, overlayPortDynamic, projectCountBoundValues, projectEditableOptions, projectCrossingValues, rekeySubtreeValues, translateThroughCrossing, type SubtreeCrossing } from './crossing.js'
+import { buildBoundaryCrossings, crossingTargets, isSubtreeCrossing, overlayNodeDynamic, projectEditableOptions, projectCrossingValues, rekeySubtreeValues, translateThroughCrossing, type SubtreeCrossing } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
 import { documentNodeResolver } from './compile.js'
 
@@ -210,7 +210,7 @@ export function occurrenceDynamicView(
     const instanceValues = values.get(hop) ?? node.values
     const instanceControllers = controllers.get(hop) ?? node.controllers
     const childOverlays = new Map<string, Readonly<Record<string, DynamicPortState>>>(projectEditableOptions(child, instanceDynamic, (inner) => resolveNode(child.id, inner)))
-    const childValues = new Map(projectCountBoundValues(child, instanceValues, (inner) => resolveNode(child.id, inner)))
+    const childValues = new Map<string, Readonly<Record<string, Json>>>()
     const childControllers = new Map<string, NonNullable<NodeData['controllers']>>()
     const childSubtreeOwners = new Map<string, SubtreeOwner[]>()
     const childValueOwners = new Map<string, Map<string, ValueOwner>>()
@@ -252,7 +252,7 @@ export function occurrenceDynamicView(
         const schema = target && resolveNode(child.id, target)
         if (!target || !schema) continue
         const route = resolveBoundaryRoute(schema, binding, 'input')
-        if (!route.ok || route.route.terminal.kind !== 'port' || route.route.terminal.slot.dynamic !== undefined) continue
+        if (!route.ok || route.route.terminal.kind !== 'port') continue
         const valueKey = binding.members?.length ? elabKeyOf(binding) : binding.port as string
         let targetOwners = childValueOwners.get(binding.node)
         if (!targetOwners) childValueOwners.set(binding.node, (targetOwners = new Map()))
@@ -357,30 +357,6 @@ export function occurrenceDynamicView(
           ghostOwner,
         })
       }
-    }
-    for (const item of child.boundary.inputs) {
-      if (item.binds.kind !== 'port') continue
-      const target = child.nodes[item.binds.node]
-      const schema = target && resolveNode(child.id, target)
-      if (!target || !schema) continue
-      const rr = resolveBoundaryRoute(schema, item.binds, 'input')
-      if (!rr.ok || rr.route.terminal.kind !== 'port') continue
-      const dynamic = rr.route.terminal.slot.dynamic
-      if (dynamic?.kind !== 'dynamicCombo') continue
-
-      // Member-scoped edit ownership is deferred with occurrence family view;
-      // unscoped constructs already cover ordinary forwarded selectors.
-      if (memberHopsOf(rr.route.hops).length === 0) {
-        const owner = owners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, boundaryId: item.id }
-        let byConstruct = childOwners.get(target.id)
-        if (!byConstruct) childOwners.set(target.id, (byConstruct = new Map()))
-        byConstruct.set(item.binds.port as string, owner)
-      }
-
-      const requested = instanceDynamic?.[item.id]?.selected
-      if (requested === undefined || !dynamic.options.some((option) => option.key === requested)) continue
-      const base = childOverlays.get(target.id) ?? target.dynamic
-      childOverlays.set(target.id, overlayPortDynamic(base, rr.route, item.binds.port as string, { selected: requested }))
     }
     def = child
     overlays = childOverlays

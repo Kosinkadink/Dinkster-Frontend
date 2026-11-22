@@ -92,6 +92,7 @@ const maxMemberSuffix = (ids: Iterable<string>): number => {
 interface MaterializeFrameJson extends JsonObject {
   readonly construct: string
   readonly members: readonly string[]
+  readonly seq?: number
 }
 
 const isFrame = (v: Json | undefined): v is MaterializeFrameJson =>
@@ -101,56 +102,29 @@ const isFrame = (v: Json | undefined): v is MaterializeFrameJson =>
   Array.isArray(v.members) &&
   v.members.length > 0 &&
   v.members.every((m) => typeof m === 'string' && m.length > 0) &&
-  new Set(v.members).size === v.members.length
+  new Set(v.members).size === v.members.length &&
+  (v.seq === undefined || (typeof v.seq === 'number' && Number.isSafeInteger(v.seq) && v.seq >= 0 && v.seq <= MAX_MEMBER_ORDINAL))
 
 /**
- * Persist `frame.members` into one family scope (append missing, keep
- * order), bump `seq` past every suffix now in use, and recurse into the
- * LAST member's nested scope for the next frame. Appending preserves
- * elaboration order because synthetic members always elaborate AFTER
- * persisted ones - the caller lists them in interface order.
+ * Persist each frame's members into the state of its group, which is keyed
+ * by the group's flattened id: append the missing ones in order and advance
+ * `seq` past them, so a removed key is never offered again. Appending keeps
+ * the drawn order because offered members always come after stored ones.
  */
 function materializeScope(
   scope: Readonly<Record<string, DynamicPortState>> | undefined,
   frames: readonly MaterializeFrameJson[],
   inherited?: Readonly<Record<string, DynamicPortState>>,
 ): Record<string, DynamicPortState> {
-  const frame = frames[0]!
-  const rest = frames.slice(1)
-  const state = mergeDynamicScope(inherited, scope)[frame.construct] ?? {}
-  const members = [...(state.members ?? [])]
-  let grew = false
-  for (const m of frame.members) {
-    if (members.includes(m)) continue
-    // A minted-shaped id whose suffix exceeds the 15-digit parse window
-    // would be invisible to the seq bump: the same address could then be
-    // offered again as a ghost. Reject it (CO7); dispatch converts the
-    // throw into an atomic rejection.
-    if (/^m\d+$/.test(m) && !/^m\d{1,15}$/.test(m))
-      throw new Error(`member id '${m}' is outside the mintable id space`)
-    members.push(m)
-    grew = true
+  let next: Record<string, DynamicPortState> = { ...scope }
+  for (const frame of frames) {
+    const state = mergeDynamicScope(inherited, next)[frame.construct] ?? {}
+    const members = [...(state.members ?? [])]
+    for (const m of frame.members) if (!members.includes(m)) members.push(m)
+    const seq = Math.max(state.seq ?? 0, frame.seq ?? 0)
+    next = { ...next, [frame.construct]: { ...state, members, ...(seq > 0 ? { seq } : {}) } }
   }
-  // Exhausted family (seq beyond the mintable window, e.g. from a hostile
-  // or corrupted document): growing it could collide a persisted member
-  // with the next offered ghost, so growth is refused outright.
-  if (grew && (state.seq ?? 0) > MAX_MEMBER_ORDINAL)
-    throw new Error(`family '${frame.construct}' member id space exhausted (seq ${state.seq})`)
-  const seq = Math.max(state.seq ?? 0, maxMemberSuffix(members) + 1)
-  let memberState = state.memberState
-  if (rest.length > 0) {
-    const chain = frame.members[frame.members.length - 1]!
-    memberState = { ...memberState, [chain]: materializeScope(scope?.[frame.construct]?.memberState?.[chain], rest, memberState?.[chain]) }
-  }
-  return {
-    ...scope,
-    [frame.construct]: {
-      ...state,
-      members,
-      seq,
-      ...(memberState !== undefined ? { memberState } : {}),
-    },
-  }
+  return next
 }
 
 const dynamicMaterialize: CommandDefinition = {

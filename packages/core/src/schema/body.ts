@@ -12,6 +12,7 @@ import {
   type GroupKeysSpec,
   type GroupSpec,
   type InputSpec,
+  type NodeSchema,
   type OptionRow,
   type StateSpec,
   type TypeExpr,
@@ -111,6 +112,50 @@ export const choiceScopeRows = (choice: ChoiceSpec): readonly OptionRow[] => [
   ...choice.shared,
   ...choice.options.flatMap((option) => option.rows),
 ]
+
+// ---------------------------------------------------------------------------
+// A new node's stored state
+
+/** The stored values a new node starts with: each top-scope field's default. */
+export function defaultValuesOf(schema: NodeSchema): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  for (const row of scopeRowsOf(schema.body)) {
+    if (row.kind === 'input' && row.hidden !== true && row.widget?.default !== undefined) values[row.id] = row.widget.default
+  }
+  return values
+}
+
+/**
+ * The dynamic state a new node starts with: each group that grows by hand
+ * stores its first `minMembers` keys, so the members it always shows take
+ * part in the run, and each choice stores the option it starts on. It
+ * follows the start option and the stored members down the tree.
+ */
+export function initialDynamicStateOf(schema: NodeSchema): Record<string, { readonly selected?: string; readonly members?: readonly string[]; readonly seq?: number }> {
+  const state: Record<string, { selected?: string; members?: readonly string[]; seq?: number }> = {}
+  const visit = (rows: readonly OptionRow[], prefix: string, shared?: ReadonlyMap<string, BodyRow>): void => {
+    for (const raw of scopeRowsOf(rows)) {
+      const row = raw.kind === 'use' ? (shared?.get(raw.id) === undefined ? undefined : applyUse(shared.get(raw.id)!, raw)) : raw
+      if (row === undefined || row.kind === 'row') continue
+      const path = prefix + row.id
+      if (row.kind === 'group') {
+        if (typeof row.grows !== 'string' || row.minMembers === 0) continue
+        const count = Math.min(row.minMembers, memberLimitOf(row))
+        const members = Array.from({ length: count }, (_, index) => memberKeyAt(row.keys, index)!)
+        state[path] = { members, ...(row.keys.kind === 'numbered' ? { seq: count } : {}) }
+        if (row.member !== undefined) for (const key of members) visit(row.member, `${path}.${key}.`)
+      } else if (row.kind === 'choice' && row.leader === undefined) {
+        const key = row.default ?? (row.required ? row.options[0]?.key : undefined)
+        const option = row.options.find((candidate) => candidate.key === key)
+        if (option === undefined) continue
+        state[path] = { selected: option.key }
+        visit(option.rows, `${path}.`, new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item])))
+      }
+    }
+  }
+  visit(schema.body, '')
+  return state
+}
 
 // ---------------------------------------------------------------------------
 // A shared row placed under one option

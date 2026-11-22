@@ -26,8 +26,8 @@
 import { isForwardingBinding, isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
 import { asDynamicMemberId, asNodeId, asPortId, type NodeId, type PortRef } from '../ids.js'
 import { memberHopsOf, resolveBoundaryRoute, type BoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { addressOfElabKey, buildGraphConnectivity, collectWire15MemberEvidence, elabKeyOf, DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
-import { autogrowBounds, outputSchemaInputsOf, outputCountValueOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
+import { addressOfElabKey, elabKeyOf } from '../schema/elaborate.js'
+import type { NodeSchema } from '../schema/model.js'
 
 /**
  * One forwarded family on one subgraph instance: how outer addresses under
@@ -91,39 +91,6 @@ export type CrossingsResult = {
 
 /** Rebased inner id of an instance-appended member (see module header). */
 const rebasedIdOf = (id: string): string => `\u0000${id}`
-
-/** Project promoted output-schema literals onto their inner occurrence nodes. */
-export function projectCountBoundValues(
-  child: GraphDef,
-  instanceValues: Readonly<Record<string, Json>>,
-  resolveNode: (node: NodeData) => NodeSchema | undefined,
-): ReadonlyMap<NodeId, Readonly<Record<string, Json>>> {
-  const projected = new Map<NodeId, Record<string, Json>>()
-  const claimed = new Map<NodeId, Set<string>>()
-  for (const item of child.boundary?.inputs ?? []) {
-    if (item.promoted !== true || item.binds.kind !== 'port') continue
-    const ownerNode = child.nodes[item.binds.node]
-    const ownerSchema = ownerNode && resolveNode(ownerNode)
-    const ownerRoute = ownerSchema && resolveBoundaryRoute(ownerSchema, item.binds, 'input')
-    if (!ownerRoute?.ok || ownerRoute.route.terminal.kind !== 'port' || ownerRoute.route.terminal.slot.kind !== 'input' || ownerRoute.route.terminal.slot.widget === undefined) continue
-    const value = instanceValues[item.id]
-    if (value === undefined) continue
-    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (binding.kind !== 'port' || binding.members !== undefined) continue
-      const target = child.nodes[binding.node]
-      const schema = target && resolveNode(target)
-      if (!target || !schema || !outputSchemaInputsOf(schema).includes(binding.port as string)) continue
-      let keys = claimed.get(target.id)
-      if (!keys) claimed.set(target.id, (keys = new Set()))
-      if (keys.has(binding.port as string)) continue
-      keys.add(binding.port as string)
-      let values = projected.get(target.id)
-      if (!values) projected.set(target.id, (values = { ...target.values }))
-      values[binding.port as string] = value
-    }
-  }
-  return projected
-}
 
 /** Project schema-opted-in menus through promoted inputs without changing values. */
 export function projectEditableOptions(
@@ -224,8 +191,6 @@ export function buildBoundaryCrossings(
   const crossings = new Map<string, BoundaryCrossing>()
   const problems: CrossingProblem[] = []
   if (!child.boundary) return { crossings, problems }
-  const connectivity = buildGraphConnectivity(child)
-  const projectedCounts = projectCountBoundValues(child, instanceValues, resolveNode)
   const sides = [
     { items: child.boundary.inputs, side: 'input' as const },
     { items: child.boundary.outputs, side: 'output' as const },
@@ -240,98 +205,16 @@ export function buildBoundaryCrossings(
         continue
       }
       if (!isForwardingBinding(item.binds)) continue
+      // Forwarding a whole group, choice or type choice through a boundary
+      // is refused: schema derivation reports it, and lowering never builds
+      // a crossing for it.
       const crossingFor = (binding: BoundaryBinding): BoundaryCrossing | undefined => {
         if (!isForwardingBinding(binding)) return undefined
-        const node = child.nodes[binding.node]
-        const schema = node && resolveNode(node)
-        if (!node || !schema) {
-          problems.push({
-            code: 'compile.boundary.forwardUnresolved',
-            message: `boundary ${side} '${item.id}' of '${child.id}' forwards through missing/unresolvable node '${binding.node}'`,
-          })
-          return undefined
-        }
-        const result = resolveBoundaryRoute(schema, binding, side)
-        if (!result.ok || (isSubtreeBinding(binding)
-          ? side !== 'input' || result.route.terminal.kind !== 'port'
-          : result.route.terminal.kind !== 'family')) {
-          problems.push({
-            code: 'compile.boundary.forwardUnresolved',
-            message: `boundary ${side} '${item.id}' of '${child.id}': ${result.ok ? `'${binding.port}' is not a dynamic family` : result.message}`,
-          })
-          return undefined
-        }
-        const route = result.route
-        // Every concrete ancestor member the route crosses must be
-        // MATERIALIZED in the definition: present in that family's persisted
-        // `members` list at the corresponding scope. `members` is the sole
-        // membership/order source (hazard F3) - orphan `memberState` for a
-        // removed member proves nothing, and silently deriving state beneath
-        // an absent ancestor would make the instance suffix unreachable.
-        let scope: Readonly<Record<string, DynamicPortState>> | undefined = child.nodes[binding.node]?.dynamic
-        let missingHop: string | undefined
-        for (const hop of memberHopsOf(route.hops)) {
-          const st = scope?.[hop.familyPath]
-          if (!st?.members?.includes(hop.member)) {
-            missingHop = `member '${hop.member}' of family '${hop.familyPath}'`
-            break
-          }
-          scope = st.memberState?.[hop.member]
-        }
-        if (missingHop !== undefined) {
-          problems.push({
-            code: 'compile.boundary.forwardAncestorMissing',
-            message: `boundary ${side} '${item.id}' of '${child.id}' forwards through ${missingHop}, which is not materialized on node '${binding.node}'`,
-          })
-          return undefined
-        }
-        if (isSubtreeBinding(binding)) return {
-          kind: 'subtree', boundaryId: item.id, side: 'input', targetNode: binding.node,
-          constructPath: binding.port,
-          hopMembers: memberHopsOf(route.hops).map((hop) => hop.member),
-          hopPaths: memberHopsOf(route.hops).map((hop) => hop.familyPath),
-        }
-        const terminal = route.terminal as Extract<BoundaryRoute['terminal'], { kind: 'family' }>
-        const countBound = side === 'output' && 'count' in terminal.spec
-        const optionalAfterMinimum = 'optionalAfterMinimum' in terminal.spec && terminal.spec.optionalAfterMinimum === true
-        const count = countBound
-          ? outputCountValueOf(terminal.spec as CountBoundOutputAutogrowSpec, projectedCounts.get(node.id) ?? node.values)
-          : undefined
-        const countBounds = countBound ? autogrowBounds(terminal.spec) : undefined
-        const countValid = countBounds !== undefined && Number.isSafeInteger(count) &&
-          (count as number) >= countBounds.min &&
-          (count as number) <= Math.min(countBounds.max, DEFAULT_ELAB_BUDGET.maxMembers)
-        const suffix = countBound
-          ? countValid
-            ? Array.from({ length: count as number }, (_, index) => String(index))
-            : []
-          : optionalAfterMinimum
-            ? collectWire15MemberEvidence(item.id, instanceDynamic?.[item.id]?.members ?? [], Object.keys(instanceValues), instanceInputPorts, [], true)
-            : instanceDynamic?.[item.id]?.members ?? []
-        const owned = optionalAfterMinimum
-          ? collectWire15MemberEvidence(terminal.familyPath, scope?.[terminal.familyPath]?.members ?? [], Object.keys(node.values), connectivity(node.id).inputPorts?.() ?? [], [], true)
-          : []
-        if (optionalAfterMinimum && suffix.some((member) => owned.includes(member))) {
-          problems.push({
-            code: 'compile.boundary.forwardUnknownMember',
-            message: `boundary '${item.id}' suffix overlaps definition-owned canonical members`,
-          })
-          return undefined
-        }
-        const rebase = new Map<string, string>()
-        for (const m of suffix) rebase.set(m, countBound || optionalAfterMinimum ? m : rebasedIdOf(m))
-        return {
-          boundaryId: item.id,
-          side,
-          targetNode: asNodeId(binding.node),
-          hopMembers: memberHopsOf(route.hops).map((h) => h.member),
-          hopPaths: memberHopsOf(route.hops).map((h) => h.familyPath),
-          familyPath: terminal.familyPath,
-          rebase,
-          ...(countBound ? { countBound: true } : {}),
-          ...(optionalAfterMinimum ? { optionalAfterMinimum: true } : {}),
-          ...(binding.slots !== undefined ? { slots: new Set(binding.slots) } : {}),
-        }
+        problems.push({
+          code: 'compile.boundary.forwardUnresolved',
+          message: `boundary ${side} '${item.id}' of '${child.id}' forwards a whole group, choice or type choice, which is not supported`,
+        })
+        return undefined
       }
       const primary = crossingFor(item.binds)
       const additional = side === 'input' ? (item.alsoBinds ?? []).map(crossingFor) : []

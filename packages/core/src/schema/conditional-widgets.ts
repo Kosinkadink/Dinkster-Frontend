@@ -14,7 +14,7 @@ export function hiddenConditionalWidgets(
   connected: (direction: 'in' | 'out', input: string) => boolean = () => false,
 ): ReadonlySet<string> {
   const groups = schema.widgetGroups ?? []
-  const inputs = new Map(inputsOf(schema).filter((input) => input.dynamic === undefined && input.widget !== undefined).map((input) => [input.id, input]))
+  const inputs = new Map(inputsOf(schema).filter((input) => input.widget !== undefined).map((input) => [input.id, input]))
   const shown = new Set<string>()
   const controlled = new Set(groups.flatMap((group) => group.members))
   for (const group of groups) {

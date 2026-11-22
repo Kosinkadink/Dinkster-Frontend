@@ -514,7 +514,7 @@ function validateTrustedPlan(command: OccurrenceCommand, doc: WorkflowDocument, 
     return [err('params.invalid', `${command}: malformed trusted plan`)]
   const snapshot = params.schemaSnapshot as unknown as Record<string, NodeSchema>
   for (const [type, schema] of Object.entries(snapshot)) {
-    if (!type || typeof schema !== 'object' || schema === null || schema.type !== type || !Array.isArray(schema.items))
+    if (!type || typeof schema !== 'object' || schema === null || schema.type !== type || !Array.isArray(schema.body))
       return [err('params.invalid', `${command}: schema snapshot is malformed`)]
   }
   if (occurrenceLinkPlanDigest(snapshot, plan, params.expectedTopologyFingerprint) !== params.planDigest)

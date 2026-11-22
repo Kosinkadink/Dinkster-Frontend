@@ -384,18 +384,6 @@ const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding 
   }
 }
 
-const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: CommandExecutionContext): JsonObject => {
-  if (params.bindingKind !== undefined || params.viaReroute !== undefined || params.side !== 'inputs' || context.kind !== 'initial') return params
-  const binding = bindingFromParams(params, 'inputs')
-  const graph = typeof params.graphId === 'string' ? doc.graphs[params.graphId] : undefined
-  const node = binding && graph?.nodes[binding.node]
-  const resolve = context.schemaResolverFor?.(doc)
-  const schema = node && graph && resolve && documentNodeResolver(doc, resolve)(graph.id, node)
-  const route = schema && binding && resolveBoundaryRoute(schema, binding, 'input')
-  return route?.ok && route.route.terminal.kind === 'port' && route.route.terminal.slot.dynamic?.kind === 'dynamicCombo'
-    ? { ...params, bindingKind: 'dynamicCombo' } : params
-}
-
 // ---------------------------------------------------------------------------
 // boundary.addItem {graphId, side, node, port?, tap?, members?, itemId?, displayName?}
 //
@@ -407,7 +395,7 @@ const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: Co
 const boundaryAddItem: CommandDefinition = {
   id: 'boundary.addItem',
   prepareForSharedReplay(doc, params, context) {
-    return isObj(params) ? { ok: true, params: newBindingParams(doc, params, context) } : undefined
+    return isObj(params) ? { ok: true, params } : undefined
   },
   run(doc, params, tx, context) {
     if (
@@ -423,7 +411,7 @@ const boundaryAddItem: CommandDefinition = {
     const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
     if (params.itemId !== undefined && allItems.some((item) => item.id === params.itemId))
       return [err('boundary.duplicateId', `boundary.addItem: boundary item '${params.itemId}' already exists in graph '${params.graphId}'`)]
-    const binding = bindingFromParams(newBindingParams(doc, params, context), params.side)!
+    const binding = bindingFromParams(params, params.side)!
     if (params.side === 'inputs' && items.some((item) =>
       [item.binds, ...(item.alsoBinds ?? [])].some((candidate) => bindingMatchesEndpoint(candidate, binding))))
       return [err('boundary.duplicateBind', `boundary.addItem: inner input '${params.node}/${params.port}' is already bound by another boundary input`)]

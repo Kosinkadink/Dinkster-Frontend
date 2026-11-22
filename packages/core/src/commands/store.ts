@@ -31,6 +31,7 @@ import {
   type TransactionRecord,
 } from './contract.js'
 import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
+import { nodesChangedBy, storeStartChoices } from './start-choices.js'
 
 const hasErrors = (diags: readonly Diagnostic[]): boolean =>
   diags.some((d) => d.severity === 'error')
@@ -517,7 +518,12 @@ export class DocumentStore implements DocumentStoreContract {
     const tx = createTransactionBuilder(this.doc, ownedInvocation.actor)
     let commandDiags: readonly Diagnostic[]
     try {
-      commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, this.executionContext())
+      const context = this.executionContext()
+      commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, context)
+      // The last part of every command: a required choice that now exists
+      // with nothing stored gets its start key, in the same undo step.
+      const resolve = context.kind === 'initial' && !hasErrors(commandDiags) ? context.schemaResolverFor?.(tx.current) : undefined
+      if (resolve !== undefined) storeStartChoices(tx, resolve, nodesChangedBy(tx.current, tx.forward))
     } catch (e) {
       return {
         ok: false,

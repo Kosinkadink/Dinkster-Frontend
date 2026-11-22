@@ -31,13 +31,6 @@ const bytes = readFileSync(FIXTURE)
 const cases = (JSON.parse(bytes.toString('ascii')) as { cases: FlattenCase[] }).cases
 
 /**
- * Cases about a run the editor never sends. The editor sends a required
- * choice's start key (its default, else its first option) when the document
- * stores none, so the engine's refusal of a run with no key is not reached.
- */
-const NOT_SENT_BY_THE_EDITOR = new Set(['choice/a-required-choice-with-nothing-stored-is-refused'])
-
-/**
  * The document state that gives the case's run: values and wires as stored,
  * a group's member keys in the order the run names them (the engine's
  * discovery rule), and each choice's key.
@@ -84,7 +77,7 @@ describe('flattening cases shared with the engine', () => {
   })
 
   for (const testCase of cases) {
-    it.skipIf(NOT_SENT_BY_THE_EDITOR.has(testCase.id))(testCase.id, () => {
+    it(testCase.id, () => {
       const parsed = parseDinksterSchema('cases.node', { schemaVersion: 2, nodeType: 'cases.node', body: testCase.body })
       if (testCase.outcome === 'refused-at-load') {
         expect(parsed.schema).toBeUndefined()

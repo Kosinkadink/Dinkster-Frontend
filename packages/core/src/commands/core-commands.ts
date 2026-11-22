@@ -18,13 +18,13 @@
  *   transaction so undo restores everything atomically.
  */
 
-import { canonicalJson, fnv1a64 } from '../compile/hash.js'
+import { canonicalJson } from '../compile/hash.js'
 import { type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import { isNodeBoundaryBinding, PREVIEW_MODES, regionContractShapeProblems, type BoundaryItem, type ControllerMode, type GraphDef, type LinkData, type NodeMode, type PreviewMode, type RegionContract, type WorkflowDocument } from '../format/document.js'
 import { NET_VIEWS_EXT_KEY, removeNetViewPositions, updateNetViewPositions, type NetViewGeometry, type NetViewPosition } from '../format/net-views.js'
-import { canonicalTypeIdOf, inputsOf, isImageAssetInput, outputCountInputsOf, outputsOf, type CountBoundOutputAutogrowSpec, type NodeSchema } from '../schema/model.js'
+import { canonicalTypeIdOf, inputsOf, isImageAssetInput, type NodeSchema } from '../schema/model.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
-import { buildGraphConnectivity, DEFAULT_ELAB_BUDGET, elabInputsOf, elaborateInterface, valueKeyOf } from '../schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elaborateInterface, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
 import { groupAllocationFloor } from '../group-alloc.js'
 import { asDynamicMemberId, asNodeId, asPortId, asSelectorId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
@@ -52,38 +52,6 @@ import {
   isCommandObject as isObj,
   isCompleteAssetRef,
 } from './command-support.js'
-
-export interface OutputCountSchemaPlan {
-  readonly nodeType: string
-  readonly schemaSnapshot: NodeSchema
-  readonly schemaPlanDigest: string
-}
-
-const outputCountSchemaPlanDigest = (nodeType: string, schemaSnapshot: NodeSchema): string =>
-  fnv1a64(canonicalJson({ nodeType, schemaSnapshot }))
-
-/** Pin the validated schema needed to replay a count edit without live schema authority. */
-export function planOutputCountSchema(nodeType: string, schemaSnapshot: NodeSchema): OutputCountSchemaPlan {
-  return {
-    nodeType,
-    schemaSnapshot,
-    schemaPlanDigest: outputCountSchemaPlanDigest(nodeType, schemaSnapshot),
-  }
-}
-
-const outputCountSchemaPlanFrom = (value: Json | undefined): OutputCountSchemaPlan | undefined => {
-  if (!isObj(value) || Object.keys(value).length !== 3 ||
-      typeof value.nodeType !== 'string' || !isObj(value.schemaSnapshot) ||
-      typeof value.schemaSnapshot.type !== 'string' || !Array.isArray(value.schemaSnapshot.items) ||
-      typeof value.schemaPlanDigest !== 'string') return undefined
-  const schemaSnapshot = value.schemaSnapshot as unknown as NodeSchema
-  if (outputCountSchemaPlanDigest(value.nodeType, schemaSnapshot) !== value.schemaPlanDigest) return undefined
-  return {
-    nodeType: value.nodeType,
-    schemaSnapshot,
-    schemaPlanDigest: value.schemaPlanDigest,
-  }
-}
 
 // Finite only (CO2): NaN/Infinity are not JSON and would poison geometry.
 const isVec2 = (v: Json | undefined): v is JsonObject & { x: number; y: number } =>
@@ -821,13 +789,6 @@ function nodeSetValueOf(resolve?: (type: string) => NodeSchema | undefined): Com
       if (!node) return [err('node.missing', `node.setValue: unknown node '${params.nodeId}'`)]
       if (params.value === undefined)
         return [err('params.invalid', 'node.setValue: value is required')]
-      const schema = commandSchemaOf(doc, node.type, context, resolve)
-      if (schema !== undefined && outputCountInputsOf(schema).includes(params.inputId)) {
-        return [err(
-          'outputCount.commandRequired',
-          `node.setValue: output-family count input '${params.inputId}' requires node.setOutputCount`,
-        )]
-      }
       tx.set(
         ['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', params.inputId],
         params.value,
@@ -866,8 +827,8 @@ function imageApplyAssetOf(resolve?: (type: string) => NodeSchema | undefined): 
       if (!node) return [err('node.missing', `image.applyAsset: unknown node '${params.nodeId}'`)]
       const schema = commandSchemaOf(doc, node.type, context, resolve)
       if (!schema) return [err('schema.missing', `image.applyAsset: no schema for '${node.type}'`)]
-      const input = schema.items.find((item) => item.kind === 'input' && item.id === params.inputId)
-      if (input?.kind !== 'input' || !isImageAssetInput(input)) {
+      const input = inputsOf(schema).find((item) => item.id === params.inputId)
+      if (input === undefined || !isImageAssetInput(input)) {
         return [err(
           'image.inputInvalid',
           `image.applyAsset: '${params.inputId}' is not a writable image asset input`,
@@ -892,152 +853,6 @@ function imageApplyAssetOf(resolve?: (type: string) => NodeSchema | undefined): 
         ['graphs', params.graphId, 'nodes', params.nodeId, 'values', params.inputId],
         params.asset,
       )
-      return []
-    },
-  }
-}
-
-// ---------------------------------------------------------------------------
-// node.setOutputCount {graphId, nodeId, inputId, value, removedLinks:'preserve'}
-// ---------------------------------------------------------------------------
-
-/** Schema-aware count edit. Removed output members keep their links so the
- * edit is reversible without hidden data loss; validation surfaces those
- * links as missing-port problems until the count is restored or they are
- * explicitly disconnected. */
-function nodeSetOutputCountOf(resolve?: (type: string) => NodeSchema | undefined): CommandDefinition {
-  return {
-    id: 'node.setOutputCount',
-    prepareForSharedReplay(doc, params, context) {
-      if (
-        !isObj(params) ||
-        typeof params.graphId !== 'string' ||
-        typeof params.nodeId !== 'string' ||
-        typeof params.inputId !== 'string' ||
-        !Number.isSafeInteger(params.value) ||
-        (params.value as number) < 0 ||
-        params.removedLinks !== 'preserve'
-      ) return undefined
-      if (params.schemaPlan !== undefined) return { ok: true, params }
-      const def = doc.graphs[params.graphId]
-      if (def === undefined) {
-        return { ok: false, diagnostics: [err(
-          'graph.missing',
-          `node.setOutputCount: unknown graph '${params.graphId}'`,
-        )] }
-      }
-      const node = def.nodes[params.nodeId]
-      if (node === undefined) {
-        return { ok: false, diagnostics: [err(
-          'node.missing',
-          `node.setOutputCount: unknown node '${params.nodeId}'`,
-        )] }
-      }
-      const schema = commandSchemaOf(doc, node.type, context, resolve)
-      return schema === undefined
-        ? { ok: false, diagnostics: [err(
-            'schema.missing',
-            `node.setOutputCount: no schema for '${node.type}'`,
-          )] }
-        : {
-            ok: true,
-            params: { ...params, schemaPlan: planOutputCountSchema(node.type, schema) as unknown as Json },
-          }
-    },
-    run(doc, params, tx, context) {
-      if (
-        !isObj(params) ||
-        typeof params.graphId !== 'string' ||
-        typeof params.nodeId !== 'string' ||
-        typeof params.inputId !== 'string' ||
-        !Number.isSafeInteger(params.value) ||
-        (params.value as number) < 0 ||
-        params.removedLinks !== 'preserve'
-      ) {
-        return [err(
-          'params.invalid',
-          "node.setOutputCount: params must be {graphId, nodeId, inputId, value: safe nonnegative integer, removedLinks:'preserve'}",
-        )]
-      }
-      const def = graphOf(doc, params.graphId)
-      if (!def) return [err('graph.missing', `node.setOutputCount: unknown graph '${params.graphId}'`)]
-      const node = def.nodes[params.nodeId]
-      if (!node) return [err('node.missing', `node.setOutputCount: unknown node '${params.nodeId}'`)]
-      const schemaPlan = params.schemaPlan === undefined ? undefined : outputCountSchemaPlanFrom(params.schemaPlan)
-      if (params.schemaPlan !== undefined && schemaPlan === undefined) {
-        return [err('params.invalid', 'node.setOutputCount: schema plan is malformed')]
-      }
-      if (schemaPlan !== undefined && schemaPlan.nodeType !== node.type) {
-        return [err('outputCount.schemaPlanStale', 'node.setOutputCount: target node type changed after planning')]
-      }
-      const liveSchema = context.kind === 'shared-replay' && schemaPlan !== undefined
-        ? undefined
-        : commandSchemaOf(doc, node.type, context, resolve)
-      if (context.kind === 'initial' && schemaPlan !== undefined &&
-          (liveSchema === undefined || canonicalJson(liveSchema) !== canonicalJson(schemaPlan.schemaSnapshot))) {
-        return [err('outputCount.schemaPlanStale', 'node.setOutputCount: live schema differs from the planned snapshot')]
-      }
-      const schema = schemaPlan?.schemaSnapshot ?? liveSchema
-      if (!schema) return [err('schema.missing', `node.setOutputCount: no schema for '${node.type}'`)]
-      if (!outputCountInputsOf(schema).includes(params.inputId)) {
-        return [err(
-          'outputCount.inputMissing',
-          `node.setOutputCount: '${params.inputId}' is not an output-family count input of '${node.type}'`,
-        )]
-      }
-      const families: CountBoundOutputAutogrowSpec[] = []
-      for (const output of outputsOf(schema)) {
-        const dynamic = output.dynamic
-        if (dynamic?.kind !== 'autogrow' || !('count' in dynamic)) continue
-        const counted = dynamic as CountBoundOutputAutogrowSpec
-        if (counted.count.input === params.inputId) families.push(counted)
-      }
-      const minimum = Math.max(...families.map((family) => family.naming.min ?? 0))
-      const maximum = Math.min(...families.map((family) =>
-        family.naming.kind === 'prefix'
-          ? family.naming.max ?? DEFAULT_ELAB_BUDGET.maxMembers
-          : DEFAULT_ELAB_BUDGET.maxMembers))
-      const value = params.value as number
-      if (value < minimum || value > maximum || value > DEFAULT_ELAB_BUDGET.maxMembers) {
-        return [err(
-          'outputCount.outOfRange',
-          `node.setOutputCount: count ${value} is outside ${minimum}..${Math.min(maximum, DEFAULT_ELAB_BUDGET.maxMembers)}`,
-        )]
-      }
-      const countIsLinked = Object.values(def.links).some((link) =>
-        isPortEndpoint(link.to) &&
-        link.to.node === params.nodeId &&
-        link.to.port === params.inputId) ||
-        Object.values(def.nets).some((net) => net.sinks.some((sink) =>
-          sink.node === params.nodeId && sink.port === params.inputId))
-      if (countIsLinked) {
-        return [err(
-          'outputCount.linked',
-          `node.setOutputCount: count input '${params.inputId}' is linked and cannot store the output-family arity`,
-        )]
-      }
-      const proposed = {
-        values: { ...node.values, [params.inputId]: value },
-        ...(node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
-      }
-      const elaborated = elaborateInterface(
-        schema,
-        proposed,
-        buildGraphConnectivity(def)(node.id),
-        { promoteGhosts: false, nodeId: node.id },
-      )
-      const budgetDiagnostic = elaborated.diagnostics.find((diagnostic) => diagnostic.code.startsWith('elab.budget.'))
-      if (budgetDiagnostic !== undefined) {
-        const memberBudget = budgetDiagnostic.code === 'elab.budget.members'
-        return [err(
-          memberBudget ? 'outputCount.memberBudget' : 'outputCount.elaborationBudget',
-          memberBudget
-            ? `node.setOutputCount: count ${value} would exceed the shared ${DEFAULT_ELAB_BUDGET.maxMembers}-member budget`
-            : `node.setOutputCount: count ${value} would exceed the interface elaboration budget`,
-        )]
-      }
-      if (node.values[params.inputId] === value) return []
-      tx.set(['graphs', params.graphId, 'nodes', params.nodeId, 'values', params.inputId], value)
       return []
     },
   }
@@ -1169,15 +984,6 @@ function nodeSetValuesOf(resolve?: (type: string) => NodeSchema | undefined): Co
       for (const [key, value] of entries) {
         if (value === undefined)
           return [err('params.invalid', `node.setValues: value for '${key}' is required`)]
-      }
-      const schema = commandSchemaOf(doc, node.type, context, resolve)
-      const countInputs = schema === undefined ? [] : outputCountInputsOf(schema)
-      const countInput = entries.find(([key]) => countInputs.includes(key))?.[0]
-      if (countInput !== undefined) {
-        return [err(
-          'outputCount.commandRequired',
-          `node.setValues: output-family count input '${countInput}' requires node.setOutputCount`,
-        )]
       }
       for (const [key, value] of entries) {
         const current = node.values[key]
@@ -3218,7 +3024,6 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   nodeSetValueOf(),
   imageApplyAssetOf(),
   ...registeredExtensionCommands(),
-  nodeSetOutputCountOf(),
   textSplice,
   nodeSetControllerOf(),
   nodeSetValuesOf(),
@@ -3378,13 +3183,11 @@ export function coreCommandRegistry(
   for (const cmd of [
     ...CORE_COMMANDS.filter((candidate) =>
       candidate.id !== 'node.setController' &&
-      candidate.id !== 'node.setOutputCount' &&
       candidate.id !== 'node.setValue' &&
       candidate.id !== 'node.setValues' &&
       candidate.id !== 'image.applyAsset' &&
       candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
-    nodeSetOutputCountOf(resolve),
     nodeSetValueOf(resolve),
     nodeSetValuesOf(resolve),
     imageApplyAssetOf(resolve),

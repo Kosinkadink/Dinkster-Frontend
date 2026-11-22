@@ -98,13 +98,12 @@ import {
   matchBoundaryItem,
   overlayNodeDynamic,
   overlayPortDynamic,
-  projectCountBoundValues,
   projectEditableOptions,
   translateThroughCrossing,
   type BoundaryCrossing,
 } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, outputSchemaInputsOf, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -331,10 +330,11 @@ interface NodeElab {
   readonly inputs: readonly ElaboratedInput[]
   /** All elaborated outputs, in interface order (ghosts included). */
   readonly outputs: readonly ElaboratedOutput[]
-  /** Top-level inputs that determine output-family arity and cannot be linked. */
-  readonly outputCountInputs: ReadonlySet<string>
+  /** Stored member keys of each group that holds outputs. */
   readonly outputMembers?: Readonly<Record<string, readonly string[]>>
-  /** Explicit wire-15 selector state submitted at construct paths. */
+  /** The key of every choice and type choice that takes part in the run. */
+  readonly choices?: Readonly<Record<string, string>>
+  /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
   /**
    * PERSISTED value key -> input: the key under which a document stores this
@@ -895,7 +895,7 @@ function compileImpl(
       outputsByAddr.set(addr, o)
       if (o.wireable !== false) outputIndexByAddr.set(addr, outputIndex++)
     }
-    return { inputs, outputs, outputCountInputs: new Set(outputSchemaInputsOf(schema)), ...(e.outputMembers ? { outputMembers: e.outputMembers } : {}), submissionValues: e.submissionValues, inputsByValueKey, inputsByAddr, outputsByAddr, outputIndexByAddr }
+    return { inputs, outputs, ...(e.outputMembers ? { outputMembers: e.outputMembers } : {}), ...(e.choices ? { choices: e.choices } : {}), submissionValues: e.submissionValues, inputsByValueKey, inputsByAddr, outputsByAddr, outputIndexByAddr }
   }
 
   // -- Structural port resolution (walks definitions only; no flat state) ----
@@ -1749,34 +1749,8 @@ function compileImpl(
           continue
         }
         const childCtx = newOccCtx(asGraphDefId(childId), childPath)
-        for (const [target, values] of projectCountBoundValues(child, instanceValues, resolveChildNode)) {
-          childCtx.values.set(target, values)
-        }
         for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
           childCtx.overlays.set(target, dynamic)
-        }
-        // Selector forwarding is an occurrence-local state projection, not a
-        // family crossing. It must run even when this boundary forwards no
-        // families, and it composes with family overlays on the same node.
-        for (const item of child.boundary.inputs) {
-          if (item.binds.kind !== 'port') continue
-          const target = child.nodes[item.binds.node]
-          const targetSchema = target && resolveNode(child.id, target)
-          if (!target || !targetSchema) continue
-          const rr = resolveBoundaryRoute(targetSchema, item.binds, 'input')
-          if (!rr.ok || rr.route.terminal.kind !== 'port') continue
-          const dyn = rr.route.terminal.slot.dynamic
-          if (dyn?.kind !== 'dynamicCombo') continue
-          // Overlay ONLY an explicit valid instance selection. An unset (or
-          // invalid) instance selection must inherit the definition's stored
-          // choice: the derived item's defaultOption mirrors that choice, so
-          // rendering and lowering agree by LEAVING the inner state alone.
-          // Falling back to the inner spec here would compile keys[0] while
-          // the instance renders the definition's selection (divergence).
-          const requested = instanceDynamic?.[item.id]?.selected
-          if (requested === undefined || !dyn.options.some((o) => o.key === requested)) continue
-          const base = childCtx.overlays.get(target.id) ?? target.dynamic
-          childCtx.overlays.set(target.id, overlayPortDynamic(base, rr.route, item.binds.port as string, { selected: requested }))
         }
         if (crossings.size > 0) {
           crossingsByInstance.set(occurrenceKey({ instancePath: path, node: node.id }), crossings)
@@ -1943,10 +1917,6 @@ function compileImpl(
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
       if (v === undefined && ownerInput === undefined) continue
-      const targetNode = child.nodes[item.binds.node]
-      const targetSchema = targetNode && resolveNode(childId, targetNode)
-      const selectorRoute = targetSchema && resolveBoundaryRoute(targetSchema, item.binds, 'input')
-      if (selectorRoute?.ok && selectorRoute.route.terminal.kind === 'port' && selectorRoute.route.terminal.slot.dynamic?.kind === 'dynamicCombo') continue
       // Fan-out: a promoted value bakes into EVERY bound target (primary
       // and alsoBinds alike) - targets must never diverge under one
       // boundary value.
@@ -2470,12 +2440,6 @@ function compileImpl(
         if (!isNodeInput(target)) continue
         const bodyNode = flat.get(target.runtimeId)
         if (!bodyNode) continue
-        if (bodyNode.elab.outputCountInputs.has(target.input.address.port)) {
-          diags.push(diag('error', 'compile', 'compile.outputFamily.linkedCount', `${bodyNode.node.type}.${target.input.address.port}: output count requires a stored literal`, {
-            anchor: { occurrence: bodyNode.occ, port: { node: bodyNode.occ.node, port: target.input.address.port as PortRef['port'] } },
-          }))
-          continue
-        }
         bodyNode.inputs[target.elabKey] = {
           $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: item.id },
         }
@@ -2746,21 +2710,6 @@ function compileImpl(
     }
   }
 
-  // Native DynamicCombo choices are document state. Although elaboration
-  // displays the first option for a legacy document with no state, compile
-  // must not claim that derived fallback as stored schema/cache identity.
-  for (const fn of flat.values()) for (const input of fn.elab.inputs) {
-    if (!included.has(fn.runtimeId)) continue
-    if (input.origin.kind !== 'selector' || !input.wire15Materialization || input.apiName === undefined) continue
-    if (input.origin.selected !== undefined) continue
-    diags.push(diag(
-      'error',
-      'compile',
-      'compile.combo.missingChoice',
-      `'${fn.node.type}' DynamicCombo '${input.origin.construct}' has no stored choice`,
-      { anchor: { occurrence: fn.occ } },
-    ))
-  }
   // Settled DynamicSlot contract (Dinkster c2ac572, schema wire v6): the stored
   // variant choice is authoritative for the backend's elaborated interface,
   // traveling once per node as the graph wire's 'slotVariants' object. A
@@ -2829,7 +2778,6 @@ function compileImpl(
   const outputAliases: Record<string, Record<string, string>> = {}
   const dynamicPromptInputs: Record<string, string[]> = {}
   const controllerInputs: ControllerInputProvenance[] = []
-  const dynamicComboInputs = new Map<string, Set<string>>()
   for (const fn of flat.values()) {
     if (!included.has(fn.runtimeId)) continue
     // Staging keys are elaborated ids (document identity); the prompt is
@@ -2847,10 +2795,9 @@ function compileImpl(
       viewGraphId = childId
     }
     const selectedViews = doc.view.graphs[viewGraphId]?.nodes[fn.occ.node]?.views
-    // Per-node stored dynamic choices (graph wire 'slotVariants'). DynamicCombo
-    // selectors remain flat inputs in the compatibility prompt; DynamicSlot
-    // choices travel only while their slot participates in the prompt.
-    const slotVariants: Record<string, string> = {}
+    // The key of every choice and type choice that takes part in the run,
+    // by flattened id (graph wire 'slotVariants').
+    const slotVariants: Record<string, string> = { ...fn.elab.choices }
     const successful = new Set(
       (successfulDestinations.get(fn.runtimeId) ?? [])
         .map((address) => portAddressKey(address.port, address.members)),
@@ -2880,15 +2827,13 @@ function compileImpl(
           driven: literal === undefined && successful.has(portAddressKey(input.address.port, input.address.members)),
         })
       }
-      const submissionName = input.wire15Materialization ? input.address.port : input.apiName
+      const submissionName = input.apiName
       sourceInputs[submissionName] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
         ...(input.address.members === undefined ? {} : { members: input.address.members }),
       }
       const v = fn.inputs[input.spec.id]
-      if (v !== undefined && input.wire15Materialization && fn.linkedInputs.has(input.spec.id) &&
-        !successful.has(portAddressKey(input.address.port, input.address.members))) continue
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
         canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) &&
         (parseTypedLiteralWire(v) === undefined || !emitTypedLiterals)) {
@@ -2901,18 +2846,6 @@ function compileImpl(
         if (widget !== undefined &&
             resolveWidgetRepresentation(widget, selectedViews?.[valueKeyOf(input)]).spec.options['dynamicPrompts'] === true) {
           dynamicInputs.push(submissionName)
-        }
-      }
-      if (input.origin.kind === 'selector' && input.wire15Materialization && input.origin.selected !== undefined) {
-        slotVariants[submissionName] = input.origin.selected
-        let selectors = dynamicComboInputs.get(fn.runtimeId)
-        if (!selectors) dynamicComboInputs.set(fn.runtimeId, (selectors = new Set()))
-        selectors.add(submissionName)
-      }
-      if (v !== undefined && input.origin.kind === 'slot') {
-        const selected = input.origin.selected
-        if (selected !== undefined && input.origin.variants?.some((c) => c.key === selected)) {
-          slotVariants[submissionName] = selected
         }
       }
     }
@@ -2974,7 +2907,6 @@ function compileImpl(
   }
   const nativeInputs = (runtimeId: string, compiled: PromptNode, scopeRegion?: RegionLowering) =>
     Object.fromEntries(Object.entries(compiled.inputs)
-      .filter(([inputId]) => !dynamicComboInputs.get(runtimeId)?.has(inputId))
       .map(([inputId, value]) => [inputId, wireInput(value, scopeRegion)]))
   const sourceForBoundaryOutput = (
     region: RegionLowering,
@@ -3072,7 +3004,7 @@ function compileImpl(
     const inputPorts: Record<string, PortRef> = {}
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue
-      const inputId = input.wire15Materialization ? input.address.port : input.apiName
+      const inputId = input.apiName
       inputTypes[inputId] = input.spec.type
       inputPorts[inputId] = {
         node: fn.occ.node,
@@ -3147,7 +3079,7 @@ function compileImpl(
       const child = graphOf(region.childId)!
       const boundarySchema = deriveBoundarySchema(child, resolve, undefined, (inner) => resolveNode(child.id, inner)).schema
       const ports: Record<string, Json> = {}
-      for (const item of boundarySchema?.items ?? []) {
+      for (const item of boundarySchema?.body ?? []) {
         if (item.kind !== 'input') continue
         const incoming = nativeInputType(fn, item.id)
         const bodyType = contract.elementPorts?.includes(item.id) && incoming?.kind === 'list' ? incoming.element : incoming
