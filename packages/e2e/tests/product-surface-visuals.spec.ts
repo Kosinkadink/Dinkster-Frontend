@@ -128,9 +128,15 @@ for (const theme of ['dark', 'light'] as const) {
     const attention = rail.locator('.panel-indicator')
     await expect(attention).toBeVisible()
     await expect(attention).toHaveCSS('position', 'absolute')
-    const railBox = (await rail.boundingBox())!
-    const iconBox = (await rail.locator('svg').boundingBox())!
-    const badgeBox = (await attention.boundingBox())!
+    // The keyed badge can be replaced by a problem-list publication between protocol calls.
+    const { railBox, iconBox, badgeBox } = await page.evaluate(() => {
+      const element = document.querySelector('[data-testid="rail-toggle"]')!
+      return {
+        railBox: element.getBoundingClientRect().toJSON(),
+        iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
+        badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
+      }
+    })
     expect(iconBox.width).toBe(20)
     expect(iconBox.height).toBe(18)
     expect(badgeBox.y).toBeLessThan(railBox.y)
