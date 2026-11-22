@@ -1512,7 +1512,7 @@ const FLOATC = typeColor(defaultTokens, 'FLOAT')
 const SEL = defaultTokens.colors.selection
 
 describe('node chrome paint on the live renderer', () => {
-  it('projects minimized nodes with one connected proxy per side and an always-visible compact preview', () => {
+  it('projects minimized nodes with one connected proxy per side and a preview strip only for a picture', () => {
     const base = fixtureScene('clean')
     const source = nodeOf(base, 'img')
     const output = source.layout.pins.find((pin) => pin.direction === 'out')!
@@ -1554,12 +1554,37 @@ describe('node chrome paint on the live renderer', () => {
     })
     const { ctx, calls } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
-    renderer.setScene(scene)
+    renderer.setScene({
+      ...scene,
+      nodes: scene.nodes.map((node) => node.id === minimizedSource.id ? { ...node, previewCapable: true as const } : node),
+    })
+    const minimizedHeight = source.layout.headerHeight + defaultTokens.padBottom
+    // Nothing to show, a pending preview, and a text result all leave the
+    // minimized node as a bare title bar.
+    for (const update of [
+      () => undefined,
+      () => renderer.setNodePreviews({ [minimizedSource.id]: { status: 'loading' } }),
+      () => renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'done' } }),
+    ]) {
+      update()
+      const bare = nodeOf(renderer.getScene(), minimizedSource.id)
+      expect(bare.layout).toMatchObject({ width: 100, height: minimizedHeight })
+      expect(bare.layout.preview).toBeUndefined()
+      expect(bare.layout.textOutput).toBeUndefined()
+    }
+    calls.length = 0
+    renderer.renderNow()
+    expect(calls.some((call) => call.method === 'fillText' &&
+      ['Preview', 'No preview', 'Loading', 'done'].includes(String(call.args[0])))).toBe(false)
+    // The same preview entry turning into a decoded picture opens the strip.
+    renderer.setNodePreviews({ [minimizedSource.id]: { image: {} as CanvasImageSource, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimizedSource.id)
+    expect(projected.layout.width).toBe(100)
     expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
     expect(renderer.getScene().links.every((link) =>
       link.x1 === projected.x + projected.layout.width &&
       link.y1 === projected.y + projected.layout.headerHeight / 2)).toBe(true)
+    calls.length = 0
     renderer.renderNow()
     const proxyArcs = calls.filter((call) =>
       call.method === 'arc' &&
@@ -1568,7 +1593,6 @@ describe('node chrome paint on the live renderer', () => {
       call.args[2] === defaultTokens.pinRadius)
     // One circular proxy contributes one fill path and one outline path.
     expect(proxyArcs).toHaveLength(2)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Preview')).toBe(true)
     renderer.dispose()
   })
 
@@ -1622,7 +1646,8 @@ describe('node chrome paint on the live renderer', () => {
     renderer.setBadges({ [minimized.id]: [MUTED_BADGE] })
     renderer.setNodePreviews({ [minimized.id]: { image, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimized.id)
-    expect(projected.layout.width).toBeGreaterThan(80)
+    // Header badges sit in the title bar as on the open node; they do not widen it.
+    expect(projected.layout.width).toBe(80)
     expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image)).toBe(true)

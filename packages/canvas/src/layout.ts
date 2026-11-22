@@ -541,19 +541,6 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
  */
 export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, lineCount: number = canvasPaintTokens.node.textOutputMaxRows): NodeLayout {
   if (layout.textOutput !== undefined) return layout
-  if (layout.minimized) {
-    const compact = withCompactPreviewRegion(layout, tokens)
-    const { preview, ...base } = compact
-    return {
-      ...base,
-      textOutput: {
-        x: preview!.x,
-        y: preview!.y,
-        width: preview!.width,
-        height: preview!.height,
-      },
-    }
-  }
   const regionHeight = tokens.rowHeight * Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, Math.trunc(lineCount)))
   if (layout.preview?.compact === true) {
     const expansion = regionHeight - tokens.rowHeight
@@ -1258,15 +1245,17 @@ export function layoutNode(
   }
 
   if (options.minimized) {
+    // Minimizing only hides the body, so the node keeps its open width. The
+    // open layout is measured separately because this pass also lays out
+    // rows the open node hides (collapsed sections, hidden widgets) to keep
+    // their pins, and those rows must not widen it.
+    const { minimized: _minimized, ...openOptions } = options
+    const open = layoutNode(schema, node, tokens, measure, widgetMeasure, openOptions)
     const minimizedHeight = tokens.headerHeight + tokens.padBottom
-    const minimizedWidth = Math.min(
-      tokens.nodeMaxAutoWidth,
-      Math.max(MINIMIZED_NODE_MIN_WIDTH, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding),
-    )
     return {
-      width: minimizedWidth,
+      width: open.width,
       height: minimizedHeight,
-      minWidth: MINIMIZED_NODE_MIN_WIDTH,
+      minWidth: open.minWidth,
       minHeight: minimizedHeight,
       headerHeight: tokens.headerHeight,
       title,
@@ -1296,9 +1285,6 @@ export function layoutNode(
       : {}),
   }
 }
-
-/** Minimized nodes may be narrower than ordinary editable node bodies. */
-export const MINIMIZED_NODE_MIN_WIDTH = canvasPaintTokens.node.minimizedMinWidth
 
 /** Visual gap between a pin circle and widget chrome. */
 export const WIDGET_PIN_GAP = canvasPaintTokens.node.widgetPinGap

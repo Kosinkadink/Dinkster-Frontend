@@ -19,10 +19,13 @@ all of them. The toolbar's mode button opens the same **Active**, **Muted**, and
 
 ## Presentation and links
 
-A minimized node is title-width with an 80 px minimum. Its stored expanded
-size remains unchanged and returns exactly when restored. The compact preview
-row is always visible and shows available image output or a short preview
-status.
+A minimized node keeps the width it has when open and shows only its title
+bar; header badges stay inside that bar as they do on the open node. Its
+stored size remains unchanged and the height returns exactly when restored.
+Below the title bar it shows a one-row preview strip only while the canvas
+has a picture to paint for it, such as a decoded image output or a 3D model's
+poster. With nothing to preview, a pending or unavailable preview, a ready
+video or audio player, or a text result, there is no strip and no label.
 
 Editing rows, resize handles, individual pins, widget taps, data panels, and
 lens actions are hidden. Each side with one or more connections shows one

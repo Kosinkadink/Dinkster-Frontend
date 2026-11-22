@@ -91,6 +91,15 @@ export interface NodePreview {
 /** node id -> preview panel content. */
 export type PreviewMap = Readonly<Record<string, NodePreview>>
 
+/**
+ * Whether the canvas paints a decoded picture for this preview now. Ready
+ * audio and video belong to host DOM players, and loading or unavailable
+ * previews paint only a status label.
+ */
+export const previewHasPicture = (preview: NodePreview): boolean =>
+  preview.image !== undefined && preview.status === undefined &&
+  !(preview.src !== undefined && (preview.kind === 'video' || preview.kind === 'audio'))
+
 /** One unambiguous text or scalar result projected into a node body. */
 export interface NodeOutputText {
   readonly text: string

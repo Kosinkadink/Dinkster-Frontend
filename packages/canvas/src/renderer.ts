@@ -14,7 +14,6 @@ import {
   badgeRect,
   layoutNodeBadges,
   nodeBadgeBounds,
-  headerBadgeLaneWidth,
   type BadgePlacement,
   PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
@@ -24,7 +23,7 @@ import {
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset } from './hit.js'
-import { animationFrameAt, containRect, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
+import { animationFrameAt, containRect, previewHasPicture, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
   boundarySceneId,
@@ -1162,20 +1161,7 @@ export class CanvasRenderer {
 
   /** Header badges per node (subgraph marker, error chip, extensions). */
   setBadges(badges: BadgeMap): void {
-    const laneSignature = (badgeMap: BadgeMap): string => this.baseScene.nodes
-      .filter((node) => node.layout.minimized)
-      .map((node) => `${node.id}\u0000${headerBadgeLaneWidth(badgeMap[node.id] ?? [], this.tokens)}`)
-      .join('\u0000')
-    const before = laneSignature(this.badges)
-    const after = laneSignature(badges)
-    this.updateNodePaint(this.badges, badges, () => {
-      this.badges = badges
-      if (before !== after) {
-        this.replacePaintScene(this.sceneWithBodyRegions(this.baseScene))
-        this.refreshTypeAdornments()
-        for (const listener of this.sceneReplacedListeners) listener(this.scene)
-      }
-    })
+    this.updateNodePaint(this.badges, badges, () => { this.badges = badges })
   }
 
   getBadges(): BadgeMap {
@@ -1351,21 +1337,18 @@ export class CanvasRenderer {
 
   private sceneWithBodyRegions(scene: Scene): Scene {
     if (Object.keys(this.previews).length === 0 && Object.keys(this.outputTexts).length === 0 &&
-        !scene.nodes.some((node) => node.previewCapable === true || node.layout.minimized === true)) return scene
+        !scene.nodes.some((node) => node.previewCapable === true)) return scene
     const nodes = scene.nodes.map((node) => {
-      const badgeWidth = node.layout.minimized
-        ? headerBadgeLaneWidth(this.badges[node.id] ?? [], this.tokens)
-        : 0
-      const badgeAwareLayout = badgeWidth === 0
-        ? node.layout
-        : {
-            ...node.layout,
-            width: node.layout.width + badgeWidth,
-            minWidth: node.layout.minWidth + badgeWidth,
-          }
-      const baseLayout = node.previewCapable === true || node.layout.minimized === true
-        ? withCompactPreviewRegion(badgeAwareLayout, this.tokens)
-        : badgeAwareLayout
+      if (node.layout.minimized === true) {
+        // A minimized node shows a strip only for a picture it can paint now.
+        const preview = this.previews[node.id]
+        return preview !== undefined && previewHasPicture(preview)
+          ? { ...node, layout: withPreviewRegion(node.layout, this.tokens) }
+          : node
+      }
+      const baseLayout = node.previewCapable === true
+        ? withCompactPreviewRegion(node.layout, this.tokens)
+        : node.layout
       if (this.previews[node.id] !== undefined) {
         return { ...node, layout: withPreviewRegion(baseLayout, this.tokens) }
       }
@@ -1444,8 +1427,16 @@ export class CanvasRenderer {
   setNodePreviews(previews: PreviewMap): void {
     // Canvas/video pixels can change without replacing their source object.
     this.invalidateNodeTiles(new Set(Object.keys(previews)))
-    const before = Object.keys(this.previews).sort().join('\u0000')
-    const after = Object.keys(previews).sort().join('\u0000')
+    // Body regions follow which nodes have a preview and, for minimized
+    // nodes, whether that preview is a picture yet.
+    const regionSignature = (map: PreviewMap): string => [
+      ...Object.keys(map).sort(),
+      ...this.baseScene.nodes
+        .filter((node) => node.layout.minimized === true && map[node.id] !== undefined && previewHasPicture(map[node.id]!))
+        .map((node) => `picture:${node.id}`),
+    ].join('\u0000')
+    const before = regionSignature(this.previews)
+    const after = regionSignature(previews)
     this.updateNodePaint(this.previews, previews, () => {
       this.previews = previews
       if (before !== after) {
@@ -3677,13 +3668,13 @@ export class CanvasRenderer {
             : preview.kind === 'model3d' ? '3D model' : undefined
         const label = preview.statusMessage === undefined ? (media === undefined
           ? preview.status === 'unavailable'
-            ? minimizedPreview ? 'No preview' : 'preview unavailable'
-            : minimizedPreview ? 'Loading' : 'loading preview...'
+            ? 'preview unavailable'
+            : 'loading preview...'
           : preview.status === 'unavailable'
-            ? minimizedPreview ? 'No preview' : 'Preview unavailable'
+            ? 'Preview unavailable'
             : preview.status === 'failed'
-              ? minimizedPreview ? 'No preview' : `${media[0]!.toUpperCase()}${media.slice(1)} unavailable`
-              : minimizedPreview ? 'Loading' : `Loading ${media}`)
+              ? `${media[0]!.toUpperCase()}${media.slice(1)} unavailable`
+              : `Loading ${media}`)
           : fitText(ctx, preview.statusMessage, Math.max(0, mediaRect.width - canvasPaintTokens.preview.labelPadding))
         ctx.fillText(label, mediaRect.x + mediaRect.width / 2, mediaRect.y + mediaRect.height / 2)
         ctx.globalAlpha = alpha
@@ -3698,15 +3689,6 @@ export class CanvasRenderer {
         ctx.fillStyle = t.colors.label
         ctx.textAlign = 'center'
         ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2)
-      }
-      if (minimizedPreview && preview.src !== undefined &&
-          (preview.kind === 'video' || preview.kind === 'audio')) {
-        const label = `${preview.kind === 'video' ? 'Video' : 'Audio'}${(preview.count ?? 0) > 1 ? ` ${(preview.index ?? 0) + 1}/${preview.count}` : ''}`
-        ctx.fillStyle = t.colors.label
-        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2, Math.max(0, rect.width - canvasPaintTokens.preview.labelPadding))
       }
       if (!farMedia && !minimizedPreview) {
         const caption = panel.caption
@@ -3837,11 +3819,9 @@ export class CanvasRenderer {
         ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.fontSize}px ${t.fontFamily}`
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
-        const label = l.minimized ? 'Preview' : 'Preview - right-click'
-        ctx.textAlign = l.minimized ? 'center' : 'left'
         ctx.fillText(
-          label,
-          l.minimized ? rect.x + rect.width / 2 : rect.x + canvasPaintTokens.preview.labelPadding,
+          'Preview - right-click',
+          rect.x + canvasPaintTokens.preview.labelPadding,
           rect.y + t.rowHeight / 2,
           Math.max(0, rect.width - canvasPaintTokens.preview.labelPadding * 2),
         )
