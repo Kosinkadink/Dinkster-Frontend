@@ -1642,8 +1642,8 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const exports = readJson('fixtures/dinkster-wire41.json') as Record<string, unknown>[]
     const payload = {
       schemaVersion: 1,
-      dinkster: { version: 'fixture', schemaWire: 1 },
-      nodes: Object.fromEntries(exports.map((schema) => [schema['nodeType'], { ...schema, schemaVersion: 1 }])),
+      dinkster: { version: 'fixture', schemaWire: 2 },
+      nodes: Object.fromEntries(exports.map((schema) => [schema['nodeType'], { ...schema, schemaVersion: 2 }])),
     }
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,

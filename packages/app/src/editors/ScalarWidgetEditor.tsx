@@ -169,7 +169,6 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     const nodeType = ed.tab.store.doc.graphs[ed.graphId]?.nodes[ed.target.nodeId]?.type
     return nodeType === undefined ? undefined : {
       graphId: ed.graphId, nodeId: ed.target.nodeId, inputId: ed.target.valueKey, nodeType, spec: ed.spec,
-      ...(ed.inputFamilyMembers === undefined ? {} : { inputFamilyMembers: ed.inputFamilyMembers }),
     }
   }
   const closeCompletions = (): void => {

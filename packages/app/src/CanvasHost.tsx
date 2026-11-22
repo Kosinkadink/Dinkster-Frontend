@@ -425,28 +425,6 @@ export function unresolvedAssetImportDiagnostic(args: {
   )
 }
 
-export function textEditorInputInventory(
-  elaborated: ElaboratedInterface | undefined,
-  inputFamilies: readonly string[],
-): {
-  readonly inputFamilyMembers: Readonly<Record<string, readonly string[]>>
-} {
-  const apiNames = elaborated === undefined
-    ? []
-    : elabInputsOf(elaborated).flatMap((input) => input.apiName === undefined ? [] : [input.apiName])
-  return {
-    inputFamilyMembers: Object.fromEntries(inputFamilies.map((family) => {
-      const prefix = `${family}.`
-      const members = apiNames.flatMap((apiName) => {
-        if (!apiName.startsWith(prefix)) return []
-        const member = apiName.slice(prefix.length).split('.')[0]
-        return member === undefined || member === '' ? [] : [member]
-      })
-      return [family, [...new Set(members)]]
-    })),
-  }
-}
-
 /** Keep native selection/drag behavior from stealing canvas pointer gestures. */
 export function installCanvasGestureGuards(canvas: HTMLCanvasElement): () => void {
   const onPointerDown = (): void => {
@@ -4944,13 +4922,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         hit.row.derivedValue !== undefined
           ? hit.row.derivedValue
           : stored !== undefined ? stored : effectiveWidgetDefault(spec)
-      const inputInventory = textEditorInputInventory(
-        hit.node.elaborated,
-        spec.textCompletions?.inputFamilies ?? [],
-      )
-      const inputFamilyMembers = spec.textCompletions === undefined
-        ? undefined
-        : inputInventory.inputFamilyMembers
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
@@ -5012,7 +4983,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // Captured at open time like declaredType: the merge arm gates on
         // the OWNER backend's advertised batch-merge providers.
         ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
-        ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
         multiline: widgetKind === undefined || hit.row.viewId === 'core.text',
         rect: {
           x: hit.x,

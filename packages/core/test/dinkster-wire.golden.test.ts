@@ -12,6 +12,20 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 
 describe('Dinkster schema wire', () => {
 
+  it('keeps formula labels and visible on inputs and outputs as declared', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Labels', { body: [
+      { kind: 'input', id: 'count', type: concrete('INT'), label: { formula: 'mode' }, visible: { formula: 'count > 1' } },
+      { kind: 'input', id: 'plain', type: concrete('INT'), label: 'Plain', visible: false },
+      { kind: 'output', id: 'out', type: concrete('INT'), label: { formula: 'mode' }, visible: false },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [count, plain, out] = schema!.body as unknown as Record<string, unknown>[]
+    expect(count).toMatchObject({ labelFormula: { formula: 'mode' }, visible: { formula: 'count > 1' } })
+    expect(count!['displayName']).toBeUndefined()
+    expect(plain).toMatchObject({ displayName: 'Plain', visible: false })
+    expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
+  })
+
   it('preserves native asset-selection schemas and imported source names', () => {
     for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
       const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]

@@ -104,8 +104,6 @@ export interface WidgetEditorState {
    */
   readonly mergeableTypes?: readonly string[]
   readonly multiline: boolean
-  /** Current materialized member names for schema-declared completion sources. */
-  readonly inputFamilyMembers?: Readonly<Record<string, readonly string[]>>
   /** Editor anchor rect in canvas world coordinates. */
   readonly rect: { x: number; y: number; width: number; height: number }
   readonly initial: Json | undefined

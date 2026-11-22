@@ -320,7 +320,6 @@ export interface TextCompletionItemSpec {
 
 export interface TextCompletionsSpec {
   readonly items: readonly TextCompletionItemSpec[]
-  readonly inputFamilies: readonly string[]
 }
 
 /** One stable schema-authored name for one widget presentation. */
@@ -482,7 +481,11 @@ interface PortSpecBase {
    */
   readonly id: string
   readonly displayName?: string
+  /** A label the declaration works out by formula; `displayName` is then unset. */
+  readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
+  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
   readonly maskPolarity?: MaskPolarity

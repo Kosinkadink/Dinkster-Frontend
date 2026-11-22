@@ -1707,8 +1707,9 @@ function importLitegraphGraph(
       const discovered = discoverGroupMembers(n.inputs ?? [], families, targetedSlots)
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
-      // the identity policy: sparse/out-of-order foreign ordinals are labels,
-      // never sorting keys (image2 before image0 becomes m0 then m1).
+      // the identity policy: sparse or out-of-order foreign names keep their
+      // member keys in the order observed, never sorted (image2 before image0
+      // stays image2, then image0).
       for (const [slotIndex, input] of (n.inputs ?? []).entries()) {
         if (!targetedSlots.has(slotIndex) || typeof input.name !== 'string') continue
         const found = discovered.slots.get(slotIndex)

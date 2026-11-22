@@ -39,6 +39,8 @@ import {
   memberKeyAt,
   memberLimitOf,
   memberRowsOf,
+  optionRows,
+  scopeNamesOf,
 } from './body.js'
 import type {
   BodyRow,
@@ -363,6 +365,8 @@ interface FormulaFrame {
   readonly rows: readonly OptionRow[]
   readonly index?: number
   readonly key?: string
+  /** Names of this scope under the options of its choice that are not chosen. */
+  readonly hidden?: ReadonlySet<string>
 }
 
 interface Scope {
@@ -522,12 +526,40 @@ export function elaborateInterface(
   /** Member keys a formula counts for a group: the stored ones, or a count group's own. */
   const membersFor = (path: string): readonly string[] => stateOf(path)?.members ?? []
 
+  /**
+   * Names, as a formula in this scope writes them, of rows under an option
+   * that is not chosen: a formula reads them as unknown, with no wire.
+   */
+  const unchosen = (rows: readonly OptionRow[], prefix: string): Set<string> => {
+    const hidden = new Set<string>()
+    for (const row of scopeRowsOf(rows)) {
+      if (row.kind === 'choice') {
+        const path = prefix + row.id
+        const key = chosen.has(path) ? chosen.get(path) : stateOf(path)?.selected
+        const live = key === undefined || key === null ? [] : optionRows(row, key)
+        const kept = scopeNamesOf(live).names
+        for (const name of scopeNamesOf(choiceScopeRows(row)).names.keys()) if (!kept.has(name)) hidden.add(`${row.id}.${name}`)
+        for (const name of unchosen(live, `${path}.`)) hidden.add(`${row.id}.${name}`)
+      } else if (row.kind === 'typeChoice') {
+        for (const name of unchosen(row.rows, `${prefix}${row.id}.`)) hidden.add(`${row.id}.${name}`)
+      }
+    }
+    return hidden
+  }
+
   const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
     const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
     const where = new Map<string, string>()
     const defaults = new Map<string, unknown>()
+    const unknown = new Set<string>()
     for (const frame of scope.formulaFrames) {
-      for (const name of framesNamesOf([frame.rows]).names.keys()) where.set(name, frame.prefix + name)
+      const hidden = unchosen(frame.rows, frame.prefix)
+      for (const name of frame.hidden ?? []) hidden.add(name)
+      for (const name of framesNamesOf([frame.rows]).names.keys()) {
+        where.set(name, frame.prefix + name)
+        if (hidden.has(name)) unknown.add(name)
+        else unknown.delete(name)
+      }
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind === 'input') defaults.set(frame.prefix + row.id, defaultOf(row))
         else if (row.kind === 'state') defaults.set(frame.prefix + row.id, row.default)
@@ -553,6 +585,9 @@ export function elaborateInterface(
           else list.push(value as bigint | number | boolean | string | null)
         }
         values.set(name, unknown ? UNKNOWN : list)
+      } else if (unknown.has(name)) {
+        if (kind !== 'opaque') values.set(name, UNKNOWN)
+        if (names.inputs.has(name)) wired.set(name, false)
       } else {
         if (kind !== 'opaque') values.set(name, valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
@@ -1020,10 +1055,16 @@ export function elaborateInterface(
       })
     }
     const shared = new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item]))
-    const frame: FormulaFrame = { prefix: `${path}.`, rows: choiceScopeRows(row) }
+    const every = choiceScopeRows(row)
     for (const option of row.options) {
       const active = option.key === key
       if (!active && !census) continue
+      // The option's formulas read the other options' rows as unknown.
+      const kept = scopeNamesOf(optionRows(row, option.key)).names
+      const frame: FormulaFrame = {
+        prefix: `${path}.`, rows: every,
+        hidden: new Set([...scopeNamesOf(every).names.keys()].filter((name) => !kept.has(name))),
+      }
       rows(option.rows, {
         ...scope,
         prefix: `${path}.`,

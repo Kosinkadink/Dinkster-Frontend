@@ -23,6 +23,11 @@ non-empty legacy `interface` list.
   them, and the editor never runs a button's steps.
 - **Group**, **Choice**, **Type choice** and **Described**: the rows below.
 
+Every row's `visible` (a boolean or a formula) and an input's or output's
+label written as a formula are decoded and kept as declared. The editor does
+not evaluate them yet: every row shows, and a formula-labelled input or
+output is labelled by its id.
+
 ## Elaboration and flattened ids
 
 Elaboration (`packages/core/src/schema/elaborate.ts`) reads the body against
@@ -64,6 +69,11 @@ How a group grows:
 - `count`: a formula over stored values gives the number of members, within
   the group's bounds. These members are not stored and there is no spare.
 - `followList` is refused with `elab.group.followList`.
+
+A count or leader formula that names a row under an option that is not
+chosen, from outside the choice or from another of its options, reads it as
+unknown, and `linked()` is false for it. An unknown count gives the group's
+`minMembers`; an unknown leader gives the choice's first option.
 
 A new node stores the first `minMembers` members of every group that grows by
 link, filled field or button. Members the node shows but does not store (up

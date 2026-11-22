@@ -117,6 +117,15 @@ export const choiceScopeRows = (choice: ChoiceSpec): readonly OptionRow[] => [
   ...choice.options.flatMap((option) => option.rows),
 ]
 
+/** One option's scope, through the layout boxes, with the shared rows its `Use` rows place. */
+export function optionRows(choice: ChoiceSpec, key: string): readonly OptionRow[] {
+  const option = choice.options.find((candidate) => candidate.key === key)
+  if (option === undefined) return []
+  const shared = new Map(scopeRowsOf(choice.shared).flatMap((row) => 'id' in row ? [[row.id, row] as const] : []))
+  const placed = scopeRowsOf(option.rows).flatMap((row) => row.kind === 'use' && shared.has(row.id) ? [shared.get(row.id)!] : [])
+  return [...scopeRowsOf(option.rows), ...placed]
+}
+
 // ---------------------------------------------------------------------------
 // A new node's stored state
 

@@ -413,14 +413,9 @@ function decodeTextCompletions(value: unknown, where: string, diags: Diagnostic[
     throw new Error(`${where} must be an object`)
   }
   const raw = value as Record<string, unknown>
-  checkWidgetFields(raw, ['items', 'inputFamilies'], where, diags)
+  checkWidgetFields(raw, ['items'], where, diags)
   const rawItems = raw['items'] ?? []
-  const rawFamilies = raw['inputFamilies'] ?? []
   if (!Array.isArray(rawItems)) throw new Error(`${where}.items must be an array`)
-  if (!Array.isArray(rawFamilies) || !rawFamilies.every((family) => typeof family === 'string' && /^[A-Za-z0-9_-]+$/.test(family))) {
-    throw new Error(`${where}.inputFamilies must be an array of structural ids`)
-  }
-  if (new Set(rawFamilies).size !== rawFamilies.length) throw new Error(`${where}.inputFamilies must be unique`)
   const items = rawItems.map((value, index) => {
     const itemWhere = `${where}.items[${index}]`
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -451,8 +446,8 @@ function decodeTextCompletions(value: unknown, where: string, diags: Diagnostic[
       kind: kind === 'operator' ? kind : 'identifier',
     } as const
   })
-  if (items.length === 0 && rawFamilies.length === 0) throw new Error(`${where} must declare items or inputFamilies`)
-  return { items, inputFamilies: rawFamilies as string[] }
+  if (items.length === 0) throw new Error(`${where} must declare items`)
+  return { items }
 }
 
 function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, where: string, diags: Diagnostic[]): void {
@@ -1469,8 +1464,17 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
 ]
+
+/** A port's label, literal or worked out by formula, and whether it shows. */
+function wirePortCommon(entry: Record<string, unknown>, where: string): Pick<InputSpec, 'displayName' | 'labelFormula' | 'visible'> {
+  const label = entry['label'] === undefined ? undefined : wireFormulated<string>(entry['label'], `${where}.label`, 'string')
+  return {
+    ...(typeof label === 'string' ? { displayName: label } : label !== undefined ? { labelFormula: label } : {}),
+    ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
+  }
+}
 
 function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[]): InputSpec {
   rejectUnknownFields(entry, INPUT_FIELDS, where)
@@ -1491,7 +1495,6 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     throw new Error(`${where}.afterRun must be one of ${[...AFTER_RUN_MODES].join(', ')}`)
   }
   const onEdit = entry['onEdit'] === undefined ? [] : wireSteps(entry['onEdit'], `${where}.onEdit`)
-  const label = wireOptionalString(entry['label'], `${where}.label`)
   const tooltip = wireOptionalString(entry['tooltip'], `${where}.tooltip`)
   const decoded = decodeInput(
     nodeType,
@@ -1504,7 +1507,6 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
       widget: entry['widget'],
       forceInput: pinFirst,
       sourceFilename: entry['sourceFilename'],
-      ...(label !== undefined ? { displayName: label } : {}),
       ...(tooltip !== undefined ? { doc: tooltip } : {}),
     },
     diags,
@@ -1520,6 +1522,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
   }
   return {
     ...decoded,
+    ...wirePortCommon(entry, where),
     ...(widget !== undefined ? { widget } : {}),
     ...(pinFirst ? { forceInput: true } : {}),
     ...(!pin ? { socketless: true } : {}),
@@ -1535,17 +1538,16 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
 
 const OUTPUT_FIELDS = [
   'kind', 'id', 'type', 'optional', 'tooltip', 'label', 'preview', 'represents', 'knownValue',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
 ]
 
 function decodeBodyOutput(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[]): OutputSpec {
   rejectUnknownFields(entry, OUTPUT_FIELDS, where)
   const id = wireRowId(entry['id'], `${where}.id`)
-  const label = wireOptionalString(entry['label'], `${where}.label`)
   const tooltip = wireOptionalString(entry['tooltip'], `${where}.tooltip`)
   return {
     ...decodeOutput(nodeType, { ...entry, id, ...(tooltip !== undefined ? { doc: tooltip } : {}) } as WireEntry, diags, wireType(entry['type'], `${where}.type`)),
-    ...(label !== undefined ? { displayName: label } : {}),
+    ...wirePortCommon(entry, where),
     ...(wireBoolean(entry['optional'], `${where}.optional`, false) ? { optional: true } : {}),
     ...wirePreview(entry, where),
     ...mediaPolicyOf(entry, where),

@@ -683,11 +683,8 @@ command dispatcher.
 The schema lets backend and custom-node authors declare static completion
 items on any STRING widget. Each item supplies a matching value, visible label,
 inserted text, optional detail, and either identifier or operator token
-semantics. A declaration can also name groups of the node body
-(`inputFamilies`); the keys of their current stored members become identifier
-completions without a node-specific frontend path. Matching replaces only the
-identifier or operator token at the caret. Math Expression declares its
-grammar vocabulary and `values` group through this contract.
+semantics. Matching replaces only the identifier or operator token at the
+caret. Math Expression declares its grammar vocabulary through this contract.
 
 Typing or moving the caret starts a new request and aborts the previous one.
 Late results are ignored after another edit, suggestion closure, editor unmount, or
