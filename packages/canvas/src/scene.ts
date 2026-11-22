@@ -47,6 +47,7 @@ import {
   traceEndpointAll,
   typeExprFromTypeId,
   type BoundaryItem,
+  type BoundaryPositionResolver,
   type CommandInvocation,
   type Diagnostic,
   type DynamicPortState,
@@ -1034,6 +1035,16 @@ export function updateSceneNodeValues(
     nodes.push({ ...existing, node })
   }
   return changed ? { ...scene, nodes } : scene
+}
+
+/** Use the rendered layout when persisting a definition's initial panel positions. */
+export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPositionResolver> {
+  const scene = buildScene(input)
+  const position = (side: 'inputs' | 'outputs') => {
+    const panel = scene.boundaryNodes.find((node) => node.side === side)!
+    return { position: { x: panel.x, y: panel.y } }
+  }
+  return { inputs: position('inputs'), outputs: position('outputs') }
 }
 
 export function buildScene(input: BuildSceneInput): Scene {
