@@ -396,6 +396,18 @@ type TypeAdornmentDescriptor = Readonly<{
   | { readonly anchor: 'node'; readonly node: SceneNode }
 )
 
+/**
+ * What a text result's caption says at its right end: the string's own lines,
+ * line breaks plus one, not counting a final line break. Like a picture's
+ * size, it does not change with the node's width.
+ */
+const textResultLineCount = (text: string): string => {
+  const own = text.replace(/\r\n?/g, '\n').replace(/\n$/, '')
+  if (own.length === 0) return 'empty'
+  const count = own.split('\n').length
+  return `${count} ${count === 1 ? 'line' : 'lines'}`
+}
+
 const boundedAdornmentText = (text: string): string =>
   text.length <= TYPE_ADORNMENT_MAX_TEXT
     ? text
@@ -3891,7 +3903,7 @@ export class CanvasRenderer {
         this.paintPreviewCaption(ctx, caption, {
           arrow: folded ? 'folded' : 'open',
           label: 'Preview',
-          detail: folded ? lines.find((line) => line.trim().length > 0) ?? '' : `${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`,
+          detail: folded ? lines.find((line) => line.trim().length > 0) ?? '' : textResultLineCount(outputText.text),
           detailColor: t.colors.valueMark,
           detailFont: folded ? `${t.fontSize}px ${t.fontFamily}` : smallFont,
           hovered: captionHovered,

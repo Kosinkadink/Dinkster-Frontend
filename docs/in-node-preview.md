@@ -341,7 +341,7 @@ with two or more string outputs are deliberately deferred because choosing one
 would be ambiguous. The full value remains available in the Data lens.
 
 The result sits under the same "Preview" caption row as a picture, with the
-number of wrapped lines where a picture has its size; the row folds it the
+number of the string's own lines where a picture has its size (line breaks plus one, a final line break adding none, and "empty" for an empty string; like a size, it does not change with the node's width); the row folds it the
 same way, and folded it shows the start of the first line in place of a
 picture, upright and in the caption's quieter text color.
 Text uses the same measured wrapping as multiline canvas text. Without a size
