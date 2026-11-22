@@ -260,11 +260,14 @@ test('tab strip suppresses vertical scrolling and retains horizontal overflow', 
       return {
         title: title.textContent!,
         width: title.getBoundingClientRect().width,
-        prefix: context.measureText(`${title.textContent!.slice(0, 3)}\u2026`).width,
+        minimum: Math.min(
+          context.measureText(title.textContent!).width,
+          context.measureText(`${title.textContent!.slice(0, 3)}\u2026`).width,
+        ),
       }
     })
   })
-  for (const title of titleWidths) expect(title.width, title.title).toBeGreaterThanOrEqual(title.prefix)
+  for (const title of titleWidths) expect(title.width, title.title).toBeGreaterThanOrEqual(title.minimum)
   const overflow = await page.getByTestId('tab-bar').locator('.workflow-tablist').evaluate((element) => {
     const style = getComputedStyle(element)
     const before = element.scrollLeft
