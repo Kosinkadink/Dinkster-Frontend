@@ -55,18 +55,53 @@ export function ProductPanel(props: { children: JSX.Element }) {
 export function ProductWindowIdentity(props: {
   qa?: boolean
   development?: boolean
+  service?: 'qa' | 'custom' | undefined
 }) {
+  const strings = useProductStrings()
+  const service = () => props.service ?? (props.qa ? 'qa' : undefined)
+  const description = () =>
+    [
+      service() === 'qa'
+        ? strings.qaServices
+        : service() === 'custom'
+          ? strings.customServices
+          : '',
+      props.development ? strings.developmentProject : '',
+    ]
+      .filter(Boolean)
+      .join(', ')
+  const marking = () =>
+    [
+      service() === 'qa'
+        ? 'QA'
+        : service() === 'custom'
+          ? strings.customServiceShort
+          : '',
+      props.development ? strings.developmentShort : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
   return (
-    <Show when={props.qa || props.development}>
+    <Show when={service() || props.development}>
       <span class="dinkster-window-identity">
-        <Show when={props.qa}>
-          <span>[QA]</span>
-        </Show>
-        <Show when={props.development}>
-          <span title="Development project - unpublished sources">
-            Development
-          </span>
-        </Show>
+        <span class="dinkster-window-identity-wide">
+          <Show when={props.qa}>
+            <span>[QA]</span>
+          </Show>
+          <Show when={props.development}>
+            <span title={strings.developmentProject}>
+              {strings.development}
+            </span>
+          </Show>
+        </span>
+        <span
+          class="dinkster-window-identity-compact"
+          role="note"
+          title={description()}
+          aria-label={description()}
+        >
+          {marking()}
+        </span>
       </span>
     </Show>
   )
@@ -100,6 +135,8 @@ export function ProductWindowToolbar(props: {
   search: JSX.Element
   actions: JSX.Element
   service?: string | undefined
+  serviceKind?: 'qa' | 'custom' | undefined
+  account?: JSX.Element
   qa?: boolean
   development?: boolean
 }) {
@@ -107,6 +144,7 @@ export function ProductWindowToolbar(props: {
     <header
       class="dinkster-desktop-bar dinkster-window-toolbar-host"
       data-platform={props.platform}
+      data-service-kind={props.serviceKind}
       aria-label={props.title}
     >
       <div class="dinkster-window-toolbar">
@@ -119,7 +157,11 @@ export function ProductWindowToolbar(props: {
         <ProductWindowIdentity
           qa={props.qa ?? false}
           development={props.development ?? false}
+          service={props.serviceKind}
         />
+        <Show when={props.account}>
+          <div class="dinkster-window-toolbar-account">{props.account}</div>
+        </Show>
       </div>
     </header>
   )

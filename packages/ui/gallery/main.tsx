@@ -14,6 +14,9 @@ import {
   Bell,
   CircleAlert,
   LayoutList,
+  PanelLeft,
+  PanelBottom,
+  PanelRight,
   MousePointer,
   Menu,
   Search,
@@ -903,6 +906,7 @@ function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
   const [brand, setBrand] = createSignal('menu')
+  const [account, setAccount] = createSignal('none')
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -935,6 +939,19 @@ function WindowToolbarGallery() {
             >
               <option value="menu">Plain menu</option>
               <option value="wordmark">Wordmark action</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Account state">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={account()}
+              onChange={(event) => setAccount(event.currentTarget.value)}
+            >
+              <option value="none">No account control</option>
+              <option value="signed-out">Signed out</option>
+              <option value="signed-in">Signed in</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -977,8 +994,31 @@ function WindowToolbarGallery() {
                             ? 'QA services'
                             : 'Custom services'
                       }
+                      serviceKind={
+                        service === 'production' ? undefined : service
+                      }
                       qa={service === 'qa'}
                       development={service !== 'production'}
+                      account={
+                        <Show when={account() !== 'none'}>
+                          <Show
+                            when={account() === 'signed-in'}
+                            fallback={
+                              <ProductButton
+                                onClick={() => setActivity('Sign in opened')}
+                              >
+                                Sign in
+                              </ProductButton>
+                            }
+                          >
+                            <ProductAccountMenu
+                              name="Alex Rivers"
+                              email="alex@example.test"
+                              onSignOut={() => setActivity('Signed out')}
+                            />
+                          </Show>
+                        </Show>
+                      }
                       brand={
                         <Show
                           when={brand() === 'wordmark'}
@@ -1027,10 +1067,12 @@ function WindowToolbarGallery() {
                           <For
                             each={
                               [
+                                ['Customize layout', Settings],
+                                ['Left panel', PanelLeft],
+                                ['Bottom panel', PanelBottom],
+                                ['Right panel', PanelRight],
                                 ['Projects', LayoutList],
-                                ['Images', Plus],
                                 ['Collaboration', User],
-                                ['Toggle panels', Settings],
                               ] as const
                             }
                           >

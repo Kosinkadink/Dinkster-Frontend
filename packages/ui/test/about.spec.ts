@@ -7,15 +7,16 @@ for (const width of [1280, 390]) {
   }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#desktop-about')
-    await page.addStyleTag({
-      content:
-        '.dinkster-window-chrome { display:grid; padding:8px; min-height:48px }',
-    })
     for (const platform of ['win32', 'linux', 'darwin']) {
       const chrome = page.locator(
         `.dinkster-window-chrome[data-platform="${platform}"]`,
       )
-      await expect(chrome).toHaveText('Dinkster Desktop[QA]Development')
+      await expect(chrome.locator('.dinkster-brand-title')).toHaveText(
+        'Dinkster Desktop',
+      )
+      await expect(chrome.locator('.dinkster-window-identity-wide')).toHaveText(
+        '[QA]Development',
+      )
       const preview = chrome.locator('..')
       const marking = chrome.locator('.dinkster-window-identity')
       await expect(marking).toBeVisible()
@@ -23,7 +24,7 @@ for (const width of [1280, 390]) {
       const toastBounds = (await preview.getByRole('status').boundingBox())!
       expect(markBounds.y + markBounds.height).toBeLessThan(toastBounds.y)
       await expect(preview.getByRole('alert')).toBeVisible()
-      expect((await chrome.boundingBox())?.height).toBe(56)
+      expect((await chrome.boundingBox())?.height).toBe(44)
       await expect(chrome).toHaveCSS(
         'padding-left',
         platform === 'darwin' ? '92px' : '12px',
@@ -88,6 +89,72 @@ for (const width of [1280, 390]) {
   })
 }
 
+test('44px toolbar keeps account and full compact metadata in one row', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.getByLabel('Brand presentation').selectOption('wordmark')
+  await page.getByLabel('Account state').selectOption('signed-in')
+  const section = page.getByRole('region', {
+    name: 'custom dark linux',
+    exact: true,
+  })
+  const bar = section.locator('header')
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const state of ['idle', 'pending']) {
+      await page.getByLabel('Execution state').selectOption(state)
+      await expect(bar).toHaveCSS('height', '44px')
+      const account = bar.getByRole('button', {
+        name: 'Account menu: Alex Rivers',
+        exact: true,
+      })
+      await expect(account).toHaveCSS('height', '32px')
+      await expect(account).toHaveCSS('width', '32px')
+      const wordmark = bar.getByRole('img', { name: 'Dinkster', exact: true })
+      await expect(wordmark).toHaveCSS('height', '30px')
+      const marking = bar.locator('.dinkster-window-identity-compact')
+      if (width === 390) {
+        await expect(marking).toBeVisible()
+        await expect(marking).toHaveText('Custom Dev')
+        await expect(marking).toHaveAttribute(
+          'title',
+          'Custom services, Development project - unpublished sources',
+        )
+        await expect(marking).toHaveAccessibleName(
+          'Custom services, Development project - unpublished sources',
+        )
+      } else await expect(marking).toBeHidden()
+      const bounds = (await bar.boundingBox())!
+      for (const button of await bar.getByRole('button').all()) {
+        const rect = (await button.boundingBox())!
+        expect(rect.x).toBeGreaterThanOrEqual(bounds.x + 12)
+        expect(rect.x + rect.width).toBeLessThanOrEqual(
+          bounds.x + bounds.width - 12,
+        )
+        expect(rect.y - bounds.y).toBe(6)
+        expect(rect.height).toBe(32)
+      }
+      await page.keyboard.press('Tab')
+      await account.focus()
+      await expect(account).toHaveCSS('outline-width', '2px')
+      await expect(account).toHaveCSS('outline-offset', '2px')
+    }
+  }
+  await bar
+    .getByRole('button', { name: 'Account menu: Alex Rivers', exact: true })
+    .click()
+  await bar.getByRole('menuitem', { name: 'Sign out', exact: true }).click()
+  await expect(page.getByRole('status', { exact: true })).toHaveText(
+    'Signed out',
+  )
+  await page.getByLabel('Account state').selectOption('signed-out')
+  await bar.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('status', { exact: true })).toHaveText(
+    'Sign in opened',
+  )
+})
+
 test('Rich toolbar labels preserve branding, compact geometry and pending focus', async ({
   page,
 }) => {
@@ -141,7 +208,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
         expect(geometry.height).toBe(30)
         expect(bounds.width).toBeGreaterThan(99)
       }
-      expect((await bar.boundingBox())!.height).toBe(56)
+      expect((await bar.boundingBox())!.height).toBe(44)
       for (const button of await bar.getByRole('button').all()) {
         const rect = (await button.boundingBox())!
         expect(rect.x).toBeGreaterThanOrEqual(left)
@@ -208,6 +275,7 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
     content:
       '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
   })
+  await page.getByLabel('Account state').selectOption('signed-out')
   const sections = page.locator('section[aria-label]')
   await expect(sections).toHaveCount(18)
   for (const state of ['idle', 'running', 'pending']) {
@@ -223,7 +291,7 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
           continue
         const bar = section.locator('header')
         const bounds = (await bar.boundingBox())!
-        expect(bounds.height).toBe(56)
+        expect(bounds.height).toBe(44)
         const platform = await bar.getAttribute('data-platform')
         const left = platform === 'darwin' ? 92 : 12
         const right = width - (platform === 'win32' ? 148 : 12)
@@ -243,36 +311,53 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
             action.x + action.width,
           )
         }
-        for (const metadata of await bar
-          .locator(
-            '.dinkster-window-identity, .dinkster-window-toolbar-service',
-          )
-          .all()) {
-          const rect = (await metadata.boundingBox())!
-          const action = (await search.boundingBox())!
-          if (compact)
-            expect(rect.y + rect.height).toBeLessThanOrEqual(action.y)
-          else expect(rect.y + rect.height).toBeGreaterThan(action.y)
+        const serviceLabel = bar.locator('.dinkster-window-toolbar-service')
+        if (compact) {
+          await expect(serviceLabel).toBeHidden()
+          for (const marking of await bar
+            .locator('.dinkster-window-identity-compact')
+            .all()) {
+            await expect(marking).toBeVisible()
+            const rect = (await marking.boundingBox())!
+            const action = (await search.boundingBox())!
+            expect(rect.y).toBeGreaterThanOrEqual(action.y)
+            expect(rect.y + rect.height).toBeLessThanOrEqual(
+              action.y + action.height,
+            )
+          }
+        } else {
+          for (const metadata of await bar
+            .locator(
+              '.dinkster-window-identity, .dinkster-window-toolbar-service',
+            )
+            .all()) {
+            const rect = (await metadata.boundingBox())!
+            expect(rect.y + rect.height).toBeGreaterThan(
+              (await search.boundingBox())!.y,
+            )
+          }
         }
         const controls = bar.locator(
           'button, .dinkster-window-identity, .dinkster-window-toolbar-service',
         )
         const rectangles = await controls.evaluateAll((nodes) =>
-          nodes.map((node) => {
-            const rect = node.getBoundingClientRect()
-            return {
-              left: rect.left,
-              right: rect.right,
-              top: rect.top,
-              bottom: rect.bottom,
-            }
-          }),
+          nodes
+            .filter((node) => node.getClientRects().length > 0)
+            .map((node) => {
+              const rect = node.getBoundingClientRect()
+              return {
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+              }
+            }),
         )
         for (const [index, rect] of rectangles.entries()) {
           expect(rect.left).toBeGreaterThanOrEqual(left)
           expect(rect.right).toBeLessThanOrEqual(right)
           expect(rect.top).toBeGreaterThanOrEqual(bounds.y)
-          expect(rect.bottom).toBeLessThanOrEqual(bounds.y + 56)
+          expect(rect.bottom).toBeLessThanOrEqual(bounds.y + 44)
           for (const previous of rectangles.slice(0, index))
             expect(
               rect.right <= previous.left ||

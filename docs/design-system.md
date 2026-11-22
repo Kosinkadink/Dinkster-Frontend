@@ -37,7 +37,7 @@ as `@dinkster/ui/styles.css`. Its classes live only in `packages/ui/styles.css`;
 the build adds the same semantic variables the app uses and expands the shared
 768px breakpoint. Consumers copy the entire distribution, not the CSS alone.
 Use `dinkster-root` on the page root and `data-density="site"` for 14px site
-text; the default density is the app's 13px. The full-width shell has a 56px
+text; the default density is the app's 13px. The full-width shell has a 44px
 top bar, 240px sidebar, 720px content column (960px for tables) and 32px page
 padding. Below the standard breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
@@ -913,7 +913,7 @@ screenshot baselines do not use fallback text.
 ## Desktop information
 
 `ProductWindowChrome` reserves the native title-bar overlay area and the
-macOS traffic-light inset, uses the shared 56px bar and palette, and marks
+macOS traffic-light inset, uses the shared 44px bar and palette, and marks
 its empty background draggable while its contents remain non-draggable.
 The host supplies the exact title and platform. Optional `qa` and `development`
 flags add `ProductWindowIdentity` inside the bar. The visible Development label
@@ -945,10 +945,17 @@ no preload bridge. Content styles and the page's CSP remain host-owned. Both
 files are hashed by the site manifest and required by the wheel packager.
 
 `ProductWindowToolbar` composes the same native geometry with brand, search and
-actions slots, an optional service label and QA/development identity. It has a
-fixed 56px height. At the standard 768px available-content boundary, a container
-query compacts `ProductWindowAction` labels to icons and moves service/identity
-labels into a metadata row inside the bar. Native reservations therefore reduce
+actions slots, an optional service label and QA/development identity, and an
+optional rightmost account slot separate from actions. It has a fixed 44px
+height and 32px controls. Wordmarks and avatars retain their drawn dimensions;
+the site account trigger is a borderless, unpadded 32px circle. The 2px focus
+outline and 2px offset fit inside the bar's 6px vertical clearance.
+At the standard 768px available-content boundary, a container query compacts
+`ProductWindowAction` labels to icons. Service and development become a single
+bold warning-colored marking after actions, before the account slot: QA, Custom,
+Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
+independently of the localized full `service` label. Full words remain in the
+marking's title and accessible name. The marking does not wrap, clip or hide. Native reservations therefore reduce
 available space before the breakpoint is evaluated. Actions retain their full
 accessible name and title. An optional `shortcut` shows a keyboard hint beside
 the expanded action label; compact mode hides the hint but retains it in the

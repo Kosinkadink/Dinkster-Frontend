@@ -56,14 +56,16 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
         await expect(page.locator('.dinkster-window-fallback')).toHaveCount(0)
         await expect(bar.locator('.dinkster-window-identity')).toHaveCount(1)
         await expect(
-          bar.locator('.dinkster-window-toolbar .dinkster-window-identity'),
+          bar.locator('.dinkster-window-toolbar .dinkster-window-identity-wide'),
         ).toHaveText('[QA]Development')
         const bounds = (await bar.boundingBox())!
-        expect(bounds.height).toBe(56)
+        expect(bounds.height).toBe(44)
         const identity = (await bar
           .locator('.dinkster-window-identity')
           .boundingBox())!
-        const service = (await bar.getByText('QA services').boundingBox())!
+        const service = (await (width === 390
+          ? bar.locator('.dinkster-window-identity-compact')
+          : bar.getByText('QA services', { exact: true })).boundingBox())!
         const action = (await bar
           .getByRole('button', { name: 'Action', exact: true })
           .boundingBox())!
@@ -74,13 +76,17 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
             width - (platform === 'win32' ? 148 : 12),
           )
           expect(rect.y).toBeGreaterThanOrEqual(bounds.y)
-          expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + 56)
+          expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + 44)
         }
-        expect(service.x + service.width).toBeLessThanOrEqual(identity.x)
         if (width === 390) {
-          expect(identity.y + identity.height).toBeLessThanOrEqual(action.y)
-          expect(service.y + service.height).toBeLessThanOrEqual(action.y)
-        } else expect(identity.y + identity.height).toBeGreaterThan(action.y)
+          await expect(bar.getByText('QA services', { exact: true })).toBeHidden()
+          await expect(bar.getByRole('note')).toHaveAccessibleName('QA services, Development project - unpublished sources')
+          expect(identity.y).toBeGreaterThanOrEqual(action.y)
+          expect(identity.y + identity.height).toBeLessThanOrEqual(action.y + action.height)
+        } else {
+          expect(service.x + service.width).toBeLessThanOrEqual(identity.x)
+          expect(identity.y + identity.height).toBeGreaterThan(action.y)
+        }
         await page.screenshot({
           path: `test-results/captures/chrome-toolbar-${platform}-${theme}-${width}.png`,
         })
@@ -92,7 +98,7 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
             grid.outerHTML = content
           }, content)
         await expect(
-          bar.locator('.dinkster-window-toolbar .dinkster-window-identity'),
+          bar.locator('.dinkster-window-toolbar .dinkster-window-identity-wide'),
         ).toHaveText('[QA]Development')
       }
     }
@@ -127,10 +133,10 @@ for (const existing of [false, true]) {
     expect(artifact.format).toBe('dinkster.desktop-chrome/1')
     expect(artifact.native).toEqual({
       overlay: {
-        dark: { color: '#1C1F23', symbolColor: '#F2F4F5', height: 56 },
-        light: { color: '#FFFFFF', symbolColor: '#20252A', height: 56 },
+        dark: { color: '#1C1F23', symbolColor: '#F2F4F5', height: 44 },
+        light: { color: '#FFFFFF', symbolColor: '#20252A', height: 44 },
       },
-      trafficLightPosition: { x: 14, y: 16 },
+      trafficLightPosition: { x: 14, y: 10 },
     })
     const requests: string[] = []
     page.on('request', (request) => requests.push(request.url()))
@@ -157,7 +163,7 @@ for (const existing of [false, true]) {
           )
           const bar = page.locator('[data-desktop-chrome]')
           await expect(bar).toHaveCount(1)
-          await expect(bar).toHaveCSS('min-height', '56px')
+          await expect(bar).toHaveCSS('min-height', '44px')
           await expect(bar).toHaveCSS(
             'background-color',
             theme === 'dark' ? 'rgb(28, 31, 35)' : 'rgb(255, 255, 255)',
