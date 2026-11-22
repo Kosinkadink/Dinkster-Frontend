@@ -9,7 +9,7 @@
  * specs assert the real scoped-client behavior (dedupe, cache, refresh,
  * failure) without depending on any particular backend endpoint.
  */
-import { executionDetails, expect, test, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 
 test.use({ retentionApi: false })
 
@@ -140,7 +140,7 @@ test('frozen tab shows its pinned execution imagery; other tabs stay clean', asy
   await expect.poll(() => panels(page).then((p) => Object.keys(p).sort()), { timeout: 10_000 }).toEqual(['n0', 'n1'])
 
   // The frozen view is pinned to the execution: same imagery.
-  await (await executionDetails(page.getByTestId('execution-row').first())).locator('.execution-open').click()
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect.poll(() => panels(page).then((p) => Object.keys(p).sort()), { timeout: 10_000 }).toEqual(['n0', 'n1'])
 

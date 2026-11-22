@@ -32,7 +32,7 @@
  * so the tick pulls it into the live signal.
  */
 import { createSignal, type Signal } from '@dinkster/core'
-import { REMOVED_CORE_PANEL_IDS, type PanelPlacement } from './panels.js'
+import type { PanelPlacement } from './panels.js'
 import type { SettingsRegistry } from './settings.js'
 
 export type DockZoneId = 'left' | 'right' | 'bottom'
@@ -331,7 +331,7 @@ const decodeSectionTabs = (value: unknown, claimed: Set<string>): readonly strin
   if (!value.every((tab): tab is string => typeof tab === 'string' && tab.length > 0)) return undefined
   const tabs: string[] = []
   for (const tab of value) {
-    if (claimed.has(tab) || REMOVED_CORE_PANEL_IDS.has(tab)) continue
+    if (claimed.has(tab)) continue
     claimed.add(tab)
     tabs.push(tab)
   }
