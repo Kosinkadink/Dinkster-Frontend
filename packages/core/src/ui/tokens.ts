@@ -48,6 +48,7 @@ export interface SemanticDesignTokens {
   }
   readonly surface: {
     readonly frame: string
+    readonly field: string
     readonly canvas: string
     readonly panel: string
     readonly inset: string
@@ -124,6 +125,7 @@ export const semanticTokensForTheme = (
     type: components.type as SemanticDesignTokens['type'],
     surface: {
       frame: colors.bg.frame,
+      field: colors.bg.field,
       canvas: colors.bg.canvas,
       panel: colors.bg.surface,
       inset: colors.bg.canvas,
@@ -272,6 +274,7 @@ export const semanticCssVariablesForTheme = (
     ),
     '--dinkster-weight-bold': String(semanticDesignTokens.type.weight.bold),
     '--dinkster-surface-frame': semanticDesignTokens.surface.frame,
+    '--dinkster-surface-field': semanticDesignTokens.surface.field,
     '--dinkster-surface-canvas': semanticDesignTokens.surface.canvas,
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,

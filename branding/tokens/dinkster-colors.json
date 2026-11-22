@@ -24,6 +24,7 @@
   "dark": {
     "bg": {
       "frame": "#090D0D",
+      "field": "#0B1111",
       "canvas": "#0E1414",
       "surface": "#141C1D",
       "raised": "#1E292A",
@@ -52,6 +53,7 @@
   "light": {
     "bg": {
       "frame": "#F7F8FA",
+      "field": "#F7F8FA",
       "canvas": "#F7F8FA",
       "surface": "#FFFFFF",
       "raised": "#EDEFF2",

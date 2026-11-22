@@ -4,7 +4,10 @@ Canvas surfaces and text project the shared dark/light palette from
 `branding/tokens/dinkster-colors.json` through the semantic tokens. The dark
 theme uses cyan-tinted greys for its background, node body, header, inset
 fields and outlines; light-theme values, wire/type colors and status hues
-are unchanged. Muted text on a dark panel has 4.64:1 contrast.
+are unchanged. Node value fields use the dedicated `bg.field` palette entry
+(`#0B1111` in dark, the unchanged light canvas color in light), leaving other
+inset surfaces on `bg.canvas`. Queued outlines use `border.hover`; data
+heatmaps keep their data colors. Muted text on a dark panel has 4.64:1 contrast.
 
 The canvas keeps the graph scene separate from the camera. On browsers with
 transferable offscreen bitmaps, graph paint is retained in device-pixel tiles.

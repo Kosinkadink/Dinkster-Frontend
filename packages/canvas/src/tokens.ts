@@ -675,7 +675,7 @@ export const defaultTokens: DesignTokens = {
   colors: canvasColorsForTheme('dark'),
   ...canvasTypePaintForTheme('dark'),
   stateColors: {
-    pending: '#5c5c5c',
+    pending: canvasSemanticTokens.border.hover,
     running: canvasSemanticTokens.meaning.info.border,
     cached: '#9575cd',
     done: canvasSemanticTokens.meaning.success.border,
@@ -719,7 +719,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     title: tokens.text.primary,
     label: tokens.text.secondary,
     value: tokens.text.primary,
-    widgetBackground: tokens.surface.inset,
+    widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,

@@ -160,7 +160,7 @@ for (const existing of [false, true]) {
           await expect(bar).toHaveCSS('min-height', '56px')
           await expect(bar).toHaveCSS(
             'background-color',
-            theme === 'dark' ? 'rgb(28, 31, 35)' : 'rgb(255, 255, 255)',
+            theme === 'dark' ? 'rgb(20, 28, 29)' : 'rgb(255, 255, 255)',
           )
           await expect(bar).toHaveCSS('font-family', '"Noto Sans", sans-serif')
           await expect(bar).toHaveCSS('-webkit-app-region', 'drag')
