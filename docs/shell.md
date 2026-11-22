@@ -132,8 +132,15 @@ budget of at least 320 px. When both saved side widths do not fit, opening
 one side closes the other; narrowing the window closes the right rail first.
 A single side is temporarily capped to the available space without changing
 its saved width. Widening the window restores that width, not a closed side.
-The topbar search shrinks between its control groups on intermediate widths
-instead of letting its shortcut badge overlap the layout controls.
+The application header uses ProductWindowToolbar with shared window actions
+and icon buttons. Its 56px height and native reservations come from the shared
+stylesheet; the host owns platform, theme and QA/development markings. At the
+768px available-content boundary, action labels and search shortcut hints
+compact to icons while service/identity text occupies the metadata row.
+The command menu retains its grouped commands, live invalidation and focus
+restoration. The existing small-screen visibility of left/bottom/customize
+controls is unchanged; other controls and detached-workflow redocking remain
+available. Non-toolbar cancellation controls retain their original presentation.
 
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the
@@ -843,7 +850,9 @@ AP8-idempotent disposer).
 
 ## Universal search
 
-The always-visible centered topbar control reads "Search Dinkster (Ctrl+K)".
+The always-visible shared header action reads "Search Dinkster" and shows the
+effective shortcut when expanded. Compact mode retains both its action name
+and shortcut description while displaying the search icon.
 It and the rebindable `search.open` command open one modal search overlay,
 including when no document tab exists. Results are grouped by provider and
 support Arrow Up/Down, Enter, Escape, and a five-result group cap with Show
