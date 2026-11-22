@@ -7388,7 +7388,7 @@ export class AppState {
       if (!this.ownerStillLive(backend)) return false
       if (!record) return false
       const text = await backend.connection.fetchAssetText(record.digest)
-      if (!stillWanted() || !this.ownerStillLive(backend) || text === undefined) return false
+      if (!this.ownerStillLive(backend) || !stillWanted() || text === undefined) return false
       const tab = await this.openDocumentOnBackend(JSON.parse(text) as unknown, record.name, backend, stillWanted)
       if (!this.ownerStillLive(backend) || !tab || !this.tabs.get().includes(tab)) return false
       this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
@@ -7487,7 +7487,7 @@ export class AppState {
         return false
       }
       const text = await backend.connection.fetchAssetText(run.sourceDocument)
-      if (!stillWanted() || !this.ownerStillLive(backend) || text === undefined) return false
+      if (!this.ownerStillLive(backend) || !stillWanted() || text === undefined) return false
       const json = JSON.parse(text) as unknown
       const meta = (json as { meta?: { title?: unknown } }).meta
       const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`

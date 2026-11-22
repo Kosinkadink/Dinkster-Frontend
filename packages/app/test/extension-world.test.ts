@@ -314,21 +314,14 @@ describe('connection extension worlds', () => {
       await expect(context.queryRoute('other.policy', { count: 4 })).rejects.toThrow('undeclared own-pack')
       await expect(context.queryRoute('policy', { count: 4.5 })).rejects.toThrow('undeclared own-pack')
       expect(fetch).not.toHaveBeenCalled()
-      const generation = 'a'.repeat(32)
-      fetch.mockResolvedValueOnce(new Response(JSON.stringify({
-        clientId: 'b'.repeat(32), generation, revision: 1, connected: true,
-        pendingRequests: 0, activeStreams: 0, complete: false,
-        holders: Object.fromEntries(Array.from({ length: 8 }, (_, index) => [String(index + 1), []])),
-      })))
       const result = await context.queryRoute('policy', input)
       expect(result).toEqual({ count: 4 })
       expect(Object.isFrozen(result)).toBe(true)
-      expect(String(fetch.mock.calls[0]![0])).toBe('/a/api/library/retention-clients')
-      const [url, init] = fetch.mock.calls[1]!
+      expect(fetch).toHaveBeenCalledTimes(1)
+      const [url, init] = fetch.mock.calls[0]!
       expect(String(url)).toBe('http://test/a/api/extensions/demo/routes/policy')
       expect(init?.method).toBe(method)
       expect(new Headers(init?.headers).get('If-Match')).toBe(digest)
-      expect(new Headers(init?.headers).get('X-Dinkster-Retention-Generation')).toBe(generation)
       expect(init?.body).toBe(method === 'POST' ? '{"count":4}' : undefined)
       fetch.mockResolvedValueOnce(new Response('{"count":4}', { headers: { 'Content-Type': 'application/json', 'X-Dinkster-Extension-Snapshot': 'other' } }))
       await expect(context.queryRoute('policy', input)).rejects.toThrow('unpaired response')
