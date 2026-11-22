@@ -139,7 +139,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   } else if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
-      dinkster: { version: 'visual-fixture', schemaWire: 1 },
+      dinkster: { version: 'visual-fixture', schemaWire: 2 },
       nodes: {},
     } })
   } else if (path.endsWith('/api/models/providers/huggingface')) {
@@ -188,7 +188,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AppNoticeVisual', displayName: 'App feedback', category: 'test', source: 'visual', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } },
         { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: {}, default: 'old', remote: { route: '/api/choices/panel-state-visual', maxRetries: 0 } } },
       ],
@@ -759,7 +759,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
     bridge.app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'visual', source: 'visual', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
             widget: { widgetType: 'INT', options: {} },
@@ -769,7 +769,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'visual', source: 'visual', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     const diagnostics = (await bridge.app.openDocument({
@@ -1273,7 +1273,7 @@ test('GLSL editor missing-data and refused-preview states preserve editing and d
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
-      items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
+      body: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
         widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
     }])
     const diagnostics = (await app.openDocument({

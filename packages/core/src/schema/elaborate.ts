@@ -969,7 +969,7 @@ export function elaborateInterface(
     } else if (row.required && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
       // (storeStartChoices); a run never makes one up.
-      report('prompt.bad_dynamic_choice', `required choice '${path}' has no stored option`, path)
+      report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
       key = row.required ? row.default ?? keys[0] : undefined

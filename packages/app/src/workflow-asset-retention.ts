@@ -343,32 +343,20 @@ function censusWorkflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
-    if (unsupportedDormant.length > 0) {
-      complete = false
-      for (const diagnostic of unsupportedDormant) incompleteDiagnostics.push({ ...diagnostic,
-        refs: [{ graphId: graph.id, nodeId: node.id }],
-        message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
-      })
-    }
     const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
     if (missingChoices.length > 0) {
       complete = false
       incompleteDiagnostics.push(...missingChoices)
     }
-    // An absent required choice is editable, but cannot certify ownership or execute.
+    // An absent required choice is editable, but cannot certify ownership or
+    // execute. A group below its minimum refuses a run, not the document.
     const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
+      diagnostic.code !== 'elab.autogrow.underMin' &&
       !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
-    if (active.diagnostics.some(invalidIdentity) ||
-      stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
-        (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
+    if (active.diagnostics.some(invalidIdentity) || stored.diagnostics.some(invalidIdentity)) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
-        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
-        (purpose !== 'admission' || ![
-          'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
-          'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
-        ].includes(diagnostic.code)))
+        invalidIdentity(diagnostic) && (purpose !== 'admission' || diagnostic.code !== 'elab.outputDescriptors.invalid'))
       // A planned historical migration can consume state the current schema
       // no longer describes. Retain its opaque roots, never certify it complete.
       const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
@@ -379,7 +367,7 @@ function censusWorkflowAssetRoots(
       })
       if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
     }
-    const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
+    const inputs = elabInputsOf(stored)
     for (const input of inputs) {
       const { spec } = input
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false

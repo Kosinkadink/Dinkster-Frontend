@@ -70,8 +70,8 @@ link, filled field or button. Members the node shows but does not store (up
 to the minimum, and the spare) are drawn and never compiled; connecting or
 editing one stores it in the same undo step (`dynamic.materialize`). A run
 refuses a group with required rows and fewer stored members than its minimum
-(`elab.autogrow.underMin`). With `optionalAfterMinimum`, member rows past the
-minimum are optional.
+(`elab.autogrow.underMin`); such a document still opens and can be edited.
+With `optionalAfterMinimum`, member rows past the minimum are optional.
 
 Disconnecting, rewiring away, deleting a link or deleting its source removes
 members that no longer hold a value, link, boundary binding or nested choice
@@ -102,9 +102,10 @@ A required choice always has a stored key. A new node stores its start key
 (its `default`, else its first option), and the editor stores it when a
 command touches the node or when an opened document meets its schemas
 (`dynamic.storeStartChoices`). A run never makes one up: a required choice
-without a stored key is refused (`prompt.bad_dynamic_choice`). An optional
-choice starts on none, which shows no option's rows, and may not declare a
-default.
+without a stored key is refused (`prompt.missing_dynamic_choice`), and a
+document holding one still opens, with incomplete retained ownership until the
+key is stored. An optional choice starts on none, which shows no option's
+rows, and may not declare a default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
 

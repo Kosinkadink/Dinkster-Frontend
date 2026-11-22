@@ -2659,6 +2659,24 @@ describe('workflow candidate admission', () => {
     expect(roots).toEqual({ complete: true, digests: [asset('c').digest, asset('d').digest] })
   })
 
+  it('admits a document whose required choice has nothing stored or whose group is below its minimum', () => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, body: [
+      { kind: 'input', id: 'kept', optional: true, type: assetType, widget: { widgetType: 'ASSET', options: {} } },
+      { kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] },
+      { kind: 'group', id: 'items', value: { ...assetInput('file', 'd'), optional: false },
+        keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 }, grows: 'link', minMembers: 2 },
+    ] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { kept: asset('c') } },
+    } } } }
+    const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate, [], 'admission')
+    expect(roots.refusal).toBeUndefined()
+    expect(roots.complete).toBe(false)
+    expect(roots.digests).toEqual([asset('c').digest])
+    expect(roots.incompleteDiagnostics).toContainEqual(expect.objectContaining({ code: 'prompt.missing_dynamic_choice' }))
+  })
+
   it.each(['missing-node', 'missing-input', 'opaque', 'selection-name', 'list'] as const)(
     'names exactly unresolved stored inputs and preserves known roots: %s', (scenario) => {
       const local = session()

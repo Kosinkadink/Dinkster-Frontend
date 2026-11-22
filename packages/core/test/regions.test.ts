@@ -688,7 +688,7 @@ describe('region compile lowering', () => {
     })
     expect(refused.ok).toBe(false)
     if (!refused.ok) {
-      expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
+      expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.missing_dynamic_choice')
     }
   })
 
