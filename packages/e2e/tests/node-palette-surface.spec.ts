@@ -133,7 +133,7 @@ test('palette insertion awaits acceptance without stealing newer selection or na
     app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
       ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
         ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Palette insertion refused for test' }] })
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Palette insertion refused for test' }] })
     })
   })
   const state = () => page.evaluate(() => ({

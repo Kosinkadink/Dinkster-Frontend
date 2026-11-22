@@ -43,12 +43,6 @@ async function backend(page: Page, base: string, initial: string) {
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })
-    if (path.startsWith(`${base}/api/library/retentions/document/`)) {
-      expect(route.request().method()).toBe('PUT')
-      expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-      return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
-        ownerId: decodeURIComponent(path.split('/').at(-1)!), revision: 1, complete: false, digests: [] } })
-    }
     return route.fulfill({ status: 404 })
   })
   await page.evaluate(async (base) => {

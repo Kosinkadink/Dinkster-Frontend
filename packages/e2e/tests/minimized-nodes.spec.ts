@@ -118,9 +118,7 @@ async function openProof(page: Page) {
 
 test.beforeEach(async ({ context, page }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.route('/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
-    ? route.fallback()
-    : route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'minimized-import-contract', schemaWire: 1 },

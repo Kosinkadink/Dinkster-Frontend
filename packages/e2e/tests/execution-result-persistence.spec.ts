@@ -68,10 +68,6 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   let servedPrincipalId = PRINCIPAL.principalId
   let assetAvailable = true
   let valuesMode: 'available' | 'unavailable' | 'evicted' = 'available'
-  const cleanupRequests: string[] = []
-  page.on('request', (request) => {
-    if (/\/api\/library\/(?:retentions|retention-clients)(?:\/|\?|$)/.test(request.url())) cleanupRequests.push(request.url())
-  })
   const offers = [
     ['job-a', 'run-a', 'producer'], ['job-a', 'run-a', 'math'],
     ['job-a', 'run-a', 'other'], ['job-b', 'run-b', 'other'],
@@ -211,8 +207,6 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   await page.mouse.move(0, 0)
   await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
   await page.screenshot({ path: `${PROOF_DIR}/02-reload-retains-runtime-value.png`, animations: 'disabled' })
-  expect(cleanupRequests).toEqual([])
-
   const persisted = await page.evaluate(() => localStorage.getItem('dinkster.executionResults'))
   expect(persisted).not.toBeNull()
   const restoreSavedEnvelope = () => page.evaluate((raw) => {

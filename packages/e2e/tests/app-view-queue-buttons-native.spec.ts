@@ -95,7 +95,7 @@ test('an App View partial queue button completes against the native backend', as
         path,
         contentType: 'application/json',
       })
-    } catch { /* Preserve the original startup failure if diagnostic retention fails. */ }
+    } catch { /* Preserve the original startup failure if diagnostic recording fails. */ }
     throw error
   }
 

@@ -293,11 +293,7 @@ test('tab strip suppresses vertical scrolling and retains horizontal overflow', 
 const actionsTest = test.extend({
   page: async ({ page }, use) => {
     await page.routeWebSocket('**/api/events?*', () => {})
-    await page.route('**/api/**', (route) =>
-      route.request().url().includes('/api/library/retention')
-        ? route.fallback()
-        : route.fulfill({ status: 404 }),
-    )
+    await page.route('**/api/**', (route) => route.fulfill({ status: 404 }))
     await page.route('**/supervisor/**', (route) =>
       route.fulfill({ status: 502 }),
     )

@@ -22,8 +22,7 @@ const runtimeSettings = {
 }
 
 async function installRoutes(page: Page): Promise<void> {
-  await page.route('**/api/**', (route) => /\/api\/library\/retention(?:s\/|-clients(?:\?|$))/.test(route.request().url())
-    ? route.fallback() : route.fulfill({ json: {} }))
+  await page.route('**/api/**', (route) => route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ json: {
     protocol: 1,
     state: 'ready',

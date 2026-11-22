@@ -198,28 +198,9 @@ async function installProductionCollabTransport(page: Page): Promise<void> {
   })
 }
 
-test('sharing waits for ownership and keeps the local workflow after refusal', async ({ page }, info) => {
+test('sharing opens a collaboration session directly', async ({ page }, info) => {
   await appReady(page)
   await installProductionCollabTransport(page)
-  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
-  await expect.poll(() => page.evaluate(() => {
-    const saved = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
-    return saved?.assetRetention?.acknowledged === true
-  })).toBe(true)
-  const replies: ((revision: number) => Promise<void>)[] = []
-  await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-    expect(route.request().method()).toBe('PUT')
-    const declaration = route.request().postDataJSON()
-    expect(declaration.revision).toBe(0)
-    await new Promise<void>((done) => {
-      replies.push(async (revision) => {
-        await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
-          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision } })
-        done()
-      })
-    })
-  })
   const shared = () => page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       activeTab(): { id: string }
@@ -229,20 +210,10 @@ test('sharing waits for ownership and keeps the local workflow after refusal', a
   })
   await page.screenshot({ path: info.outputPath('share-default.png') })
   await shareFromActiveTabMenu(page)
-  await expect.poll(() => replies.length).toBe(1)
-  expect(await shared()).toBe(false)
-  await page.screenshot({ path: info.outputPath('share-pending.png') })
-  await replies[0]!(2)
-  await expect(page.getByTestId('transient-status')).toContainText('ownership could not be confirmed')
-  expect(await shared()).toBe(false)
-  await page.screenshot({ path: info.outputPath('share-refused.png') })
-  await shareFromActiveTabMenu(page)
-  await expect.poll(() => replies.length).toBe(2)
-  await replies[1]!(1)
   await expect.poll(shared).toBe(true)
   await openCollaboration(page)
   await expect(page.getByTestId('collab-current-session')).toBeVisible()
-  await page.screenshot({ path: info.outputPath('share-accepted.png') })
+  await page.screenshot({ path: info.outputPath('share-open.png') })
 })
 
 test('sharing keeps a local edit undoable with Ctrl+Z', async ({ page }) => {
