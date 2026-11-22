@@ -546,11 +546,17 @@ export class DocumentStore implements DocumentStoreContract {
     try {
       commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, this.executionContext())
       if (!hasErrors(commandDiags) && tx.forward.length > 0 && this.boundaryPositionsFor) {
-        const changedGraphs = Object.keys(tx.current.graphs).filter((id) =>
+        const changedGraphs = new Set(Object.keys(tx.current.graphs).filter((id) =>
           tx.current.graphs[id] !== this.doc.graphs[id] ||
-          tx.current.view.graphs[id] !== this.doc.view.graphs[id])
+          tx.current.view.graphs[id] !== this.doc.view.graphs[id]))
+        // A changed definition can resize its instances in enclosing graphs.
+        for (const changed of changedGraphs) {
+          for (const graph of Object.values(tx.current.graphs)) {
+            if (Object.values(graph.nodes).some((node) => subgraphDefIdOf(node.type) === changed)) changedGraphs.add(graph.id)
+          }
+        }
         const initialized = initializeBoundaryViews(tx.current, (candidate, graphId) =>
-          this.boundaryPositionsFor!(this.doc.graphs[graphId]?.boundary ? this.doc : candidate, graphId), changedGraphs)
+          this.boundaryPositionsFor!(this.doc.graphs[graphId]?.boundary ? this.doc : candidate, graphId), [...changedGraphs])
         for (const op of initialized.forward) {
           if (op.op !== 'remove') tx.set(op.path, op.value as Json)
         }
