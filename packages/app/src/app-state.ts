@@ -2622,7 +2622,7 @@ export class AppState {
       runtimeNodeIds,
       token: ++this.executionLogFocusToken,
     })
-    setPanelOpen(this.panels, this.dock, 'execution-log', 'bottom', true)
+    setPanelOpen(this.panels, this.dock, 'logs', 'bottom', true)
   }
 
   /** The panel applied this focus request; stop it from replaying. */
@@ -2935,6 +2935,7 @@ export class AppState {
    * keeps framework adapters honest when a command changes only a document.
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
+  readonly clearedTabResults = createSignal<ReadonlyMap<string, string>>(new Map())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
@@ -2998,6 +2999,8 @@ export class AppState {
    * rebinding per backend). Same pattern as CanvasHost's docTick.
    */
   readonly backendsTick: Signal<number> = createSignal(0)
+  /** Confirmed-deleted history rows stay out of run lists without clearing canvas results. */
+  readonly hiddenHistoryExecutions: Signal<ReadonlySet<string>> = createSignal(new Set<string>())
 
   /**
    * Tabs currently joined to a shared session, keyed by tab id. Session-only
@@ -4892,6 +4895,8 @@ export class AppState {
           // cannot cancel a callback already in flight: re-check ownership
           // rather than trusting teardown ordering.
           if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+          const latest = this.lastEndedExecutionForTab(tab)
+          if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
           this.documentPersistenceDirty.add(id)
           reconcileGraphNavigation(tab)
           this.markTabDirty(id)
@@ -6463,6 +6468,36 @@ export class AppState {
     this.schedulePersistTabs()
   }
 
+  renameTab(tabId: string, title: string): void {
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    title = title.trim()
+    if (!tab || tab.execution || !title || title === tab.title ||
+      ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(tab.editorKind)) return
+    const latest = this.lastEndedExecutionForTab(tab)
+    if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(tab.id, latest.key))
+    this.markTabDirty(tab.id)
+    this.tabs.update((list) => list.map((candidate) => candidate === tab ? { ...tab, title } : candidate))
+  }
+
+  async duplicateTab(tabId: string): Promise<Tab | undefined> {
+    const source = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
+    const title = source.execution
+      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
+      : source.title
+    const titles = new Set(this.tabs.get().map((tab) => tab.title))
+    let copyTitle = `${title} copy`
+    for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
+    let lineage: LineageId
+    do lineage = asLineageId(`${source.store.doc.lineage}-copy-${Date.now()}-${++newWorkflowOrdinal}`)
+    while (this.tabs.get().some((tab) => tab.id === lineage))
+    const backend = this.backendForTab(source)
+    const stillWanted = this.beginWorkflowOpen()
+    const copy = await this.openRetainedDocument({ ...source.store.doc, lineage }, copyTitle, backend, stillWanted, false, undefined, backend)
+    if (copy && !source.execution && source.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(copy.id, APP_EDITOR_KIND)
+    return copy && this.tabs.get().find((tab) => tab.id === copy.id)
+  }
+
   openEditorForBinding(tabId: string, context: EditorBindingContext): boolean {
     const binding = this.editorBindings.resolve(context, (candidate) =>
       this.extensionEditorIds.has(candidate.editor) && this.editors.get(candidate.editor) !== undefined)
@@ -7410,6 +7445,11 @@ export class AppState {
     // the Tab object itself: dropping the tab drops its cache entries.
     this.libraryLinks.delete(id)
     this.markTabClean(id)
+    if (this.clearedTabResults.get().has(id)) this.clearedTabResults.update((results) => {
+      const next = new Map(results)
+      next.delete(id)
+      return next
+    })
     if (this.tabViewStates.get().has(id)) {
       this.tabViewStates.update((states) => {
         const next = new Map(states)
@@ -8682,7 +8722,7 @@ export class AppState {
    * never patch record ids into a different backend's library.
    * View/session state, never serialized.
    */
-  private readonly libraryLinks = new Map<string, { recordId: string; revision: number; connectionId: ConnectionId }>()
+  private readonly libraryLinks = new Map<string, { recordId: string; revision: number; connectionId: ConnectionId; title: string }>()
 
   /**
    * Per-tab digest of the last uploaded source document, validated by the
@@ -9034,8 +9074,8 @@ export class AppState {
    * Save a live tab's document to its backend's library: upload the
    * freshly stamped bytes (idempotent, content-addressed), then create a
    * record - or PATCH the tab's linked record, with ONE re-read retry on a
-   * revision conflict (the retry repoints only the digest, so a rename
-   * made elsewhere survives). A link whose record was deleted elsewhere
+   * revision conflict. A name is patched only after a local rename, so
+   * an unrelated rename made elsewhere survives. A record deleted elsewhere
    * falls back to creating a new record. Failures land in Problems.
    */
   async saveWorkflow(tabId: string): Promise<boolean> {
@@ -9113,7 +9153,9 @@ export class AppState {
       // retargeted tab creates a fresh record on the new backend (the old
       // backend's record stays untouched under its own link semantics).
       if (link !== undefined && link.connectionId === backend.id) {
-        const patch = { scope: LIBRARY_SCOPE, revision: link.revision, digest }
+        const patch = { scope: LIBRARY_SCOPE, revision: link.revision, digest,
+          ...(tab.title !== link.title ? { name: tab.title } : {}),
+        }
         const first = await backend.connection.patchLibraryRecord(link.recordId, patch)
         if (first.ok) {
           record = first.record
@@ -9143,15 +9185,14 @@ export class AppState {
         })
       }
       this.backendsTick.update((v) => v + 1) // an open Workflows collection re-pages
-      // The record was written; local bookkeeping only applies if this
-      // exact Tab object is still open. A same-lineage replacement shares
-      // the id but not identity - it must not inherit the link, and its
-      // dirty flag is not ours to clear.
-      if (!this.tabs.get().includes(tab)) return true
-      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+      // A rename or editor switch keeps the session; a document replacement
+      // must inherit neither the saved record nor its clean state.
+      const current = this.tabs.get().find((candidate) => candidate.id === tab.id && candidate.store === tab.store)
+      if (!current) return true
+      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
       // Clean only when nothing was committed since the uploaded snapshot:
       // an edit made during the awaits keeps the tab dirty.
-      const unchanged = tab.store.revision === revision
+      const unchanged = tab.store.revision === revision && current.title === tab.title
       if (unchanged) {
         this.markTabClean(tab.id)
         this.dismissMigrationNotice(tab.id)
@@ -9200,7 +9241,7 @@ export class AppState {
         if (json === undefined || !this.ownerStillLive(backend)) return false
         tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
         if (!tab || !this.tabs.get().includes(tab)) return false
-        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
         this.markTabClean(tab.id)
         return true
       })
@@ -9341,6 +9382,21 @@ export class AppState {
     return true
   }
 
+  private async confirmRemovedHistoryExecutions(backend: Extract<Backend, { protocol: 'dinkster' }>, runId?: string): Promise<void> {
+    const candidates = this.executionList().filter((execution) => execution.ref.connection === backend.id &&
+      execution.status !== 'queued' && execution.status !== 'running' && execution.jobRef !== undefined &&
+      (runId === undefined || execution.jobRef === runId))
+    const removed = await Promise.all(candidates.map(async (execution) => {
+      try {
+        return await backend.connection.getHistoryRun(execution.jobRef!, LIBRARY_SCOPE) === undefined ? execution.key : undefined
+      } catch {
+        return undefined
+      }
+    }))
+    if (!this.ownerStillLive(backend)) return
+    this.hiddenHistoryExecutions.update((keys) => new Set([...keys, ...removed.filter((key) => key !== undefined)]))
+  }
+
   /**
    * Delete ONE durable run record (never asset bytes or library records,
    * by contract). False on miss - already gone elsewhere is not an error.
@@ -9353,7 +9409,6 @@ export class AppState {
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
         this.retireUnusedResultOwners()
-        this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
     } catch (e) {
@@ -9361,6 +9416,9 @@ export class AppState {
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return false
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend, runId)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -9376,13 +9434,15 @@ export class AppState {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
       this.retireUnusedResultOwners()
-      if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return 0
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -11017,90 +11077,6 @@ export class AppState {
     })
   }
 
-  private connectedPlacementWorker(backend: Backend, workerName: string): WorkerInfo | undefined {
-    if (backend.protocol !== 'dinkster' || backend.connection.status.get() !== 'connected') return undefined
-    const catalog = backend.workerCatalog.get()
-    if (catalog.status !== 'ready') return undefined
-    return catalog.workers.find((worker) => worker.name === workerName && worker.status === 'connected')
-  }
-
-  private placementIsCurrent(
-    tab: Tab,
-    backend: Backend,
-    compiledDocument: WorkflowDocument,
-    placement: Readonly<Record<string, string>>,
-  ): boolean {
-    const registry = backend.registry.get()
-    const root = compiledDocument.graphs[compiledDocument.root]
-    return this.tabs.get().includes(tab) &&
-      this.backendForTab(tab) === backend &&
-      registry?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_PLACEMENT) === true &&
-      root !== undefined &&
-      Object.entries(placement).every(([nodeId, workerName]) => {
-        if (!Object.hasOwn(root.nodes, nodeId)) return false
-        const node = root.nodes[nodeId]!
-        const worker = this.connectedPlacementWorker(backend, workerName)
-        return worker !== undefined && (
-          node.region !== undefined || (
-            subgraphDefIdOf(node.type) === undefined && worker.routedNodeTypes.includes(node.type)
-          )
-        )
-      })
-  }
-
-  private placementStillAvailable(
-    tab: Tab,
-    backend: Backend,
-    compiledDocument: WorkflowDocument,
-    placement: Readonly<Record<string, string>>,
-    diagnostics: readonly Diagnostic[],
-  ): boolean {
-    if (this.placementIsCurrent(tab, backend, compiledDocument, placement)) return true
-    if (this.tabs.get().includes(tab)) {
-      this.refuseQueue(tab, [
-        ...diagnostics,
-        diag(
-          'error',
-          'compile',
-          'submit.workerUnavailable',
-          'worker placement is no longer available; choose Run on machine again',
-        ),
-      ])
-    }
-    return false
-  }
-
-  async queueOnWorker(tab: Tab, nodeIds: readonly string[], workerName: string): Promise<void> {
-    if (tab.execution || currentGraphId(tab) !== tab.store.doc.root) return
-    const graph = tab.store.doc.graphs[tab.store.doc.root]
-    const selected = graph === undefined ? [] : [...new Set(nodeIds)].flatMap((nodeId) => {
-      if (!Object.hasOwn(graph.nodes, nodeId)) return []
-      const node = graph.nodes[nodeId]!
-      return node !== undefined && (node.region !== undefined || subgraphDefIdOf(node.type) === undefined)
-        ? [node]
-        : []
-    })
-    const backend = this.backendForTab(tab)
-    const worker = this.connectedPlacementWorker(backend, workerName)
-    const routed = new Set(worker?.routedNodeTypes ?? [])
-    const unroutable = selected.filter((node) => node.region === undefined && !routed.has(node.type))
-    if (selected.length === 0 || worker?.status !== 'connected' || unroutable.length > 0) {
-      this.refuseQueue(tab, [diag(
-        'error',
-        'compile',
-        'submit.workerUnavailable',
-        selected.length === 0
-          ? 'Run on machine requires at least one ordinary root node or region'
-          : worker?.status !== 'connected'
-            ? `worker '${workerName}' is not connected`
-            : `worker '${workerName}' does not route every selected node type`,
-      )])
-      return
-    }
-    const placement = Object.fromEntries(selected.map((node) => [node.id, workerName]))
-    await this.queue(tab, { kind: 'full' }, selected.map((node) => node.id), placement)
-  }
-
   private refuseQueue(tab: Tab, diagnostics: readonly Diagnostic[]): void {
     this.replaceProblems(tab.id, diagnostics)
     this.queueRefusal.set(tab)
@@ -11217,7 +11193,6 @@ export class AppState {
     tab: Tab,
     scope: ExecutionScope = { kind: 'full' },
     requiredRootNodes: readonly string[] = [],
-    placement?: Readonly<Record<string, string>>,
   ): Promise<void> {
     if (this.disposed || tab.execution) return // frozen views never queue
     this.queueRefusal.set(undefined)
@@ -11233,10 +11208,9 @@ export class AppState {
     // different document lineage session - it must not queue, and its late
     // results must not touch the replacement's Problems entries.
     if (!this.tabs.get().includes(tab)) return
-    const requestedPlacement = placement === undefined ? undefined : { ...placement }
     let compiledDocument = tab.store.doc
     const registry = this.registryForTab(tab)
-    let result = this.compileTab(tab, scope, undefined, requestedPlacement)
+    let result = this.compileTab(tab, scope)
     if (!result || !registry) return
     if (!result.ok) {
       // Queueing refreshes THIS tab's Problems entries (compile results
@@ -11290,7 +11264,7 @@ export class AppState {
       }
       if (capturedDocument !== compiledDocument) {
         compiledDocument = capturedDocument
-        result = this.compileTab(tab, scope, choices, requestedPlacement)
+        result = this.compileTab(tab, scope, choices)
         if (result === undefined || lease.signal.aborted) return
         if (!result.ok) {
           this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))
@@ -11346,18 +11320,10 @@ export class AppState {
       // stay on the zero-work fast path. Never send the captured artifact
       // once the current document has entered the unsupported combination.
       if (this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument)) return
-      if (requestedPlacement !== undefined && !this.placementStillAvailable(
-        tab,
-        backend,
-        compiledDocument,
-        requestedPlacement,
-        result.artifact.diagnostics,
-      )) return
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
         ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
-        ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
         // Overrides come from the artifact snapshot (the exact document
         // that compiled), layered global < workflow < node.
         previews: resolvePreviewPolicy(
@@ -11382,7 +11348,6 @@ export class AppState {
             scope,
             compiledDocument,
             backend,
-            requestedPlacement,
             sourceDocument,
             lease,
           )
@@ -11456,7 +11421,6 @@ export class AppState {
     scope: ExecutionScope,
     compiledDocument: WorkflowDocument,
     backend: Backend,
-    placement: Readonly<Record<string, string>> | undefined,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
@@ -11478,19 +11442,12 @@ export class AppState {
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply
-      // the same document and placement safety gates before every retry stage.
+      // the same document safety gates before every retry stage.
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
         this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
         (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
-        !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument) &&
-        (placement === undefined || this.placementStillAvailable(
-          tab,
-          backend,
-          compiledDocument,
-          placement,
-          artifact.diagnostics,
-        )),
+        !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument),
       onSubmitted: (ok) => {
         if (this.disposed) return
         this.installRun(ok.execution, artifact, plan, undefined, {
@@ -11729,6 +11686,23 @@ export class AppState {
     }
     const lineage = tab.store.doc.lineage
     return this.executionList().filter((state) => state.artifact?.snapshot.lineage === lineage)
+  }
+
+  private lastEndedExecutionForTab(tab: Tab): ExecutionState | undefined {
+    return this.executionsForTab(tab)
+      .filter((run) => run.status !== 'queued' && run.status !== 'running')
+      .sort((a, b) => (b.endedAt ?? b.queuedAt) - (a.endedAt ?? a.queuedAt))[0]
+  }
+
+  tabRunState(tab: Tab): 'idle' | 'queued' | 'running' | 'finished' | 'failed' {
+    const runs = this.executionsForTab(tab)
+    if (runs.some((run) => run.status === 'running')) return 'running'
+    if (runs.some((run) => run.status === 'queued')) return 'queued'
+    const latest = this.lastEndedExecutionForTab(tab)
+    if (latest === undefined || this.clearedTabResults.get().get(tab.id) === latest.key) return 'idle'
+    if (latest.status === 'completed') return 'finished'
+    if (latest.status === 'error' || latest.status === 'interrupted') return 'failed'
+    return 'idle'
   }
 
   /**

@@ -824,16 +824,18 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
   let pattern: CanvasPattern | null | undefined
   let patternSpacing = 0
   let patternPixels = 0
+  let patternColor = ''
   return {
     id: 'core.canvas.grid',
     position: 'background',
     order: -1000,
-    draw: ({ context, viewport }) => {
+    draw: ({ context, viewport, colors }) => {
+      const gridDot = colors?.gridDot ?? tokens.colors.gridDot
       const paint = canvasPaintTokens.grid
       let spacing: number = paint.spacing
       while (spacing * viewport.scale < paint.minScreenSpacing) spacing *= 2
       const pixels = Math.max(1, Math.ceil(spacing * viewport.scale * (globalThis.devicePixelRatio ?? 1)))
-      if (pattern === undefined || spacing !== patternSpacing || pixels !== patternPixels) {
+      if (pattern === undefined || spacing !== patternSpacing || pixels !== patternPixels || gridDot !== patternColor) {
         const tile = typeof OffscreenCanvas === 'undefined'
           ? context.canvas.ownerDocument.createElement('canvas')
           : new OffscreenCanvas(pixels, pixels)
@@ -847,12 +849,13 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
           ctx.moveTo(x + paint.dotRadius, y)
           ctx.arc(x, y, paint.dotRadius, 0, Math.PI * 2)
         }
-        ctx.fillStyle = tokens.colors.gridDot
+        ctx.fillStyle = gridDot
         ctx.fill()
         pattern = context.createPattern(tile, 'repeat')
         pattern?.setTransform({ a: 1 / density, d: 1 / density })
         patternSpacing = spacing
         patternPixels = pixels
+        patternColor = gridDot
       }
       if (!pattern) return
       context.fillStyle = pattern
@@ -1096,7 +1099,7 @@ export class CanvasRenderer {
   }
 
   setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
-    this.tokens = { ...this.tokens, ...typePaint, colors }
+    this.tokens = { ...this.tokens, ...typePaint, colors, stateColors: { ...this.tokens.stateColors, pending: colors.pendingOutline, skipped: colors.skippedOutline } }
     this.previewChecker = undefined
     this.invalidate()
   }
@@ -2616,6 +2619,7 @@ export class CanvasRenderer {
     if (layers.length === 0) return
     const input = Object.freeze({
       context,
+      colors: this.tokens.colors,
       viewport: Object.freeze({ x: viewport.x, y: viewport.y, width: viewport.w, height: viewport.h, scale }),
       nodes: this.canvasLayerNodes,
     })

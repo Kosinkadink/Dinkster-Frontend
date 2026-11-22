@@ -123,7 +123,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab, type WorkerCatalogState } from './app-state.js'
+import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -273,62 +273,6 @@ export function lazyInactiveSceneNodes(args: {
 }): ReadonlySet<string> | undefined {
   if (args.frozen || !args.closure || !args.instancePath) return undefined
   return inactiveSceneNodesFor(args.closure.inactiveExclusive, args.instancePath)
-}
-
-export function runOnMachineMenuGroup(args: {
-  readonly document: WorkflowDocument
-  readonly graphId: string
-  readonly nodeIds: readonly string[]
-  readonly catalog: WorkerCatalogState
-  readonly frozen: boolean
-}): ResolvedMenuGroup | undefined {
-  if (args.frozen || args.graphId !== args.document.root) return undefined
-  const graph = args.document.graphs[args.graphId]
-  const nodes = graph === undefined ? [] : [...new Set(args.nodeIds)].flatMap((nodeId) => {
-    if (!Object.hasOwn(graph.nodes, nodeId)) return []
-    const node = graph.nodes[nodeId]!
-    return node !== undefined && (node.region !== undefined || subgraphDefIdOf(node.type) === undefined)
-      ? [node]
-      : []
-  })
-  const catalog = args.catalog
-  if (nodes.length === 0 || catalog.status === 'unsupported') return undefined
-  const unavailable = catalog.status === 'ready'
-    ? (catalog.workers.length === 0 ? 'No machines configured' : undefined)
-    : catalog.status === 'loading'
-      ? 'Loading machines...'
-      : 'Machines unavailable'
-  const children: readonly MenuActionItem[] = catalog.status === 'ready'
-    ? catalog.workers.map((worker) => {
-        const routed = new Set(worker.routedNodeTypes)
-        const routeMismatch = nodes.some((node) => node.region === undefined && !routed.has(node.type))
-        const disabled = worker.status !== 'connected' || routeMismatch
-        return {
-          id: `core.node.runOnMachine.${worker.name}`,
-          label: `${worker.name} - ${worker.status}`,
-          ...(disabled
-            ? {
-                disabled: true,
-                ...(worker.status === 'connected' ? { hint: 'Missing selected node type' } : {}),
-              }
-            : {}),
-          action: {
-            kind: 'host' as const,
-            action: 'runOnMachine',
-            params: { worker: worker.name, nodeIds: nodes.map((node) => node.id) },
-          },
-        }
-      })
-    : []
-  return {
-    group: '16-run-location',
-    items: [{
-      id: 'core.node.runOnMachine',
-      label: 'Run on machine',
-      ...(unavailable !== undefined ? { disabled: true, hint: unavailable } : {}),
-      children,
-    }],
-  }
 }
 
 let clipboardFallback: string | undefined
@@ -2323,7 +2267,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly pathKey: string
     documentRevision: number
     readonly schemaRegistry: ReturnType<AppState['registryForTab']>
-    readonly workerCatalog: WorkerCatalogState
     readonly extensionsGeneration: number
   }
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
@@ -2331,17 +2274,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   createEffect(on(selectionScopesChanged, () => refreshMenuScopes?.(), { defer: true }))
   const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
   createEffect(() => { appViewEnabled(); setMenu(undefined) })
-  const workerCatalog = (): WorkerCatalogState | undefined => {
-    backendsTick()
-    tabTargets()
-    const tab = activeTab()
-    return tab === undefined ? undefined : props.app.backendForTab(tab).workerCatalog.get()
-  }
-  createEffect(() => {
-    const current = workerCatalog()
-    const open = untrack(menu)
-    if (open !== undefined && open.workerCatalog !== current) setMenu(undefined)
-  })
   /** Set in onMount; invoking needs the controller + renderer closures. */
   let menuInvoke: (item: MenuActionItem) => void = () => {}
 
@@ -2953,14 +2885,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const menuNodeIds = target.kind === 'node'
         ? (ctx.selection.nodes.includes(target.nodeId) ? ctx.selection.nodes : [target.nodeId])
         : []
-      const menuWorkerCatalog = props.app.backendForTab(tab).workerCatalog.get()
-      const placementGroup = runOnMachineMenuGroup({
-        document: tab.store.doc,
-        graphId: currentGraphId(tab),
-        nodeIds: menuNodeIds,
-        catalog: menuWorkerCatalog,
-        frozen: tab.execution !== undefined,
-      })
       const scopes = menuNodeIds.length > 0
         ? props.app.previewSelectionExecutionScopes(tab, menuNodeIds)
         : undefined
@@ -2992,7 +2916,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             },
           ],
         }),
-        ...(placementGroup === undefined ? [] : [placementGroup]),
         ...additionalGroups,
       ]
       const submenu = submenuId === undefined
@@ -3012,7 +2935,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         x: worldX * vp.scale + vp.x, y: worldY * vp.scale + vp.y, worldX, worldY, groups,
         tab, graphId: currentGraphId(tab), pathKey: (viewInstancePath(tab) ?? []).join('/'),
         documentRevision: tab.store.revision, schemaRegistry: menuRegistry,
-        workerCatalog: menuWorkerCatalog,
         extensionsGeneration: props.app.extensions.changed.get(),
       })
       const opened = menu()
@@ -3216,7 +3138,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           x: worldX * vp.scale + vp.x, y: worldY * vp.scale + vp.y + 6, worldX, worldY, groups,
           tab, graphId: currentGraphId(tab), pathKey: (viewInstancePath(tab) ?? []).join('/'),
           documentRevision: tab.store.revision, schemaRegistry: registry(),
-          workerCatalog: props.app.backendForTab(tab).workerCatalog.get(),
           extensionsGeneration: props.app.extensions.changed.get(),
         })
       },
@@ -3796,13 +3717,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       extractSubgraph: () => { beginExtractSubgraph() },
       flattenSubgraph: () => { flattenSelectedSubgraph() },
-      runOnMachine: (params, m) => {
-        if (!params || typeof params !== 'object' || Array.isArray(params)) return
-        const worker = (params as JsonObject)['worker']
-        const nodeIds = (params as JsonObject)['nodeIds']
-        if (typeof worker !== 'string' || !Array.isArray(nodeIds) || !nodeIds.every((id) => typeof id === 'string')) return
-        void props.app.queueOnWorker(m.tab, nodeIds, worker)
-      },
       openPalette: (_params, m) => openPaletteAt(m.worldX, m.worldY),
       deleteSelection: () => deleteSelection(),
       queueSelection: (params) => {
