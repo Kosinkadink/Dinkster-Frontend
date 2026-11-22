@@ -79,7 +79,7 @@ describe('graph navigation helpers', () => {
     const dispatch = app.dispatchTo.bind(app)
     let settle!: () => void
     // Only the creation is held; the start-choice pass a new tab runs goes straight through.
-    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => invocation.command === 'dynamic.storeStartChoices'
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => invocation.command === 'dynamic.storeStartState'
       ? dispatch(owner, invocation)
       : new Promise((resolve) => {
         const outcome = Promise.resolve(dispatch(owner, invocation))

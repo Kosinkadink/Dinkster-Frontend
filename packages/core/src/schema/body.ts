@@ -170,6 +170,40 @@ export function initialDynamicStateOf(schema: NodeSchema): Record<string, { read
   return state
 }
 
+/**
+ * Every group and choice a node can hold, by flattened id: through every
+ * option and variant, and into the members the node stores. A choice placed
+ * by `Use` is as the chosen option places it, else as the first option that
+ * does.
+ */
+export function constructsOf(
+  schema: NodeSchema,
+  dynamic: Readonly<Record<string, { readonly selected?: string; readonly members?: readonly string[] }>> | undefined,
+): ReadonlyMap<string, GroupSpec | ChoiceSpec> {
+  const found = new Map<string, GroupSpec | ChoiceSpec>()
+  const visit = (rows: readonly OptionRow[], prefix: string, shared?: ReadonlyMap<string, BodyRow>): void => {
+    for (const raw of scopeRowsOf(rows)) {
+      const row = raw.kind === 'use' ? (shared?.get(raw.id) === undefined ? undefined : applyUse(shared.get(raw.id)!, raw)) : raw
+      if (row === undefined || row.kind === 'row') continue
+      const path = prefix + row.id
+      if (row.kind === 'group') {
+        if (!found.has(path)) found.set(path, row)
+        if (row.member !== undefined) for (const key of dynamic?.[path]?.members ?? []) visit(row.member, `${path}.${key}.`)
+      } else if (row.kind === 'choice') {
+        if (!found.has(path)) found.set(path, row)
+        const placed = new Map(row.shared.map((item) => [(item as { id: string }).id, item]))
+        const selected = dynamic?.[path]?.selected
+        const options = [...row.options].sort((a, b) => Number(b.key === selected) - Number(a.key === selected))
+        for (const option of options) visit(option.rows, `${path}.`, placed)
+      } else if (row.kind === 'typeChoice') {
+        visit([...row.rows, ...(row.variants ?? []).flatMap((variant) => variant.rows)], `${path}.`)
+      }
+    }
+  }
+  visit(schema.body, '')
+  return found
+}
+
 // ---------------------------------------------------------------------------
 // A shared row placed under one option
 

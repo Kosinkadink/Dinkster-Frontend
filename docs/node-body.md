@@ -87,18 +87,31 @@ it, including a led choice or one with nothing stored yet. A field with
 nothing stored reads its default, also under the chosen option, in a stored
 member, or where a `Use` gives it another default.
 
-A new node stores the first `minMembers` members of every group that grows by
-link, filled field or button. Members the node shows but does not store (up
-to the minimum, and the spare) are drawn and never compiled; connecting or
-editing one stores it in the same undo step (`dynamic.materialize`). A run
-refuses a group with required rows and fewer stored members than its minimum
-(`elab.autogrow.underMin`); such a document still opens and can be edited.
-With `optionalAfterMinimum`, member rows past the minimum are optional.
+A group that grows by link, filled field or button has its first
+`minMembers` members stored whenever it is part of the node: on a new node,
+and at the moments a required choice's start key is stored (below). Members
+already stored keep their order and the missing ones follow with the keys Add
+would give. The spare member the node shows is drawn and never compiled;
+connecting or editing it stores it in the same undo step
+(`dynamic.materialize`). A run refuses a group with required rows and fewer
+stored members than its minimum (`elab.autogrow.underMin`); such a document
+still opens and can be edited. With `optionalAfterMinimum`, member rows past
+the minimum are optional.
 
 Disconnecting, rewiring away, deleting a link or deleting its source removes
-members that no longer hold a value, link, boundary binding or nested choice
-or member, in the same undo step (`dynamic.compact`). Paste does the same.
-**Remove unused dynamic inputs** in the node context menu compacts on demand.
+members the user no longer uses, in the same undo step (`dynamic.compact`).
+Paste does the same. **Remove unused dynamic inputs** in the node context menu
+compacts on demand. A member is in use when it holds a value, a link, a
+boundary binding, an optional choice's key, a required choice's key other
+than its start key, or a nested member in use. A group that grows by hand
+keeps its first unused members up to its minimum. Everything stored under a
+removed member goes with it, nested `seq` too; the group's own `seq` stays so
+a removed key is never handed out again.
+
+When a count shrinks, what its later members stored stays and returns when
+the count grows. Those members are not part of the node or a run, and
+retention reads their stored state as it reads an option that is not chosen,
+for any key the group's naming can make up to its limit.
 Connected member sockets keep a hollow center (see
 [Optional outputs](optional-outputs.md)).
 
@@ -114,19 +127,20 @@ one of its sections, and may override the row's label, tooltip, field,
 default or whether it is required; an overriding field is checked against the
 shared row's type. Shared rows hold values: a Section, Row, Note, Button or
 Editor there is refused at load. Different options may each hold a section,
-note, button or editor with one id, since only one option shows. Without a leader it draws a dropdown of its options; changing
-it stores the new key (`dynamic.selectOption`) as one undo step. A choice
-with a leader formula has no dropdown: the formula over stored values and
-link state gives the key.
+note, button or editor with one id, since only one option shows. Without a
+leader it draws a dropdown of its options; changing it stores the new key
+(`dynamic.selectOption`) as one undo step. A choice with a leader formula has
+no dropdown: the formula over stored values and link state gives the key.
 
 A required choice always has a stored key. A new node stores its start key
-(its `default`, else its first option), and the editor stores it when a
-command touches the node or when an opened document meets its schemas
-(`dynamic.storeStartChoices`). A run never makes one up: a required choice
-without a stored key is refused (`prompt.missing_dynamic_choice`), and a
-document holding one still opens, with incomplete retained ownership until the
-key is stored. An optional choice starts on none, which shows no option's
-rows, and may not declare a default.
+(its `default`, else its first option), and the editor stores it, with the
+minimum members of groups the node now holds, when a command touches the
+node or when an opened document meets its schemas (`dynamic.storeStartState`).
+A run never makes one up: a required choice without a stored key is refused
+(`prompt.missing_dynamic_choice`), and a document holding one still opens,
+with incomplete retained ownership until the key is stored. An optional
+choice starts on none, which shows no option's rows, and may not declare a
+default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
 

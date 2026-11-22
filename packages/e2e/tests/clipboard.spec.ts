@@ -93,7 +93,7 @@ test('pasting a dynamic node removes unused members without recycling identity',
         kind: 'group', id: 'values',
         value: { kind: 'input', id: 'value', type: scalar, optional: false },
         keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
-        grows: 'link', minMembers: 1, maxMembers: 10,
+        grows: 'link', minMembers: 0, maxMembers: 10,
       }],
     }] as never)
     await app.openDocument({
@@ -136,7 +136,7 @@ test('pasting a dynamic node removes unused members without recycling identity',
     original: { values: { members: ['value4'], seq: 4 } },
     pasted: 'n10',
     dynamic: { values: { seq: 4 } },
-    // The group's one minimum member is offered past the counter, never value4 again.
+    // The spare member is offered past the counter, never value4 again.
     members: [
       { id: 'values.value5', ghost: true, familyMember: true, optional: true },
     ],

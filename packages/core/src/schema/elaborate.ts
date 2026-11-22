@@ -276,6 +276,11 @@ export interface ElaboratedInterface {
    * leader, with the start key the node shows for each (view mode only).
    */
   readonly unstoredChoices?: Readonly<Record<string, string>>
+  /**
+   * Groups that grow by hand and take part in the node with fewer stored
+   * members than their minimum, with the members that reach it (view mode only).
+   */
+  readonly unstoredMinimums?: Readonly<Record<string, MaterializeFrame>>
   /** Flattened id of every group, choice and type choice the node holds (not offered members). */
   readonly constructs: readonly string[]
   readonly diagnostics: readonly Diagnostic[]
@@ -488,6 +493,7 @@ function elaboratePass(
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
+  const unstoredMinimums: Record<string, MaterializeFrame> = {}
   const constructs = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
@@ -962,7 +968,7 @@ function elaboratePass(
     })
 
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
-    const member = (position: number, key: string, ghost: boolean): boolean => {
+    const member = (position: number, key: string, ghost: boolean, dormant = false): boolean => {
       membersVisited++
       const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
@@ -971,6 +977,7 @@ function elaboratePass(
         ...scope,
         required,
         ghost: scope.ghost || ghost,
+        dormant: scope.dormant || dormant,
         origin: { kind: 'member', construct: path, ordinal: position, key, ...(ghost ? { ghost: true } : {}) },
         ancestry: [...scope.ancestry, {
           construct: path,
@@ -1020,6 +1027,21 @@ function elaboratePass(
       if (halted) return
       if (!member(position, key, false)) allUsed = false
     }
+    // A count that shrank leaves its later members stored: the census reads
+    // them as dormant, as it reads an option that is not chosen.
+    if (census && typeof grows === 'object' && 'count' in grows) {
+      const later = new Map<number, string>()
+      for (const stored of [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]) {
+        if (!stored.startsWith(`${path}.`)) continue
+        const key = stored.slice(path.length + 1).split('.')[0]!
+        const position = keyPosition(row.keys, key)
+        if (position !== undefined && position >= keys.length && position < limit) later.set(position, key)
+      }
+      for (const [position, key] of [...later.entries()].sort(([a], [b]) => a - b)) {
+        if (halted) return
+        member(position, key, false, true)
+      }
+    }
 
     // Members the node offers beyond the stored ones: up to the minimum, and
     // one spare once every member of a group that grows by link or by a
@@ -1033,6 +1055,9 @@ function elaboratePass(
       if (key === undefined) break
       offered.push(key)
     }
+    // A member the node always shows is not the user's to add: the editor stores it.
+    const missing = Math.min(row.minMembers, storedCount + offered.length) - storedCount
+    if (!scope.ghost && missing > 0) unstoredMinimums[path] = frameFor(offered.slice(0, missing))
     if (membersVisited + offered.length > budget.maxMembers) {
       exhaust('elab.budget.members', `group members exceed ${budget.maxMembers}; elaboration stopped`)
       return
@@ -1088,7 +1113,7 @@ function elaboratePass(
       key = storedKey
     } else if (row.required && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
-      // (storeStartChoices); a run never makes one up.
+      // (storeStartState); a run never makes one up.
       report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
@@ -1375,6 +1400,7 @@ function elaboratePass(
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
+    ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
     diagnostics,
   }

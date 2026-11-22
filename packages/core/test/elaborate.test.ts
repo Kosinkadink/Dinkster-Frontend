@@ -946,6 +946,23 @@ describe('formulas', () => {
     expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'a' }, 'c.g': { members: ['1', '2'] } }))
       .toEqual(['o.1', 'o.2', 'p.1', 'p.2', 'p.3', 'p.4', 'p.5'])
   })
+
+  it('censuses what a member past a shrunk count stored, up to the limit the keys allow', () => {
+    const body = [
+      { kind: 'input', id: 'n', type: int, pin: false, default: 2 },
+      { kind: 'group', id: 'g', grows: { count: 'n' }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 4,
+        member: [{ kind: 'choice', id: 'c', options: [{ key: 'x', rows: [] }, { key: 'y', rows: [] }] }] },
+    ]
+    const { schema } = parseDinksterSchema('Shrunk', { body } as never)
+    const census = (dynamic: Record<string, unknown>) => elaborateInterface(schema!, { values: { n: 2 }, dynamic } as never,
+      EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics.map((diagnostic) => diagnostic.message)
+    const start = { 'g.1.c': { selected: 'x' }, 'g.2.c': { selected: 'x' } }
+    expect(census({ ...start, 'g.4.c': { selected: 'y' } })).toEqual([])
+    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.5.c'"])
+    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.z.c'"])
+    const active = elaborateInterface(schema!, { values: { n: 2 }, dynamic: { ...start, 'g.4.c': { selected: 'y' } } } as never)
+    expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['n', 'g.1.c', 'g.2.c'])
+  })
 })
 
 describe('buildGraphConnectivity', () => {

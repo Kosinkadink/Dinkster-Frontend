@@ -24,8 +24,10 @@ import { resolveDynamicAddress } from '../format/document.js'
 import type { CommandDefinition } from './contract.js'
 import { isPortEndpoint, MAX_MEMBER_ORDINAL } from '../ids.js'
 import { DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
+import { constructsOf } from '../schema/body.js'
+import type { ChoiceSpec, GroupSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
-import { allNodesOf, storeStartChoices } from './start-choices.js'
+import { allNodesOf, storeStartState } from './start-state.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -321,26 +323,40 @@ const portIsWithin = (port: string, construct: string): boolean =>
   port === construct || port.startsWith(`${construct}.`)
 
 /**
- * Drop every member of every group that no reference names. Each group's
- * state sits at its flattened id, so a reference keeps a member when the
- * reference's group is this group or lies within it and the reference names
- * that member key.
+ * Drop every member of every group that no reference names, and everything
+ * stored under it. Each group's state sits at its flattened id, so a
+ * reference keeps a member when the reference's group is this group or lies
+ * within it and the reference names that member key. A group that grows by
+ * hand keeps its first unused members up to its minimum.
  */
 function compactScope(
   scope: Readonly<Record<string, DynamicPortState>>,
   references: readonly MemberReference[],
+  constructs: ReadonlyMap<string, GroupSpec | ChoiceSpec> | undefined,
 ): Record<string, DynamicPortState> {
   const result: Record<string, DynamicPortState> = {}
+  const removed: string[] = []
   for (const [construct, state] of Object.entries(scope)) {
     if (state.members === undefined) {
       result[construct] = state
       continue
     }
 
+    const kept = new Set(state.members.filter((member) =>
+      references.some((ref) => portIsWithin(ref.construct, construct) && ref.member === member)))
+    const group = constructs?.get(construct)
+    const minimum = group?.kind === 'group' && typeof group.grows === 'string' ? group.minMembers : 0
+    for (const member of state.members) {
+      if (kept.size >= minimum) break
+      kept.add(member)
+    }
     const members: string[] = []
     const memberLabels: Record<string, string> = {}
     for (const member of state.members) {
-      if (!references.some((ref) => portIsWithin(ref.construct, construct) && ref.member === member)) continue
+      if (!kept.has(member)) {
+        removed.push(`${construct}.${member}.`)
+        continue
+      }
       members.push(member)
       if (state.memberLabels?.[member] !== undefined) memberLabels[member] = state.memberLabels[member]!
     }
@@ -356,12 +372,15 @@ function compactScope(
       ...(Object.keys(memberLabels).length > 0 ? { memberLabels } : {}),
     }
   }
+  for (const construct of Object.keys(result)) {
+    if (removed.some((prefix) => construct.startsWith(prefix))) delete result[construct]
+  }
   return result
 }
 
 const dynamicCompact: CommandDefinition = {
   id: 'dynamic.compact',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string')
       return [err('params.invalid', 'dynamic.compact: params must be {graphId, nodeId}')]
     const def = graphOf(doc, params.graphId)
@@ -442,13 +461,19 @@ const dynamicCompact: CommandDefinition = {
     }
     // A chosen key or an authored menu stored at a flattened id under a
     // member is member-owned evidence even when no link or value is present,
-    // so retain every group it lies within.
+    // so retain every group it lies within. A required choice on its start
+    // key is what adding the member would give again, so it is not use.
+    const schema = context.kind === 'initial' ? context.schemaResolverFor?.(doc)?.(node.type) : undefined
+    const constructs = schema === undefined ? undefined : constructsOf(schema, node.dynamic)
     for (const [key, state] of Object.entries(node.dynamic)) {
       if (state.selected === undefined && state.options === undefined) continue
+      const choice = constructs?.get(key)
+      if (state.options === undefined && choice?.kind === 'choice' && choice.required && choice.leader === undefined &&
+        state.selected === (choice.default ?? choice.options[0]?.key)) continue
       const resolved = resolveDynamicAddress({ port: key }, node.dynamic)
       if (resolved.kind === 'resolved') references.push(...resolved.references)
     }
-    const next = compactScope(node.dynamic, references)
+    const next = compactScope(node.dynamic, references, constructs)
     if (JSON.stringify(next) === JSON.stringify(node.dynamic)) return []
     tx.set(['graphs', params.graphId, 'nodes', params.nodeId, 'dynamic'], next as unknown as Json)
     return []
@@ -456,15 +481,16 @@ const dynamicCompact: CommandDefinition = {
 }
 
 /**
- * dynamic.storeStartChoices {}: store the start key of every required choice
- * in the document that has nothing stored. Run when a document meets its
+ * dynamic.storeStartState {}: store the start key of every required choice,
+ * and the minimum members of every group that grows by hand, in the
+ * document that has nothing stored. Run when a document meets its
  * schemas; every other command does this for the nodes it changes.
  */
-const dynamicStoreStartChoices: CommandDefinition = {
-  id: 'dynamic.storeStartChoices',
+const dynamicStoreStartState: CommandDefinition = {
+  id: 'dynamic.storeStartState',
   run(doc, _params, tx, context) {
     const resolve = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
-    if (resolve !== undefined) storeStartChoices(tx, resolve, allNodesOf(doc))
+    if (resolve !== undefined) storeStartState(tx, resolve, allNodesOf(doc))
     return []
   },
 }
@@ -477,5 +503,5 @@ export const DYNAMIC_COMMANDS: readonly CommandDefinition[] = [
   dynamicLabelMembers,
   dynamicSpecializeSlot,
   dynamicCompact,
-  dynamicStoreStartChoices,
+  dynamicStoreStartState,
 ]
