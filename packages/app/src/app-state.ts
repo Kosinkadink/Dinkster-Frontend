@@ -6202,7 +6202,7 @@ export class AppState {
     })
   }
 
-  private async adjustRemovedPartsOnOpen(tab: Tab): Promise<void> {
+  private adjustRemovedPartsOnOpen(tab: Tab): Promise<void> | undefined {
     const registry = this.registryForTab(tab)
     if (registry === undefined) return
     const document = tab.store.doc
@@ -6242,13 +6242,14 @@ export class AppState {
           ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
         }))
     }
-    if (invocations.length > 0 && !(await this.dispatchTo(tab,
-      { command: 'batch', params: { invocations } as unknown as Json })).ok) return
-    if (this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+    if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
+      { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
+        if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+      })
+    if (entries.length > 0 && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
   }
 
-  private async upgradeOnOpen(tab: Tab): Promise<void> {
-    await this.adjustRemovedPartsOnOpen(tab)
+  private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.reviewReplacements.get()) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
     if (items.length === 0) return
@@ -6327,7 +6328,12 @@ export class AppState {
       this.schemaDiagnosticsPending.delete(tab.id)
       this.reportEnvironmentDrift(tab)
       const store = tab.store
-      const upgrade = this.upgradeOnOpen(tab)
+      const adjustment = this.adjustRemovedPartsOnOpen(tab)
+      const upgrade = adjustment === undefined
+        ? this.upgradeOnOpen(tab)
+        : adjustment.then(() => {
+          if (this.tabs.get().includes(tab) && tab.store === store) return this.upgradeOnOpen(tab)
+        })
       if (upgrade === undefined) this.reportUnresolvedTypes(tab)
       else void upgrade.then(() => {
         if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
