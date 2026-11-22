@@ -33,9 +33,11 @@ describe('rowPlacement', () => {
       .toMatchObject({ place: 'right', sideTop: 19 })
   })
 
-  it('takes the visible height and scrolls when it is taller than the canvas', () => {
+  it('goes under or over the field and scrolls when it is taller than the canvas', () => {
+    // The canvas runs from 20 above the field's top to 70 below it: 50 under
+    // the 20 px field, 20 over it. Beside the node there is room in width.
     const placed = rowPlacement(row, at(1), { x: 0, y: 380, width: 800, height: 90 }, { width: 200, height: 300 })
-    expect(placed).toMatchObject({ place: 'right', sideTop: -20, sideMaxHeight: 90 })
+    expect(placed).toMatchObject({ place: 'below-field', sideTop: 20, sideMaxHeight: 50 })
   })
 
   it('goes under the node, or above it when there is no room below', () => {
@@ -68,12 +70,6 @@ describe('rowPlacement', () => {
       .toMatchObject({ place: 'below-field', sideTop: 20 })
     expect(rowPlacement(row, at(1), { x: 0, y: 260, width: 200, height: 270 }, { width: 200, height: 120 }))
       .toMatchObject({ place: 'above-field', sideTop: -120 })
-  })
-
-  it('shows at least its first three lines when it scrolls', () => {
-    // 50 px over the field and 20 under it; the first three lines need 60.
-    expect(rowPlacement(row, at(0.5), { x: 0, y: 150, width: 800, height: 90 }, { width: 100, height: 400, lead: 60 }))
-      .toMatchObject({ place: 'above-field', sideTop: -60, sideMaxHeight: 60 })
   })
 
   it('scrolls on the side with more room when it fits neither under nor over', () => {

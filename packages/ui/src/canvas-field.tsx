@@ -43,11 +43,10 @@ export interface CanvasSideLayout {
   readonly sideMaxHeight?: number
 }
 
-/** A side part's size at normal size, and the height of its first three lines. */
+/** A side part's size at normal size. */
 export interface CanvasSideSize {
   readonly width: number
   readonly height: number
-  readonly lead?: number
 }
 
 /**
@@ -56,9 +55,10 @@ export interface CanvasSideSize {
  * the whole side part fits there. The places, in order: beside the node on
  * the right, then on the left, sliding up or down just far enough and still
  * touching the field's row; under the node; over the node; under the field;
- * over the field. Zoomed out, only the last two. A side part taller than
- * the visible canvas takes the height there is and scrolls, showing at
- * least its first three lines.
+ * over the field. Zoomed out, only the last two. When no place holds it
+ * whole, it goes under or over the field, where there is more room, takes
+ * the room there is and scrolls. It never covers its field and never runs
+ * past an edge of the visible canvas.
  *
  * `row` and `bounds` are screen boxes; `side` is at normal size.
  * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
@@ -78,11 +78,9 @@ export function canvasSideLayout(
   const top = (bounds.y - row.y) / zoom
   const bottom = (bounds.y + bounds.height - row.y) / zoom
   const fieldHeight = row.height / zoom
-  const tall = side.height > bottom - top
-  const lead = Math.min(side.height, side.lead ?? 0)
   const sideWidth = side.width * zoom
   const beside: CanvasSidePlace | undefined =
-    scale < 1
+    scale < 1 || side.height > bottom - top
       ? undefined
       : row.x + row.width + sideWidth <= bounds.x + bounds.width
         ? 'right'
@@ -90,16 +88,13 @@ export function canvasSideLayout(
           ? 'left'
           : undefined
   if (beside !== undefined) {
-    const height = tall ? Math.max(bottom - top, lead) : side.height
     // On the canvas, and still beside some of the row when the row itself
     // is partly off the canvas.
-    const onCanvas = Math.max(top, Math.min(0, bottom - height))
-    const sideTop = Math.min(Math.max(onCanvas, 1 - height), fieldHeight - 1)
-    return tall
-      ? { place: beside, sideTop, sideMaxHeight: height }
-      : { place: beside, sideTop }
+    const onCanvas = Math.max(top, Math.min(0, bottom - side.height))
+    const sideTop = Math.min(Math.max(onCanvas, 1 - side.height), fieldHeight - 1)
+    return { place: beside, sideTop }
   }
-  if (!tall && scale >= 1) {
+  if (scale >= 1) {
     if (nodeBelow + side.height <= bottom)
       return { place: 'below-node', sideTop: nodeBelow }
     if (-nodeAbove - side.height >= top)
@@ -117,10 +112,9 @@ export function canvasSideLayout(
     return {
       place: 'below-field',
       sideTop: fieldHeight,
-      sideMaxHeight: Math.max(roomBelow, lead),
+      sideMaxHeight: roomBelow,
     }
-  const height = Math.max(roomAbove, lead)
-  return { place: 'above-field', sideTop: -height, sideMaxHeight: height }
+  return { place: 'above-field', sideTop: -roomAbove, sideMaxHeight: roomAbove }
 }
 
 /**
@@ -305,12 +299,10 @@ function CanvasRowFrame(
     const whole = {
       width: size.width,
       height: side.scrollHeight + side.offsetHeight - side.clientHeight,
-      lead: leadHeight(side),
     }
     if (
       whole.width !== reported?.width ||
-      whole.height !== reported.height ||
-      whole.lead !== reported.lead
+      whole.height !== reported.height
     ) {
       reported = whole
       props.onSideSize?.(whole)
@@ -374,41 +366,6 @@ function CanvasRowFrame(
         <path d={outline()} />
       </svg>
     </div>
-  )
-}
-
-/**
- * The height of a side part's first three lines, with its padding and
- * border below them, at normal size. A line is a run of text or icons
- * that share a line on screen.
- */
-function leadHeight(side: HTMLElement): number {
-  const box = side.getBoundingClientRect()
-  // Zoomed in, the side part is drawn scaled.
-  const ratio = box.height / Math.max(1, side.offsetHeight) || 1
-  const rects: DOMRect[] = []
-  const walker = document.createTreeWalker(side, NodeFilter.SHOW_TEXT)
-  const range = document.createRange()
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!node.textContent?.trim()) continue
-    range.selectNodeContents(node)
-    rects.push(...Array.from(range.getClientRects()))
-  }
-  for (const icon of side.querySelectorAll('svg')) rects.push(icon.getBoundingClientRect())
-  const lines: { top: number; bottom: number }[] = []
-  for (const rect of rects.sort((a, b) => a.top - b.top)) {
-    const line = lines.find((item) => rect.top < item.bottom && rect.bottom > item.top)
-    if (line) line.bottom = Math.max(line.bottom, rect.bottom)
-    else lines.push({ top: rect.top, bottom: rect.bottom })
-  }
-  const third = lines.sort((a, b) => a.bottom - b.bottom)[2]
-  if (third === undefined) return side.offsetHeight
-  const style = getComputedStyle(side)
-  return Math.ceil(
-    (third.bottom - box.top) / ratio +
-      side.scrollTop +
-      parseFloat(style.paddingBottom) +
-      parseFloat(style.borderBottomWidth),
   )
 }
 

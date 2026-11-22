@@ -469,9 +469,10 @@ floating tools, and the canvas never moves for it. It takes the first of
 these places that holds it whole: beside the node on the right, then on the
 left, sliding up or down just far enough and still touching the field's row;
 under the node; over the node; under the field, over the node's lower rows;
-over the field. Zoomed out, only the last two. A side part taller than the
-visible canvas takes the height there is and scrolls, showing at least its
-first three lines.
+over the field. Zoomed out, only the last two. When no place holds it whole,
+it goes under or over the field, whichever has more room, takes the room
+there is and scrolls with its first lines in view. It never covers its field
+and never runs past an edge of the visible canvas.
 
 - Enter stores and keeps the keyboard on the row; Escape cancels and keeps it
   there too. Ctrl+Enter stores, then runs the workflow.
