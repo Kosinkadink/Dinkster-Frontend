@@ -175,7 +175,7 @@ function Gallery() {
                       segments={[
                         { label: 'Models', value: 9, tone: 'models' },
                         { label: 'Held, unused', value: 1, tone: 'held' },
-                        { label: 'Other programs', value: 2, tone: 'other' },
+                        { label: 'Other memory', value: 2, tone: 'other' },
                       ]}
                       samples={[
                         { timestamp: 10_000, used: 2 },
@@ -200,7 +200,7 @@ function Gallery() {
                 <ProductResourceUsage
                   label="Card reporting usage only"
                   total={16}
-                  segments={[{ label: 'In use', value: 5, tone: 'other' }]}
+                  segments={[{ label: 'Used', value: 5, tone: 'other' }]}
                   samples={[]}
                   now={120_000}
                   format={(value) => `${value.toFixed(1)} GB`}
