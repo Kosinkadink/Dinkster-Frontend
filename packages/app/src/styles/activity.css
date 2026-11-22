@@ -1,34 +1,3 @@
-.runs-panel { display: flex; flex-direction: column; gap: var(--dinkster-space-8); min-width: 0; }
-.runs-row, .runs-stored-row { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
-.runs-stored-row > p { margin: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
-.runs-stored-row > [role='status'] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.runs-row { padding: var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
-.runs-row[data-selected='true'] { border-color: var(--dinkster-border-focus); }
-.runs-row-heading { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
-.runs-row-heading > .product-button:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; justify-content: flex-start; }
-.runs-row-heading > span { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
-.runs-details { min-width: 0; order: 2; }
-.runs-details > summary { cursor: pointer; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
-.runs-details > :not(summary) { margin-top: var(--dinkster-space-8); }
-.outputs.runs-output-thumbnails { display: flex; align-items: stretch; min-width: 0; gap: var(--dinkster-space-4); }
-.runs-output-thumbnails .output-iteration-group, .runs-output-thumbnails .output-iteration-images { display: contents; }
-.runs-output-thumbnails .output-iteration-group > h3, .runs-output-thumbnails .output-thumbnail-position { display: none; }
-.runs-output-thumbnails [role='listitem'] { flex: 1; min-width: 0; max-width: 33%; }
-.runs-output-thumbnails .output-thumbnail { padding: 0; }
-.runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
-.runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
-.runs-panel .collection-entry { grid-template-columns: minmax(0, 1fr); }
-.runs-panel .collection-panel { flex: none; min-height: 16rem; }
-.runs-panel .collection-toolbar { flex-wrap: wrap; }
-.runs-panel .collection-content { display: block; }
-
-.problems-selection-control {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--dinkster-space-4);
-  white-space: nowrap;
-}
-
 .execution-activity-card {
   display: grid;
   gap: var(--dinkster-space-8);
@@ -337,8 +306,40 @@
   white-space: pre-wrap;
 }
 
-.problem-show-on-canvas {
+.problem-show-on-canvas,
+.problem-show-in-context {
   margin-top: 6px;
+}
+
+.problem-show-in-context {
+  margin-left: 6px;
+  user-select: none;
+}
+
+/* Context panel: the focused entity plus only its problems. */
+.context-panel .context-summary {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--dinkster-surface-raised);
+  border: 1px solid var(--dinkster-border-subtle);
+}
+
+.context-panel .context-kind {
+  display: block;
+  font-size: 12px;
+}
+
+.context-panel .context-entities {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.context-panel .context-entity-id {
+  color: var(--dinkster-text-secondary);
+  font-size: 11px;
 }
 
 .region-iteration-inspector {
@@ -429,6 +430,14 @@
 .region-iteration-value dd {
   min-width: 0;
   margin: 0;
+}
+
+.context-panel .context-problems-title {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 8px 0 4px;
+  font-size: 12px;
 }
 
 /* Panel attention badge (PanelIndicatorBadge): count with worst severity. */

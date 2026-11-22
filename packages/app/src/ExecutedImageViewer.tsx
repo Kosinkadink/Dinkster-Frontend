@@ -172,7 +172,6 @@ export function ExecutedImageViewer(props: {
   readonly images: readonly ExecutedImage[]
   readonly batch?: ExecutedImageBatch | undefined
   readonly initialIndex: number
-  readonly initialMode?: 'single' | 'grid'
   readonly provenance: ExecutionOutputProvenance
   readonly backendUrl?: string | undefined
   readonly onRequestClose: () => void
@@ -183,7 +182,7 @@ export function ExecutedImageViewer(props: {
   const imageAt = (index: number) => props.batch?.imageAt(index) ?? props.images[index]
   const [index, setIndex] = createSolidSignal(clamp(props.initialIndex, count()))
   const [rightIndex, setRightIndex] = createSolidSignal(clamp(props.initialIndex + 1, count()))
-  const [mode, setMode] = createSolidSignal<'single' | 'grid' | 'slider' | 'side-by-side'>(props.initialMode ?? 'single')
+  const [mode, setMode] = createSolidSignal<'single' | 'grid' | 'slider' | 'side-by-side'>('single')
   const [split, setSplit] = createSolidSignal(50)
   const [gridPage, setGridPage] = createSolidSignal(Math.floor(index() / 4))
   const gridImages = createMemo(() => Array.from({ length: Math.min(4, Math.max(0, count() - gridPage() * 4)) }, (_, slot) => {
