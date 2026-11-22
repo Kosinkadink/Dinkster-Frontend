@@ -26,7 +26,7 @@ test('review-mode native deprecation badges show guidance without an executable 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.reviewUpgrades', true))
   expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],
   }, 'Deprecation guidance')))).toEqual([])
@@ -235,7 +235,7 @@ test('only opt-in review holds a lossy migration for badge Apply', async ({ page
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await migrationCatalog(page)
-  await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.reviewUpgrades', true))
   await openMigration(page, 'review-migration')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.first!.type)).toBe('Previous')
   await expect(page.getByTestId('migration-notice')).toHaveCount(0)

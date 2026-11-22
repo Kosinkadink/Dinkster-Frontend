@@ -1447,7 +1447,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
   const problems = useSignal(props.app.problems)
-  const reviewReplacements = useSignal(props.app.reviewReplacements)
+  const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
   // solveDiagnostics signal mirrors the focused instance only, so an
   // unfocused split sibling keeps its own rail without clobbering the
