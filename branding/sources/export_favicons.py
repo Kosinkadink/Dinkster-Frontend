@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from palette import PALETTE
+
 ROOT = Path(__file__).resolve().parents[1]
 SIZES = (16, 24, 32, 48, 64, 128, 192, 256, 512, 1024)
 
@@ -77,7 +79,7 @@ def main():
                 "--export-area-page",
                 "--export-width=180",
                 "--export-height=180",
-                "--export-background=#111316",
+                f"--export-background={PALETTE['dark']['bg']['canvas']}",
                 "--export-background-opacity=1",
                 f"--export-filename={output / '180.png'}",
             ],

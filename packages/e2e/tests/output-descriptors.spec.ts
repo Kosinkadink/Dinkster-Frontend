@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function openDescriptors(page: Page): Promise<void> {
   const point = await page.evaluate(() => {
@@ -15,20 +15,9 @@ async function openDescriptors(page: Page): Promise<void> {
 
 async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
-  await page.route('/api/**', (route) => {
-    const path = new URL(route.request().url()).pathname
-    if (path === '/api/library/retention-clients' || path.startsWith('/api/library/retentions/')) return route.fallback()
-    return route.fulfill({ status: 502, body: 'isolated mock' })
-  })
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-    const declaration = route.request().postDataJSON()
-    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
-      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
-  })
+  await page.route('/api/**', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
   await page.route('/api/nodes*', async (route) => {
-    // Startup ownership snapshots the transport after schemas load.
     await page.waitForFunction(() =>
       window.__dinksterTest?.app.backends.get()[0]?.connection.status.get() === 'connected')
     return route.fulfill({ json: {
@@ -38,7 +27,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const diagnostics = await page.evaluate(async (mode) => {
     const profile = mode === true
     const fixedIds = mode !== false

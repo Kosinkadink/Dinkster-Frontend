@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '../visual.js'
-import { waitForStartupOwnership } from './fixtures.js'
+import { waitForWorkspaceReady } from './fixtures.js'
 
 // Served-app proof for automatic occurrence compaction: real deployed
 // frontend on :5199, real native backend behind the proxy, no route
@@ -112,7 +112,7 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get().length ?? 0), { timeout: 20_000 }).toBeGreaterThanOrEqual(1)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async (doc) => {
     const test = window.__dinksterTest!

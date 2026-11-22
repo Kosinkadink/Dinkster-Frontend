@@ -118,7 +118,7 @@ const delayDispatch = (app: AppState) => {
   vi.spyOn(app, 'dispatchTo').mockImplementation((tab, invocation) => new Promise<ReturnType<AppState['dispatchTo']>>((resolve) => {
     releases.push((accepted) => resolve(accepted ? dispatch(tab, invocation) : {
       ok: false,
-      diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Boundary edit refused for test' }],
+      diagnostics: [{ severity: 'error', origin: 'command', code: 'command.refused', message: 'Boundary edit refused for test' }],
     }))
   }) as unknown as ReturnType<AppState['dispatchTo']>)
   return releases

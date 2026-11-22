@@ -24,6 +24,25 @@ export function ProductIcon(props: { icon: LucideIcon }) {
   return <props.icon class="dinkster-icon" aria-hidden="true" />
 }
 
+export function ProductRunIcon(props: {
+  readonly icon: LucideIcon
+  readonly running?: boolean | undefined
+  readonly queued?: boolean | undefined
+  readonly result?: 'finished' | 'failed' | undefined
+}) {
+  return (
+    <span
+      class="dinkster-run-icon"
+      data-running={props.running ? '' : undefined}
+      data-queued={props.queued ? '' : undefined}
+      data-result={props.running || props.queued ? undefined : props.result}
+      aria-hidden="true"
+    >
+      <ProductIcon icon={props.icon} />
+    </span>
+  )
+}
+
 function Button(
   props: ButtonAttributes & {
     intent: ProductRole | undefined
@@ -177,6 +196,7 @@ export function ProductIconButton(
     label: string
     icon: LucideIcon
     intent?: ProductRole
+    'data-tooltip-label'?: string
   },
 ) {
   const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
@@ -187,7 +207,7 @@ export function ProductIconButton(
       fill="quiet"
       iconOnly
       aria-label={local.label}
-      title={local.label}
+      title={button['data-tooltip-label'] ? undefined : local.label}
     >
       <ProductIcon icon={local.icon} />
     </Button>

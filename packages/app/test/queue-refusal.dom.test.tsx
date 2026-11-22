@@ -62,7 +62,7 @@ it('shows recovery storage errors until dismissed or saved without losing the ed
   const { app, root } = await fixture(true)
   try {
     app.flushPersistTabs(true)
-    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('dinkster.openTabs')!).assetRetention.acknowledged).toBe(true))
+    await vi.waitFor(() => expect(localStorage.getItem('dinkster.openTabs')).not.toBeNull())
     const original = localStorage.getItem('dinkster.openTabs')
     const tab = app.activeTab()!
     expect((await app.dispatchTo(tab, { command: 'node.setTitle', params: {
@@ -91,7 +91,6 @@ it('shows recovery storage errors until dismissed or saved without losing the ed
     await vi.waitFor(() => {
       expect(banner()).toBeNull()
       const saved = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
-      expect(saved.assetRetention).toMatchObject({ acknowledged: true, complete: true })
       expect(saved.tabs.find((entry: { doc: { lineage: string } }) => entry.doc.lineage === tab.id).doc).toEqual(tab.store.doc)
     })
   } finally { app.dispose() }

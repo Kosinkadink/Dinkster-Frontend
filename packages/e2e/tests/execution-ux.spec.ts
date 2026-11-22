@@ -5,7 +5,7 @@
  * backend; the only synthetic piece is an injected runtime-error event,
  * pushed through the SAME ExecutionStore.apply path the connection uses.
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -105,7 +105,7 @@ const rootValues = (page: Page, tabId?: string) =>
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {
