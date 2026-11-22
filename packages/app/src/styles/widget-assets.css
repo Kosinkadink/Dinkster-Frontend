@@ -35,44 +35,6 @@
 .combo-authoring textarea { resize: vertical; font-family: var(--dinkster-font-mono); }
 .editable-combo-dropdown .combo-options { min-height: var(--dinkster-space-32); max-height: calc(var(--dinkster-space-32) * 5); flex-shrink: 0; }
 
-.input-family-labels {
-  display: grid;
-  flex: none;
-  gap: var(--dinkster-space-4);
-  max-height: 190px;
-  margin: 0;
-  padding: var(--dinkster-space-8);
-  overflow-y: auto;
-  border: 0;
-  border-bottom: 1px solid var(--dinkster-border-subtle);
-}
-
-.input-family-labels legend {
-  padding: 0;
-  color: var(--dinkster-text-secondary);
-  font-size: var(--dinkster-type-metadata-size);
-}
-
-.input-family-label-row {
-  display: grid;
-  grid-template-columns: minmax(80px, auto) minmax(120px, 1fr);
-  align-items: center;
-  gap: var(--dinkster-space-8);
-}
-
-.input-family-label-row > span {
-  overflow: hidden;
-  color: var(--dinkster-text-secondary);
-  font-family: var(--dinkster-font-mono);
-  font-size: var(--dinkster-type-metadata-size);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.input-family-labels > button {
-  justify-self: end;
-}
-
 .combo-options {
   min-height: 0;
   overflow-y: auto;

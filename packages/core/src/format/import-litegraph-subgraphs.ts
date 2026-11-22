@@ -292,7 +292,7 @@ export function importLitegraphSubgraphs(
       const controllers: Mutable = {}
       const rawValues = node['widgets_values']
       const proxies = proxySlots.get(node)
-      const widgets = inputsOf(def.schema).filter((item) => item.widget !== undefined || item.dynamic?.kind === 'dynamicCombo')
+      const widgets = inputsOf(def.schema).filter((item) => item.widget !== undefined)
       const ids = proxies ?? widgets.map((item) => item.id)
       if (Array.isArray(rawValues)) {
         for (const [index, value] of rawValues.entries()) {
@@ -360,7 +360,7 @@ export function importLitegraphSubgraphs(
     const probeType = `litegraph-boundary:${id}`
     const probe: NodeSchema = {
       type: probeType, displayName: 'Import boundary', category: '', source: 'subgraph', isOutputNode: false,
-      items: [
+      body: [
         ...def.raw['inputs'].map((_: unknown, index: number) => ({ kind: 'output', id: `i${index}`, type: { kind: 'wildcard' } })),
         ...def.raw['outputs'].map((_: unknown, index: number) => ({ kind: 'input', id: `o${index}`, type: { kind: 'wildcard' }, optional: true })),
       ],
@@ -524,9 +524,7 @@ export function importLitegraphSubgraphs(
       const target = rawLink && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(rawLink[3]))
       const authority = nativeBody.nodes[primary.node]
       const authoritySchema = authority && localResolve(authority.type)
-      const route = authoritySchema && resolveBoundaryRoute(authoritySchema, primary, 'input', authority.values, authority.dynamic)
-      const selector = route?.ok && route.route.terminal.kind === 'port' && route.route.terminal.slot.dynamic?.kind === 'dynamicCombo'
-      const promoted = side === 'inputs' && !selector && (primary.viaReroute === undefined
+      const promoted = side === 'inputs' && (primary.viaReroute === undefined
         ? Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
         : authoritySchema !== undefined && inputsOf(authoritySchema).some((input) => input.id === primary.port && input.widget !== undefined))
       return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary,
@@ -588,7 +586,7 @@ export function importLitegraphSubgraphs(
       ...probe,
       type: `#${id}`,
       displayName: candidate.name,
-      items: [
+      body: [
         ...def.raw['inputs'].map((slot: Mutable) => ({
           kind: 'input' as const,
           id: slot['id'],

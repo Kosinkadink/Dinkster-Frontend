@@ -172,7 +172,7 @@ describe('connection extension worlds', () => {
       id: 'demo.contribution', title: 'Callout', defaultValues: { text: '' },
       schema: {
         type: 'demo.contribution', virtual: true, displayName: 'Callout', category: 'Notes', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'STRING', options: {} } }],
+        body: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'STRING', options: {} } }],
       },
       render: (node) => ({ text: String(node.values['text'] ?? ''), format: 'plain' }),
     }

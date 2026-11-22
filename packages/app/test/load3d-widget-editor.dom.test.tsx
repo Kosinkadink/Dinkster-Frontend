@@ -37,9 +37,9 @@ afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fi
 it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('opens %s as a point cloud', async (type) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cloud')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema(type, { interface: [
-    { role: 'input', id: 'model_3d', type: { kind: 'union', types: ['FILE_3D_POINT_CLOUD_ANY', 'FILE_3D_PLY'] } },
-    { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+  const schema = parseDinksterSchema(type, { body: [
+    { kind: 'input', id: 'model_3d', type: { kind: 'union', types: ['FILE_3D_POINT_CLOUD_ANY', 'FILE_3D_PLY'] } },
+    { kind: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
   ] }).schema!
   const model = { digest: `blake3:${'a'.repeat(64)}`, name: 'cloud.ply', size: 1, mediaType: 'application/octet-stream', virtualPath: 'cloud.ply' }
   const doc = importLitegraph({ nodes: [{ id: 1, type }], links: [] }, () => schema).document!
@@ -70,9 +70,9 @@ it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('op
 it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-expired', 'capture-late-expired', 'capture-success', 'capture-rejected', 'recording-close', 'recording-stop-close', 'recording-error-close', 'recording-expired', 'recording-start-failed', 'recording-success', 'recording-late-expired'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('dinkster.3d.load3_d', { interface: [
-    { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+  const schema = parseDinksterSchema('dinkster.3d.load3_d', { body: [
+    { kind: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
   ] }).schema!
   const initial = { recording: '', custom: { retained: true }, camera_info: fixtures.camera,
     model_3d_info: [{ ...fixtures.transform, customModel: 'retained' }, { name: 'second-model' }] }
@@ -274,9 +274,9 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
 it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget during %s', async (phase) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('Load3DFixture', { interface: [
-    { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+  const schema = parseDinksterSchema('Load3DFixture', { body: [
+    { kind: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
   ] }).schema!
   const model = { digest: `blake3:${'e'.repeat(64)}`, name: 'scene.glb', size: 1, mediaType: 'model/gltf-binary', virtualPath: 'scene.glb' }
   const initial = { custom: 'unchanged' }
@@ -322,12 +322,12 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
 it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edited', 'viewer-expired', 'viewer-close-mount', 'viewer-mounted-close', 'reader-held', 'reader-refused', 'reader-expired', 'reader-close', 'reader-edited', 'reader-missing', 'sidecar-refused', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
-    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D'] } },
-    { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
-    { role: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
-    { role: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
-    { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] } },
+  const schema = parseDinksterSchema('Preview3DAdvancedFixture', { body: [
+    { kind: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D'] } },
+    { kind: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+    { kind: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
+    { kind: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
+    { kind: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] } },
   ] }).schema!
   const initial = { image: '', mask: null, normal: '', recording: null, custom: 'keep',
     camera_info: { ...fixtures.camera, fov: 19 }, model_3d_info: [fixtures.transform] }
@@ -518,12 +518,12 @@ it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edite
 it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'admission-refused', 'admission-close', 'admission-edited', 'admission-result', 'reader-expired', 'bytes-held', 'bytes-refused', 'bytes-close', 'bytes-edited', 'bytes-result', 'stored-manifest'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:producer')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('Preview3DProducerFixture', { interface: [
-    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D_GLTF'] } },
-    { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
-    { role: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
-    { role: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
-    { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] } },
+  const schema = parseDinksterSchema('Preview3DProducerFixture', { body: [
+    { kind: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D_GLTF'] } },
+    { kind: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+    { kind: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
+    { kind: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
+    { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type }], links: [] }, () => schema)
   const graph = imported.document!.graphs.g0!

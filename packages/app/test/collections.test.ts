@@ -16,7 +16,7 @@ import { historySource, packsSource, readCollectionViewMode, safeLocalStorage, t
 
 const nodesPayload: DinksterNodesPayload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
-  dinkster: { version: '0.9.0', schemaWire: 1 },
+  dinkster: { version: '0.9.0', schemaWire: 2 },
   packs: {
     core: { displayName: 'Dinkster Core', version: '1.2.0' },
     'vhs.video': {
@@ -32,9 +32,9 @@ const nodesPayload: DinksterNodesPayload = {
     'dev.local': { displayName: 'Scratch Pack', source: 'local:/home/u/pack' },
   },
   nodes: {
-    'std.a': { displayName: 'A', pack: 'core', signature: 's1', interface: [] },
-    'std.b': { displayName: 'B', pack: 'core', signature: 's2', interface: [] },
-    'vhs.load': { displayName: 'Load Video', pack: 'vhs.video', signature: 's3', interface: [] },
+    'std.a': { displayName: 'A', pack: 'core', signature: 's1', body: [] },
+    'std.b': { displayName: 'B', pack: 'core', signature: 's2', body: [] },
+    'vhs.load': { displayName: 'Load Video', pack: 'vhs.video', signature: 's3', body: [] },
   },
 }
 

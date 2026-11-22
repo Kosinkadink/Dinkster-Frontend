@@ -43,7 +43,7 @@ export type MenuTarget =
       readonly netId?: string
       /** Consumer end: a real input, a reroute junction, or a selector branch (nets are port-only). */
       readonly to:
-        | { readonly node: string; readonly port: string; readonly members?: readonly string[] }
+        | { readonly node: string; readonly port: string }
         | { readonly reroute: string }
         | { readonly selector: string; readonly candidate: string }
     }
@@ -54,8 +54,6 @@ export type MenuTarget =
       readonly kind: 'pin'
       readonly nodeId: string
       readonly portId: string
-      /** Dynamic member-id path, when the pin is an elaborated member. */
-      readonly members?: readonly string[]
       readonly direction: 'in' | 'out'
     }
   | {
@@ -65,8 +63,6 @@ export type MenuTarget =
       readonly role: 'source' | 'sink'
       readonly nodeId: string
       readonly portId: string
-      /** Dynamic member-id path, when the endpoint is an elaborated member. */
-      readonly members?: readonly string[]
     }
   | {
       readonly kind: 'widget'

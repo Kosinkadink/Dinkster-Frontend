@@ -9,16 +9,16 @@
 import { describe, expect, it } from 'vitest'
 import { elaborateInterface } from '../src/schema/elaborate.js'
 import { resettableWidgetsOf } from '../src/schema/modified.js'
-import type { InputSpec, InterfaceItem, NodeSchema, WidgetSpec } from '../src/schema/model.js'
+import type { BodyRow, GroupSpec, InputSpec, NodeSchema, WidgetSpec } from '../src/schema/model.js'
 import type { Json } from '../src/format/document.js'
 
-const schemaOf = (items: InterfaceItem[]): NodeSchema => ({
+const schemaOf = (items: BodyRow[]): NodeSchema => ({
   type: 'Test',
   displayName: 'Test',
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body: items,
 })
 
 const widgetInput = (
@@ -34,7 +34,7 @@ const widgetInput = (
   ...extra,
 })
 
-const resettable = (items: InterfaceItem[], values: Record<string, Json>, dynamic?: Record<string, unknown>) =>
+const resettable = (items: BodyRow[], values: Record<string, Json>, dynamic?: Record<string, unknown>) =>
   resettableWidgetsOf(
     elaborateInterface(schemaOf(items), { values, ...(dynamic ? { dynamic } : {}) } as never),
     values,
@@ -73,44 +73,44 @@ describe('resettableWidgetsOf eligibility', () => {
     expect(rs).toHaveLength(0)
   })
 
-  it('dynamicCombo: selector row excluded, branch widgets with defaults included', () => {
-    const items: InterfaceItem[] = [
+  it('choice: selector row excluded, option widgets with defaults included', () => {
+    const items: BodyRow[] = [
       {
-        kind: 'input',
+        kind: 'choice',
         id: 'mode',
-        type: { kind: 'concrete', name: 'COMBO' },
-        optional: false,
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [
-            { key: 'a', inputs: [widgetInput('strength', { widgetType: 'FLOAT', default: 1 })] },
-            { key: 'b', inputs: [] },
-          ],
-        },
+        required: true,
+        shared: [],
+        options: [
+          { key: 'a', rows: [widgetInput('strength', { widgetType: 'FLOAT', default: 1 })] },
+          { key: 'b', rows: [] },
+        ],
       },
     ]
-    const rs = resettable(items, {})
-    // Exactly one entry: the branch widget, never the selector.
+    const rs = resettable(items, {}, { mode: { selected: 'a' } })
+    // Exactly one entry: the option's widget, never the selector.
     expect(rs).toHaveLength(1)
     expect(rs[0]!.item.origin.kind).not.toBe('selector')
+    expect(rs[0]!.valueKey).toBe('mode.strength')
     expect(rs[0]!.defaultValue).toBe(1)
   })
 
-  it('autogrow: materialized member widgets included, trailing ghost excluded', () => {
-    const family: InputSpec = {
-      kind: 'input',
+  it('group: stored member widgets included, spare ghost member excluded', () => {
+    const family: GroupSpec = {
+      kind: 'group',
       id: 'items',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [widgetInput('item', { widgetType: 'INT', default: 5 })],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-      },
+      value: widgetInput('item', { widgetType: 'INT', default: 5 }),
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'filled',
+      minMembers: 0,
+      maxMembers: 4,
     }
-    const rs = resettable([family], {}, { items: { members: ['m0'] } })
-    // One materialized member; the ghost affordance contributes nothing.
-    expect(rs).toHaveLength(1)
+    const values = { 'items.item0': 5 }
+    const dynamic = { items: { members: ['item0'] } }
+    const elaborated = elaborateInterface(schemaOf([family]), { values, dynamic })
+    // The filled member is followed by a spare ghost member.
+    expect(elaborated.items.map((item) => item.kind === 'input' ? item.address.port : item.kind)).toEqual(['items.item0', 'items.item1'])
+    const rs = resettable([family], values, dynamic)
+    expect(rs.map((r) => r.valueKey)).toEqual(['items.item0'])
     expect(rs[0]!.defaultValue).toBe(5)
   })
 })

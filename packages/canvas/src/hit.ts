@@ -55,7 +55,7 @@ export type Hit =
   | {
       readonly kind: 'pin'
       readonly node: SceneNode
-      /** Elab key (view lookup). Document identity is pin.address. */
+      /** Flattened port id (view lookup). Document identity is pin.address. */
       readonly portId: string
       readonly direction: 'in' | 'out'
       /** Pin center, world coords. */
@@ -270,9 +270,6 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
       if (pin.widgetTap !== true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
-      // Paint suppresses every family-owned pin; hit testing must agree
-      // (taps are memberless today, so this is consistency armor).
-      if (pin.familyOwner !== undefined) continue
       const x = node.x + node.layout.width
       const y = node.y + pin.y
       if (Math.hypot(wx - x, wy - y) <= pinHitRadius)
@@ -813,7 +810,6 @@ export function hitTestPin(
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) continue
-      if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
       const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y

@@ -97,35 +97,35 @@ describe('widget tap commands', () => {
 const { schemas, diagnostics } = parseDinksterNodes({
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
   nodes: {
-    ValueNode: { interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 17 },
-      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    ValueNode: { body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 17 },
+      { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
     ] },
-    NoDefaultNode: { interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true },
-      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    NoDefaultNode: { body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: true },
+      { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
     ] },
     // A remote COMBO without loaded options has no intrinsic value.
-    NoIntrinsicNode: { interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
+    NoIntrinsicNode: { body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
         widget: { type: 'COMBO', remote: { route: '/api/choices/empty' } } },
-      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['COMBO'] } },
+      { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['COMBO'] } },
     ] },
     // Absent optional values use the backend default, never an invented intrinsic.
-    OptionalNoDefaultNode: { interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false },
-      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    OptionalNoDefaultNode: { body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false },
+      { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
     ] },
-    OptionalWithDefaultNode: { interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false, default: 7 },
-      { role: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
+    OptionalWithDefaultNode: { body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false, default: 7 },
+      { kind: 'output', id: 'out0', type: { kind: 'concrete', types: ['INT'] } },
     ] },
     // A wildcard sink needs a typed literal to recover a baked value's runtime type.
-    WildcardSink: { interface: [
-      { role: 'input', id: 'source', type: { kind: 'wildcard' }, required: true },
+    WildcardSink: { body: [
+      { kind: 'input', id: 'source', type: { kind: 'wildcard' }, required: true },
     ] },
-    MultiValueNode: { interface: [
-      { role: 'input', id: 'value', type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
+    MultiValueNode: { body: [
+      { kind: 'input', id: 'value', type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
         required: true, default: ['beta', 'alpha', 'beta'],
         widget: { type: 'MULTI_COMBO', options: ['beta', 'alpha'] } },
     ] },

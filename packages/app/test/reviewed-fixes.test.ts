@@ -72,7 +72,7 @@ describe('reviewed fixes', () => {
       name: 'ordinary link',
       links: [{
         id: 'l1', from: { kind: 'port', node: 'source', port: 'out' },
-        to: { kind: 'port', node: 'target', port: 'images.image', members: ['m0'] },
+        to: { kind: 'port', node: 'target', port: 'images.image1' },
         x1: 0, y1: 0, x2: 1, y2: 1,
       }],
       expectedDelete: { linkIds: ['l1'], netSinks: [] },
@@ -82,12 +82,12 @@ describe('reviewed fixes', () => {
       links: [{
         id: 'net1:target', netId: 'net1',
         from: { kind: 'port', node: 'source', port: 'out' },
-        to: { kind: 'port', node: 'target', port: 'images.image', members: ['m0'] },
+        to: { kind: 'port', node: 'target', port: 'images.image1' },
         x1: 0, y1: 0, x2: 1, y2: 1,
       }],
       expectedDelete: {
         linkIds: [],
-        netSinks: [{ node: 'target', port: 'images.image', members: ['m0'] }],
+        netSinks: [{ node: 'target', port: 'images.image1' }],
       },
     },
   ] as const)('selected $name deletion compacts its destination in the same batch', ({ links, expectedDelete }) => {
@@ -113,7 +113,7 @@ describe('reviewed fixes', () => {
     const links = [{
       id: 'boundary:inputs:images', boundary: true,
       from: { kind: 'boundary', side: 'inputs', item: 'images' },
-      to: { kind: 'port', node: 'target', port: 'images.image', members: ['m0'] },
+      to: { kind: 'port', node: 'target', port: 'images.image1' },
       x1: 0, y1: 0, x2: 1, y2: 1,
     }]
     expect(selectionDeleteInvocation({
@@ -126,7 +126,7 @@ describe('reviewed fixes', () => {
           command: 'boundary.unbind',
           params: {
             graphId: 'g0', side: 'inputs', itemId: 'images',
-            node: 'target', port: 'images.image', members: ['m0'],
+            node: 'target', port: 'images.image1',
           },
         },
         { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'target' } },
@@ -158,13 +158,13 @@ describe('reviewed fixes', () => {
         source: { id: 'source', type: 'Source', values: {} },
         target: {
           id: 'target', type: 'Target', values: {},
-          dynamic: { images: { members: ['m0'], seq: 1 } },
+          dynamic: { images: { members: ['image1'], seq: 1 } },
         },
       },
       links: {
         l1: {
           id: 'l1', from: { node: 'source', port: 'out' },
-          to: { node: 'target', port: 'images.image', members: ['m0'] },
+          to: { node: 'target', port: 'images.image1' },
         },
       },
     })
@@ -176,7 +176,7 @@ describe('reviewed fixes', () => {
       graphId: 'g0', def: graph,
       scene: deletionScene([{
         id: 'l1', from: { kind: 'port', node: 'source', port: 'out' },
-        to: { kind: 'port', node: 'target', port: 'images.image', members: ['m0'] },
+        to: { kind: 'port', node: 'target', port: 'images.image1' },
         x1: 0, y1: 0, x2: 1, y2: 1,
       }] as any),
       nodeIds: [], selectedLinks: ['l1'],
@@ -186,10 +186,10 @@ describe('reviewed fixes', () => {
     expect(store.doc.graphs.g0!.nodes.target!.dynamic).toEqual({ images: { seq: 1 } })
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.g0!.links.l1!.to).toEqual({
-      node: 'target', port: 'images.image', members: ['m0'],
+      node: 'target', port: 'images.image1',
     })
     expect(store.doc.graphs.g0!.nodes.target!.dynamic).toEqual({
-      images: { members: ['m0'], seq: 1 },
+      images: { members: ['image1'], seq: 1 },
     })
   })
 
@@ -251,13 +251,13 @@ describe('reviewed fixes', () => {
         links: {
           tap: {
             id: 'tap', from: { node: 'source', tap: 'value' },
-            to: { node: 'tap-target', port: 'images.image', members: ['m0'] },
+            to: { node: 'tap-target', port: 'images.image1' },
           },
         },
         nets: {
           net1: {
             id: 'net1', name: 'net', source: { node: 'source', port: 'out' },
-            sinks: [{ node: 'net-target', port: 'images.image', members: ['m0'] }],
+            sinks: [{ node: 'net-target', port: 'images.image1' }],
           },
         },
       }),
@@ -282,7 +282,7 @@ describe('reviewed fixes', () => {
         boundary: {
           inputs: [{
             id: 'value', binds: { kind: 'port', node: 'source', port: 'in' },
-            alsoBinds: [{ kind: 'port', node: 'target', port: 'images.image', members: ['m0'] }],
+            alsoBinds: [{ kind: 'port', node: 'target', port: 'images.image1' }],
           }],
           outputs: [],
         },
@@ -378,7 +378,7 @@ describe('reviewed fixes', () => {
   it('composes a node splice as disconnect plus both compatible connections', () => {
     const schema: NodeSchema = {
       type: 'test.convert', displayName: 'Convert', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
@@ -397,7 +397,7 @@ describe('reviewed fixes', () => {
   it('refuses a splice when either dangling side has unresolved type metadata', () => {
     const schema: NodeSchema = {
       type: 'test.convert', displayName: 'Convert', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'in', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false },
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'comfy.IMAGE' } },
       ],
@@ -424,7 +424,7 @@ describe('reviewed fixes', () => {
     ])
   })
 
-  it('targets a constrained autogrow member and output in both noodle directions', () => {
+  it('targets a constrained group member and output in both noodle directions', () => {
     const matchType = {
       kind: 'variable' as const,
       templateId: 'MatchType',
@@ -432,14 +432,10 @@ describe('reviewed fixes', () => {
     }
     const batch: NodeSchema = {
       type: 'test.batch', displayName: 'Batch', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         {
-          kind: 'input', id: 'values', type: matchType, optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 'value', type: matchType, optional: false }],
-            naming: { kind: 'prefix', prefix: 'value', min: 1, max: 50 },
-          },
+          kind: 'group', id: 'values', value: { kind: 'input', id: 'value', type: matchType, optional: false },
+          keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 50,
         },
         { kind: 'output', id: 'value', type: matchType },
       ],
@@ -448,8 +444,8 @@ describe('reviewed fixes', () => {
       seeking: 'in', anchorType: { kind: 'concrete', name: 'comfy.MASK' }, anchorX: 0, anchorY: 0,
       fixedFrom: { node: 'source', port: 'mask' },
     }, 'g0', 'batch', batch)).toEqual([
-      { command: 'dynamic.materialize', params: { graphId: 'g0', nodeId: 'batch', frames: [{ construct: 'values', members: ['m0'] }] } },
-      { command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'mask' }, to: { node: 'batch', port: 'values.value', members: ['m0'] } } },
+      { command: 'dynamic.materialize', params: { graphId: 'g0', nodeId: 'batch', frames: [{ construct: 'values', members: ['value1'], seq: 1 }] } },
+      { command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'mask' }, to: { node: 'batch', port: 'values.value1' } } },
     ])
     expect(linkDropInvocations({
       seeking: 'out', anchorType: { kind: 'concrete', name: 'comfy.LATENT' }, anchorX: 0, anchorY: 0,
@@ -463,18 +459,15 @@ describe('reviewed fixes', () => {
     }, 'g0', 'batch', batch)).toEqual([])
   })
 
-  it('excludes a schema whose only compatible port is outside the fresh dynamic branch', () => {
+  it('excludes a schema whose only compatible port is outside the fresh choice option', () => {
     const schema: NodeSchema = {
       type: 'test.branches', displayName: 'Branches', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [
-            { key: 'mask', inputs: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'comfy.MASK' }, optional: false }] },
-            { key: 'image', inputs: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false }] },
-          ],
-        },
+      body: [{
+        kind: 'choice', id: 'mode', shared: [], required: true,
+        options: [
+          { key: 'mask', rows: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'comfy.MASK' }, optional: false }] },
+          { key: 'image', rows: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'comfy.IMAGE' }, optional: false }] },
+        ],
       }],
     }
     const entry = {

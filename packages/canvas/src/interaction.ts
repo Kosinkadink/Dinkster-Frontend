@@ -47,7 +47,6 @@ import {
   stepNumericValue,
   typesCompatible,
   type CommandInvocation,
-  type DynamicMemberId,
   type Json,
   type JsonObject,
   type MaterializeFrame,
@@ -87,7 +86,6 @@ import {
   sceneEndId,
   valueSourcesInGroup,
   selectorsInGroup,
-  portEndKey,
   selectorBadgeRect,
   selectorOutPinPosition,
   valueSourceBadgeRect,
@@ -239,11 +237,10 @@ export function connectivityRangeSelection(
   return hasPath ? { nodes, reroutes } : undefined
 }
 
-/** A structural port endpoint for command params (document identity, never an elab key). */
+/** A structural port endpoint for command params: node plus flattened port id. */
 interface PortEndpointJson extends JsonObject {
   readonly node: string
   readonly port: string
-  readonly members?: readonly DynamicMemberId[]
 }
 
 interface WidgetTapEndpointJson extends JsonObject {
@@ -299,7 +296,7 @@ function linkMenuContext(link: SceneLink, position: { x: number; y: number }): L
   const snap = (v: number) => Math.round(v * 100) / 100
   const endpoint = (end: SceneLinkEnd): JsonObject => {
     switch (end.kind) {
-      case 'port': return { node: end.node, port: end.port, ...(end.members ? { members: [...end.members] } : {}) }
+      case 'port': return { node: end.node, port: end.port }
       case 'reroute': return { reroute: end.reroute }
       case 'valueSource': return { valueSource: end.valueSource }
       case 'widgetTap': return { node: end.node, tap: end.input }
@@ -317,11 +314,10 @@ function linkMenuContext(link: SceneLink, position: { x: number; y: number }): L
   }
 }
 
-/** A pin's structural endpoint, from its elaborated address (hazard N6: never parse elab keys). */
+/** A pin's structural endpoint, from its elaborated address. */
 const pinEndpoint = (nodeId: string, pin: PinLayout): PortEndpointJson => ({
   node: nodeId,
   port: pin.address.port as string,
-  ...(pin.address.members !== undefined ? { members: pin.address.members } : {}),
 })
 
 /** The pin's pending materialization, when it (or an ancestor) is synthetic. */
@@ -350,7 +346,7 @@ function withMaterialize(
           params: {
             graphId,
             nodeId: s.nodeId,
-            frames: s.frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+            frames: s.frames.map((f) => ({ ...f, members: [...f.members] })),
           },
         })),
         { command: action.command, params: action.params },
@@ -380,7 +376,7 @@ function composeBatch(
       params: {
         graphId,
         nodeId: s.nodeId,
-        frames: s.frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+        frames: s.frames.map((f) => ({ ...f, members: [...f.members] })),
       },
     })),
     ...ops.map((op) => ({ command: op.command, params: op.params })),
@@ -572,9 +568,9 @@ type Gesture =
       /** Type at the fixed end, for compatibility highlighting. */
       readonly anchorType: TypeExpr
       readonly anchorTypeName?: string
-      /** Fresh drag from an input pin: connect INTO this port on drop (structural: port + members). */
+      /** Fresh drag from an input pin: connect INTO this port on drop. */
       readonly intoPort?: PortEndpointJson
-      /** Fresh drag from an output pin: connect FROM this port on drop (structural: port + members). */
+      /** Fresh drag from an output pin: connect FROM this port on drop. */
       readonly fromPort?: PortEndpointJson
       /** Fresh drag from a widget tap: connect FROM the tapped input value. */
       readonly fromTap?: { readonly node: string; readonly tap: string }
@@ -1747,7 +1743,6 @@ export class InteractionController {
         this.gesture = { kind: 'growth', hit, moved: false }
         return
       case 'pin':
-        if (hit.pin.familyOwner !== undefined && hit.pin.familyOwner.socketed !== true) return
         {
           const gesture = this.beginLinkGesture(scene, hit, e.shiftKey, e.altKey)
           if (gesture === undefined) return
@@ -2123,10 +2118,9 @@ export class InteractionController {
   ): Gesture | undefined {
     const fixedMaterialize = pinMaterialize(hit.node.id, hit.pin)
     if (hit.direction === 'in') {
-      // Pins are keyed by elab key; compare link ends the same way (a member
-      // path is part of the identity - hazard N6).
+      // Pins and link ends are both keyed by the flattened port id.
       const existing = scene.links.find(
-        (l) => l.to.kind === 'port' && l.to.node === hit.node.id && portEndKey(l.to) === hit.portId,
+        (l) => l.to.kind === 'port' && l.to.node === hit.node.id && l.to.port === hit.portId,
       )
       // Alt keeps its established meaning and outranks Shift. For regular
       // links it fans out from the driver; boundary links retain their
@@ -2173,7 +2167,7 @@ export class InteractionController {
     // Shift-grab of a connected output: pick up the WHOLE fan-out and seek a
     // new source output; a legal drop re-sources every link atomically.
     const fanOut = scene.links.filter(
-      (l) => l.from.kind === 'port' && l.from.node === hit.node.id && portEndKey(l.from) === hit.portId,
+      (l) => l.from.kind === 'port' && l.from.node === hit.node.id && l.from.port === hit.portId,
     )
     if (endpointDragMode('out', fanOut.length > 0, shift) === 'move-source') {
       const move = this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
@@ -2265,7 +2259,6 @@ export class InteractionController {
           .map((l) => ({
             node: l.to.node,
             port: l.to.port,
-            ...(l.to.members !== undefined ? { members: l.to.members } : {}),
           }))
         // Exclude sink nodes from the targets: dropping there would self-loop.
         const sinkNodes = new Set(sinks.map((s) => s.node))
@@ -2300,7 +2293,6 @@ export class InteractionController {
           boundaryPrev = {
             node: bound.from.node,
             port: bound.from.port,
-            ...(bound.from.members !== undefined ? { members: bound.from.members } : {}),
           }
         } else if (bound.from.kind === 'widgetTap') {
           boundaryPrev = { node: bound.from.node, tap: bound.from.input }
@@ -2378,7 +2370,7 @@ export class InteractionController {
     const keys = new Set<string>()
     for (const node of scene.nodes) {
       for (const pin of node.layout.pins) {
-        if (pin.direction !== direction || pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
+        if (pin.direction !== direction) continue
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true))
       }
@@ -2435,7 +2427,7 @@ export class InteractionController {
     const sinkNodes = new Set(fanOut.flatMap((link) => link.to.kind === 'port' ? [link.to.node] : []))
     const sinkEnds: PortEndpointJson[] = fanOut.flatMap((link) =>
       link.to.kind === 'port'
-        ? [{ node: link.to.node, port: link.to.port, ...(link.to.members !== undefined ? { members: link.to.members } : {}) }]
+        ? [{ node: link.to.node, port: link.to.port }]
         : [],
     )
     const targets = this.compatibleTargets(scene, type, 'out', sourceNode)
@@ -2598,14 +2590,14 @@ export class InteractionController {
     const from = link.from // const binding: narrowing survives the closures below
     const presenceOrigin: LinkDragPresenceOrigin | undefined =
       from.kind === 'port'
-        ? { kind: 'port', node: from.node, port: portEndKey(from), side: 'out' }
+        ? { kind: 'port', node: from.node, port: from.port, side: 'out' }
         : from.kind === 'reroute'
           ? { kind: 'reroute', reroute: from.reroute, side: 'out' }
           : from.kind === 'widgetTap'
             ? { kind: 'widgetTap', node: from.node, input: from.input }
             : undefined
     if (from.kind === 'port') {
-      const fromKey = portEndKey(from)
+      const fromKey = from.port
       const fromNode = scene.nodes.find((n) => n.id === from.node)
       // Real output only: a widget tap shares its input's port id on the
       // 'out' side, so an unguarded lookup would anchor/type off the widget
@@ -2649,7 +2641,7 @@ export class InteractionController {
       // a NEW link via the same completion path as an output-pin drag.
       const source =
         from.kind === 'port'
-          ? { fromPort: { node: from.node, port: from.port, ...(from.members !== undefined ? { members: from.members } : {}) } }
+          ? { fromPort: { node: from.node, port: from.port } }
           : from.kind === 'reroute'
             ? { fromReroute: from.reroute }
             : from.kind === 'valueSource'
@@ -2686,9 +2678,9 @@ export class InteractionController {
         ...(canonicalTypeIdOf(anchorType) !== undefined ? { anchorTypeName: canonicalTypeIdOf(anchorType)! } : {}),
         netRewire: {
           netId: link.netId,
-          prev: { node: link.to.node, port: link.to.port, ...(link.to.members !== undefined ? { members: link.to.members } : {}) },
+          prev: { node: link.to.node, port: link.to.port },
           ...(from.kind === 'port'
-            ? { source: { node: from.node, port: from.port, ...(from.members !== undefined ? { members: from.members } : {}) } }
+            ? { source: { node: from.node, port: from.port } }
             : {}),
         },
         hideLinkIds: new Set([link.id]),
@@ -2733,7 +2725,7 @@ export class InteractionController {
     for (const node of scene.nodes) {
       if (node.id === excludeNode) continue
       for (const pin of node.layout.pins) {
-        if (pin.direction !== direction || pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
+        if (pin.direction !== direction) continue
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, direction, pin.widgetTap === true))
       }
@@ -2790,15 +2782,14 @@ export class InteractionController {
     // ranked here would commit as a bogus PORT endpoint via pinEndpoint);
     // explicit tap-pin hits keep their own 'widgetTap' hit path.
     const pins = node.layout.pins.filter((pin) =>
-      pin.direction === g.seeking && pin.widgetTap !== true &&
-      (pin.familyOwner === undefined || pin.familyOwner.socketed === true),
+      pin.direction === g.seeking && pin.widgetTap !== true,
     )
     // Links hidden by the gesture (the grabbed rewire or net delivery) do
     // not occupy their sink: the drag is moving them off it.
     const isOccupied = (pin: PinLayout): boolean =>
       pin.direction === 'in' && scene.links.some((link) =>
         link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
-        link.to.kind === 'port' && link.to.node === node.id && portEndKey(link.to) === pin.portId,
+        link.to.kind === 'port' && link.to.node === node.id && link.to.port === pin.portId,
       )
     const ranked = [...pins.filter((pin) => !isOccupied(pin)), ...pins.filter(isOccupied)]
     for (const pin of ranked) {
@@ -2839,7 +2830,6 @@ export class InteractionController {
       for (const pin of node.layout.pins) {
         if (
           pin.direction === direction &&
-          (pin.familyOwner === undefined || pin.familyOwner.socketed === true) &&
           pin.widgetTap !== true &&
           pinRevealed(node, pin)
         ) {
@@ -3422,9 +3412,9 @@ export class InteractionController {
           this.host.dispatch({
             command: 'dynamic.materialize',
             params: {
-              graphId: g.hit.row.familyOwner?.graphId ?? scene.graphId,
-              nodeId: g.hit.row.familyOwner?.nodeId ?? g.hit.node.id,
-              frames: g.hit.row.frames.map((f, index) => ({ construct: index === g.hit.row.frames.length - 1 ? (g.hit.row.familyOwner?.construct ?? f.construct) : f.construct, members: [...f.members] })),
+              graphId: scene.graphId,
+              nodeId: g.hit.node.id,
+              frames: g.hit.row.frames.map((f) => ({ ...f, members: [...f.members] })),
             },
           })
         }
@@ -3471,7 +3461,7 @@ export class InteractionController {
               netId: stub.netId,
               role: stub.role,
               ...(stub.role === 'sink' ? {
-                to: { node: stub.nodeId, port: stub.portId, ...(stub.members === undefined ? {} : { members: [...stub.members] }) },
+                to: { node: stub.nodeId, port: stub.portId },
               } : {}),
               position,
             }]
@@ -3763,7 +3753,6 @@ export class InteractionController {
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&
-      (hit.pin.familyOwner === undefined || hit.pin.familyOwner.socketed === true) &&
       hit.direction === g.seeking &&
       g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
     const tapLegal = hit.kind === 'widgetTap' && g.seeking === 'out' &&
@@ -3805,18 +3794,11 @@ export class InteractionController {
     if (requireLegalTarget && dropEnd === undefined && !boundaryLegal) return false
     const graphId = scene.graphId
     const sameEnd = (a: PortEndpointJson, b: PortEndpointJson): boolean =>
-      a.node === b.node &&
-      a.port === b.port &&
-      (a.members ?? []).length === (b.members ?? []).length &&
-      (a.members ?? []).every((m, i) => (b.members ?? [])[i] === m)
+      a.node === b.node && a.port === b.port
     const endParams = (end: BoundaryEndpointJson): JsonObject =>
       'tap' in end
         ? { node: end.node, tap: end.tap }
-        : {
-            node: end.node,
-            port: end.port,
-            ...(end.members !== undefined ? { members: [...end.members] } : {}),
-          }
+        : { node: end.node, port: end.port }
 
     // Shift fan-out move: a legal drop re-sources every grabbed link in one
     // link.rewireSource transaction. A committed empty-canvas drop disconnects
@@ -3829,7 +3811,7 @@ export class InteractionController {
             owner: scene.occurrence.owner,
             bodyGraph: scene.occurrence.bodyGraph,
             links: g.moveSource.effectiveLinks,
-            from: this.occurrenceEndpoint(scene, dropEnd, 'out'),
+            from: this.occurrenceEndpoint(dropEnd),
           })
           return
         }
@@ -4142,7 +4124,7 @@ export class InteractionController {
             owner: scene.occurrence.owner,
             bodyGraph: scene.occurrence.bodyGraph,
             link: oldLink.effectiveIdentity,
-            to: this.occurrenceEndpoint(scene, dropEnd, 'in'),
+            to: this.occurrenceEndpoint(dropEnd),
           })
           return
         }
@@ -4260,8 +4242,8 @@ export class InteractionController {
     if (!from || !to) return
     const occurrence = scene.occurrence
     if (occurrence !== undefined) {
-      const occurrenceFrom = this.occurrenceEndpoint(scene, from, 'out')
-      const occurrenceTo = this.occurrenceEndpoint(scene, to, 'in')
+      const occurrenceFrom = this.occurrenceEndpoint(from)
+      const occurrenceTo = this.occurrenceEndpoint(to)
       if (occurrenceFrom.kind === 'boundary' || occurrenceTo.kind === 'boundary' ||
           'node' in from && 'port' in from && from.node === '$region' && from.port === 'index') {
         this.host.dispatchOccurrenceMutation?.({
@@ -4284,19 +4266,7 @@ export class InteractionController {
     )
   }
 
-  private occurrenceEndpoint(scene: Scene, endpoint: JsonObject, direction: 'in' | 'out'): OccurrenceLinkEndpoint {
-    const nodeId = endpoint['node']
-    const port = endpoint['port']
-    if (typeof nodeId === 'string' && typeof port === 'string') {
-      const members = Array.isArray(endpoint['members']) ? endpoint['members'] : undefined
-      const pin = scene.nodes.find((node) => node.id === nodeId)?.layout.pins.find((candidate) =>
-        candidate.direction === direction && candidate.address.port === port &&
-        JSON.stringify(candidate.address.members ?? []) === JSON.stringify(members ?? []),
-      )
-      const familyOwner = pin?.familyOwner
-      if (pin !== undefined && familyOwner?.socketed === true && familyOwner.sourceEndpoint !== undefined)
-        return familyOwner.sourceEndpoint
-    }
+  private occurrenceEndpoint(endpoint: JsonObject): OccurrenceLinkEndpoint {
     return { kind: 'body', endpoint: endpoint as unknown as LinkEndpoint }
   }
 
@@ -4316,7 +4286,7 @@ export class InteractionController {
     const j = (...parts: readonly string[]): string => JSON.stringify(parts)
     switch (hit.kind) {
       case 'pin':
-        return j('pin', hit.node.id, hit.direction, hit.pin.address.port, ...(hit.pin.address.members ?? []))
+        return j('pin', hit.node.id, hit.direction, hit.pin.address.port)
       case 'widgetTap':
         return j('widgetTap', hit.node.id, hit.input)
       case 'widget':
@@ -4347,7 +4317,7 @@ export class InteractionController {
       case 'selectorIn':
         return j('selectorIn', hit.selector.id, hit.candidate)
       case 'netStub':
-        return j('net', hit.stub.netId, hit.stub.role, hit.stub.nodeId, hit.stub.portId, ...(hit.stub.members ?? []))
+        return j('net', hit.stub.netId, hit.stub.role, hit.stub.nodeId, hit.stub.portId)
       case 'group-header':
         return j('group', hit.group.id)
       case 'group-resize':
@@ -4722,7 +4692,7 @@ export class InteractionController {
           .filter((link) => link.to.kind === 'port')
           .map((link) => {
             const to = link.to as Extract<SceneLink['to'], { kind: 'port' }>
-            return `${to.node}\u0000${portEndKey(to)}`
+            return `${to.node}\u0000${to.port}`
           }),
       )
       return connected.has(`${node.id}\u0000${pin.portId}`)

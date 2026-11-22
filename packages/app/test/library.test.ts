@@ -110,7 +110,7 @@ describe('saveWorkflow', () => {
   it.each(['available', 'denied', 'edited', 'timed out'] as const)('saves an early snapshot with optional location lookup %s', async (outcome) => {
     const { backend } = (await nativeSetup())
     const source: NodeSchema = { type: 'test.asset-location', displayName: 'Asset location', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false },
         { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'INT' }, optional: false },
         { kind: 'output', id: 'sum', type: { kind: 'concrete', name: 'INT' }, isList: false },
@@ -529,7 +529,7 @@ describe('sourceDocument stamp on queue', () => {
     const { backend } = await nativeSetup()
     const registry = backend.registry.get()!
     const source: NodeSchema = { type: 'SourceAsset', displayName: 'Source asset', category: 'test',
-      source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'file', optional: false,
+      source: 'v3', isOutputNode: false, body: [{ kind: 'input', id: 'file', optional: false,
         type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
     backend.registry.set({ ...registry, schemas: new Map([...registry.schemas, [source.type, source]]),
       resolve: (type) => type === source.type ? source : registry.resolve(type) })

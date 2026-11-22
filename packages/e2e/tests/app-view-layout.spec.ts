@@ -14,7 +14,7 @@ async function registerSchema(page: Page): Promise<void> {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input',
           id: 'prompt',

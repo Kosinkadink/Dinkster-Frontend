@@ -33,43 +33,43 @@ const makeStorage = (): Storage => {
 const TABS_KEY = 'dinkster.openTabs'
 
 const curvePayload = (): DinksterNodesPayload => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     'dinkster.curve.editor': {
-      schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
-      interface: [
+      schemaVersion: 2, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
+      body: [
         {
-          role: 'input', id: 'curve', required: false,
+          kind: 'input', id: 'curve', required: false,
           type: { kind: 'concrete', types: ['CURVE'] }, widget: { type: 'CURVE' },
           default: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] },
         },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
+        { kind: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
     OtherCurve: {
-      schemaVersion: 1, displayName: 'Other curve', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
+      schemaVersion: 2, displayName: 'Other curve', category: 'test', idempotent: true,
+      body: [{ kind: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
     },
   },
 }) as unknown as DinksterNodesPayload
 
 const glslPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     'synthetic.shader': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'GLSL Shader',
       category: 'image/shader',
       editorRole: 'glsl',
       idempotent: false,
-      interface: [
+      body: [
         {
-          role: 'input', id: 'fragment_shader', required: false,
+          kind: 'input', id: 'fragment_shader', required: false,
           type: { kind: 'concrete', types: ['STRING'] },
           default: '#version 300 es\nvoid main() {}',
           widget: { type: 'STRING', multiline: true },
         },
-        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { kind: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   },

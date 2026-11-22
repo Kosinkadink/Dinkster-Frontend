@@ -69,7 +69,7 @@ const outputSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items: [],
+  body: [],
 }
 
 const workflow = (): WorkflowDocument => ({

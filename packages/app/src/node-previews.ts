@@ -16,6 +16,7 @@ import {
   type Json,
   type NodeSchema,
   type WidgetRegistry,
+  outputsOf,
 } from '@dinkster/core'
 import { recordedTextOutputForNode, type RecordedTextOutput } from './data-lens.js'
 import { isModel3dMime } from './model3d-mime.js'
@@ -392,9 +393,7 @@ export function deriveNodePreviewSurface(args: {
     // Finished native outputs outrank late frames just like recorded assets.
     // Retained frames belong to an older job, not this execution's value API.
     if (args.values !== undefined && (source === undefined || (!args.running && !retainedSource && source.key.startsWith('frame:')))) {
-      const outputOrder = args.schema?.items
-        .filter((item) => item.kind === 'output')
-        .map((item) => item.id) ?? []
+      const outputOrder = args.schema === undefined ? [] : outputsOf(args.schema).map((item) => item.id)
       const aliases = exec.artifact?.provenance.outputAliases
       const recorded = peekCandidatesFor({
         sources: args.companionSources,

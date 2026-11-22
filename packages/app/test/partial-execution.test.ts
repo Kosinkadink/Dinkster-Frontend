@@ -18,7 +18,7 @@ const scopeSchemas: readonly NodeSchema[] = [{
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
     { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
   ],
@@ -28,7 +28,7 @@ const scopeSchemas: readonly NodeSchema[] = [{
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items: [
+  body: [
     { kind: 'input', id: 'main', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
     { kind: 'input', id: 'side', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
   ],
@@ -98,7 +98,7 @@ describe('directed partial-execution scopes', () => {
     app.registerSchemas([{
       type: 'LazySelector', displayName: 'Lazy selector', category: 'test', source: 'v3', isOutputNode: true,
       selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
-      items: [
+      body: [
         { kind: 'input', id: 'switch', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false, widget: { widgetType: 'BOOLEAN', options: {} } },
         { kind: 'input', id: 'on_false', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'input', id: 'on_true', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },

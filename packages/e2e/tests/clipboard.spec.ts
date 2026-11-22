@@ -10,7 +10,7 @@ async function openFixture(page: Page): Promise<void> {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ClipboardText', displayName: 'Clipboard Text', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      body: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: {}, default: '' } }],
     }])
     await app.openDocument({
@@ -89,13 +89,11 @@ test('pasting a dynamic node removes unused members without recycling identity',
     app.registerSchemas([{
       type: 'ClipboardAutogrow', displayName: 'Clipboard Autogrow', category: 'test',
       source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'values', type: scalar, optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'value', type: scalar, optional: false }],
-          naming: { kind: 'prefix', prefix: 'value', min: 1, max: 10 },
-        },
+      body: [{
+        kind: 'group', id: 'values',
+        value: { kind: 'input', id: 'value', type: scalar, optional: false },
+        keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+        grows: 'link', minMembers: 0, maxMembers: 10,
       }],
     }] as never)
     await app.openDocument({
@@ -105,7 +103,7 @@ test('pasting a dynamic node removes unused members without recycling identity',
         nodes: {
           dynamic: {
             id: 'dynamic', type: 'ClipboardAutogrow', values: {},
-            dynamic: { values: { members: ['m3'], seq: 4 } },
+            dynamic: { values: { members: ['value4'], seq: 4 } },
           },
         },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
@@ -126,21 +124,21 @@ test('pasting a dynamic node removes unused members without recycling identity',
       pasted,
       dynamic: tab.store.doc.graphs.g0!.nodes[pasted]!.dynamic,
       members: sceneNode?.layout.pins
-        .filter((pin) => pin.direction === 'in' && pin.address.port === 'values.value')
+        .filter((pin) => pin.direction === 'in' && pin.address.port.startsWith('values.'))
         .map((pin) => ({
-          id: pin.address.members?.[0],
+          id: pin.address.port,
           ghost: pin.ghost === true,
           familyMember: pin.familyMember === true,
           optional: pin.optional === true,
         })),
     }
   })).toEqual({
-    original: { values: { members: ['m3'], seq: 4 } },
+    original: { values: { members: ['value4'], seq: 4 } },
     pasted: 'n10',
     dynamic: { values: { seq: 4 } },
+    // The spare member is offered past the counter, never value4 again.
     members: [
-      { id: 'm4', ghost: false, familyMember: true, optional: false },
-      { id: 'm5', ghost: true, familyMember: true, optional: true },
+      { id: 'values.value5', ghost: true, familyMember: true, optional: true },
     ],
   })
 
@@ -187,10 +185,10 @@ test('connected paste restores an incoming link into a widget-backed input (audi
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'FloatOut', displayName: 'Float Out', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
     }, {
       type: 'FloatWidget', displayName: 'Float Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
     }])
     await app.openDocument({
@@ -248,7 +246,7 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'NestedPass', displayName: 'Nested Pass', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'image', displayName: 'Source Image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'output', id: 'result', displayName: 'Result Image', type: { kind: 'concrete', name: 'IMAGE' } },
       ],

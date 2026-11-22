@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -14,13 +13,86 @@ import type { ReplacementRule } from '../src/replace/model.js'
 import { planReplacement } from '../src/replace/plan.js'
 import { parseDinksterNodes, type DinksterWireSchema, type InputSpec, type NodeSchema } from '../src/index.js'
 
-const fixture = JSON.parse(readFileSync(
-  new URL('../fixtures/replacements/dynamic-target.json', import.meta.url),
-  'utf8',
-)) as { schemas: (DinksterWireSchema & { nodeType: string; replacements?: readonly ReplacementRule[] })[] }
+const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
+const samples = {
+  kind: 'group', id: 'samples', keys: { numbered: { prefix: 'sample', start: 0, pad: 0 } }, maxMembers: 4,
+  member: [
+    { kind: 'input', id: 'weight', type: concrete('FLOAT'), required: false, default: 1, afterRun: 'fixed' },
+    { kind: 'input', id: 'label', type: concrete('STRING'), required: false, default: 'sample' },
+  ],
+}
+const result = { kind: 'output', id: 'result', type: concrete('comfy.IMAGE') }
+const fixture: { schemas: (DinksterWireSchema & { nodeType: string; replacements?: readonly ReplacementRule[] })[] } = { schemas: [
+  {
+    schemaVersion: 2, nodeType: 'fixture.dynamic-legacy', displayName: 'Dynamic Legacy', category: 'fixture',
+    body: [
+      { kind: 'input', id: 'color_value', type: concrete('INT'), required: false, default: 0 },
+      { kind: 'input', id: 'tolerance', type: concrete('FLOAT'), required: false, default: 0.1, afterRun: 'fixed' },
+      { kind: 'input', id: 'metric', type: concrete('STRING'), required: false, default: 'rgb' },
+      samples,
+      result,
+    ],
+  },
+  {
+    schemaVersion: 2, nodeType: 'fixture.dynamic-modern', displayName: 'Dynamic Modern', category: 'fixture',
+    body: [
+      { kind: 'choice', id: 'policy', required: false, options: [
+        { key: 'exact', rows: [] },
+        { key: 'tolerance_color', rows: [
+          { kind: 'typeChoice', id: 'color_source', required: false, variants: [
+            { key: 'integer', type: concrete('INT'), rows: [
+              { kind: 'input', id: 'color_value', type: concrete('INT'), required: false, default: 16 },
+            ] },
+            { key: 'text', type: concrete('STRING'), rows: [] },
+          ] },
+          { kind: 'input', id: 'tolerance', type: concrete('FLOAT'), required: false, default: 0.25, afterRun: 'fixed' },
+          { kind: 'input', id: 'metric', type: concrete('STRING'), required: false, default: 'ciede2000' },
+          { kind: 'input', id: 'alpha', type: concrete('FLOAT'), required: false, default: 0.5 },
+        ] },
+      ] },
+      samples,
+      result,
+    ],
+    replacements: [{
+      from: 'fixture.dynamic-legacy',
+      cases: [{
+        to: 'fixture.dynamic-modern',
+        nodes: { audit: { type: 'fixture.dynamic-helper', values: { 'mode.label': 'migration' } } },
+        inputs: {
+          'policy.color_source.color_value': { kind: 'value', input: 'color_value' },
+          'policy.tolerance': { kind: 'value', input: 'tolerance' },
+          'policy.metric': { kind: 'value', input: 'metric' },
+        },
+        inputFamilies: {
+          samples: {
+            kind: 'copy',
+            sourceFamily: 'samples',
+            inputs: { weight: { kind: 'copy', input: 'weight' }, label: { kind: 'copy', input: 'label' } },
+          },
+        },
+        links: [{ from: 'result', to: 'audit:mode.source' }],
+        outputs: { result: 'result' },
+        slotVariants: { policy: 'tolerance_color', 'policy.color_source': 'integer', 'audit:mode': 'details' },
+      }],
+    }],
+  },
+  {
+    schemaVersion: 2, nodeType: 'fixture.dynamic-helper', displayName: 'Dynamic Helper', category: 'fixture',
+    body: [
+      { kind: 'choice', id: 'mode', required: false, options: [
+        { key: 'summary', rows: [] },
+        { key: 'details', rows: [
+          { kind: 'input', id: 'source', type: concrete('comfy.IMAGE'), required: true },
+          { kind: 'input', id: 'label', type: concrete('STRING'), required: false, default: 'audit' },
+          { kind: 'input', id: 'enabled', type: concrete('BOOLEAN'), required: false, default: true },
+        ] },
+      ] },
+    ],
+  },
+] }
 
 const decoded = parseDinksterNodes({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: Object.fromEntries(fixture.schemas.map((schema) => [schema.nodeType, schema])),
 })
 expect(decoded.diagnostics).toEqual([])
@@ -75,7 +147,7 @@ function sourceDocument(): WorkflowDocument {
               tolerance: 'increment',
               'samples.sample0.weight': 'decrement',
             },
-            dynamic: { samples: { members: ['sample0'] } },
+            dynamic: { samples: { members: ['sample0'], seq: 1 } },
           },
           sink: { id: asNodeId('sink'), type: 'fixture.sink', values: {} },
         },
@@ -183,9 +255,9 @@ describe('wire-28 dynamic replacement targets', () => {
     const modern = resolve('fixture.dynamic-modern')!
     const requiredModern: NodeSchema = {
       ...modern,
-      items: modern.items.map((item) =>
-        item.kind === 'input' && item.id === 'policy'
-          ? { ...item, optional: false }
+      body: modern.body.map((item) =>
+        item.kind === 'choice' && item.id === 'policy'
+          ? { ...item, required: true }
           : item),
     }
     const requiredResolve = (type: string): NodeSchema | undefined =>
@@ -204,11 +276,11 @@ describe('wire-28 dynamic replacement targets', () => {
     expect(planned.diagnostics).toContainEqual(expect.objectContaining({
       severity: 'error',
       code: 'replace.target.dynamicInvalid',
-      message: expect.stringContaining('no stored choice'),
+      message: expect.stringContaining("required choice 'policy' has no stored option"),
     }))
   })
 
-  it('allows an optional combo to use its schema default without persisting a choice', () => {
+  it('plans an optional choice left unset without persisting a choice', () => {
     const modern = resolve('fixture.dynamic-modern')!
     const optionalRule: ReplacementRule = {
       from: 'fixture.dynamic-legacy',
@@ -222,22 +294,16 @@ describe('wire-28 dynamic replacement targets', () => {
 
   it('rejects an unselected required variant slot', () => {
     const legacy = resolve('fixture.dynamic-legacy')!
-    const template = legacy.items.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
+    const template = legacy.body.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
     const target: NodeSchema = {
       ...resolve('fixture.dynamic-modern')!,
       type: 'fixture.required-slot-target',
-      items: [{
-        ...template,
+      body: [{
+        kind: 'typeChoice',
         id: 'mask',
-        optional: false,
-        forceInput: true,
-        dynamic: {
-          kind: 'dynamicSlot',
-          materialization: 'wire15',
-          slotType: template.type,
-          variants: [{ key: 'integer', type: template.type, inputs: [] }],
-          inputs: [],
-        },
+        required: true,
+        variants: [{ key: 'integer', type: template.type, rows: [] }],
+        rows: [],
       }],
     }
     const requiredResolve = (type: string): NodeSchema | undefined =>
@@ -252,11 +318,11 @@ describe('wire-28 dynamic replacement targets', () => {
     expect(planned.diagnostics).toContainEqual(expect.objectContaining({
       severity: 'error',
       code: 'replace.target.dynamicInvalid',
-      message: expect.stringContaining('required dynamic slot'),
+      message: expect.stringContaining("required type choice 'mask' has no stored variant"),
     }))
   })
 
-  it('rejects an invalid persisted wire-15 combo choice before case selection', () => {
+  it('rejects an invalid stored choice before case selection', () => {
     const modern = resolve('fixture.dynamic-modern')!
     const before = sourceDocument()
     const invalid: WorkflowDocument = {
@@ -330,23 +396,17 @@ describe('wire-28 dynamic replacement targets', () => {
 
   it('materializes a connection-driven slot before validating its dependent mappings', () => {
     const legacy = resolve('fixture.dynamic-legacy')!
-    const template = legacy.items.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
+    const template = legacy.body.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
     const modern = resolve('fixture.dynamic-modern')!
     const target: NodeSchema = {
       ...modern,
       type: 'fixture.open-slot-target',
-      items: [{
+      body: [{
+        kind: 'typeChoice',
         id: 'mask',
-        kind: 'input',
+        required: false,
         type: template.type,
-        optional: true,
-        forceInput: true,
-        dynamic: {
-          kind: 'dynamicSlot',
-          materialization: 'wire15',
-          slotType: template.type,
-          inputs: [{ ...template, id: 'invert' }],
-        },
+        rows: [{ ...template, id: 'invert' }],
       }],
     }
     const openResolve = (type: string): NodeSchema | undefined =>

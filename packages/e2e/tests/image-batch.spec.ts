@@ -6,7 +6,7 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
   await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'image-test', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'image-test', schemaWire: 2 }, nodes: {} } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
@@ -47,7 +47,7 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ImageBatchTest', displayName: 'Image batch', category: 'test', source: 'v3', isOutputNode: true, emitsPreviews: true,
-      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, preview: true }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, preview: true }],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-batch', root: 'g0',

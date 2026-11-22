@@ -1,17 +1,18 @@
 /**
- * Dynamic-family canvas rendering and interaction-shaped growth.
+ * Group, choice and type-choice rendering on the canvas, and growth shaped
+ * like the interaction controller's gestures.
  *
- * Contract under test: the scene lays out ELABORATED interfaces - persisted
- * members, min-fill synthetics, and one trailing ghost - through the normal
- * row/pin system, on plain nodes AND subgraph instances (boundary-derived
- * schemas. Pins/rows carry structural addresses ({port,
- * members}) plus MaterializeFrame annotations; gestures build commands from
- * THOSE, never by parsing elab keys. Ghost-landing actions batch
- * dynamic.materialize atomically with their cause: one undo
+ * Contract under test: the scene lays out ELABORATED interfaces - stored
+ * members, members offered up to a group's minimum, and one spare member -
+ * through the normal row/pin system. Every port is addressed by its
+ * flattened id (`images.image0`); an offered member's pins and rows carry
+ * the MaterializeFrame that stores it. Gestures build commands from THOSE
+ * annotations, never by parsing ids. A gesture that lands on an offered
+ * member batches dynamic.materialize atomically with its cause: one undo
  * step, and a rejected action materializes nothing.
  *
- * Mixed integration (reroutes + value sources + nets + nested subgraph
- * dynamics composing in one graph) lives at the bottom.
+ * Mixed integration (reroutes + value sources + nets + nested groups
+ * composing in one graph) lives at the bottom.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -23,6 +24,7 @@ import {
   loadDocument,
   occurrenceDynamicView,
   parseDinksterSchema,
+  type BodyRow,
   type CommandInvocation,
   type InputSpec,
   type MaterializeFrame,
@@ -34,7 +36,7 @@ import {
 import { hitTest } from '../src/hit.js'
 import type { PinLayout } from '../src/layout.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
-import { buildScene, portEndKey, type Scene, type SceneLinkEnd } from '../src/scene.js'
+import { buildScene, type Scene, type SceneLinkEnd } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 
 // ---------------------------------------------------------------------------
@@ -50,202 +52,94 @@ const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   ...extra,
 })
 const output = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const schemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items,
+  body: items,
 })
 const floatWidget = (def: number): Pick<InputSpec, 'widget'> => ({
   widget: { widgetType: 'FLOAT', options: {}, default: def },
+})
+/** A group grown by links, its members keyed `<prefix>0`, `<prefix>1`, ... */
+const group = (
+  id: string,
+  prefix: string,
+  rows: { value: InputSpec | OutputSpec } | { member: BodyRow[] },
+  minMembers: number,
+  maxMembers: number,
+): BodyRow => ({
+  kind: 'group',
+  id,
+  ...rows,
+  keys: { kind: 'numbered', prefix, start: 0, pad: 0 },
+  grows: 'link',
+  minMembers,
+  maxMembers,
 })
 
 const schemas: Record<string, NodeSchema> = {
   Src: schemaOf('Src', [output('out')]),
   // Static socket + static widget, for "no dynamic annotations" baselines.
   Sink: schemaOf('Sink', [input('in'), input('gain', { optional: true, ...floatWidget(1) })]),
-  // Single-slot connectable family: image0, image1, ...
-  Batch: schemaOf('Batch', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-      },
-    },
-    output('out'),
-  ]),
+  // Group of one connectable value: images.image0, images.image1, ...
+  Batch: schemaOf('Batch', [group('images', 'image', { value: input('image', { optional: true }) }, 0, 4), output('out')]),
   // Cap of 1: capacity-reached tests.
-  Cap1: schemaOf('Cap1', [
-    {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 1 },
-      },
-    },
-    output('out'),
-  ]),
-  // Widget-backed family: ghost widget rows, member value keys.
-  Weigh: schemaOf('Weigh', [
-    {
-      ...input('weights'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('w', { optional: true, ...floatWidget(0.5) })],
-        naming: { kind: 'prefix', prefix: 'w', min: 0, max: 8 },
-      },
-    },
-    output('out'),
-  ]),
-  NamedRoute: schemaOf('NamedRoute', [
-    {
-      ...input('values'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('value', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'value', min: 0, max: 8 },
-      },
-    },
-    input('name', {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'COMBO', options: {}, optionSource: { inputFamily: 'values' } },
-    }),
-    output('out'),
-  ]),
-  // Grouped template (socket + widget) for slot-selective forwarding.
+  Cap1: schemaOf('Cap1', [group('images', 'image', { value: input('image', { optional: true }) }, 0, 1), output('out')]),
+  // Group of widget-backed values: offered widget rows, member value keys.
+  Weigh: schemaOf('Weigh', [group('weights', 'w', { value: input('w', { optional: true, ...floatWidget(0.5) }) }, 0, 8), output('out')]),
+  // Group of records (socket + widget).
   Duo: schemaOf('Duo', [
-    {
-      ...input('pairs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          input('image', { optional: true }),
-          input('gain', { optional: true, ...floatWidget(0.5) }),
-        ],
-        naming: { kind: 'prefix', prefix: 'pair', min: 0, max: 4 },
-      },
-    },
+    group('pairs', 'pair', { member: [input('image', { optional: true }), input('gain', { optional: true, ...floatWidget(0.5) })] }, 0, 4),
     output('out'),
   ]),
-  // min 2: min-fill synthetics below the trailing ghost.
-  Min2: schemaOf('Min2', [
-    {
-      ...input('imgs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('image', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 2, max: 4 },
-      },
-    },
-    output('out'),
-  ]),
-  // Autogrow-in-Autogrow: items[m] = { img, sub[k] } (static slot + construct).
+  // min 2: members offered up to the minimum.
+  Min2: schemaOf('Min2', [group('imgs', 'image', { value: input('image', { optional: true }) }, 2, 4), output('out')]),
+  // Group in a group: items.<item> = { img, sub.<sub> }.
   Nest: schemaOf('Nest', [
-    {
-      ...input('items'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          input('img', { optional: true }),
-          {
-            ...input('sub', { optional: true }),
-            dynamic: {
-              kind: 'autogrow',
-              template: [input('s', { optional: true })],
-              naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 4 },
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 5 },
-      },
-    },
+    group('items', 'item', { member: [
+      input('img', { optional: true }),
+      group('sub', 'sub', { value: input('s', { optional: true }) }, 0, 4),
+    ] }, 0, 5),
     output('out'),
   ]),
-  // Template is ONLY a nested construct: the outer ghost has nothing static
-  // to render (single-ghost rule suppresses the inner tree).
+  // A member of only a group: the spare outer member has nothing to draw.
   PureNest: schemaOf('PureNest', [
-    {
-      ...input('items'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          {
-            ...input('sub', { optional: true }),
-            dynamic: {
-              kind: 'autogrow',
-              template: [input('s', { optional: true })],
-              naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 4 },
-            },
-          },
-        ],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 5 },
-      },
-    },
+    group('items', 'item', { member: [group('sub', 'sub', { value: input('s', { optional: true }) }, 0, 4)] }, 0, 5),
     output('out'),
   ]),
-  // Dynamic OUTPUT family followed by a static output.
+  // Group of outputs followed by a static output.
   Split: schemaOf('Split', [
     input('src', { optional: true }),
-    {
-      ...output('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('o', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'o', min: 0, max: 6 },
-      },
-    } as OutputSpec,
+    group('outs', 'o', { value: output('o') }, 0, 6),
     output('last'),
   ]),
-  Counted: schemaOf('Counted', [
-    input('count', {
-      type: { kind: 'concrete', name: 'INT' },
-      widget: { widgetType: 'INT', options: {}, default: 3 },
-    }),
-    {
-      ...output('results'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('result', { optional: true })],
-        materialization: 'wire15',
-        naming: { kind: 'prefix', prefix: '', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
-  ]),
-  // Top-level DynamicCombo: selector row + branch-local values.
+  // Top-level choice: dropdown row + rows of the chosen option.
   Mode: schemaOf('Mode', [
     {
-      kind: 'input',
+      kind: 'choice',
       id: 'mode',
-      type: { kind: 'concrete', name: 'COMBO' },
-      optional: true,
-      dynamic: {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'a', inputs: [input('x', { optional: true, ...floatWidget(1) })] },
-          { key: 'b', inputs: [input('y', { optional: true, ...floatWidget(9) })] },
-        ],
-      },
+      required: true,
+      shared: [],
+      options: [
+        { key: 'a', rows: [input('x', { optional: true, ...floatWidget(1) })] },
+        { key: 'b', rows: [input('y', { optional: true, ...floatWidget(9) })] },
+      ],
     },
     output('out'),
   ]),
   Slot: schemaOf('Slot', [
     {
-      ...input('slot'),
-      dynamic: {
-        kind: 'dynamicSlot',
-        slotType: { kind: 'wildcard' },
-        variants: [
-          { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, inputs: [input('strength', { optional: true, ...floatWidget(1) })] },
-          { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, inputs: [] },
-        ],
-        inputs: [],
-      },
+      kind: 'typeChoice',
+      id: 'slot',
+      required: true,
+      rows: [],
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [input('strength', { optional: true, ...floatWidget(1) })] },
+        { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [] },
+      ],
     },
   ]),
 }
@@ -255,7 +149,7 @@ const schemas: Record<string, NodeSchema> = {
 // ---------------------------------------------------------------------------
 
 type End =
-  | [node: string, port: string, members?: string[]]
+  | [node: string, port: string]
   | { reroute: string }
   | { valueSource: string }
 type NodeSpec = {
@@ -272,8 +166,7 @@ type GraphSpec = {
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
 
-const end = (e: End): unknown =>
-  Array.isArray(e) ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) } : e
+const end = (e: End): unknown => (Array.isArray(e) ? { node: e[0], port: e[1] } : e)
 
 const docOf = (
   graphs: Record<string, GraphSpec>,
@@ -328,19 +221,6 @@ const docOf = (
   } as unknown as WorkflowDocument
 }
 
-/** Forwarding subgraph over one inner node: boundary input family + out port. */
-const famSub = (
-  innerType: string,
-  innerFamily: string,
-  opts?: { innerDynamic?: Record<string, unknown> },
-): GraphSpec => ({
-  nodes: { n: { type: innerType, ...(opts?.innerDynamic ? { dynamic: opts.innerDynamic } : {}) } },
-  boundary: {
-    inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: innerFamily } }],
-    outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-  },
-})
-
 // ---------------------------------------------------------------------------
 // Scene + store plumbing
 // ---------------------------------------------------------------------------
@@ -380,12 +260,12 @@ const portRowsOf = (scene: Scene, id: string) =>
 
 /** Plain frames for command params (structural copies of pin annotations). */
 const framesParam = (frames: readonly MaterializeFrame[]) =>
-  frames.map((f) => ({ construct: f.construct, members: [...f.members] }))
+  frames.map((f) => ({ construct: f.construct, members: [...f.members], ...(f.seq !== undefined ? { seq: f.seq } : {}) }))
 
 /**
  * Command-construction mirror of the interaction controller's ghost-drop
- * path: structural endpoint from pin.address, materialization batched
- * atomically when the pin (or an ancestor) is synthetic.
+ * path: endpoint from pin.address, materialization batched atomically when
+ * the pin (or a group around it) is offered but not stored.
  */
 const connectToPin = (
   store: DocumentStore,
@@ -394,11 +274,7 @@ const connectToPin = (
   pin: PinLayout,
   graphId = 'g0',
 ) => {
-  const to = {
-    node: nodeId,
-    port: pin.address.port as string,
-    ...(pin.address.members !== undefined ? { members: [...pin.address.members] } : {}),
-  }
+  const to = { node: nodeId, port: pin.address.port as string }
   const action = { command: 'link.connect', params: { graphId, from, to } }
   const invocation =
     pin.materialize !== undefined
@@ -421,11 +297,20 @@ const connectToPin = (
 const dynOf = (store: DocumentStore, nodeId: string, graphId = 'g0') =>
   store.doc.graphs[graphId]!.nodes[nodeId]!.dynamic
 
+/** A widget row as the pin the controller would connect a value source to. */
+const rowAsPin = (row: ReturnType<typeof widgetRowsOf>[number]): PinLayout => ({
+  portId: row.inputId,
+  direction: 'in',
+  y: 0,
+  type: row.type,
+  address: row.address,
+  ...(row.materialize !== undefined ? { materialize: row.materialize } : {}),
+})
+
 /** Every port endpoint of every scene link must anchor at a real laid-out pin. */
 const expectNoDanglingEndpoints = (scene: Scene): void => {
   for (const link of scene.links) {
-    // Boundary binding noodles are derived visuals: a family bind points at
-    // the construct port on purpose (its anchor resolves dynamically).
+    // Boundary binding noodles are derived visuals, checked separately.
     if (link.boundary) continue
     const ends: SceneLinkEnd[] = [link.from, link.to]
     for (const e of ends) {
@@ -433,8 +318,8 @@ const expectNoDanglingEndpoints = (scene: Scene): void => {
       const node = nodeOf(scene, e.node)
       const direction = e === link.from ? 'out' : 'in'
       expect(
-        node.layout.pins.some((p) => p.direction === direction && p.portId === portEndKey(e)),
-        `link ${link.id}: ${direction} pin ${portEndKey(e)} on ${e.node}`,
+        node.layout.pins.some((p) => p.direction === direction && p.portId === e.port),
+        `link ${link.id}: ${direction} pin ${e.port} on ${e.node}`,
       ).toBe(true)
     }
   }
@@ -445,82 +330,86 @@ const expectNoDanglingEndpoints = (scene: Scene): void => {
 // ---------------------------------------------------------------------------
 
 describe('dynamic layout on plain nodes', () => {
-  it('fresh autogrow family shows one trailing ghost pin with structural address + frames', () => {
+  it('a fresh group shows one spare member pin with its flattened id and frame', () => {
     const scene = sceneOf(docOf({ g0: { nodes: { b: { type: 'Batch' } } } }))
     const ghosts = ghostPinsOf(scene, 'b')
     expect(ghosts).toHaveLength(1)
     const ghost = ghosts[0]!
     expect(ghost.direction).toBe('in')
-    expect(ghost.portId).toBe('images.image#m0')
-    expect(ghost.address).toEqual({ port: 'images.image', members: ['m0'] })
-    expect(ghost.materialize).toEqual([{ construct: 'images', members: ['m0'] }])
-    // The ghost's port row is annotated identically and labeled by ordinal.
-    const row = portRowsOf(scene, 'b').find((r) => r.input?.portId === 'images.image#m0')!
+    expect(ghost.portId).toBe('images.image0')
+    expect(ghost.address).toEqual({ port: 'images.image0' })
+    expect(ghost.materialize).toEqual([{ construct: 'images', members: ['image0'], seq: 1 }])
+    // The spare member's port row is annotated identically and labeled by position.
+    const row = portRowsOf(scene, 'b').find((r) => r.input?.portId === 'images.image0')!
     expect(row.input!.ghost).toBe(true)
-    expect(row.input!.label).toBe('image0')
+    expect(row.input!.label).toBe('image 1')
   })
 
-  it('persisted members render as real pins; the ghost continues from seq, never recycling ids', () => {
+  it('stored members render as real pins; the spare continues from seq, never reusing keys', () => {
     const scene = sceneOf(
       docOf({
-        g0: { nodes: { b: { type: 'Batch', dynamic: { images: { members: ['m3'], seq: 4 } } } } },
+        g0: {
+          nodes: { a: { type: 'Src' }, b: { type: 'Batch', dynamic: { images: { members: ['image3'], seq: 4 } } } },
+          links: [[['a', 'out'], ['b', 'images.image3']]],
+        },
       }),
     )
     const pins = pinsOf(scene, 'b', 'in')
-    expect(pins.map((p) => p.portId)).toEqual(['images.image#m3', 'images.image#m4'])
+    expect(pins.map((p) => p.portId)).toEqual(['images.image3', 'images.image4'])
     const member = pins[0]!
     expect(member.ghost).toBeUndefined()
     expect(member.materialize).toBeUndefined()
     const ghost = pins[1]!
     expect(ghost.ghost).toBe(true)
-    expect(ghost.materialize).toEqual([{ construct: 'images', members: ['m4'] }])
+    expect(ghost.materialize).toEqual([{ construct: 'images', members: ['image4'], seq: 5 }])
   })
 
-  it('capacity reached: no trailing ghost', () => {
+  it('capacity reached: no spare member', () => {
     const scene = sceneOf(
       docOf({
-        g0: { nodes: { c: { type: 'Cap1', dynamic: { images: { members: ['m0'], seq: 1 } } } } },
+        g0: {
+          nodes: { a: { type: 'Src' }, c: { type: 'Cap1', dynamic: { images: { members: ['image0'], seq: 1 } } } },
+          links: [[['a', 'out'], ['c', 'images.image0']]],
+        },
       }),
     )
-    expect(pinsOf(scene, 'c', 'in').map((p) => p.portId)).toEqual(['images.image#m0'])
+    expect(pinsOf(scene, 'c', 'in').map((p) => p.portId)).toEqual(['images.image0'])
     expect(ghostPinsOf(scene, 'c')).toHaveLength(0)
   })
 
-  it('min-fill synthetics render un-ghosted with cumulative sibling frames; the ghost includes all', () => {
+  it('members offered up to the minimum carry cumulative frames', () => {
     const scene = sceneOf(docOf({ g0: { nodes: { m: { type: 'Min2' } } } }))
     const pins = pinsOf(scene, 'm', 'in')
-    expect(pins.map((p) => p.portId)).toEqual(['imgs.image#m0', 'imgs.image#m1', 'imgs.image#m2'])
-    expect(pins.map((p) => p.ghost ?? false)).toEqual([false, false, true])
-    expect(pins[0]!.materialize).toEqual([{ construct: 'imgs', members: ['m0'] }])
-    expect(pins[1]!.materialize).toEqual([{ construct: 'imgs', members: ['m0', 'm1'] }])
-    expect(pins[2]!.materialize).toEqual([{ construct: 'imgs', members: ['m0', 'm1', 'm2'] }])
+    expect(pins.map((p) => p.portId)).toEqual(['imgs.image0', 'imgs.image1'])
+    expect(pins.map((p) => p.ghost ?? false)).toEqual([true, true])
+    expect(pins[0]!.materialize).toEqual([{ construct: 'imgs', members: ['image0'], seq: 1 }])
+    expect(pins[1]!.materialize).toEqual([{ construct: 'imgs', members: ['image0', 'image1'], seq: 2 }])
   })
 
-  it('nested families: inner ghost under a persisted member; none under the outer ghost (single-ghost rule)', () => {
+  it('nested groups: an inner spare under a stored member; none under the outer spare', () => {
     const scene = sceneOf(
       docOf({
-        g0: { nodes: { n: { type: 'Nest', dynamic: { items: { members: ['m0'], seq: 1 } } } } },
+        g0: {
+          nodes: { a: { type: 'Src' }, n: { type: 'Nest', dynamic: { items: { members: ['item0'], seq: 1 } } } },
+          links: [[['a', 'out'], ['n', 'items.item0.img']]],
+        },
       }),
     )
     const pins = pinsOf(scene, 'n', 'in')
-    const inner = pins.find((p) => p.address.port === 'items.sub.s' && !p.ghost === false)
+    const inner = pins.find((p) => p.address.port === 'items.item0.sub.sub0')
     expect(inner).toBeDefined()
-    expect(inner!.address).toEqual({ port: 'items.sub.s', members: ['m0', 'm0'] })
-    expect(inner!.materialize).toEqual([
-      { construct: 'items', members: ['m0'] },
-      { construct: 'items.sub', members: ['m0'] },
-    ])
-    // The outer trailing ghost (m1) shows its static slot but emits NO inner
-    // ghost tree (single-ghost rule: at most one ghost ancestor per address).
-    expect(pins.some((p) => p.address.members?.[0] === 'm1' && p.address.members.length === 1)).toBe(true)
-    expect(pins.some((p) => p.address.members?.[0] === 'm1' && p.address.members.length > 1)).toBe(false)
+    expect(inner!.ghost).toBe(true)
+    expect(inner!.materialize).toEqual([{ construct: 'items.item0.sub', members: ['sub0'], seq: 1 }])
+    // The outer spare (item1) shows its own input but no inner group members.
+    expect(pins.some((p) => p.address.port === 'items.item1.img')).toBe(true)
+    expect(pins.some((p) => p.address.port.startsWith('items.item1.sub.'))).toBe(false)
   })
 
-  it('nested-only template: a growth row stands in for the invisible ghost', () => {
-    // The outer ghost member has no static slot and its inner ghost tree is
-    // suppressed (single-ghost rule), so a fresh node has no pins to grab.
-    // The elaborator replaces that ghost with an explicit growth affordance
-    // row carrying the frames that persist the offered member.
+  it('a member of only a group: a growth row stands in for the spare member', () => {
+    // The spare outer member has no row of its own and its inner group
+    // offers nothing, so a fresh node has no pins to grab. The elaborator
+    // replaces that member with an explicit growth row carrying the frame
+    // that stores it.
     const fresh = sceneOf(docOf({ g0: { nodes: { p: { type: 'PureNest' } } } }))
     expect(pinsOf(fresh, 'p', 'in')).toHaveLength(0)
     const rows = growthRowsOf(fresh, 'p')
@@ -529,7 +418,7 @@ describe('dynamic layout on plain nodes', () => {
         kind: 'growth',
         construct: 'items',
         label: 'items',
-        frames: [{ construct: 'items', members: ['m0'] }],
+        frames: [{ construct: 'items', members: ['item0'], seq: 1 }],
       }),
     ])
     // The row occupies real vertical space inside the node body, and a
@@ -540,104 +429,61 @@ describe('dynamic layout on plain nodes', () => {
     expect(rows[0]!.y).toBeGreaterThanOrEqual(node.layout.headerHeight)
     const hit = hitTest(fresh, node.x + node.layout.width / 2, node.y + rows[0]!.y + rows[0]!.height / 2)
     expect(hit.kind).toBe('growth')
-    if (hit.kind === 'growth') expect(hit.row.frames).toEqual([{ construct: 'items', members: ['m0'] }])
+    if (hit.kind === 'growth') expect(hit.row.frames).toEqual([{ construct: 'items', members: ['item0'], seq: 1 }])
   })
 
-  it('activating the growth row grows the family; undo restores the offer (one step)', () => {
+  it('activating the growth row stores the member; undo restores the offer (one step)', () => {
     const store = makeStore(docOf({ g0: { nodes: { p: { type: 'PureNest' } } } }))
     const offer = growthRowsOf(sceneFrom(store), 'p')[0]!
     store.dispatch({
       command: 'dynamic.materialize',
       params: { graphId: 'g0', nodeId: 'p', frames: framesParam(offer.frames) },
     })
+    expect(dynOf(store, 'p')).toEqual({ items: { members: ['item0'], seq: 1 } })
     const grown = sceneFrom(store)
-    // The persisted member's inner family ghosts normally now...
-    const inner = pinsOf(grown, 'p', 'in').find((p) => p.address.port === 'items.sub.s')
+    // The stored member's inner group offers its spare member now.
+    const inner = pinsOf(grown, 'p', 'in').find((p) => p.address.port === 'items.item0.sub.sub0')
     expect(inner).toBeDefined()
-    expect(inner!.address.members).toEqual(['m0', 'm0'])
-    // ...and the NEXT outer member is offered (never recycling m0), plus the
-    // inner family's own growth is reachable through its ghost pin instead.
-    expect(growthRowsOf(grown, 'p')).toEqual([
-      expect.objectContaining({ construct: 'items', frames: [{ construct: 'items', members: ['m1'] }] }),
-    ])
+    expect(inner!.ghost).toBe(true)
     store.undo()
     const back = sceneFrom(store)
     expect(pinsOf(back, 'p', 'in')).toHaveLength(0)
-    // The offer is back, but member ids are never recycled: the allocation
-    // cursor survives undo, so the re-offered member is m1, not m0.
-    expect(growthRowsOf(back, 'p')[0]!.frames).toEqual([{ construct: 'items', members: ['m1'] }])
+    // The offer is back, but member keys are never reused: the allocation
+    // cursor survives undo, so the re-offered member is item1, not item0.
+    expect(growthRowsOf(back, 'p')[0]!.frames).toEqual([{ construct: 'items', members: ['item1'], seq: 2 }])
   })
 
-  it('dynamic OUTPUT families ghost symmetrically, before trailing static outputs', () => {
+  it('a group of outputs offers its spare symmetrically, before trailing static outputs', () => {
     const scene = sceneOf(docOf({ g0: { nodes: { s: { type: 'Split' } } } }))
     const outs = pinsOf(scene, 's', 'out')
-    expect(outs.map((p) => p.portId)).toEqual(['outs.o#m0', 'last'])
+    expect(outs.map((p) => p.portId)).toEqual(['outs.o0', 'last'])
     const ghost = outs[0]!
     expect(ghost.ghost).toBe(true)
-    expect(ghost.address).toEqual({ port: 'outs.o', members: ['m0'] })
-    expect(ghost.materialize).toEqual([{ construct: 'outs', members: ['m0'] }])
+    expect(ghost.address).toEqual({ port: 'outs.o0' })
+    expect(ghost.materialize).toEqual([{ construct: 'outs', members: ['o0'], seq: 1 }])
     expect(outs[1]!.address).toEqual({ port: 'last' })
   })
 
-  it('count edits re-elaborate, re-layout, rerun solving, and preserve departing links through undo', () => {
-    const document = docOf({
-      g0: {
-        nodes: { split: { type: 'Counted', values: { count: 3 } }, sink: { type: 'Sink' } },
-        links: [[['split', 'results', ['2']], ['sink', 'in']]],
-      },
-    })
-    const store = new DocumentStore(document, coreCommandRegistry([], (type) => schemas[type]))
-    const before = sceneFrom(store)
-    expect(pinsOf(before, 'split', 'out')
-      .filter((pin) => pin.address.port === 'results')
-      .map((pin) => pin.address.members)).toEqual([['0'], ['1'], ['2']])
-    const beforeHeight = nodeOf(before, 'split').layout.height
-
-    expect(store.dispatch({
-      command: 'node.setOutputCount',
-      params: {
-        graphId: 'g0', nodeId: 'split', inputId: 'count', value: 1, removedLinks: 'preserve',
-      },
-    }).ok).toBe(true)
-    const reduced = sceneFrom(store)
-    expect(pinsOf(reduced, 'split', 'out')
-      .filter((pin) => pin.address.port === 'results')
-      .map((pin) => pin.address.members)).toEqual([['0']])
-    expect(nodeOf(reduced, 'split').layout.height).toBeLessThan(beforeHeight)
-    expect(reduced.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'solve.portMissing', message: 'split.results#2: connected port is unavailable' }),
-    ]))
-    expect(store.doc.graphs.g0!.links.l0).toBeDefined()
-
-    expect(store.undo()).toBe(true)
-    const restored = sceneFrom(store)
-    expect(pinsOf(restored, 'split', 'out')
-      .filter((pin) => pin.address.port === 'results')
-      .map((pin) => pin.address.members)).toEqual([['0'], ['1'], ['2']])
-    expect(restored.diagnostics.some((diagnostic) => diagnostic.code === 'solve.portMissing')).toBe(false)
-    expect(store.doc.graphs.g0!.links.l0).toBeDefined()
-  })
-
-  it('DynamicCombo renders a selector row (derivedValue, selectOption routing) plus branch widgets', () => {
+  it("a choice renders its dropdown row (derivedValue, selector routing) plus the chosen option's widgets", () => {
     const scene = sceneOf(docOf({ g0: { nodes: { m: { type: 'Mode' } } } }))
     const rows = widgetRowsOf(scene, 'm')
     const selector = rows.find((r) => r.selector !== undefined)!
     expect(selector.selector!.construct).toBe('mode')
     expect(selector.derivedValue).toBe('a')
-    // Branch-local value key: construct.[option].input - switching preserves values.
-    const branch = rows.find((r) => r.valueKey === 'mode.[a].x')
+    // The option's row stores under its flattened id: construct.input.
+    const branch = rows.find((r) => r.valueKey === 'mode.x')
     expect(branch).toBeDefined()
     expect(branch!.selector).toBeUndefined()
   })
 
-  it.each([false, true])('respects DynamicCombo subtree visibility hidden=%s while retaining execution', (hidden) => {
+  it.each([false, true])('respects choice visibility hidden=%s while retaining execution', (hidden) => {
     const schema = parseDinksterSchema('HiddenSelector', {
       outputNode: true,
-      interface: [{ role: 'dynamicCombo', id: 'codec', hidden, options: [
-        { key: 'auto', inputs: [] },
-        { key: 'custom', inputs: [
-          { role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
-          { role: 'input', id: 'internal', type: { kind: 'concrete', types: ['INT'] }, default: 13, hidden: true },
+      body: [{ kind: 'choice', id: 'codec', hidden, options: [
+        { key: 'auto', rows: [] },
+        { key: 'custom', rows: [
+          { kind: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+          { kind: 'input', id: 'internal', type: { kind: 'concrete', types: ['INT'] }, default: 13, hidden: true },
         ] },
       ] }],
     }).schema!
@@ -649,264 +495,60 @@ describe('dynamic layout on plain nodes', () => {
     const resolve = (type: string) => type === schema.type ? schema : undefined
     const scene = buildScene({ document: doc, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure })
     expect(widgetRowsOf(scene, 'm').map((row) => row.inputId)).toEqual(hidden ? [] : ['codec', 'codec.quality'])
-    expect(pinsOf(scene, 'm', 'in').map((pin) => pin.address.port)).toEqual(hidden ? [] : ['codec', 'codec.quality'])
+    // The dropdown has no socket; only the option's field does.
+    expect(pinsOf(scene, 'm', 'in').map((pin) => pin.address.port)).toEqual(hidden ? [] : ['codec.quality'])
     const result = compile({ document: doc, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('hidden-selector'), schemaHash: 'hidden-selector' })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) throw new Error('hidden selector compilation failed')
-    expect(result.artifact.prompt.m!.inputs).toEqual({ codec: 'custom', 'codec.quality': 29, 'codec.internal': 31 })
+    expect(result.artifact.prompt.m!.inputs).toEqual({ 'codec.quality': 29, 'codec.internal': 31 })
+    expect(result.artifact.prompt.m!.slotVariants).toEqual({ codec: 'custom' })
     expect(JSON.stringify(doc)).toBe(before)
   })
 
-  it.each(['local', 'promoted', 'promoted-member', 'family'] as const)('routes authored menu edits to the %s persisted scope', (mode) => {
+  it.each(['local', 'promoted', 'promoted-member'] as const)('routes authored menu edits to the %s stored scope', (mode) => {
     const choice = input('choice', { widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } } })
-    const menu = schemaOf('EditableMenu', mode === 'promoted' ? [choice] : [{
-      ...input('items'), dynamic: { kind: 'autogrow', template: [choice], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } },
-    }])
+    const menu = schemaOf('EditableMenu', mode === 'promoted' ? [choice] : [group('items', 'item', { member: [choice] }, 0, 4)])
     const doc = docOf({
-      g0: { nodes: { instance: { type: '#sub', values: mode === 'promoted-member' ? { menu: 'outer value' } : {},
-        dynamic: mode === 'family' ? { forwarded: { members: ['s0'] } } : {},
-      } } },
+      g0: { nodes: { instance: { type: '#sub', values: mode === 'promoted-member' ? { menu: 'outer value' } : {} } } },
       sub: { nodes: { n: { type: menu.type, values: { choice: 'outside' },
-        dynamic: mode === 'promoted' ? {} : { items: { members: ['d0'] } },
-      } }, boundary: { inputs: mode === 'local' ? [] : [{ id: mode === 'family' ? 'forwarded' : 'menu',
-        ...(mode.startsWith('promoted') ? { promoted: true } : {}),
-        binds: { kind: mode === 'family' ? 'family' : 'port', node: 'n', port: mode === 'family' ? 'items' : mode === 'promoted-member' ? 'items.choice' : 'choice',
-          ...(mode === 'promoted-member' ? { members: ['d0'] } : {}),
-        },
+        dynamic: mode === 'promoted' ? {} : { items: { members: ['item0'], seq: 1 } },
+      } }, boundary: { inputs: mode === 'local' ? [] : [{ id: 'menu', promoted: true,
+        binds: { kind: 'port', node: 'n', port: mode === 'promoted-member' ? 'items.item0.choice' : 'choice' },
       }] } },
     })
     const resolve = documentResolver(doc, (type) => type === menu.type ? menu : undefined)
     const occurrenceView = occurrenceDynamicView(doc, resolve, ['instance'])
-    if (mode === 'promoted-member') expect(occurrenceView.values.get('n')).toMatchObject({ 'items.choice#d0': 'outer value' })
+    if (mode === 'promoted-member') expect(occurrenceView.values.get('n')).toMatchObject({ 'items.item0.choice': 'outer value' })
     const scene = buildScene({ document: doc, graphId: 'sub', resolve, tokens: defaultTokens, measure, widgetMeasure,
       occurrenceView,
     })
     const rows = widgetRowsOf(scene, 'n')
-    const row = rows.find((candidate) => !candidate.ghost && (mode !== 'family' || candidate.address.members?.[0] === '\u0000s0'))!
+    const row = rows.find((candidate) => !candidate.ghost)!
     const target = row.optionsTarget!
     expect(target).toBeDefined()
     const owner = target.owner ?? { graphId: 'sub', nodeId: 'n', ...target }
+    // A group member's state lives under its flattened id, with no member nesting.
     expect(owner).toEqual(mode.startsWith('promoted')
-      ? { graphId: 'g0', nodeId: 'instance', construct: 'menu', ancestors: [] }
-      : mode === 'family'
-        ? { graphId: 'g0', nodeId: 'instance', construct: 'forwarded.choice', ancestors: [{ construct: 'forwarded', member: 's0' }] }
-        : { graphId: 'sub', nodeId: 'n', construct: 'items.choice', ancestors: [{ construct: 'items', member: 'd0' }] })
+      ? { graphId: 'g0', nodeId: 'instance', construct: 'menu' }
+      : { graphId: 'sub', nodeId: 'n', construct: 'items.item0.choice' })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve))
     const result = store.dispatch({ command: 'dynamic.setOptions', params: { ...owner, options: [false, 0, 'duplicate', 'duplicate'] } })
     expect(result.ok).toBe(true)
     const node = store.doc.graphs[owner.graphId]!.nodes[owner.nodeId]!
-    const scope = !owner.ancestors?.length ? node.dynamic : node.dynamic?.[owner.ancestors[0]!.construct]?.memberState?.[owner.ancestors[0]!.member]
-    expect(scope?.[owner.construct]?.options).toEqual([false, 0, 'duplicate', 'duplicate'])
+    expect(node.dynamic?.[owner.construct]?.options).toEqual([false, 0, 'duplicate', 'duplicate'])
     expect(store.doc.graphs.sub!.nodes.n!.values).toEqual({ choice: 'outside' })
+    if (mode === 'local') {
+      // The edited menu is what the row offers.
+      const edited = widgetRowsOf(buildScene({ document: store.doc, graphId: 'sub', resolve: documentResolver(store.doc, (type) => type === menu.type ? menu : undefined),
+        tokens: defaultTokens, measure, widgetMeasure }), 'n').find((candidate) => candidate.valueKey === 'items.item0.choice')!
+      expect(edited.spec.options['options']).toEqual([false, 0, 'duplicate', 'duplicate'])
+    }
     store.undo()
     expect(store.doc).toEqual(doc)
-    if (mode === 'family') {
-      const ghost = rows.find((candidate) => candidate.ghost)!
-      const ghostOwner = ghost.optionsTarget!.owner!
-      const outcome = store.dispatch({ command: 'batch', params: { invocations: [
-        { command: 'dynamic.materialize', params: { graphId: ghostOwner.graphId, nodeId: ghostOwner.nodeId, frames: ghost.optionsTarget!.materialize } },
-        { command: 'dynamic.setOptions', params: { ...ghostOwner, options: [] } },
-      ] } } as CommandInvocation)
-      expect(outcome.ok, JSON.stringify(outcome)).toBe(true)
-      expect(store.doc.graphs.g0!.nodes.instance!.dynamic?.forwarded?.memberState?.[ghostOwner.ancestors![0]!.member]?.['forwarded.choice']?.options).toEqual([])
-      store.undo()
-      expect(store.doc.graphs.g0!.nodes.instance!.dynamic?.forwarded).toEqual({ members: ['s0'], seq: 1 })
-      expect(store.doc.graphs.sub).toEqual(doc.graphs.sub)
-    }
-  })
-
-  it('keeps an occurrence input-family option source bound to its persisted owner', () => {
-    const doc = docOf({
-      g0: { nodes: { instance: {
-        type: '#sub',
-        dynamic: { branches: { members: ['m0'], memberLabels: { m0: 'Primary' } } },
-      } } },
-      sub: {
-        nodes: { route: {
-          type: 'NamedRoute',
-          dynamic: { values: { members: ['d0'], memberLabels: { d0: 'Default' } } },
-        } },
-        boundary: {
-          inputs: [{ id: 'branches', binds: { kind: 'family', node: 'route', port: 'values' } }],
-        },
-      },
-    })
-    const resolve = documentResolver(doc, (type) => schemas[type])
-    const occurrence = buildScene({
-      document: doc,
-      graphId: 'sub',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-      occurrenceView: occurrenceDynamicView(doc, resolve, ['instance']),
-    })
-
-    const selector = widgetRowsOf(occurrence, 'route').find((row) => row.valueKey === 'name')!
-    expect(selector.inputFamilyOwner).toEqual({
-      graphId: 'g0', nodeId: 'instance', construct: 'branches', memberIds: { '\u0000m0': 'm0' },
-    })
-    expect(selector.familyOwner).toBeUndefined()
-    expect(selector.spec.options['options']).toEqual([
-      { value: 'd0', label: 'Default' },
-      { value: '\u0000m0', label: 'Primary' },
-    ])
-
-    const store = makeStore(doc)
-    const result = store.dispatch({
-      command: 'dynamic.labelMembers',
-      params: {
-        graphId: selector.inputFamilyOwner!.graphId,
-        nodeId: selector.inputFamilyOwner!.nodeId,
-        construct: selector.inputFamilyOwner!.construct,
-        labels: { [selector.inputFamilyOwner!.memberIds['\u0000m0']!]: 'Renamed' },
-      },
-    })
-    expect(result.ok).toBe(true)
-    const updatedResolve = documentResolver(store.doc, (type) => schemas[type])
-    const updated = buildScene({
-      document: store.doc,
-      graphId: 'sub',
-      resolve: updatedResolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-      occurrenceView: occurrenceDynamicView(store.doc, updatedResolve, ['instance']),
-    })
-    expect(widgetRowsOf(updated, 'route').find((row) => row.valueKey === 'name')!.spec.options['options'])
-      .toEqual([{ value: 'd0', label: 'Default' }, { value: '\u0000m0', label: 'Renamed' }])
-  })
-
-  it.each([false, true])('keeps canonical drilled rows editable and retained/ghost sockets connected to their owner (named=%s)', (named) => {
-    const names = named ? ['head', 'middle', 'tail', 'last'] : ['item0', 'item1', 'item2', 'item3']
-    const canonical = schemaOf('Canonical', [{
-      ...input('weights', { optional: true }), dynamic: {
-        kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
-        naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-        template: [{ ...input('value', { optional: true, ...floatWidget(0) }), type: { kind: 'concrete', name: 'FLOAT' } }],
-      },
-    }])
-    const doc = docOf({
-      g0: { nodes: { instance: { type: '#sub', values: { [`forwarded.${names[1]}`]: 22 }, dynamic: { forwarded: { members: [names[1]] } } } } },
-      sub: { nodes: { n: { type: 'Canonical', values: { [`weights.${names[0]}`]: 11 }, dynamic: { weights: { members: [names[0]] } } } },
-        boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'weights' } }] } },
-    })
-    const resolver = (type: string) => type === 'Canonical' ? canonical : schemas[type]
-    const scene = buildScene({
-      document: doc, graphId: 'sub', resolve: documentResolver(doc, resolver), tokens: defaultTokens, measure, widgetMeasure,
-      occurrenceView: occurrenceDynamicView(doc, resolver, ['instance']),
-      occurrence: { owner: { instancePath: [], node: 'instance' as any }, plannerAvailable: true },
-    })
-    const rows = widgetRowsOf(scene, 'n')
-    expect(rows.find((row) => row.valueKey === `weights.${names[0]}`)!.familyOwner).toBeUndefined()
-    expect(rows.find((row) => row.valueKey === `weights.${names[1]}`)!.familyOwner).toEqual({
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: `forwarded.${names[1]}`,
-    })
-    const ghostRow = rows.find((row) => row.valueKey === `weights.${names[2]}`)!
-    expect(ghostRow.familyOwner).toEqual({
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: `forwarded.${names[2]}`,
-    })
-    expect(ghostRow.materialize).toEqual([{ construct: 'forwarded', members: [names[2]] }])
-    for (const [index, ghost] of [[1, false], [2, true]] as const) {
-      const pin = pinsOf(scene, 'n', 'in').find((candidate) => candidate.address.port === `weights.${names[index]}`)!
-      expect(pin.ghost === true).toBe(ghost)
-      expect(pin.familyOwner).toMatchObject({ graphId: 'g0', nodeId: 'instance', socketed: true,
-        sourceEndpoint: { kind: 'boundary', occurrence: { instancePath: [], node: 'instance' }, address: { port: `forwarded.${names[index]}` } },
-      })
-      expect((pin.familyOwner!.sourceEndpoint as any).address.members).toBeUndefined()
-    }
-  })
-
-  it('matches compiled structural input order to canvas-visible definition prefixes and occurrence suffixes', () => {
-    const doc = docOf({
-      g0: {
-        nodes: { suffixSource: { type: 'Src' }, s: { type: '#sub', dynamic: { forwarded: { members: ['s0'] } } } },
-        links: [[['suffixSource', 'out'], ['s', 'forwarded.image', ['s0']]]],
-      },
-      sub: {
-        nodes: {
-          prefixSource: { type: 'Src' },
-          n: { type: 'Batch', dynamic: { images: { members: ['d0'] } } },
-        },
-        links: [[['prefixSource', 'out'], ['n', 'images.image', ['d0']]]],
-        boundary: {
-          inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'images' } }],
-          outputs: [],
-        },
-      },
-    })
-    const resolver = documentResolver(doc, (type) => schemas[type])
-    const occurrenceView = occurrenceDynamicView(doc, resolver, ['s'])
-    expect(occurrenceView.dynamic.get('n')?.images?.members).toEqual(['d0', '\u0000s0'])
-    const scene = buildScene({
-      document: doc, graphId: 'sub', resolve: resolver, tokens: defaultTokens,
-      measure, widgetMeasure, occurrenceView,
-    })
-    const visible = pinsOf(scene, 'n', 'in')
-      .filter((pin) => !pin.ghost)
-      .map((pin) => ({ port: pin.address.port, members: pin.address.members }))
-    expect(visible).toEqual([
-      { port: 'images.image', members: ['d0'] },
-      { port: 'images.image', members: ['\u0000s0'] },
-    ])
-
-    const result = compile({
-      document: doc, revision: 1, resolve: (type) => schemas[type], scope: { kind: 'full' },
-      connection: asConnectionId('c0'), schemaHash: 'canvas-parity',
-    })
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    const compiled = Object.values(result.artifact.provenance.inputSources?.['s.n'] ?? {})
-      .map((ref) => ({ port: ref.port, members: ref.members }))
-    expect(compiled).toEqual(visible)
-  })
-
-  it.each([
-    ['whole', undefined],
-    ['grouped', ['w']],
-  ] as const)('projects an occurrence-local link through the %s forwarded family route', (_name, slots) => {
-    const binding = { kind: 'family' as const, node: 'n', port: 'weights', ...(slots !== undefined ? { slots } : {}) }
-    const doc = docOf({
-      g0: { nodes: { s: { type: '#sub', dynamic: { forwarded: { members: ['s0'] } } } } },
-      sub: {
-        nodes: { source: { type: 'Src' }, n: { type: 'Weigh' } },
-        boundary: { inputs: [{ id: 'forwarded', binds: binding }], outputs: [] },
-      },
-    }) as any
-    doc.occurrenceTopologies = {
-      s: {
-        owner: { instancePath: [], node: 's' }, bodyGraph: 'sub', nextOrdinal: 1,
-        links: {
-          local: {
-            id: 'local',
-            from: { kind: 'body', endpoint: { node: 'source', port: 'out' } },
-            to: {
-              kind: 'boundary', occurrence: { instancePath: [], node: 's' },
-              address: { port: 'forwarded.w', members: ['s0'] },
-              route: [{ graph: 'sub', boundaryId: 'forwarded', binding }],
-            },
-          },
-        },
-      },
-    }
-    const resolve = documentResolver(doc, (type) => schemas[type])
-    const scene = buildScene({
-      document: doc,
-      graphId: 'sub',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-      occurrenceView: occurrenceDynamicView(doc, resolve, ['s']),
-      occurrence: { owner: { instancePath: [], node: 's' }, plannerAvailable: true },
-    } as any)
-    const link = scene.links.find((candidate) => candidate.effectiveIdentity?.kind === 'occurrence')
-    expect(link?.effectiveIdentity).toEqual({ kind: 'occurrence', owner: { instancePath: [], node: 's' }, linkId: 'local' })
-    expect(link?.to).toEqual({ kind: 'port', node: 'n', port: 'weights.w', members: ['\u0000s0'] })
   })
 
   it('solver diagnostics surface on the scene: a stale specialization is user-visible', () => {
-    // Src produces IMAGE; a persisted 'latent' choice is stale the moment the
+    // Src produces IMAGE; a stored 'latent' variant is stale the moment the
     // build runs. The scene must carry the advisory (replaced per build, so
     // fixing the document clears it) rather than dropping solver output.
     const docWith = (selected: string) => docOf({
@@ -917,9 +559,9 @@ describe('dynamic layout on plain nodes', () => {
     })
     const stale = sceneOf(docWith('latent'))
     expect(stale.diagnostics.map((d) => d.code)).toContain('solve.slot.staleSpecialization')
-    // The diagnostic anchors to the slot pin, so the pin itself warns on
-    // canvas - the user sees the ring where the problem lives, not only a
-    // Problems-panel row.
+    // The diagnostic anchors to the type choice's pin, so the pin itself
+    // warns on canvas - the user sees the ring where the problem lives, not
+    // only a Problems-panel row.
     const stalePin = pinsOf(stale, 's', 'in').find((p) => p.address.port === 'slot')!
     expect(stalePin.warn).toBe(true)
     // Compatible choice: the same graph shape produces a clean scene.
@@ -934,131 +576,7 @@ describe('dynamic layout on plain nodes', () => {
 // Subgraph instances (boundary-derived schemas)
 // ---------------------------------------------------------------------------
 
-describe('dynamic layout on subgraph instances', () => {
-  it('a forwarded family ghosts on a fresh instance exactly like a plain node', () => {
-    const scene = sceneOf(
-      docOf({
-        g0: { nodes: { s: { type: '#sub' } } },
-        sub: famSub('Batch', 'images'),
-      }),
-    )
-    const instance = nodeOf(scene, 's')
-    expect(instance.isSubgraph).toBe(true)
-    const ghosts = ghostPinsOf(scene, 's')
-    expect(ghosts).toHaveLength(1)
-    expect(ghosts[0]!.address).toEqual({ port: 'fam.image', members: ['m0'] })
-    expect(ghosts[0]!.materialize).toEqual([{ construct: 'fam', members: ['m0'] }])
-  })
-
-  it('definition prefix numbers first; instance suffix labels and ghost continue after it', () => {
-    const scene = sceneOf(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'], seq: 1 } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.image', ['m0']]]],
-        },
-        sub: famSub('Batch', 'images', { innerDynamic: { images: { members: ['mA'], seq: 1 } } }),
-      }),
-    )
-    const pins = pinsOf(scene, 's', 'in')
-    // The definition's prefix member is definition-local: not an instance pin.
-    expect(pins.map((p) => p.portId)).toEqual(['fam.image#m0', 'fam.image#m1'])
-    const rows = portRowsOf(scene, 's')
-    expect(rows.find((r) => r.input?.portId === 'fam.image#m0')!.input!.label).toBe('image1')
-    expect(rows.find((r) => r.input?.portId === 'fam.image#m1')!.input!.label).toBe('image2')
-    // The suffix link anchors at the member pin.
-    expect(scene.links).toHaveLength(1)
-    expect(scene.links[0]!.to).toEqual({ kind: 'port', node: 's', port: 'fam.image', members: ['m0'] })
-    const instance = nodeOf(scene, 's')
-    const memberPin = pins[0]!
-    expect(scene.links[0]!.y2).toBe(instance.y + memberPin.y)
-  })
-
-  it('two instances of one shared definition ghost independently', () => {
-    const scene = sceneOf(
-      docOf({
-        g0: {
-          nodes: {
-            s1: { type: '#sub', dynamic: { fam: { members: ['m0'], seq: 1 } } },
-            s2: { type: '#sub' },
-          },
-        },
-        sub: famSub('Batch', 'images'),
-      }),
-    )
-    expect(ghostPinsOf(scene, 's1')[0]!.address).toEqual({ port: 'fam.image', members: ['m1'] })
-    expect(ghostPinsOf(scene, 's2')[0]!.address).toEqual({ port: 'fam.image', members: ['m0'] })
-  })
-
-  it('autogrow-in-autogrow forwards: nested ghost under a persisted instance member', () => {
-    const scene = sceneOf(
-      docOf({
-        g0: { nodes: { s: { type: '#sub', dynamic: { fam: { members: ['m0'], seq: 1 } } } } },
-        sub: famSub('Nest', 'items'),
-      }),
-    )
-    const inner = pinsOf(scene, 's', 'in').find((p) => p.address.port === 'fam.sub.s')
-    expect(inner).toBeDefined()
-    expect(inner!.address).toEqual({ port: 'fam.sub.s', members: ['m0', 'm0'] })
-    expect(inner!.ghost).toBe(true)
-    expect(inner!.materialize).toEqual([
-      { construct: 'fam', members: ['m0'] },
-      { construct: 'fam.sub', members: ['m0'] },
-    ])
-  })
-
-  it('slot-selective forwarding ghosts ONLY the selected slots (hazard F10)', () => {
-    const selectedSub = (slots?: string[]): GraphSpec => ({
-      nodes: { n: { type: 'Duo' } },
-      boundary: {
-        inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'pairs', ...(slots ? { slots } : {}) } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-      },
-    })
-    // Whole forwarding: the ghost member stamps the socket AND the widget
-    // (widget-backed inputs pin too).
-    const whole = sceneOf(docOf({ g0: { nodes: { s: { type: '#sub' } } }, sub: selectedSub() }))
-    expect(ghostPinsOf(whole, 's').map((p) => p.address.port)).toEqual(['fam.image', 'fam.gain'])
-    expect(widgetRowsOf(whole, 's')).toHaveLength(1)
-    // Selection ['image']: same ghost pin, NO widget row for the hidden gain.
-    const picked = sceneOf(docOf({ g0: { nodes: { s: { type: '#sub' } } }, sub: selectedSub(['image']) }))
-    expect(ghostPinsOf(picked, 's').map((p) => p.address.port)).toEqual(['fam.image'])
-    expect(widgetRowsOf(picked, 's')).toHaveLength(0)
-  })
-
-  it('connecting a selected ghost slot grows the instance; hidden slots stay hidden', () => {
-    const store = makeStore(
-      docOf({
-        g0: { nodes: { a: { type: 'Src' }, s: { type: '#sub' } } },
-        sub: {
-          nodes: { n: { type: 'Duo' } },
-          boundary: {
-            inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'pairs', slots: ['image'] } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    const ghost = ghostPinsOf(sceneFrom(store), 's')[0]!
-    const { outcome } = connectToPin(store, { node: 'a', port: 'out' }, 's', ghost)
-    expect(outcome.ok).toBe(true)
-    expect(dynOf(store, 's')).toEqual({ fam: { members: ['m0'], seq: 1 } })
-    // The definition is untouched; the grown member renders the selected
-    // socket (plus a fresh trailing ghost) and still no widget rows.
-    expect(store.doc.graphs['sub']!.nodes['n']!.dynamic).toBeUndefined()
-    const scene = sceneFrom(store)
-    const inPins = pinsOf(scene, 's', 'in').map((p) => ({ port: p.address.port, ghost: p.ghost }))
-    expect(inPins).toEqual([
-      { port: 'fam.image', ghost: undefined },
-      { port: 'fam.image', ghost: true },
-    ])
-    expect(widgetRowsOf(scene, 's')).toHaveLength(0)
-    expectNoDanglingEndpoints(scene)
-  })
-
+describe('subgraph instance endpoints', () => {
   it('keeps a dotted endpoint unique and its exact label through connect, open, undo, and redo', () => {
     const store = makeStore(docOf({
       g0: { nodes: { src: { type: 'Src' }, instance: { type: '#sub' } } },
@@ -1092,46 +610,30 @@ describe('dynamic layout on subgraph instances', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Boundary pseudo-nodes over dynamic definitions
+// Boundary pseudo-nodes
 // ---------------------------------------------------------------------------
 
-describe('boundary pseudo-nodes with dynamic boundaries', () => {
-  it('a forwarded family renders one Inputs pin whose noodle anchors at the live family pin', () => {
-    const scene = sceneOf(docOf({ sub: famSub('Batch', 'images') }), 'sub')
-    const inputs = scene.boundaryNodes.find((b) => b.side === 'inputs')!
-    // ONE pin for the whole family (plus the trailing blank expose slot),
-    // marked with the family suffix.
-    expect(inputs.layout.pins.map((p) => p.portId)).toEqual(['fam', '__add__'])
-    const row = inputs.layout.rows.find((r) => r.kind === 'ports')!
-    expect((row.kind === 'ports' && row.output?.label) || undefined).toBe('images []')
-
-    const bind = scene.links.find((l) => l.id === 'boundary:inputs:fam')!
-    expect(bind.boundary).toBe(true)
-    expect(bind.from).toEqual({ kind: 'boundary', side: 'inputs', item: 'fam' })
-    expect(bind.to).toMatchObject({ kind: 'port', node: 'n', port: 'images' })
-    // The fresh definition family elaborates one trailing ghost; the noodle
-    // anchors there instead of dangling or inventing a construct pin.
-    const n = nodeOf(scene, 'n')
-    const ghost = n.layout.pins.find((p) => p.ghost && p.direction === 'in')!
-    expect(ghost.address.port).toBe('images.image')
-    expect(bind.x2).toBe(n.x)
-    expect(bind.y2).toBe(n.y + ghost.y)
-  })
-
-  it('the anchor follows persisted members (first matching member pin wins)', () => {
+describe('boundary pseudo-nodes', () => {
+  it('a forwarded group member renders one Inputs pin whose noodle anchors at that member pin', () => {
     const scene = sceneOf(
       docOf({
-        sub: famSub('Batch', 'images', { innerDynamic: { images: { members: ['mA', 'mB'], seq: 2 } } }),
+        sub: {
+          nodes: { n: { type: 'Batch', dynamic: { images: { members: ['image0', 'image1'], seq: 2 } } } },
+          boundary: { inputs: [{ id: 'second', binds: { kind: 'port', node: 'n', port: 'images.image1' } }], outputs: [] },
+        },
       }),
       'sub',
     )
+    const inputs = scene.boundaryNodes.find((b) => b.side === 'inputs')!
+    expect(inputs.layout.pins.map((p) => p.portId)).toEqual(['second', '__add__'])
+    const bind = scene.links.find((l) => l.id === 'boundary:inputs:second')!
+    expect(bind.boundary).toBe(true)
+    expect(bind.from).toEqual({ kind: 'boundary', side: 'inputs', item: 'second' })
+    expect(bind.to).toMatchObject({ kind: 'port', node: 'n', port: 'images.image1' })
     const n = nodeOf(scene, 'n')
-    const first = n.layout.pins.find(
-      (p) => p.direction === 'in' && p.address.port === 'images.image' && !p.ghost,
-    )!
-    expect(first.address.members).toEqual(['mA'])
-    const bind = scene.links.find((l) => l.id === 'boundary:inputs:fam')!
-    expect(bind.y2).toBe(n.y + first.y)
+    const pin = n.layout.pins.find((p) => p.direction === 'in' && p.address.port === 'images.image1')!
+    expect(bind.x2).toBe(n.x)
+    expect(bind.y2).toBe(n.y + pin.y)
   })
 
   it('boundary item ids stay opaque: dots in ids never split identity', () => {
@@ -1175,7 +677,10 @@ describe('boundary pseudo-nodes with dynamic boundaries', () => {
   it('instances never show boundary panels; the definition scene always does', () => {
     const doc = docOf({
       g0: { nodes: { s: { type: '#sub' } } },
-      sub: famSub('Batch', 'images'),
+      sub: {
+        nodes: { n: { type: 'Sink' } },
+        boundary: { inputs: [{ id: 'in', binds: { kind: 'port', node: 'n', port: 'in' } }], outputs: [] },
+      },
     })
     expect(sceneOf(doc).boundaryNodes).toEqual([])
     expect(sceneOf(doc, 'sub').boundaryNodes.map((b) => b.side).sort()).toEqual(['inputs', 'outputs'])
@@ -1186,116 +691,94 @@ describe('boundary pseudo-nodes with dynamic boundaries', () => {
 // Interaction-shaped growth: commands built from pin annotations
 // ---------------------------------------------------------------------------
 
-describe('ghost interactions dispatch structural, atomic commands', () => {
-  it('connecting into an instance ghost materializes + connects in ONE step; the definition is untouched', () => {
-    const store = makeStore(
-      docOf({
-        g0: { nodes: { a: { type: 'Src' }, s: { type: '#sub' } } },
-        sub: famSub('Batch', 'images'),
-      }),
-    )
-    const ghost = ghostPinsOf(sceneFrom(store), 's')[0]!
-    const { outcome, to } = connectToPin(store, { node: 'a', port: 'out' }, 's', ghost)
+describe('spare-member interactions dispatch atomic commands', () => {
+  it('connecting into a spare member stores it and connects in ONE step', () => {
+    const store = makeStore(docOf({ g0: { nodes: { a: { type: 'Src' }, b: { type: 'Batch' } } } }))
+    const ghost = ghostPinsOf(sceneFrom(store), 'b')[0]!
+    const { outcome, to } = connectToPin(store, { node: 'a', port: 'out' }, 'b', ghost)
     expect(outcome.ok).toBe(true)
-    expect(to).toEqual({ node: 's', port: 'fam.image', members: ['m0'] })
-    expect(dynOf(store, 's')).toEqual({ fam: { members: ['m0'], seq: 1 } })
-    // Shared definition untouched: growing an instance never mutates it.
-    expect(dynOf(store, 'n', 'sub')).toBeUndefined()
+    expect(to).toEqual({ node: 'b', port: 'images.image0' })
+    expect(dynOf(store, 'b')).toEqual({ images: { members: ['image0'], seq: 1 } })
 
     const scene = sceneFrom(store)
     expect(scene.links).toHaveLength(1)
-    expect(scene.links[0]!.to).toEqual({ kind: 'port', node: 's', port: 'fam.image', members: ['m0'] })
+    expect(scene.links[0]!.to).toEqual({ kind: 'port', node: 'b', port: 'images.image0' })
     expect(scene.links[0]!.typeName).toBe('IMAGE')
-    // The member pin is real now; a NEW trailing ghost follows.
-    const pins = pinsOf(scene, 's', 'in')
+    // The member pin is real now; a NEW spare follows.
+    const pins = pinsOf(scene, 'b', 'in')
     expect(pins.map((p) => [p.portId, p.ghost ?? false])).toEqual([
-      ['fam.image#m0', false],
-      ['fam.image#m1', true],
+      ['images.image0', false],
+      ['images.image1', true],
     ])
     expectNoDanglingEndpoints(scene)
 
-    // ONE undo step reverts both the link and the materialization. Undo
+    // ONE undo step reverts both the link and the stored member. Undo
     // leaves only the allocation cursor (hash-neutral bookkeeping), so the
-    // next offered member is m1 -- ids are never reused.
+    // next offered member is image1 -- keys are never reused.
     expect(store.undo()).toBe(true)
-    expect(dynOf(store, 's')).toEqual({ fam: { seq: 1 } })
+    expect(dynOf(store, 'b')).toEqual({ images: { seq: 1 } })
     const reverted = sceneFrom(store)
     expect(reverted.links).toHaveLength(0)
-    expect(ghostPinsOf(reverted, 's')[0]!.address.members).toEqual(['m1'])
+    expect(ghostPinsOf(reverted, 'b')[0]!.address.port).toBe('images.image1')
   })
 
-  it('a rejected connect materializes NOTHING (batch is atomic)', () => {
-    const store = makeStore(
-      docOf({
-        g0: { nodes: { s: { type: '#sub' } } },
-        sub: famSub('Batch', 'images'),
-      }),
-    )
-    const ghost = ghostPinsOf(sceneFrom(store), 's')[0]!
-    const { outcome } = connectToPin(store, { node: 'ghostville', port: 'out' }, 's', ghost)
+  it('a rejected connect stores NOTHING (batch is atomic)', () => {
+    const store = makeStore(docOf({ g0: { nodes: { b: { type: 'Batch' } } } }))
+    const ghost = ghostPinsOf(sceneFrom(store), 'b')[0]!
+    const { outcome } = connectToPin(store, { node: 'ghostville', port: 'out' }, 'b', ghost)
     expect(outcome.ok).toBe(false)
-    expect(dynOf(store, 's')).toBeUndefined()
+    expect(dynOf(store, 'b')).toBeUndefined()
     expect(store.canUndo).toBe(false)
   })
 
-  it('reroute -> forwarded ghost: traced type survives, member endpoint lands structurally', () => {
+  it('reroute -> spare member: traced type survives, the member endpoint lands by flattened id', () => {
     const store = makeStore(
       docOf({
         g0: {
-          nodes: { a: { type: 'Src' }, s: { type: '#sub' } },
+          nodes: { a: { type: 'Src' }, b: { type: 'Batch' } },
           reroutes: ['r0'],
           links: [[['a', 'out'], { reroute: 'r0' }]],
         },
-        sub: famSub('Batch', 'images'),
       }),
     )
-    const ghost = ghostPinsOf(sceneFrom(store), 's')[0]!
-    const { outcome } = connectToPin(store, { reroute: 'r0' }, 's', ghost)
+    const ghost = ghostPinsOf(sceneFrom(store), 'b')[0]!
+    const { outcome } = connectToPin(store, { reroute: 'r0' }, 'b', ghost)
     expect(outcome.ok).toBe(true)
     const scene = sceneFrom(store)
     const hop = scene.links.find((l) => l.from.kind === 'reroute')!
-    expect(hop.to).toEqual({ kind: 'port', node: 's', port: 'fam.image', members: ['m0'] })
+    expect(hop.to).toEqual({ kind: 'port', node: 'b', port: 'images.image0' })
     expect(hop.typeName).toBe('IMAGE')
-    expect(ghostPinsOf(scene, 's')[0]!.address.members).toEqual(['m1'])
+    expect(ghostPinsOf(scene, 'b')[0]!.address.port).toBe('images.image1')
     expectNoDanglingEndpoints(scene)
   })
 
-  it('value source -> ghost widget member: spec derives from the member consumer', () => {
+  it('value source -> spare widget member: spec derives from the member consumer', () => {
     const store = makeStore(
       docOf({
         g0: { nodes: { w: { type: 'Weigh' } }, valueSources: { v0: 0.75 } },
       }),
     )
-    const scene0 = sceneFrom(store)
-    const row = widgetRowsOf(scene0, 'w')[0]!
+    const row = widgetRowsOf(sceneFrom(store), 'w')[0]!
     expect(row.ghost).toBe(true)
-    // Connect from the source into the ghost member (widget rows expose the
-    // same structural address as pins).
-    const asPin: PinLayout = {
-      portId: row.inputId,
-      direction: 'in',
-      y: 0,
-      type: row.type,
-      address: row.address,
-      ...(row.materialize !== undefined ? { materialize: row.materialize } : {}),
-    }
-    const { outcome } = connectToPin(store, { valueSource: 'v0' }, 'w', asPin)
+    // Connect from the source into the spare member (widget rows expose the
+    // same address as pins).
+    const { outcome } = connectToPin(store, { valueSource: 'v0' }, 'w', rowAsPin(row))
     expect(outcome.ok).toBe(true)
 
     const scene = sceneFrom(store)
     expect(scene.valueSources).toHaveLength(1)
     const vs = scene.valueSources[0]!
-    // Effective spec derives through the MEMBER consumer (member-aware lookup).
+    // Effective spec derives through the MEMBER consumer.
     expect(vs.specState).toBe('derived')
     expect(vs.effective.spec?.widgetType).toBe('FLOAT')
     const link = scene.links[0]!
     expect(link.from).toEqual({ kind: 'valueSource', valueSource: 'v0' })
-    expect(link.to).toEqual({ kind: 'port', node: 'w', port: 'weights.w', members: ['m0'] })
+    expect(link.to).toEqual({ kind: 'port', node: 'w', port: 'weights.w0' })
     // The connected member widget input keeps a pin so the noodle anchors.
     expectNoDanglingEndpoints(scene)
   })
 
-  it('editing a ghost widget batches materialize + setValue as one undo step', () => {
+  it('editing a spare widget member batches materialize + setValue as one undo step', () => {
     const store = makeStore(docOf({ g0: { nodes: { w: { type: 'Weigh' } } } }))
     const row = widgetRowsOf(sceneFrom(store), 'w')[0]!
     const outcome = store.dispatch({
@@ -1314,41 +797,39 @@ describe('ghost interactions dispatch structural, atomic commands', () => {
       },
     } as unknown as CommandInvocation)
     expect(outcome.ok).toBe(true)
-    expect(dynOf(store, 'w')).toEqual({ weights: { members: ['m0'], seq: 1 } })
-    expect(store.doc.graphs['g0']!.nodes['w']!.values['weights.w#m0']).toBe(0.9)
+    expect(dynOf(store, 'w')).toEqual({ weights: { members: ['w0'], seq: 1 } })
+    expect(store.doc.graphs['g0']!.nodes['w']!.values['weights.w0']).toBe(0.9)
 
     const scene = sceneFrom(store)
     const rows = widgetRowsOf(scene, 'w')
     expect(rows.map((r) => [r.valueKey, r.ghost ?? false])).toEqual([
-      ['weights.w#m0', false],
-      ['weights.w#m1', true],
+      ['weights.w0', false],
+      ['weights.w1', true],
     ])
 
     // Undo reverts member + value in one step; only the allocation cursor
     // remains (never-reuse bookkeeping, hash-neutral).
     expect(store.undo()).toBe(true)
     expect(dynOf(store, 'w')).toEqual({ weights: { seq: 1 } })
-    expect(store.doc.graphs['g0']!.nodes['w']!.values['weights.w#m0']).toBeUndefined()
+    expect(store.doc.graphs['g0']!.nodes['w']!.values['weights.w0']).toBeUndefined()
   })
-
 })
 
 // ---------------------------------------------------------------------------
-// Named nets with member endpoints
+// Named nets with group-member endpoints
 // ---------------------------------------------------------------------------
 
-describe('named nets over dynamic members', () => {
+describe('named nets over group members', () => {
   const netDoc = (view?: Record<string, unknown>) =>
     docOf(
       {
         g0: {
           nodes: {
             a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'], seq: 1 } } },
+            b: { type: 'Batch', dynamic: { images: { members: ['image0'], seq: 1 } } },
           },
-          nets: { latents: { source: ['a', 'out'], sinks: [['s', 'fam.image', ['m0']]] } },
+          nets: { latents: { source: ['a', 'out'], sinks: [['b', 'images.image0']] } },
         },
-        sub: famSub('Batch', 'images'),
       },
       view,
     )
@@ -1356,45 +837,44 @@ describe('named nets over dynamic members', () => {
   it('expanded: the net renders as a noodle anchored at the member pin', () => {
     const scene = sceneOf(netDoc())
     const net = scene.links.find((l) => l.netId === 'latents')!
-    expect(net.to).toEqual({ kind: 'port', node: 's', port: 'fam.image', members: ['m0'] })
-    const instance = nodeOf(scene, 's')
-    const pin = instance.layout.pins.find((p) => p.portId === 'fam.image#m0')!
-    expect(net.y2).toBe(instance.y + pin.y)
+    expect(net.to).toEqual({ kind: 'port', node: 'b', port: 'images.image0' })
+    const node = nodeOf(scene, 'b')
+    const pin = node.layout.pins.find((p) => p.portId === 'images.image0')!
+    expect(net.y2).toBe(node.y + pin.y)
     expectNoDanglingEndpoints(scene)
   })
 
-  it('net commands round-trip member paths: create from a member output, delete a member sink', () => {
-    // Dynamic OUTPUT member as a net source (the promote-to-net path).
+  it('net commands round-trip member ids: create from a member output, delete a member sink', () => {
+    // A group-of-outputs member as a net source (the promote-to-net path).
     const store = makeStore(
       docOf({
         g0: {
           nodes: {
             a: { type: 'Src' },
-            sp: { type: 'Split', dynamic: { outs: { members: ['m0'], seq: 1 } } },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'], seq: 1 } } },
+            sp: { type: 'Split', dynamic: { outs: { members: ['o0'], seq: 1 } } },
+            b: { type: 'Batch', dynamic: { images: { members: ['image0'], seq: 1 } } },
           },
-          nets: { latents: { source: ['a', 'out'], sinks: [['s', 'fam.image', ['m0']]] } },
+          nets: { latents: { source: ['a', 'out'], sinks: [['b', 'images.image0']] } },
         },
-        sub: famSub('Batch', 'images'),
       }),
     )
     const created = store.dispatch({
       command: 'net.create',
-      params: { graphId: 'g0', name: 'branches', source: { node: 'sp', port: 'outs.o', members: ['m0'] } },
+      params: { graphId: 'g0', name: 'branches', source: { node: 'sp', port: 'outs.o0' } },
     } as unknown as CommandInvocation)
     expect(created.ok).toBe(true)
     const nets = Object.values(store.doc.graphs['g0']!.nets)
     const branches = nets.find((n) => n.name === 'branches')!
-    expect(branches.source).toEqual({ node: 'sp', port: 'outs.o', members: ['m0'] })
+    expect(branches.source).toEqual({ node: 'sp', port: 'outs.o0' })
 
-    // Deleting a member sink must pass the FULL PortRef (node+port+members).
+    // Deleting a member sink passes the full PortRef.
     const deleted = store.dispatch({
       command: 'graph.deleteItems',
       params: {
         graphId: 'g0',
         nodeIds: [],
         linkIds: [],
-        netSinks: [{ node: 's', port: 'fam.image', members: ['m0'] }],
+        netSinks: [{ node: 'b', port: 'images.image0' }],
         rerouteIds: [],
         valueSourceIds: [],
       },
@@ -1404,16 +884,15 @@ describe('named nets over dynamic members', () => {
     expect(latents?.sinks ?? []).toHaveLength(0)
   })
 
-  it('collapsed: the sink stub carries the member path and anchors at the member pin', () => {
+  it('collapsed: the sink stub carries the member flattened id and anchors at the member pin', () => {
     const scene = sceneOf(netDoc({ g0: { nodes: {}, collapsedNets: ['latents'] } }))
     // Collapsed: the delivery stays a (hidden) scene link for connectivity.
     expect(scene.links.filter((l) => l.netId === 'latents').map((l) => l.hidden)).toEqual([true])
     const sink = scene.netStubs.find((st) => st.role === 'sink')!
-    expect(sink.portId).toBe('fam.image')
-    expect(sink.members).toEqual(['m0'])
-    const instance = nodeOf(scene, 's')
-    const pin = instance.layout.pins.find((p) => p.portId === 'fam.image#m0')!
-    expect(sink.pinY).toBe(instance.y + pin.y)
+    expect(sink.portId).toBe('images.image0')
+    const node = nodeOf(scene, 'b')
+    const pin = node.layout.pins.find((p) => p.portId === 'images.image0')!
+    expect(sink.pinY).toBe(node.y + pin.y)
     expect(sink.typeName).toBe('IMAGE')
   })
 })
@@ -1423,15 +902,15 @@ describe('named nets over dynamic members', () => {
 // ---------------------------------------------------------------------------
 
 describe('mixed dynamic robustness', () => {
-  it('reroutes + value sources + nets + nested subgraph dynamics compose without dangling state', () => {
+  it('reroutes + value sources + nets + nested groups compose without dangling state', () => {
     const store = makeStore(
       docOf({
         g0: {
           nodes: {
             a: { type: 'Src' },
-            s: { type: '#batchSub' },
-            t: { type: '#batchSub' },
-            n: { type: '#nestSub', dynamic: { fam: { members: ['m0'], seq: 1 } } },
+            s: { type: 'Batch' },
+            t: { type: 'Batch' },
+            n: { type: 'Nest', dynamic: { items: { members: ['item0'], seq: 1 } } },
             w: { type: 'Weigh' },
           },
           reroutes: ['r0'],
@@ -1439,44 +918,35 @@ describe('mixed dynamic robustness', () => {
           links: [[['a', 'out'], { reroute: 'r0' }]],
           nets: { pipe: { source: ['a', 'out'], sinks: [] } },
         },
-        batchSub: famSub('Batch', 'images'),
-        nestSub: famSub('Nest', 'items'),
       }),
     )
 
-    // 1) Grow instance s through the reroute; instance t must not move.
+    // 1) Grow s through the reroute; t must not move.
     const g1 = ghostPinsOf(sceneFrom(store), 's')[0]!
     expect(connectToPin(store, { reroute: 'r0' }, 's', g1).outcome.ok).toBe(true)
-    expect(dynOf(store, 's')).toEqual({ fam: { members: ['m0'], seq: 1 } })
+    expect(dynOf(store, 's')).toEqual({ images: { members: ['image0'], seq: 1 } })
     expect(dynOf(store, 't')).toBeUndefined()
 
-    // 2) Grow the NESTED forwarded family on n (inner ghost under member m0).
-    const nested = pinsOf(sceneFrom(store), 'n', 'in').find((p) => p.address.port === 'fam.sub.s')!
+    // 2) Grow the NESTED group on n (inner spare under the stored item0).
+    const nested = pinsOf(sceneFrom(store), 'n', 'in').find((p) => p.address.port === 'items.item0.sub.sub0')!
     expect(connectToPin(store, { node: 'a', port: 'out' }, 'n', nested).outcome.ok).toBe(true)
     expect(dynOf(store, 'n')).toEqual({
-      fam: { members: ['m0'], seq: 1, memberState: { m0: { 'fam.sub': { members: ['m0'], seq: 1 } } } },
+      items: { members: ['item0'], seq: 1 },
+      'items.item0.sub': { members: ['sub0'], seq: 1 },
     })
 
-    // 3) Value source into a ghost widget member on w.
+    // 3) Value source into a spare widget member on w.
     const row = widgetRowsOf(sceneFrom(store), 'w')[0]!
-    const rowPin: PinLayout = {
-      portId: row.inputId,
-      direction: 'in',
-      y: 0,
-      type: row.type,
-      address: row.address,
-      ...(row.materialize !== undefined ? { materialize: row.materialize } : {}),
-    }
-    expect(connectToPin(store, { valueSource: 'v0' }, 'w', rowPin).outcome.ok).toBe(true)
+    expect(connectToPin(store, { valueSource: 'v0' }, 'w', rowAsPin(row)).outcome.ok).toBe(true)
 
-    // The composed scene: every noodle anchored, every ghost advanced.
+    // The composed scene: every noodle anchored, every spare advanced.
     const scene = sceneFrom(store)
     expectNoDanglingEndpoints(scene)
-    expect(ghostPinsOf(scene, 's')[0]!.address.members).toEqual(['m1'])
-    expect(ghostPinsOf(scene, 't')[0]!.address.members).toEqual(['m0'])
-    // n grew its INNER family: outer ghost m1 plus fresh inner ghost m1 under m0.
+    expect(ghostPinsOf(scene, 's')[0]!.address.port).toBe('images.image1')
+    expect(ghostPinsOf(scene, 't')[0]!.address.port).toBe('images.image0')
+    // n grew its INNER group: a fresh inner spare sub1 under item0.
     const nPins = pinsOf(scene, 'n', 'in')
-    expect(nPins.some((p) => p.address.port === 'fam.sub.s' && p.address.members?.[1] === 'm1' && p.ghost)).toBe(true)
+    expect(nPins.some((p) => p.address.port === 'items.item0.sub.sub1' && p.ghost)).toBe(true)
     // Reroute noodles keep the traced IMAGE type through the member endpoint.
     expect(scene.links.find((l) => l.from.kind === 'reroute')!.typeName).toBe('IMAGE')
 
@@ -1485,10 +955,10 @@ describe('mixed dynamic robustness', () => {
     expect(store.undo()).toBe(true)
     expect(store.undo()).toBe(true)
     expect(store.undo()).toBe(true)
-    expect(dynOf(store, 's')).toEqual({ fam: { seq: 1 } })
-    // n's undone INNER growth leaves a nested cursor-only skeleton too.
+    expect(dynOf(store, 's')).toEqual({ images: { seq: 1 } })
     expect(dynOf(store, 'n')).toEqual({
-      fam: { members: ['m0'], seq: 1, memberState: { m0: { 'fam.sub': { seq: 1 } } } },
+      items: { members: ['item0'], seq: 1 },
+      'items.item0.sub': { seq: 1 },
     })
     expect(dynOf(store, 'w')).toEqual({ weights: { seq: 1 } })
     expectNoDanglingEndpoints(sceneFrom(store))
@@ -1496,76 +966,48 @@ describe('mixed dynamic robustness', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Full persisted-member lifecycle matrix
+// Full stored-member lifecycle matrix
 // ---------------------------------------------------------------------------
 
-describe('autogrow persisted-member lifecycle matrix', () => {
+describe('group stored-member lifecycle matrix', () => {
   const cases = [
-    { name: 'direct whole', type: 'Batch', node: 'target', construct: 'images', port: 'images.image', grouped: false, forwarded: false },
-    { name: 'direct grouped', type: 'Duo', node: 'target', construct: 'pairs', port: 'pairs.image', grouped: true, forwarded: false },
-    { name: 'forwarded whole', type: 'Batch', node: 'target', construct: 'fam', port: 'fam.image', grouped: false, forwarded: true },
-    { name: 'forwarded grouped', type: 'Duo', node: 'target', construct: 'fam', port: 'fam.image', grouped: true, forwarded: true },
+    { name: 'group of values', type: 'Batch', construct: 'images', port: 'images.image0', member: 'image0', next: 'image1', ghostPorts: ['images.image0'], grouped: false },
+    { name: 'group of records', type: 'Duo', construct: 'pairs', port: 'pairs.pair0.image', member: 'pair0', next: 'pair1', ghostPorts: ['pairs.pair0.image', 'pairs.pair0.gain'], grouped: true },
   ] as const
 
   for (const testCase of cases) {
-    it(`${testCase.name}: automatic disconnect compaction is one undo step and never reuses identity`, () => {
-      const document = testCase.forwarded
-        ? docOf({
-            g0: { nodes: { source: { type: 'Src' }, target: { type: '#sub' } } },
-            sub: famSub(testCase.type, testCase.type === 'Batch' ? 'images' : 'pairs'),
-          })
-        : docOf({ g0: { nodes: { source: { type: 'Src' }, target: { type: testCase.type } } } })
-      const store = makeStore(document)
-      const firstScene = sceneFrom(store)
-      const firstGhosts = ghostPinsOf(firstScene, testCase.node)
-      expect(firstGhosts.map((pin) => pin.address.members)).toEqual(
-        Array.from({ length: testCase.grouped ? 2 : 1 }, () => ['m0']),
-      )
+    it(`${testCase.name}: automatic disconnect compaction is one undo step and never reuses keys`, () => {
+      const node = 'target'
+      const store = makeStore(docOf({ g0: { nodes: { source: { type: 'Src' }, [node]: { type: testCase.type } } } }))
+      const memberOf = (port: string): string => port.slice(testCase.construct.length + 1).split('.')[0]!
+      const firstGhosts = ghostPinsOf(sceneFrom(store), node).filter((pin) => pin.direction === 'in')
+      expect(firstGhosts.map((pin) => pin.address.port)).toEqual(testCase.ghostPorts)
 
       const landing = firstGhosts.find((pin) => pin.address.port === testCase.port)!
-      expect(connectToPin(store, { node: 'source', port: 'out' }, testCase.node, landing).outcome.ok).toBe(true)
-      expect(dynOf(store, testCase.node)).toEqual({
-        [testCase.construct]: { members: ['m0'], seq: 1 },
-      })
+      expect(connectToPin(store, { node: 'source', port: 'out' }, node, landing).outcome.ok).toBe(true)
+      expect(dynOf(store, node)).toEqual({ [testCase.construct]: { members: [testCase.member], seq: 1 } })
       const connected = sceneFrom(store)
-      expect(pinsOf(connected, testCase.node, 'in').filter((pin) =>
-        !pin.ghost && pin.address.members?.[0] === 'm0')).toHaveLength(testCase.grouped ? 2 : 1)
+      expect(pinsOf(connected, node, 'in').filter((pin) =>
+        !pin.ghost && memberOf(pin.address.port) === testCase.member)).toHaveLength(testCase.grouped ? 2 : 1)
       expectNoDanglingEndpoints(connected)
-      expect(new Set(pinsOf(connected, testCase.node, 'in').map((pin) => pin.portId)).size)
-        .toBe(pinsOf(connected, testCase.node, 'in').length)
-      expect(ghostPinsOf(connected, testCase.node).map((pin) => pin.address.members)).toEqual(
-        Array.from({ length: testCase.grouped ? 2 : 1 }, () => ['m1']),
-      )
+      expect(new Set(pinsOf(connected, node, 'in').map((pin) => pin.portId)).size)
+        .toBe(pinsOf(connected, node, 'in').length)
+      expect(ghostPinsOf(connected, node).filter((pin) => pin.direction === 'in').map((pin) => memberOf(pin.address.port)))
+        .toEqual(Array.from({ length: testCase.grouped ? 2 : 1 }, () => testCase.next))
       expect(Object.values(store.doc.graphs.g0!.links)).toHaveLength(1)
-      expect(Object.values(store.doc.graphs.g0!.links)[0]!.to).toEqual({
-        node: testCase.node, port: testCase.port, members: ['m0'],
-      })
+      expect(Object.values(store.doc.graphs.g0!.links)[0]!.to).toEqual({ node, port: testCase.port })
 
       // Save/export/open is canonical JSON through the real loader. The
-      // persisted member/link identity and exactly one trailing ghost survive.
+      // stored member, its link and exactly one spare survive.
       const saved = JSON.parse(JSON.stringify(store.doc))
       const reopened = loadDocument(saved)
       expect(reopened.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
       const reopenedStore = makeStore(reopened.document!)
-      expect(dynOf(reopenedStore, testCase.node)).toEqual(dynOf(store, testCase.node))
+      expect(dynOf(reopenedStore, node)).toEqual(dynOf(store, node))
       expect(Object.values(reopenedStore.doc.graphs.g0!.links)[0]!.to).toEqual(
         Object.values(store.doc.graphs.g0!.links)[0]!.to,
       )
       expectNoDanglingEndpoints(sceneFrom(reopenedStore))
-
-      // Drill into a forwarded definition and back out without changing the
-      // owner-side id. Occurrence rebasing is view-only (NUL-prefixed inside).
-      if (testCase.forwarded) {
-        const resolver = documentResolver(reopenedStore.doc, (type) => schemas[type])
-        const occurrence = occurrenceDynamicView(reopenedStore.doc, resolver, ['target'])
-        const inner = buildScene({
-          document: reopenedStore.doc, graphId: 'sub', resolve: resolver, tokens: defaultTokens,
-          measure, widgetMeasure, occurrenceView: occurrence,
-        })
-        expect(pinsOf(inner, 'n', 'in').some((pin) => pin.address.members?.[0] === '\u0000m0')).toBe(true)
-        expect(Object.values(reopenedStore.doc.graphs.g0!.links)[0]!.to).toMatchObject({ members: ['m0'] })
-        expectNoDanglingEndpoints(sceneFrom(reopenedStore))
-      }
 
       const linkId = Object.keys(reopenedStore.doc.graphs.g0!.links)[0]!
       expect(reopenedStore.dispatch({
@@ -1573,48 +1015,47 @@ describe('autogrow persisted-member lifecycle matrix', () => {
         params: {
           invocations: [
             { command: 'link.disconnect', params: { graphId: 'g0', linkId } },
-            { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: testCase.node } },
+            { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: node } },
           ],
         },
       }).ok).toBe(true)
-      expect(dynOf(reopenedStore, testCase.node)).toEqual({ [testCase.construct]: { seq: 1 } })
+      expect(dynOf(reopenedStore, node)).toEqual({ [testCase.construct]: { seq: 1 } })
       const compacted = sceneFrom(reopenedStore)
-      expect(ghostPinsOf(compacted, testCase.node).map((pin) => pin.address.members)).toEqual(
-        Array.from({ length: testCase.grouped ? 2 : 1 }, () => ['m1']),
-      )
+      expect(ghostPinsOf(compacted, node).filter((pin) => pin.direction === 'in').map((pin) => memberOf(pin.address.port)))
+        .toEqual(Array.from({ length: testCase.grouped ? 2 : 1 }, () => testCase.next))
       expectNoDanglingEndpoints(compacted)
 
-      // A stale endpoint cannot recreate the retired socket. Growth must go
-      // through the offered m1 ghost and its materialization batch.
+      // A stale endpoint cannot recreate the removed member. Growth must go
+      // through the offered spare and its materialization batch.
       expect(reopenedStore.dispatch({
         command: 'link.connect',
         params: {
           graphId: 'g0', from: { node: 'source', port: 'out' },
-          to: { node: testCase.node, port: testCase.port, members: ['m0'] },
+          to: { node, port: testCase.port },
         },
       }).ok).toBe(false)
-      expect(dynOf(reopenedStore, testCase.node)).toEqual({ [testCase.construct]: { seq: 1 } })
+      expect(dynOf(reopenedStore, node)).toEqual({ [testCase.construct]: { seq: 1 } })
 
       // Disconnect and compact are one history entry. Undo restores the exact
       // member and link together but never rewinds the allocator cursor.
       expect(reopenedStore.undo()).toBe(true)
-      expect(dynOf(reopenedStore, testCase.node)).toEqual({
-        [testCase.construct]: { members: ['m0'], seq: 1 },
-      })
-      expect(Object.values(reopenedStore.doc.graphs.g0!.links)[0]!.to).toMatchObject({ members: ['m0'] })
+      expect(dynOf(reopenedStore, node)).toEqual({ [testCase.construct]: { members: [testCase.member], seq: 1 } })
+      expect(Object.values(reopenedStore.doc.graphs.g0!.links)[0]!.to).toEqual({ node, port: testCase.port })
       expect(reopenedStore.redo()).toBe(true)
-      expect(dynOf(reopenedStore, testCase.node)).toEqual({ [testCase.construct]: { seq: 1 } })
+      expect(dynOf(reopenedStore, node)).toEqual({ [testCase.construct]: { seq: 1 } })
 
-      // Compile never promotes the nonpersisted trailing ghost. With no live
-      // link after redo, no m1 API input may appear in the artifact.
+      // Compile never sends the spare member. With no live link after redo,
+      // no member of the group appears in the artifact.
       const compiled = compile({
         document: reopenedStore.doc, revision: reopenedStore.revision,
         resolve: (type) => schemas[type], scope: { kind: 'full' },
-        connection: asConnectionId('c0'), schemaHash: 'autogrow-lifecycle',
+        connection: asConnectionId('c0'), schemaHash: 'group-lifecycle',
       })
       expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
-      if (compiled.ok)
-        expect(JSON.stringify(compiled.artifact.prompt)).not.toContain('m1')
+      if (compiled.ok) {
+        expect(JSON.stringify(compiled.artifact.prompt)).not.toContain(testCase.member)
+        expect(JSON.stringify(compiled.artifact.prompt)).not.toContain(testCase.next)
+      }
     })
   }
 })

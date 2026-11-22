@@ -140,7 +140,7 @@ describe('reroute tracing', () => {
   it('resolves widget-tap display types through one and two reroutes', () => {
     const widgetSchema: NodeSchema = {
       type: 'Widget', displayName: 'Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'amount', type: concrete('FLOAT'), optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 1 },
       }],

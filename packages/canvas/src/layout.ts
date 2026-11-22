@@ -15,11 +15,10 @@
  *
  * Dynamics: rows/pins come from `elaborateInterface`, so autogrow
  * members, min-fill, trailing ghosts, combo selectors/branches, and slot
- * dependents all render through ONE path - and because subgraph instances
- * resolve to boundary-derived schemas (documentResolver), a forwarded
- * family's suffix ghost appears on the instance with zero special-casing.
- * Row/pin ids are ELAB KEYS (elabKeyOf packing, unique per node); document
- * identity travels separately as `address` so gestures never parse keys.
+ * dependents all render through ONE path, subgraph instances included
+ * (they resolve to boundary-derived schemas through documentResolver).
+ * Row/pin ids are the rows' flattened ids (unique per node); document
+ * identity also travels as `address` for command params.
  * Ghost rows carry `materialize` frames: the UI batches dynamic.materialize
  * with whatever action lands on the ghost (hazard N3).
  *
@@ -28,7 +27,6 @@
 
 import {
   elaborateInterface,
-  hiddenConditionalWidgets,
   materializeFramesOf,
   resettableWidgetsOf,
   resolveWidgetRepresentation,
@@ -62,13 +60,12 @@ export interface DynamicEditOwner {
   readonly graphId: string
   readonly nodeId: string
   readonly construct: string
-  readonly ancestors?: readonly { readonly construct: string; readonly member: string }[]
 }
 
 /**
  * Dynamic-family annotations shared by port slots, widget rows, and pins.
- * `portId`/`inputId` are elab keys (unique per node, presentation/lookup);
- * `address` is document identity ({port, members}) for command params.
+ * `portId`/`inputId` are flattened ids (unique per node, presentation/lookup);
+ * `address` is document identity ({port}) for command params.
  */
 export interface DynamicAnnotations {
   readonly address: PortAddress
@@ -83,35 +80,11 @@ export interface DynamicAnnotations {
    * landing here must batch `dynamic.materialize` with these frames first.
    */
   readonly materialize?: readonly MaterializeFrame[]
-  /** Occurrence-local instance that owns this derived row or pin. */
-  readonly familyOwner?: {
-    readonly graphId: string
-    readonly nodeId: string
-    readonly construct: string
-    readonly valueKey?: string
-    readonly occurrence?: OccurrenceRef
-    readonly familyPath?: string
-    readonly sourceMember?: string
-    readonly route?: readonly BoundaryRouteLeg[]
-    readonly sourceEndpoint?: import('@dinkster/core').OccurrenceLinkEndpoint
-    /** Present only when an occurrence mutation planner can consume this route. */
-    readonly socketed?: true
-  }
-  /** Occurrence-local owner of a COMBO option source's input family. */
-  readonly inputFamilyOwner?: {
-    readonly graphId: string
-    readonly nodeId: string
-    readonly construct: string
-    /** Derived option value -> persisted member id on the owner. */
-    readonly memberIds: Readonly<Record<string, string>>
-  }
   /** DynamicSlot choice metadata used by connect gestures and pin menus. */
   readonly dynamicSlot?: {
     readonly construct: string
     readonly variants: readonly { readonly key: string; readonly type: TypeExpr }[]
     readonly selected?: string
-    readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
-    readonly owner?: DynamicEditOwner
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
@@ -160,8 +133,6 @@ export type LayoutRow =
       readonly spec: WidgetSpec
       /** Keep the editor and outgoing value tap without an incoming socket. */
       readonly socketless?: true
-      /** Wire-15 family literal that keeps an always-visible input socket. */
-      readonly familyLiteral?: true
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
       /** Effective named representation selected for this row (wire 17). */
@@ -177,7 +148,6 @@ export type LayoutRow =
       /** Structural menu state coordinate, independent of the selected value. */
       readonly optionsTarget?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
         readonly owner?: DynamicEditOwner
         readonly materialize?: readonly MaterializeFrame[]
       }
@@ -187,8 +157,13 @@ export type LayoutRow =
        */
       readonly selector?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
-        readonly owner?: DynamicEditOwner
+      }
+      /** Instance whose promoted boundary input owns this row's stored value. */
+      readonly familyOwner?: {
+        readonly graphId: string
+        readonly nodeId: string
+        readonly construct: string
+        readonly valueKey: string
       }
     } & DynamicAnnotations)
   | {
@@ -204,7 +179,6 @@ export type LayoutRow =
       readonly construct: string
       readonly label: string
       readonly frames: readonly MaterializeFrame[]
-      readonly familyOwner?: { readonly graphId: string; readonly nodeId: string; readonly construct: string; readonly valueKey?: string }
     }
   | {
       /**
@@ -727,7 +701,6 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.ghost ? { ghost: true } : {}),
   ...(a.familyMember ? { familyMember: true } : {}),
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
-  ...(a.familyOwner !== undefined ? { familyOwner: a.familyOwner } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
 })
@@ -770,12 +743,7 @@ export function layoutNode(
   const items = elaborated.items
   const selectorDisplay = selectorBranchDisplay(schema, node.values)
   const advancedSectionId = 'advanced'
-  const advancedSectionDeclared = items.some((item) =>
-    item.kind === 'section' && item.spec.id === advancedSectionId)
-  const hasUngroupedAdvanced = items.some((item) =>
-    item.kind === 'input' && item.spec.hidden !== true && item.spec.advanced === true && item.spec.section === undefined)
-  const inputSection = (spec: InputSpec): string | undefined =>
-    spec.section ?? (spec.advanced === true ? advancedSectionId : undefined)
+  const inputSection = (spec: InputSpec): string | undefined => spec.section
 
   // Effective collapse per DECLARED section: view override beats the default.
   const collapsed = new Map<string, boolean>()
@@ -785,9 +753,6 @@ export function layoutNode(
       item.spec.id,
       options.sectionOverrides?.[item.spec.id] ?? item.spec.collapsedByDefault ?? false,
     )
-  }
-  if (hasUngroupedAdvanced && !advancedSectionDeclared) {
-    collapsed.set(advancedSectionId, options.sectionOverrides?.[advancedSectionId] ?? true)
   }
   const isHidden = (section: string | undefined): boolean =>
     options.minimized !== true && section !== undefined && collapsed.get(section) === true
@@ -803,9 +768,9 @@ export function layoutNode(
         hiddenModified.set(section!, (hiddenModified.get(section!) ?? 0) + 1)
     }
   }
+
   const isConnected = (direction: 'in' | 'out', portId: string): boolean =>
     options.connectedPorts?.has(connectedPortKey(direction, portId)) ?? false
-  const conditionallyHidden = hiddenConditionalWidgets(schema, node, isConnected)
 
   /** Ghost/address/materialize annotations shared by every emitted shape. */
   const annotate = (item: ElaboratedInput | ElaboratedOutput): DynamicAnnotations => {
@@ -818,7 +783,6 @@ export function layoutNode(
           construct: item.origin.construct,
           variants: item.origin.variants,
           ...(item.origin.selected !== undefined ? { selected: item.origin.selected } : {}),
-          ancestors: (item.ancestry ?? []).map((a) => ({ construct: a.construct, member: a.member as string })),
         }
       : undefined
     return {
@@ -836,23 +800,7 @@ export function layoutNode(
   const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
   const staticWidgetInputs = new Set<string>()
 
-  const familyLiteralWidget = (item: ElaboratedInput): WidgetSpec | undefined => {
-    if (!item.wire15Materialization || item.origin.kind !== 'member' || item.origin.wire15Naming !== 'names') {
-      return undefined
-    }
-    if (item.spec.forceInput) return undefined
-    const declared = item.spec.widget
-    if (declared !== undefined && ['INT', 'FLOAT', 'BOOLEAN'].includes(declared.widgetType)) return declared
-    if (declared !== undefined || item.spec.type.kind !== 'union') return undefined
-    const names = new Set(item.spec.type.names)
-    if (![...names].every((name) => ['INT', 'FLOAT', 'BOOLEAN'].includes(name))) return undefined
-    return names.has('FLOAT') || names.has('INT')
-      ? { widgetType: 'FLOAT', options: {} }
-      : undefined
-  }
-
   let outputIndex = 0
-  let advancedSectionEmitted = false
   for (const item of items) {
     if (item.kind === 'section') {
       const count = hiddenModified.get(item.spec.id)
@@ -903,24 +851,8 @@ export function layoutNode(
     const spec = item.spec
     if (spec.hidden === true) continue
     const section = inputSection(spec)
-    if (spec.advanced === true && spec.section === undefined && !advancedSectionDeclared && !advancedSectionEmitted) {
-      const count = hiddenModified.get(advancedSectionId)
-      pending.push({
-        kind: 'section',
-        section: {
-          sectionId: advancedSectionId,
-          label: 'Advanced',
-          collapsed: collapsed.get(advancedSectionId)!,
-          ...(count !== undefined ? { hiddenModified: count } : {}),
-        },
-      })
-      advancedSectionEmitted = true
-    }
-    const familyWidget = familyLiteralWidget(item)
-    const widget = familyWidget ?? spec.widget
-    const familyLiteral = familyWidget !== undefined
+    const widget = spec.widget
     if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
-    if (options.minimized !== true && spec.widget && item.origin.kind === 'static' && conditionallyHidden.has(spec.id)) continue
     if (isHidden(section)) {
       if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({
@@ -928,10 +860,10 @@ export function layoutNode(
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
         })
       }
-      // A connected widget tap (the producer affordance of a memberless
-      // widget input) keeps its anchor too - otherwise collapsing the
-      // section silently drops the outgoing noodle from the scene.
-      if (widget && !spec.forceInput && !familyLiteral && item.address.members === undefined && isConnected('out', spec.id)) {
+      // A connected widget tap (the producer affordance of a widget input)
+      // keeps its anchor too - otherwise collapsing the section silently
+      // drops the outgoing noodle from the scene.
+      if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: section!, portId: spec.id, direction: 'out', type: spec.type, widgetTap: true,
           ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
@@ -968,13 +900,7 @@ export function layoutNode(
       ...measured,
       rows: Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
     }
-    const selector =
-      item.origin.kind === 'selector'
-        ? {
-            construct: item.origin.construct,
-            ancestors: (item.ancestry ?? []).map((a) => ({ construct: a.construct, member: a.member as string })),
-          }
-        : undefined
+    const selector = item.origin.kind === 'selector' ? { construct: item.origin.construct } : undefined
     pending.push({
       kind: 'widget',
       ...(section !== undefined ? { sectionId: section } : {}),
@@ -987,7 +913,6 @@ export function layoutNode(
         rows: w.rows,
         spec: representation.spec,
         ...(spec.socketless ? { socketless: true as const } : {}),
-        ...(familyLiteral ? { familyLiteral: true as const } : {}),
         ...(spec.sourceFilename !== undefined ? { sourceFilename: spec.sourceFilename } : {}),
         ...(representation.id !== undefined ? { representationId: representation.id } : {}),
         ...(options.seedControllerEnabled !== false && representation.spec.controller !== undefined
@@ -995,10 +920,8 @@ export function layoutNode(
           : {}),
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
-        ...(representation.spec.editableOptions === true ? { optionsTarget: {
-          construct: item.address.port,
-          ancestors: (item.ancestry ?? []).map((ancestor) => ({ construct: ancestor.construct, member: ancestor.member as string })),
-        } } : {}),
+        // A menu's state lives under its flattened id, members included.
+        ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector } : {}),
         ...annotate(item),
       },
@@ -1160,15 +1083,14 @@ export function layoutNode(
       if (!w.socketless) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
         ...(w.optional ? { optional: true as const } : {}),
-        ...(w.familyLiteral ? {} : { widgetBacked: true as const }),
+        widgetBacked: true as const,
       })
-      // A static memberless widget can also produce its effective value. The
-      // duplicate right-edge anchor deliberately shares the input's elab key.
-      if (!w.familyLiteral && w.address.members === undefined)
-        pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
-          ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
-        })
+      // A widget can also produce its effective value. The duplicate
+      // right-edge anchor deliberately shares the input's flattened id.
+      pins.push({
+        ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
+        ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
+      })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
         advancedBounds.bottom = Math.max(advancedBounds.bottom, y + height)
       }
@@ -1306,8 +1228,6 @@ export interface BoundarySlotInfo {
   readonly label: string
   /** Derived instance-facing type, when the boundary schema derives cleanly. */
   readonly type?: TypeExpr
-  /** Whole-family forwarding: rendered with a family marker. */
-  readonly family?: true
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
 }
@@ -1345,7 +1265,7 @@ export function layoutBoundaryNode(
   let y = tokens.headerHeight
   for (const slot of slots) {
     const height = tokens.rowHeight
-    const label = slot.family ? `${slot.label} []` : slot.label
+    const label = slot.label
     const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
     const portSlot: PortSlot = { portId: slot.id, label, type, address: { port: slot.id }, ...(slot.regionIndex ? { regionIndex: true } : {}) }
     rows.push({

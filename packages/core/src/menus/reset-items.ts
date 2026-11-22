@@ -76,7 +76,7 @@ export function resetMenuContributions(
       if (ctx.target.kind !== 'widget') return []
       const t = ctx.target
       const widgets = resettableOf(ctx, t.nodeId, getResolver)
-      // Widget rows carry the elaborated key as inputId (spec.id post-rewrite).
+      // Widget rows carry the flattened id (spec.id) as inputId.
       const w = widgets?.find((r) => r.item.spec.id === t.inputId)
       if (!w) return []
       return [resetItem(ctx, 'core.widget.reset', 'Reset to default', t.nodeId, [w])]

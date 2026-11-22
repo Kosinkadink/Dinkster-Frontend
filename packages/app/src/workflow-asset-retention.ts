@@ -4,7 +4,6 @@ import {
   EMPTY_CONNECTIVITY,
   EXPOSED_EXT_KEY,
   EXPOSED_PREVIEWS_EXT_KEY,
-  MAX_DYNAMIC_STATE_DEPTH,
   appLayout,
   appLayoutItemToJson,
   applyCompositorCommands,
@@ -53,6 +52,8 @@ import {
   type SchemaResolver,
   type TypeExpr,
   type WorkflowDocument,
+  allRowsOf,
+  inputsOf,
 } from '@dinkster/core'
 import { isSaveTarget } from '@dinkster/widgets'
 import { blake3 } from '@noble/hashes/blake3.js'
@@ -119,8 +120,8 @@ function widgetBindingSupported(type: TypeExpr, widgetType: string): boolean {
     contract.asset === true && type.kind === 'asset'
 }
 
-function assetFreeDynamicState(value: unknown, depth = 0): boolean {
-  if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
+function assetFreeDynamicState(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   return Object.entries(value).every(([key, entry]) => {
     if (key === 'selected') return typeof entry === 'string'
     if (key === 'seq') return Number.isSafeInteger(entry) && entry >= 0
@@ -129,9 +130,6 @@ function assetFreeDynamicState(value: unknown, depth = 0): boolean {
       typeof option === 'string' || typeof option === 'boolean' || (typeof option === 'number' && Number.isFinite(option)))
     if (key === 'memberLabels') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
       Object.values(entry).every((label) => typeof label === 'string')
-    if (key === 'memberState') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
-      Object.values(entry).every((constructs) => typeof constructs === 'object' && constructs !== null && !Array.isArray(constructs) &&
-        Object.values(constructs).every((state) => assetFreeDynamicState(state, depth + 1)))
     return false
   })
 }
@@ -300,18 +298,12 @@ function censusWorkflowAssetRoots(
   }
   const registerInputDefaults = (input: InputSpec): void => {
     if (input.ext !== undefined && Object.keys(input.ext).every((key) => key === 'default')) knownSchemaExtensions.add(input)
-    const dynamic = input.dynamic
-    if (dynamic?.kind === 'autogrow') dynamic.template.forEach(registerInputDefaults)
-    else if (dynamic?.kind === 'dynamicCombo') dynamic.options.forEach((option) => option.inputs.forEach(registerInputDefaults))
-    else if (dynamic?.kind === 'dynamicSlot') {
-      dynamic.inputs.forEach(registerInputDefaults)
-      dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
-    }
   }
   const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
-    const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
+    const dynamic = schema !== undefined && allRowsOf(schema.body).some((row) =>
+      row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice')
     if (dynamic) hasContextualValues = true
     // A stable node can resolve differently after its referenced graph changes.
     let checkedSchemas = checkedNodes.get(node)
@@ -344,42 +336,27 @@ function censusWorkflowAssetRoots(
         (fields['occupies'] === undefined || (Array.isArray(fields['occupies']) && fields['occupies'].every((entry) => typeof entry === 'string'))) &&
         (fields['ioBound'] === undefined || fields['ioBound'] === true)) knownSchemaExtensions.add(schema)
     }
-    for (const item of schema.items) if (item.kind === 'input') registerInputDefaults(item)
+    for (const row of allRowsOf(schema.body)) if (row.kind === 'input') registerInputDefaults(row)
     checkExtensions(schema as unknown as Json, false)
     if (Object.values(node.dynamic ?? {}).some((state) => !assetFreeDynamicState(state))) complete = false
-    for (const item of schema?.items ?? []) {
-      if (item.kind !== 'input' && item.kind !== 'output') complete = false
-    }
     const connectivity = dynamic ? buildGraphConnectivity(graph)(node.id) : EMPTY_CONNECTIVITY
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
-    if (unsupportedDormant.length > 0) {
-      complete = false
-      for (const diagnostic of unsupportedDormant) incompleteDiagnostics.push({ ...diagnostic,
-        refs: [{ graphId: graph.id, nodeId: node.id }],
-        message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
-      })
-    }
     const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
     if (missingChoices.length > 0) {
       complete = false
       incompleteDiagnostics.push(...missingChoices)
     }
-    // An absent required choice is editable, but cannot certify ownership or execute.
+    // An absent required choice is editable, but cannot certify ownership or
+    // execute. A group below its minimum refuses a run, not the document.
     const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
+      diagnostic.code !== 'elab.autogrow.underMin' &&
       !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
-    if (active.diagnostics.some(invalidIdentity) ||
-      stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
-        (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
+    if (active.diagnostics.some(invalidIdentity) || stored.diagnostics.some(invalidIdentity)) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
-        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
-        (purpose !== 'admission' || ![
-          'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
-          'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
-        ].includes(diagnostic.code)))
+        invalidIdentity(diagnostic) && (purpose !== 'admission' || diagnostic.code !== 'elab.outputDescriptors.invalid'))
       // A planned historical migration can consume state the current schema
       // no longer describes. Retain its opaque roots, never certify it complete.
       const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
@@ -390,7 +367,7 @@ function censusWorkflowAssetRoots(
       })
       if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
     }
-    const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
+    const inputs = elabInputsOf(stored)
     for (const input of inputs) {
       const { spec } = input
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
@@ -415,8 +392,7 @@ function censusWorkflowAssetRoots(
     }
     for (const [input, value] of Object.entries(node.values)) {
       const candidates = inputs.filter((item) => valueKeyOf(item) === input)
-      const conflicting = candidates.some((item) => item.wire15Materialization) &&
-        new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
+      const conflicting = new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
       const typed = parseTypedLiteralWire(value)
       const matching = conflicting && typed !== undefined ? candidates.filter((item) =>
         canonicalJson(item.spec.type) === canonicalJson(typeExprFromTypeId(typed.type))) : candidates
@@ -482,9 +458,9 @@ function censusWorkflowAssetRoots(
           if (consumers.length === 0) complete = false
           for (const consumer of consumers) {
             const node = graph.nodes[consumer.node]
-            const input = node === undefined ? undefined : schemas(graph.id, node)?.items.find((item) =>
-              item.kind === 'input' && item.id === consumer.port)
-            if (consumer.members !== undefined || input?.kind !== 'input' || input.dynamic !== undefined) complete = false
+            const schema = node === undefined ? undefined : schemas(graph.id, node)
+            const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === consumer.port)
+            if (input === undefined) complete = false
             else valueRoots(source.value, input.type)
           }
         }
@@ -568,15 +544,16 @@ export function workflowAssetRootsUnchanged(
       const schema = resolve(node.type)
       // Contextual elaboration can activate another input's asset default.
       if (node.type.startsWith('#') || node.virtual || node.region || !schema || schema.virtual ||
-          schema.items.some((item) => item.kind !== 'section' &&
-            (item.dynamic !== undefined || item.outputDescriptors !== undefined ||
-              (item.type.kind !== 'concrete' && item.type.kind !== 'asset')))) return false
+          allRowsOf(schema.body).some((row) => row.kind === 'input' || row.kind === 'output'
+            ? row.type.kind !== 'concrete' && row.type.kind !== 'asset'
+            : !['section', 'row', 'note', 'editor', 'button'].includes(row.kind))) return false
     }
   }
   return prepared.forward.every((op) => {
     const node = prepared.document.graphs[String(op.path[1])]?.nodes[String(op.path[3])]
-    const input = node && resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === op.path[5])
-    return input?.kind === 'input' && input.type.kind === 'concrete' &&
+    const schema = node && resolve(node.type)
+    const input = schema ? inputsOf(schema).find((item) => item.id === op.path[5]) : undefined
+    return input !== undefined && input.type.kind === 'concrete' &&
       ['INT', 'FLOAT'].includes(input.type.name) && ['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '')
   })
 }

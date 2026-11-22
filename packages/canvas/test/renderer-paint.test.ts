@@ -153,60 +153,56 @@ const typed = (name: string): { kind: 'concrete'; name: string } => ({ kind: 'co
 const synthetic = new Map<string, NodeSchema>([
   ['PIMG', {
     type: 'PIMG', displayName: 'ImgSrc', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: typed('IMAGE') }],
+    body: [{ kind: 'output', id: 'out', type: typed('IMAGE') }],
   }],
   ['PLAT', {
     type: 'PLAT', displayName: 'LatSrc', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'output', id: 'out', type: typed('LATENT') }],
+    body: [{ kind: 'output', id: 'out', type: typed('LATENT') }],
   }],
   ['dinkster.string_to_combo', {
     type: 'dinkster.string_to_combo', displayName: 'Convert String to Combo', category: 'string', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'string', type: typed('STRING'), optional: false },
       { kind: 'output', id: 'choice', type: typed('COMBO') },
     ],
   }],
   ['dinkster.combo_to_string', {
     type: 'dinkster.combo_to_string', displayName: 'Convert Combo to String', category: 'string', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'choice', type: typed('COMBO'), optional: false },
       { kind: 'output', id: 'text', type: typed('STRING') },
     ],
   }],
   ['SinkLatent', {
     type: 'SinkLatent', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
+    body: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: false }],
   }],
   ['SinkOpt', {
     type: 'SinkOpt', displayName: 'OptSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: true }],
+    body: [{ kind: 'input', id: 'in', type: typed('LATENT'), optional: true }],
   }],
   ['FSink', {
     type: 'FSink', displayName: 'FloatSink', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
+    body: [{
       kind: 'input', id: 'f', type: typed('FLOAT'), optional: true,
       widget: { widgetType: 'FLOAT', options: {}, default: 1 },
     }],
   }],
-  // Nested-only autogrow template: the trailing ghost renders nothing, so
+  // A group whose member holds only a group: the spare member renders nothing, so
   // the node carries a growth affordance row instead (dynamic-scene tests
   // prove the derivation; here we pin its paint).
   ['PNest', {
     type: 'PNest', displayName: 'PureNest', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
-      kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [{
-          kind: 'input', id: 'sub', type: typed('IMAGE'), optional: true,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 's', type: typed('IMAGE'), optional: true }],
-            naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 4 },
-          },
-        }],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 5 },
-      },
+    body: [{
+      kind: 'group', id: 'items',
+      member: [{
+        kind: 'group', id: 'sub',
+        value: { kind: 'input', id: 's', type: typed('IMAGE'), optional: true },
+        keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 },
+        grows: 'link', minMembers: 0, maxMembers: 4,
+      }],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: 'link', minMembers: 0, maxMembers: 5,
     }],
   }],
 ])
@@ -297,56 +293,6 @@ const typedLensLink = (
   x2,
   y2,
   typeName,
-})
-
-describe('subgraph field values', () => {
-  it('paints the compiled values on a bare scene, inheriting unset option fields and retaining instance overrides', () => {
-    const gain: InputSpec = {
-      kind: 'input', id: 'gain', type: typed('INT'), optional: true,
-      widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 },
-    }
-    const schema: NodeSchema = {
-      type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
-      items: [gain, {
-        kind: 'input', id: 'mode', type: typed('COMBO'), optional: true,
-        dynamic: { kind: 'dynamicCombo', options: [{ key: 'soft', inputs: [gain] }] },
-      }],
-    }
-    const doc = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'inherited-fields', root: 'root',
-      graphs: {
-        root: { id: 'root', name: 'Root', nextOrdinal: 10, links: {}, nets: {}, reroutes: {}, nodes: {
-          inherited: { id: 'inherited', type: '#body', values: {} },
-          overridden: { id: 'overridden', type: '#body', values: { plain: 7, 'choice.[soft].gain': 9 } },
-        } },
-        body: { id: 'body', name: 'Body', nextOrdinal: 10, links: {}, nets: {}, reroutes: {}, nodes: {
-          leaf: { id: 'leaf', type: 'Modal', values: { gain: 4, 'mode.[soft].gain': 3 }, dynamic: { mode: { selected: 'soft' } } },
-        }, boundary: { inputs: [
-          { id: 'plain', promoted: true, binds: { kind: 'port', node: 'leaf', port: 'gain' } },
-          { id: 'choice', binds: { kind: 'dynamicCombo', node: 'leaf', port: 'mode' } },
-        ], outputs: [] } },
-      },
-      view: { graphs: { root: { nodes: {
-        inherited: { position: { x: 40, y: 40 } },
-        overridden: { position: { x: 400, y: 40 } },
-      } } } },
-    }).document!
-    const resolve = documentResolver(doc, (type) => type === schema.type ? schema : undefined)
-    const compiled = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
-    expect(compiled.ok).toBe(true)
-    if (!compiled.ok) throw new Error('Compile failed')
-    const scene = buildScene({ document: doc, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
-    for (const [id, plain, option] of [['inherited', 4, 3], ['overridden', 7, 9]] as const) {
-      expect(compiled.artifact.prompt[`${id}.leaf`]!.inputs).toMatchObject({ gain: plain, 'mode.gain': option })
-      const calls = paint({ ...scene, nodes: scene.nodes.filter((node) => node.id === id) })
-      const text = calls.filter((call) => call.method === 'fillText').map((call) => call.args[0])
-      expect(text).toContain(String(option))
-      const node = scene.nodes.find((node) => node.id === id)!
-      const plainRow = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'plain')!
-      expect(plainRow.kind === 'widget' ? node.node.values['plain'] ?? plainRow.spec.default : undefined).toBe(plain)
-    }
-    expect(doc.graphs['root']!.nodes['inherited']!.values).toEqual({})
-  })
 })
 
 describe('viewport animation', () => {
@@ -1897,7 +1843,7 @@ describe('node chrome paint on the live renderer', () => {
           ...node.layout,
           rows: node.layout.rows.map((candidate) => candidate === row ? {
             ...candidate,
-            selector: { construct: 'occurrence-selector', ancestors: [] },
+            selector: { construct: 'occurrence-selector' },
           } : candidate),
         },
       } : node),

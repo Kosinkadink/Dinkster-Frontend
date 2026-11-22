@@ -8,11 +8,11 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const payload: DinksterNodesPayload = {
-  schemaVersion: 1, epoch: 1, dinkster: { version: 'migration-test', schemaWire: 1 }, packs: {},
+  schemaVersion: 1, epoch: 1, dinkster: { version: 'migration-test', schemaWire: 2 }, packs: {},
   nodes: {
     Current: {
       displayName: 'Current', category: 'test',
-      interface: [{ role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 }],
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 }],
       replacements: [{ from: 'Previous', cases: [{ to: 'Current', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }],
     },
   },
@@ -49,14 +49,14 @@ describe('native open-time replacement', () => {
     const resizeApp = prepareWorkflowApp(new AppState())
     const backend = resizeApp.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: {
-      Source: { interface: [{ role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } }] },
-      Sink: { outputNode: true, interface: [{ role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } }] },
+      Source: { body: [{ kind: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } }] },
+      Sink: { outputNode: true, body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } }] },
       ImageScaleToMaxDimension: {
-        interface: [
-          { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
-          { role: 'input', id: 'largest_size', type: { kind: 'concrete', types: ['INT'] }, default: 512, widget: { type: 'INT' } },
-          { role: 'input', id: 'upscale_method', type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest-exact', widget: { type: 'COMBO', options: ['nearest-exact', 'lanczos'] } },
-          { role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } },
+        body: [
+          { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+          { kind: 'input', id: 'largest_size', type: { kind: 'concrete', types: ['INT'] }, default: 512, widget: { type: 'INT' } },
+          { kind: 'input', id: 'upscale_method', type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest-exact', widget: { type: 'COMBO', options: ['nearest-exact', 'lanczos'] } },
+          { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } },
         ],
         replacements: [{ from: 'ResizeImagesByLongerEdge', cases: [{
           to: 'ImageScaleToMaxDimension', inputs: {
@@ -198,6 +198,8 @@ describe('native open-time replacement', () => {
     let finish!: () => Promise<void>
     let delivered!: Promise<CommandOutcome>
     vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => {
+      // Only the upgrade batch is held; storing start choices on load passes through.
+      if (invocation.command !== 'batch') return dispatch(owner, invocation)
       delivered = new Promise<CommandOutcome>((resolve) => {
         finish = async () => {
           const outcome = completion === 'refused' ? { ok: false as const, diagnostics: [] } : await dispatch(owner, invocation)

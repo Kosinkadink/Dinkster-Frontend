@@ -148,7 +148,7 @@ it('rejects virtual node kinds without a virtual port-free schema', () => {
     id: 'notes.callout', title: 'Callout', defaultValues: {},
     schema: {
       type: 'notes.callout', virtual: true, displayName: 'Callout', category: 'Notes',
-      source: 'v3', isOutputNode: false, items: [],
+      source: 'v3', isOutputNode: false, body: [],
     },
     render: () => ({ text: '', format: 'plain' }),
   }
@@ -166,7 +166,7 @@ it('rejects virtual node kinds without a virtual port-free schema', () => {
     ...base,
     schema: {
       ...base.schema,
-      items: [{
+      body: [{
         kind: 'output', id: 'out',
         type: { kind: 'concrete', name: 'STRING' },
       }],

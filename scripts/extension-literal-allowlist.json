@@ -11,7 +11,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 974,
+      "line": 976,
       "column": 11,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -19,7 +19,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1007,
+      "line": 1010,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -27,7 +27,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1108,
+      "line": 1111,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -35,7 +35,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1120,
+      "line": 1123,
       "column": 10,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -43,15 +43,15 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6339,
-      "column": 38,
+      "line": 6351,
+      "column": 13,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
     },
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6603,
+      "line": 6616,
       "column": 36,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -59,7 +59,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6686,
+      "line": 6699,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -67,8 +67,8 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 8415,
-      "column": 38,
+      "line": 8361,
+      "column": 13,
       "symbol": "widgetType:ASSET",
       "issue": 122
     },
@@ -155,7 +155,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 1735,
+      "line": 1701,
       "column": 76,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -163,7 +163,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4424,
+      "line": 4365,
       "column": 15,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -171,7 +171,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4952,
+      "line": 4893,
       "column": 11,
       "symbol": "widgetType:COMPOSITOR",
       "issue": 1112
@@ -179,7 +179,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4953,
+      "line": 4894,
       "column": 27,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -187,7 +187,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 5039,
+      "line": 4948,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -195,7 +195,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 5124,
+      "line": 5021,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -203,7 +203,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 5141,
+      "line": 5038,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -300,14 +300,14 @@
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/file-drop.ts",
       "line": 240,
-      "column": 60,
+      "column": 35,
       "symbol": "widgetType:ASSET",
       "issue": 122
     },
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/node-previews.ts",
-      "line": 216,
+      "line": 217,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -315,7 +315,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/pack-locales.ts",
-      "line": 181,
+      "line": 182,
       "column": 32,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -323,7 +323,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/pack-locales.ts",
-      "line": 181,
+      "line": 182,
       "column": 65,
       "symbol": "widgetType:MULTI_COMBO",
       "issue": 122
@@ -331,8 +331,8 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/palette-node-preview.ts",
-      "line": 27,
-      "column": 34,
+      "line": 28,
+      "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
     },
@@ -363,7 +363,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/widget-editor-anchor.ts",
-      "line": 58,
+      "line": 57,
       "column": 23,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -371,7 +371,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/widget-editor-anchor.ts",
-      "line": 59,
+      "line": 58,
       "column": 7,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -379,7 +379,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/interaction.ts",
-      "line": 3346,
+      "line": 3336,
       "column": 27,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -387,7 +387,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/interaction.ts",
-      "line": 3346,
+      "line": 3336,
       "column": 60,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -395,7 +395,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/interaction.ts",
-      "line": 3353,
+      "line": 3343,
       "column": 29,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -467,7 +467,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 334,
+      "line": 333,
       "column": 19,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -475,7 +475,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 334,
+      "line": 333,
       "column": 52,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -483,7 +483,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3461,
+      "line": 3439,
       "column": 27,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -491,7 +491,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 3461,
+      "line": 3439,
       "column": 60,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -499,7 +499,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 4531,
+      "line": 4508,
       "column": 21,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -507,7 +507,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 4531,
+      "line": 4508,
       "column": 54,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -515,7 +515,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 4605,
+      "line": 4582,
       "column": 19,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -523,7 +523,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/canvas/src/renderer.ts",
-      "line": 4605,
+      "line": 4582,
       "column": 52,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -531,7 +531,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2717,
+      "line": 2518,
       "column": 37,
       "symbol": "widgetType:string",
       "issue": 122
@@ -539,7 +539,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/commands/core-commands.ts",
-      "line": 2729,
+      "line": 2530,
       "column": 9,
       "symbol": "widgetType:string",
       "issue": 122
@@ -547,7 +547,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 2024,
+      "line": 1784,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 250,
+      "line": 253,
       "column": 20,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -563,7 +563,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 251,
+      "line": 254,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -571,7 +571,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 1699,
+      "line": 1660,
       "column": 11,
       "symbol": "widgetType:STRING",
       "issue": 511
@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/mirror/glsl.ts",
-      "line": 73,
+      "line": 77,
       "column": 26,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -587,7 +587,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1271,
+      "line": 1227,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -595,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 373,
+      "line": 368,
       "column": 7,
       "symbol": "widgetType:FLOAT",
       "issue": 507
@@ -603,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 386,
+      "line": 381,
       "column": 7,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -611,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1103,
+      "line": 1195,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -619,7 +619,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1106,
+      "line": 1198,
       "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -675,7 +675,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/widgets/src/text-editor-extension.ts",
-      "line": 103,
+      "line": 101,
       "column": 12,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -683,7 +683,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/widgets/src/text-editor-extension.ts",
-      "line": 232,
+      "line": 221,
       "column": 12,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -693,7 +693,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 735,
+      "line": 737,
       "column": 45,
       "symbol": "dinkster.utilities.primitive_float",
       "issue": 813
@@ -701,7 +701,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 745,
+      "line": 747,
       "column": 38,
       "symbol": "dinkster.utilities.comfy_math_expression",
       "issue": 813
@@ -709,7 +709,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 747,
+      "line": 749,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_int",
       "issue": 813
@@ -717,7 +717,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 748,
+      "line": 750,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_int",
       "issue": 813
@@ -725,7 +725,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 765,
+      "line": 767,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_float",
       "issue": 813
@@ -733,7 +733,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 766,
+      "line": 768,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_boolean",
       "issue": 813

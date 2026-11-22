@@ -132,7 +132,7 @@ const primitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input', id: 'value', type: { kind: 'concrete', name }, optional: false,
       ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
@@ -609,7 +609,7 @@ describe('AppState multi-window workspace', () => {
     const independentApp = createEditableApp()
     const digest = `blake3:${'a'.repeat(64)}`
     const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'held', optional: false,
+      body: [{ kind: 'input', id: 'held', optional: false,
         type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
     author.registerSchemas([schema])
     viewer.registerSchemas([schema])
@@ -678,7 +678,7 @@ describe('AppState multi-window workspace', () => {
       const digest = `blake3:${'b'.repeat(64)}`
       const asset = { digest, name: 'remote.bin', size: 13, mediaType: 'application/octet-stream', virtualPath: '' }
       const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'held', optional: true,
+        body: [{ kind: 'input', id: 'held', optional: true,
           type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
       const receipts = new Map<string, RetainedAssets>()
       const viewerOwners = new Set<string>()
@@ -803,7 +803,7 @@ describe('AppState multi-window workspace', () => {
       if (scenario === 'retargeted') viewer.setTabTarget(received().id, viewer.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
       if (scenario === 'registry') {
         const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
-          items: [
+          body: [
             { kind: 'input', id: 'held', optional: true, type: { kind: 'concrete', name: 'ASSET' } },
             { kind: 'input', id: 'newDefault', optional: true, type: { kind: 'concrete', name: 'ASSET' },
               widget: { widgetType: 'ASSET', options: {}, default: { digest: refreshedDigest, name: 'default.bin',
@@ -929,9 +929,9 @@ describe('AppState multi-window workspace', () => {
           const displayName = url.endsWith(encodeURIComponent(`sha256:${'b'.repeat(64)}`))
             ? 'Changed label' : 'English label'
           return new Response(JSON.stringify(url.includes('/api/nodes') ? {
-            schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 1 },
+            schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 2 },
             packs: { demo: { displayName: 'Demo', locales: { en: `sha256:${'a'.repeat(64)}`, zh: `sha256:${'b'.repeat(64)}` } } },
-            nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'Raw node', pack: 'demo', interface: [] } },
+            nodes: { 'demo.localized': { schemaVersion: 2, displayName: 'Raw node', pack: 'demo', body: [] } },
           } : { nodes: { 'demo.localized': { displayName } } }),
           { status: 200, headers: { 'Content-Type': 'application/json' } })
         })
@@ -1316,7 +1316,7 @@ describe('AppState multi-window workspace', () => {
     const app = createEditableApp()
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'shared.png', size: 17,
       mediaType: 'image/png', virtualPath: '' }
-    const schema: NodeSchema = { ...primitive('X', 'FLOAT'), items: [
+    const schema: NodeSchema = { ...primitive('X', 'FLOAT'), body: [
       { kind: 'input', id: 'held', optional: true, type: { kind: 'concrete', name: 'ASSET' } },
     ] }
     app.registry.set({ connection: app.connection.id, schemas: new Map([['X', schema]]),
@@ -1527,11 +1527,11 @@ describe('AppState multi-window workspace', () => {
     await second.openDocument(workflow(), 'Shared workflow')
     first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     }))
@@ -1713,11 +1713,11 @@ describe('AppState multi-window workspace', () => {
       : app.backends.get()[0]!
     const registry = buildDinksterRegistry(backend.id, {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -1776,9 +1776,9 @@ describe('AppState multi-window workspace', () => {
       editableApps.push(app)
       const backend = app.backends.get()[0]!
       const registry = buildDinksterRegistry(backend.id, {
-        schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {
-          X: { schemaVersion: 1, displayName: 'X', outputNode: true,
-            interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }] },
+        schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {
+          X: { schemaVersion: 2, displayName: 'X', outputNode: true,
+            body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }] },
         },
       })
       backend.registry.set(registry)
@@ -1852,11 +1852,11 @@ describe('AppState multi-window workspace', () => {
     const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const registry = buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
+      dinkster: { version: 'test', schemaWire: 2 },
       nodes: {
         X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+          schemaVersion: 2, displayName: 'X', outputNode: true,
+          body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
         },
       },
     })
@@ -1973,9 +1973,9 @@ describe('AppState multi-window workspace', () => {
     const app = createEditableApp()
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      nodes: { AssetLoader: { interface: [
-        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
+      schemaVersion: 2,
+      nodes: { AssetLoader: { body: [
+        { kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
       ] } },
     }))
     const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'known.png',
@@ -2455,7 +2455,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   // the promoted session instead of silently dropping.
   const seedSchema: NodeSchema = {
     type: 'SeedTest', displayName: 'Seed Test', category: 'test', source: 'v3', isOutputNode: true,
-    items: [
+    body: [
       { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
       { kind: 'input', id: 'up', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 10, max: 20, step: 3 }, default: 10, controller: 'after_generate' } },
@@ -2502,7 +2502,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       ...seedSchema,
       type: 'SyntheticCompositor',
       editorRole: 'compositor',
-      items: [
+      body: [
         { kind: 'input', id: 'recipe', type: { kind: 'concrete', name: 'COMPOSITOR' }, optional: true,
           widget: { widgetType: 'COMPOSITOR', options: {} } },
       ],
@@ -2578,7 +2578,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
   })
   const comboSchema: NodeSchema = {
     type: 'RefreshCombo', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-    items: [comboInput('up'), comboInput('down')],
+    body: [comboInput('up'), comboInput('down')],
   }
   const comboFixture = () => ({
     format: 'dinkster-workflow' as const, formatVersion: 1 as const, lineage: 'promotion-combo-test', root: 'g0',

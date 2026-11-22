@@ -78,10 +78,13 @@ describe('graph navigation helpers', () => {
     const root = tab.store.doc.root
     const dispatch = app.dispatchTo.bind(app)
     let settle!: () => void
-    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
-      const outcome = Promise.resolve(dispatch(owner, invocation))
-      settle = () => { void outcome.then(resolve) }
-    }) as never)
+    // Only the creation is held; the start-choice pass a new tab runs goes straight through.
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => invocation.command === 'dynamic.storeStartState'
+      ? dispatch(owner, invocation)
+      : new Promise((resolve) => {
+        const outcome = Promise.resolve(dispatch(owner, invocation))
+        settle = () => { void outcome.then(resolve) }
+      }) as never)
     const pending = app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
     await vi.waitFor(() => expect(tab.store.doc.graphs.g0).toBeDefined())
     expect(tab.graphStack.get()).toEqual([root])
@@ -103,7 +106,7 @@ describe('graph navigation helpers', () => {
     const app = prepareWorkflowApp(new AppState())
     const schema = {
       type: 'test.documented', displayName: 'Documented', category: 'testing', pack: 'test-pack',
-      inputs: [], outputs: [], items: [], hasDocs: true,
+      body: [], hasDocs: true,
     }
     app.registry.set({
       connection: '', hash: 'test', schemas: new Map([[schema.type, schema]]), diagnostics: [],

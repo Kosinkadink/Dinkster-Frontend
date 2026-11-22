@@ -251,7 +251,7 @@ test('sharing keeps a local edit undoable with Ctrl+Z', async ({ page }) => {
   const baseline = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{ type: 'ShareUndoProof', displayName: 'Share undo proof', category: 'test',
-      source: 'v3', isOutputNode: false, items: [] }])
+      source: 'v3', isOutputNode: false, body: [] }])
     const tab = app.activeTab()!
     const graphId = tab.store.doc.root
     const count = Object.keys(tab.store.doc.graphs[graphId]!.nodes).length

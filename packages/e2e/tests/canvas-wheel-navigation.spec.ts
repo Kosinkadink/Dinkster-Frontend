@@ -43,7 +43,7 @@ const wheel = (
 
 test('smooth wheel zoom accumulates input, yields to manual navigation and persists its toggle', async ({ page }, info) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 1 }, packs: {}, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})

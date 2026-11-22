@@ -99,14 +99,14 @@ describe('combo search', () => {
     })
     const store = new DocumentStore(loaded.document!, coreCommandRegistry())
     const schema: NodeSchema = { type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+      body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } },
       }],
     }
     const open = () => {
       const spec = elabInputsOf(elaborateInterface(schema, store.doc.graphs.g0!.nodes.n0!))[0]!.spec.widget!
       return mountEditor({ ...editorState(spec, 'outside'), tab: { store } as unknown as Tab,
-        target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice', ancestors: [] } },
+        target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice' } },
       }, { dispatchTo: (_tab, command) => { const outcome = store.dispatch(command); expect(outcome.ok).toBe(true); return outcome } })
     }
     for (const dismissal of ['cancel', 'outside']) {
@@ -168,7 +168,7 @@ describe('combo search', () => {
     }
     const ed = editorState(spec, kind === 'multi' ? ['schema'] : 'schema')
     const mounted = mountEditor({ ...ed, target: { kind: 'input', nodeId: 'n0', valueKey: 'choice',
-      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice', ancestors: [] } }),
+      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice' } }),
     } }, { backendForTab: () => ({ scopedClient: { remoteChoiceAuthority: () => 0, remoteChoices: async () => ['schema'] } }) } as unknown as Partial<AppState>)
     await flushMicrotasks()
     expect(mounted.root.querySelector('[data-testid="combo-authoring"]')).toBeNull()
@@ -433,7 +433,7 @@ describe('combo search', () => {
         kind: 'input',
         nodeId: 'resize',
         valueKey: 'choice',
-        selector: { construct: 'choice', ancestors: [] },
+        selector: { construct: 'choice' },
       },
     })
     await flushMicrotasks()
@@ -443,42 +443,6 @@ describe('combo search', () => {
     expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'dynamic.selectOption',
       params: { graphId: 'g0', nodeId: 'resize', construct: 'choice', option: 'crop' },
-    })
-    mounted.unmount()
-  })
-
-  it('selects a DynamicCombo option on a forwarded ancestor occurrence', async () => {
-    const mounted = mountEditor({
-      ...editorState({ widgetType: 'COMBO', options: { options: ['fit', 'crop'] } }, 'fit'),
-      target: {
-        kind: 'input',
-        nodeId: 'derived-resize',
-        valueKey: 'choice',
-        selector: {
-          construct: 'derived-choice',
-          ancestors: [],
-          owner: {
-            graphId: 'root',
-            nodeId: 'wrapper',
-            construct: 'forwarded-choice',
-            ancestors: [{ construct: 'regions', member: 'left' }],
-          },
-        },
-      },
-    })
-    await flushMicrotasks()
-
-    mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
-
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
-      command: 'dynamic.selectOption',
-      params: {
-        graphId: 'root',
-        nodeId: 'wrapper',
-        construct: 'forwarded-choice',
-        option: 'crop',
-        ancestors: [{ construct: 'regions', member: 'left' }],
-      },
     })
     mounted.unmount()
   })
@@ -505,91 +469,6 @@ describe('combo search', () => {
     expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'dinkster.euler' }),
     }))
-    mounted.unmount()
-  })
-
-  it('edits input-family labels by stable member id and selects the stable value', async () => {
-    const pending = deferred<ReturnType<DocumentStore['dispatch']>>()
-    const dispatchTo = vi.fn().mockReturnValueOnce(pending.promise).mockReturnValue({ ok: true, diagnostics: [] })
-    const mounted = mountEditor({
-      ...editorState({
-        widgetType: 'COMBO',
-        optionSource: { inputFamily: 'values' },
-        options: { options: [
-          { value: 'd0', label: 'Default' },
-          { value: '\u0000m7', label: 'Background' },
-          { value: '\u0000m2', label: 'Subject' },
-        ] },
-      }, '\u0000m7'),
-      target: {
-        kind: 'input',
-        nodeId: 'route',
-        valueKey: 'name',
-        inputFamilyOwner: {
-          graphId: 'root', nodeId: 'instance', construct: 'branches',
-          memberIds: { '\u0000m7': 'm7', '\u0000m2': 'm2' },
-        },
-      },
-    }, { dispatchTo })
-    await flushMicrotasks()
-
-    expect(mounted.root.querySelector('[data-testid="input-family-labels"]')?.textContent)
-      .toContain('Stable ID: m7')
-    expect(mounted.root.querySelector('[data-testid="input-family-label-d0"]')).toBeNull()
-    const label = mounted.root.querySelector<HTMLInputElement>('[data-testid="input-family-label-m7"]')!
-    label.value = 'Backdrop'
-    label.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
-
-    expect(dispatchTo).toHaveBeenCalledWith(expect.anything(), {
-      command: 'dynamic.labelMembers',
-      params: {
-        graphId: 'root', nodeId: 'instance', construct: 'branches',
-        labels: { m7: 'Backdrop', m2: 'Subject' },
-      },
-    })
-    expect(mounted.root.querySelector('[inert]')).not.toBeNull()
-    pending.resolve({ ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'refused', message: 'Labels refused' }] })
-    await flushMicrotasks()
-    expect(label.value).toBe('Backdrop')
-    expect(mounted.root.querySelector('[data-testid="widget-commit-error"]')?.textContent).toBe('Labels refused')
-    expect(mounted.onClose).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
-    await flushMicrotasks()
-    expect(mounted.root.querySelector('[data-testid="combo-dropdown"]')).toBeNull()
-    mounted.unmount()
-
-    const selection = mountEditor(editorState({
-      widgetType: 'COMBO',
-      optionSource: { inputFamily: 'values' },
-      options: { options: [{ value: 'm7', label: 'Backdrop' }, { value: 'm2', label: 'Subject' }] },
-    }, 'm7'))
-    await flushMicrotasks()
-    selection.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
-    expect(selection.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      command: 'node.setValue',
-      params: expect.objectContaining({ value: 'm2' }),
-    }))
-    selection.unmount()
-  })
-
-  it('rejects duplicate input-family labels before dispatch', async () => {
-    const mounted = mountEditor(editorState({
-      widgetType: 'COMBO',
-      optionSource: { inputFamily: 'values' },
-      options: { options: [{ value: 'm0', label: 'First' }, { value: 'm1', label: 'Second' }] },
-    }, 'm0'))
-    await flushMicrotasks()
-
-    const label = mounted.root.querySelector<HTMLInputElement>('[data-testid="input-family-label-m1"]')!
-    label.value = 'First'
-    label.dispatchEvent(new InputEvent('input', { bubbles: true }))
-
-    expect(mounted.root.querySelector('[data-testid="input-family-label-error"]')?.textContent)
-      .toBe('Duplicate branch labels are not allowed')
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.disabled).toBe(true)
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 

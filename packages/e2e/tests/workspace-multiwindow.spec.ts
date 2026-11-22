@@ -22,7 +22,7 @@ async function waitForStartupOwnership(page: Page): Promise<void> {
   await waitForOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas(
     ['TestNode', 'NewLocalNode'].map((type) => ({
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
     })),
   ))
 }

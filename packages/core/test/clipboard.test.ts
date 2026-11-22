@@ -363,8 +363,7 @@ describe('Dinkster clipboard', () => {
     const source = document()
     ;(source.graphs.g0!.nodes.a as { type: string; values: Record<string, unknown> }).type = 'CountedOutput'
     ;(source.graphs.g0!.nodes.a as { type: string; values: Record<string, unknown> }).values = { count: 3 }
-    ;(source.graphs.g0!.links.into!.from as unknown as { port: string; members?: string[] }).port = 'results'
-    ;(source.graphs.g0!.links.into!.from as unknown as { port: string; members?: string[] }).members = ['2']
+    ;(source.graphs.g0!.links.into!.from as unknown as { port: string }).port = 'results.2'
     const envelope = serializeSelection(source, 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
     const plan = planClipboardPaste(source, 'g0', envelope, { x: 20, y: 30 })!
     const store = new DocumentStore(source, coreCommandRegistry())
@@ -375,8 +374,7 @@ describe('Dinkster clipboard', () => {
       'node' in link.from && link.from.node === plan.nodeIds[0])
     expect(pastedMemberLink?.from).toEqual({
       node: plan.nodeIds[0],
-      port: 'results',
-      members: ['2'],
+      port: 'results.2',
     })
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.g0!.nodes[plan.nodeIds[0]!]).toBeUndefined()
@@ -612,16 +610,16 @@ describe('Dinkster clipboard', () => {
     const family = { items: { members: ['m0', 'm1'], seq: 2 } }
     ;(source.graphs.g0!.nodes.upstream as { dynamic?: unknown }).dynamic = family
     ;(source.graphs.g0!.nodes.a as { dynamic?: unknown }).dynamic = family
-    ;(source.graphs.g0!.links.incomingA as unknown as { from: unknown; to: unknown }).from = { node: 'upstream', port: 'items.out', members: ['m1'] }
-    ;(source.graphs.g0!.links.incomingA as unknown as { from: unknown; to: unknown }).to = { node: 'a', port: 'items.in', members: ['m1'] }
+    ;(source.graphs.g0!.links.incomingA as unknown as { from: unknown; to: unknown }).from = { node: 'upstream', port: 'items.m1.out' }
+    ;(source.graphs.g0!.links.incomingA as unknown as { from: unknown; to: unknown }).to = { node: 'a', port: 'items.m1.in' }
     const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [] })!
     const { store, plan } = connectedPaste(source, 'g0', envelope)
     const pasted = store.doc.graphs.g0!.nodes[plan.nodeIds[0]!]!
     expect(pasted.dynamic?.items?.members).toEqual(['m1'])
     expect(pasted.dynamic?.items?.seq).toBe(2)
     expect(Object.values(store.doc.graphs.g0!.links).some((link) =>
-      'node' in link.to && 'port' in link.to && link.to.node === plan.nodeIds[0] && link.to.members?.[0] === 'm1' &&
-      'node' in link.from && 'port' in link.from && link.from.members?.[0] === 'm1')).toBe(true)
+      'node' in link.to && 'port' in link.to && link.to.node === plan.nodeIds[0] && link.to.port === 'items.m1.in' &&
+      'node' in link.from && 'port' in link.from && link.from.port === 'items.m1.out')).toBe(true)
     const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc)))
     expect(reopened.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
     expect(reopened.document!.graphs.g0!.nodes[plan.nodeIds[0]!]!.dynamic?.items).toEqual({ members: ['m1'], seq: 2 })
@@ -724,12 +722,9 @@ describe('Dinkster clipboard', () => {
       values: { members: ['m2', 'm5'], seq: 6 },
       results: { members: ['m3', 'm7'], seq: 8 },
     }
-    ;(source.graphs.g0!.links.into!.from as unknown as { port: string; members?: string[] }).port = 'results.out'
-    ;(source.graphs.g0!.links.into!.from as unknown as { port: string; members?: string[] }).members = ['m4']
-    ;(source.graphs.g0!.links.out!.to as unknown as { port: string; members?: string[] }).port = 'values.in'
-    ;(source.graphs.g0!.links.out!.to as unknown as { port: string; members?: string[] }).members = ['m5']
-    ;(source.graphs.g0!.links.partial!.from as unknown as { port: string; members?: string[] }).port = 'results.out'
-    ;(source.graphs.g0!.links.partial!.from as unknown as { port: string; members?: string[] }).members = ['m7']
+    ;(source.graphs.g0!.links.into!.from as unknown as { port: string }).port = 'results.m4.out'
+    ;(source.graphs.g0!.links.out!.to as unknown as { port: string }).port = 'values.m5.in'
+    ;(source.graphs.g0!.links.partial!.from as unknown as { port: string }).port = 'results.m7.out'
 
     const envelope = serializeSelection(source, 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
     const plan = planClipboardPaste(source, 'g0', envelope)!

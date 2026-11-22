@@ -139,7 +139,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   } else if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
-      dinkster: { version: 'visual-fixture', schemaWire: 1 },
+      dinkster: { version: 'visual-fixture', schemaWire: 2 },
       nodes: {},
     } })
   } else if (path.endsWith('/api/models/providers/huggingface')) {
@@ -188,7 +188,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AppNoticeVisual', displayName: 'App feedback', category: 'test', source: 'visual', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } },
         { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: {}, default: 'old', remote: { route: '/api/choices/panel-state-visual', maxRetries: 0 } } },
       ],
@@ -260,56 +260,6 @@ test('Memory lease rows retain device identity, bytes and expiry', async ({ page
     await screenshot(page, `memory-lease-rows-${width}`)
   }
   await page.evaluate(() => (window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual())
-})
-
-test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  for (const profile of [false, true]) {
-    await page.evaluate(async (profile) => {
-      const componentPath = '/src/OutputDescriptorEditor.tsx'
-      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-      const { OutputDescriptorEditor } = await import(componentPath)
-      const { render } = await import(rendererPath)
-      const host = document.createElement('section')
-      host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:520px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
-      document.querySelector('.canvas-pane')!.append(host)
-      const app = window.__dinksterTest!.app
-      const dispose = render(() => OutputDescriptorEditor({
-        spec: { input: 'entries', choices: [{ id: 'float', type: { kind: 'concrete', name: 'core.float' } }], minEntries: 0, maxEntries: 3, fixedIds: false,
-          ...(profile ? { probe: { input: 'asset', kind: 'model', revision: '1' } } : {}) },
-        initial: '{', asset: undefined, staleLinks: [], app, tab: app.activeTab()!, isCurrent: () => true,
-        onDisconnect: () => {}, onCommit: () => { host.dataset['committed'] = 'true' }, onClose: () => { host.dataset['closed'] = 'true' },
-      }), host)
-      ;(window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual = () => { dispose(); host.remove() }
-    }, profile)
-    const editor = page.getByTestId('output-descriptor-editor')
-    await expect(editor.getByRole('status').first()).toBeVisible()
-    await expect(editor.getByTestId('output-descriptors-apply')).toBeDisabled()
-    await expect(editor.getByText(profile ? 'Probe the current asset to generate valid outputs.' : 'Use Stored JSON to repair invalid descriptors.', { exact: true })).toBeVisible()
-    if (profile) {
-      await editor.getByTestId('output-profile-probe').click()
-      await expect(editor.getByRole('alert')).toHaveText('Choose an asset before probing.')
-    }
-    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-      await page.setViewportSize({ width, height })
-      await editor.getByTestId('output-descriptors-apply').scrollIntoViewIfNeeded()
-      await page.mouse.move(0, 0)
-      await screenshot(page, `descriptor-invalid-${profile ? 'profile' : 'editable'}-${width}`)
-    }
-    if (!profile) {
-      await editor.getByRole('button', { name: 'Stored JSON', exact: true }).click()
-      await editor.getByRole('textbox', { name: 'Descriptor document', exact: true }).fill('{"entries":[]}')
-      await expect(editor.getByRole('status')).toHaveCount(0)
-      await expect(editor.getByTestId('output-descriptors-apply')).toBeEnabled()
-      await editor.getByTestId('output-descriptors-apply').click()
-      await expect(editor.locator('..')).toHaveAttribute('data-committed', 'true')
-    } else {
-      await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-      await expect(editor.locator('..')).toHaveAttribute('data-closed', 'true')
-    }
-    await page.evaluate(() => (window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual())
-  }
 })
 
 test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
@@ -809,7 +759,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
     bridge.app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'visual', source: 'visual', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
             widget: { widgetType: 'INT', options: {} },
@@ -819,7 +769,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'visual', source: 'visual', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     const diagnostics = (await bridge.app.openDocument({
@@ -1323,7 +1273,7 @@ test('GLSL editor missing-data and refused-preview states preserve editing and d
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
-      items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
+      body: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
         widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
     }])
     const diagnostics = (await app.openDocument({

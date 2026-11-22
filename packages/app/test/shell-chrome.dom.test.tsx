@@ -586,7 +586,7 @@ describe('workflow file commands', () => {
     prepareWorkflowApp(app)
     const schema: NodeSchema = {
       type: 'test.asset-download', displayName: 'Asset download', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
+      body: [{ kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
     }
     backend.registry.set({ connection: backend.id, schemas: new Map([[schema.type, schema]]),
       hash: 'asset-download', diagnostics: [], resolve: (type) => type === schema.type ? schema : undefined })
@@ -784,7 +784,7 @@ describe('workflow file commands', () => {
       category: 'test',
       source: 'v3',
       isOutputNode: false,
-      items: [],
+      body: [],
     }
     const backend = app.backends.get()[0]!
     backend.registry.set({

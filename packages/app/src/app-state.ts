@@ -63,7 +63,6 @@ import {
   isPortEndpoint,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
-  outputCountInputsOf,
   outputsOf,
   occurrenceDynamicView,
   EMPTY_SUBGRAPH_DEFINITION,
@@ -972,8 +971,8 @@ export function comboRefreshAdvancementPlan(
   for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
     const schema = registry.resolve(node.type)
     if (!schema) continue
-    for (const input of schema.items) {
-      const widget = input.kind === 'input' ? input.widget : undefined
+    for (const input of inputsOf(schema)) {
+      const widget = input.widget
       if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== route) continue
       const mode = node.controllers?.[input.id] ?? widget.controllerInitial ?? 'randomize'
       if (mode === 'fixed') continue
@@ -1005,8 +1004,9 @@ export function comboRefreshAdvancement(
     const linkDriven = Object.values(graph.links).some((link) => 'port' in link.to && link.to.node === node.id && link.to.port === step.inputId)
       || Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === node.id && sink.port === step.inputId))
     if (linkDriven) continue
-    const input = resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === step.inputId)
-    const widget = input?.kind === 'input' ? input.widget : undefined
+    const schema = resolve(node.type)
+    const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === step.inputId)
+    const widget = input?.widget
     if (widget?.widgetType !== 'COMBO' || widget.controller !== 'after_refresh' || widget.remote?.route !== plan.route) continue
     const mode = node.controllers?.[step.inputId] ?? widget.controllerInitial ?? 'randomize'
     if (mode !== step.mode) continue
@@ -6235,7 +6235,8 @@ export class AppState {
   private readonly schemaDiagnosticsPending = new Set<string>()
 
   /**
-   * Tabs awaiting a legacy-boolean normalization pass. Unlike schema diagnostics
+   * Tabs awaiting a legacy-boolean normalization pass, followed by storing the
+   * start key of each required choice with nothing stored. Unlike schema diagnostics
    * this RE-ARMS on retarget: which schemas interpret the document is the
    * tab's target backend, and a document opened while targeting one backend
    * (where its types may not even resolve) can be pointed at another whose
@@ -6258,7 +6259,14 @@ export class AppState {
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.legacyBooleanPending.delete(tab.id)
-      void this.normalizeLegacyBooleans(tab)
+      const store = tab.store
+      void this.normalizeLegacyBooleans(tab).then(() => {
+        // A required choice saved with nothing stored gets its start key.
+        if (this.tabs.get().includes(tab) && tab.store === store) {
+          return this.dispatchTo(tab, { command: 'dynamic.storeStartState', params: {} })
+        }
+        return undefined
+      }).catch(() => undefined) // A tab whose schemas vanish keeps its document as saved.
     }
   }
 
@@ -6339,8 +6347,8 @@ export class AppState {
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = registry.resolve(node.type)
       if (!schema) continue
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'BOOLEAN') continue
+      for (const item of inputsOf(schema)) {
+        if (item.widget?.widgetType !== 'BOOLEAN') continue
         const value = node.values[item.id]
         if (typeof value !== 'string') continue
         const mapped = LEGACY_BOOLEAN_TOKENS.get(value.toLowerCase())
@@ -6598,7 +6606,8 @@ export class AppState {
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
     const resolve = this.registryForTab(tab)?.resolve
-    const input = node ? resolve?.(node.type)?.items.find((item) => item.kind === 'input' && item.id === inputId) : undefined
+    const inputSchema = node ? resolve?.(node.type) : undefined
+    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
     const driven = graph && (Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
       Object.values(graph.nets).some((net) => net.sinks.some((sink) => 'port' in sink && sink.node === nodeId && sink.port === inputId)))
     const stored = node?.values[inputId]
@@ -6656,8 +6665,8 @@ export class AppState {
     const node = graph?.nodes[nodeId]
     const resolver = this.registryForTab(tab)?.resolve
     if (!node || resolver?.(node.type)?.editorRole !== 'glsl') return undefined
-    const input = resolver?.(node.type)?.items.find((item) =>
-      item.kind === 'input' && item.id === inputId)
+    const inputSchema = resolver?.(node.type)
+    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
     const definitionDriven = graph && (Object.values(graph.links).some((link) =>
       'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
       Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
@@ -6922,84 +6931,6 @@ export class AppState {
     this.problems.update((p) => p.filter((d) => d.owner !== owner))
   }
 
-  private countAwareValueInvocations(tab: Tab, invocation: CommandInvocation): readonly CommandInvocation[] {
-    if (
-      (invocation.command !== 'node.setValue' && invocation.command !== 'node.setValues') ||
-      typeof invocation.params !== 'object' ||
-      invocation.params === null ||
-      Array.isArray(invocation.params)
-    ) return [invocation]
-    const params = invocation.params as JsonObject
-    const graphId = typeof params.graphId === 'string' ? params.graphId : undefined
-    const nodeId = typeof params.nodeId === 'string' ? params.nodeId : undefined
-    if (graphId === undefined || nodeId === undefined) return [invocation]
-    const node = tab.store.doc.graphs[graphId]?.nodes[nodeId]
-    const registry = this.registryForTab(tab)
-    if (node === undefined || registry === undefined) return [invocation]
-    const schema = documentResolver(tab.store.doc, registry.resolve)(node.type)
-    if (schema === undefined) return [invocation]
-    const countInputs = new Set(outputCountInputsOf(schema))
-    if (invocation.command === 'node.setValue') {
-      const inputId = typeof params.inputId === 'string' ? params.inputId : undefined
-      if (inputId === undefined || !countInputs.has(inputId)) return [invocation]
-      return [{
-        ...invocation,
-        command: 'node.setOutputCount',
-        params: { ...params, removedLinks: 'preserve' },
-      }]
-    }
-    if (
-      typeof params.values !== 'object' ||
-      params.values === null ||
-      Array.isArray(params.values)
-    ) return [invocation]
-    const countValues: [string, Json][] = []
-    const ordinaryValues: Record<string, Json> = {}
-    for (const [inputId, value] of Object.entries(params.values)) {
-      if (countInputs.has(inputId)) countValues.push([inputId, value])
-      else ordinaryValues[inputId] = value
-    }
-    if (countValues.length === 0) return [invocation]
-    const normalized: CommandInvocation[] = []
-    if (Object.keys(ordinaryValues).length > 0) {
-      normalized.push({ ...invocation, params: { ...params, values: ordinaryValues } })
-    }
-    for (const [inputId, value] of countValues) {
-      normalized.push({
-        command: 'node.setOutputCount',
-        params: { graphId, nodeId, inputId, value, removedLinks: 'preserve' },
-      })
-    }
-    return normalized
-  }
-
-  private countAwareValueInvocation(tab: Tab, invocation: CommandInvocation): CommandInvocation {
-    if (
-      invocation.command === 'batch' &&
-      typeof invocation.params === 'object' &&
-      invocation.params !== null &&
-      !Array.isArray(invocation.params)
-    ) {
-      const params = invocation.params as JsonObject
-      if (!Array.isArray(params.invocations)) return invocation
-      const normalized: CommandInvocation[] = []
-      for (const candidate of params.invocations) {
-        if (
-          typeof candidate !== 'object' ||
-          candidate === null ||
-          Array.isArray(candidate) ||
-          typeof candidate.command !== 'string'
-        ) return invocation
-        normalized.push(...this.countAwareValueInvocations(tab, candidate as unknown as CommandInvocation))
-      }
-      return { ...invocation, params: { ...params, invocations: normalized } as unknown as Json }
-    }
-    const normalized = this.countAwareValueInvocations(tab, invocation)
-    return normalized.length === 1
-      ? normalized[0]!
-      : { command: 'batch', params: { invocations: normalized } as unknown as Json }
-  }
-
   /**
    * Dispatch a document command to a tab's store. Rejections land in
    * Problems (append; they do not clobber compile/submit diagnostics).
@@ -7008,9 +6939,8 @@ export class AppState {
    */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
-    const effective = this.countAwareValueInvocation(tab, invocation)
     const backend = this.backendForTab(tab)
-    const prepared = backend.protocol === 'dinkster' ? tab.store.prepareDispatch?.(effective) : undefined
+    const prepared = backend.protocol === 'dinkster' ? tab.store.prepareDispatch?.(invocation) : undefined
     if (prepared?.ok) {
       const resolve = this.resolverWithVirtualNodes(this.registryForTab(tab)?.resolve ?? (() => undefined))
       if (!workflowAssetRootsUnchanged(prepared, resolve)) {
@@ -7024,7 +6954,7 @@ export class AppState {
         }
       }
     }
-    const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
+    const outcome = prepared === undefined ? tab.store.dispatch(invocation) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
   }
@@ -7062,7 +6992,7 @@ export class AppState {
 
   dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
     if (tab.execution) return Promise.resolve({ ok: false, diagnostics: [] })
-    const prepared = tab.store.prepareDispatch?.(this.countAwareValueInvocation(tab, invocation))
+    const prepared = tab.store.prepareDispatch?.(invocation)
     return this.admitPreparedWorkflowDispatch(tab, prepared, stillWanted)
   }
 
@@ -8427,8 +8357,8 @@ export class AppState {
     for (const [graphId, graph] of Object.entries(tab.store.doc.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(node.type)
       if (!schema) continue
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
+      for (const item of inputsOf(schema)) {
+        if (item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
         const value = node.values[item.id]
         if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }

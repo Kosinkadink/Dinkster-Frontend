@@ -15,7 +15,7 @@ describe('AppView document-owned previews', () => {
   it('reveals a saved output from App View through its execution owner', async () => {
     const app = createWorkflowApp([{
       type: 'ImageOutput', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true,
-      emitsPreviews: true, items: [],
+      emitsPreviews: true, body: [],
     }])
     const owner = app.addBackend('http://owner.test:3639', 'Execution owner', false, 'dinkster')!
     owner.registry.set({ ...app.registry.get()!, connection: owner.id })
@@ -68,7 +68,7 @@ describe('AppView document-owned previews', () => {
   it.each(['live', 'edited', 'closed'] as const)('admits exposed input images and refuses stale publication: %s', async (scenario) => {
     const app = createWorkflowApp([{
       type: 'ImageInput', displayName: 'Image input', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', optional: false, type: { kind: 'concrete', name: 'core.ASSET' },
+      body: [{ kind: 'input', id: 'image', optional: false, type: { kind: 'concrete', name: 'core.ASSET' },
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
     app.widgetRegistry.registerPreviewRenderer({ id: 'test.image', canRender: (mime) => mime === 'image/png', mediaKind: 'image', drawCompact: () => {} })

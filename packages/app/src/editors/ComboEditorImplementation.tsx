@@ -140,17 +140,6 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
       if (entry?.kind === 'folder') openFolder(entry.path); else if (entry?.kind === 'option') choose(entry.option)
     } else if (event.key === 'Backspace' && query() === '' && folder().length > 0) { event.preventDefault(); openFolder(folder().slice(0, -1)) }
   }
-  const memberIds = ed.target.kind === 'input' ? ed.target.inputFamilyOwner?.memberIds : undefined
-  const familyOptions = spec.optionSource ? comboOptions(spec).filter((option): option is ComboOption & { readonly value: string } => typeof option.value === 'string') : []
-  const editableFamily = memberIds ? familyOptions.filter((option) => memberIds[String(option.value)] !== undefined) : familyOptions
-  const [labels, setLabels] = createSignal<Record<string, string>>(Object.fromEntries(familyOptions.map((option) => [option.value, option.label])))
-  const labelError = createMemo(() => { const all = Object.values(labels()).map((label) => label.trim()); return all.some((label) => label === '') ? message('inputFamily.error.emptyLabel') : new Set(all).size !== all.length ? message('inputFamily.labels.duplicate') : undefined })
-  const memberId = (value: string) => memberIds?.[value] ?? value
-  const labelsChanged = createMemo(() => editableFamily.some((option) => labels()[option.value]?.trim() !== option.label))
-  const commitLabels = () => {
-    if (ed.target.kind !== 'input' || !spec.optionSource || labelError()) return
-    props.commitCommand({ command: 'dynamic.labelMembers', params: { graphId: ed.target.inputFamilyOwner?.graphId ?? ed.graphId, nodeId: ed.target.inputFamilyOwner?.nodeId ?? ed.target.nodeId, construct: ed.target.inputFamilyOwner?.construct ?? spec.optionSource.inputFamily, labels: Object.fromEntries(editableFamily.map((option) => [memberId(option.value), labels()[option.value]?.trim() ?? option.label])) } } as unknown as CommandInvocation)
-  }
   const clickAway = () => multi ? props.commitValue(values()) : props.close()
   props.editor.bindClickAway?.(clickAway)
   const label = (value: string) => availableOptions().find((option) => option.value === value)?.label ?? value
@@ -174,13 +163,13 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     const options = parsedMenu()
     if (!editable || options === undefined || ed.target.kind !== 'input' || !ed.target.optionsTarget) return
     const target = ed.target.optionsTarget
-    const owner = target.owner ?? { graphId: ed.graphId, nodeId: ed.target.nodeId, construct: target.construct, ancestors: target.ancestors }
+    const owner = target.owner ?? { graphId: ed.graphId, nodeId: ed.target.nodeId, construct: target.construct }
     props.commitCommand(withMaterializeFrames(owner.graphId, owner.nodeId, target.materialize ?? ed.target.materialize, {
       command: 'dynamic.setOptions', params: { ...owner, options },
     } as CommandInvocation))
   }
 
-  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'input-family-combo': !multi && spec.optionSource !== undefined, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
+  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
     <props.header type={multi ? 'MULTI_COMBO' : 'COMBO'} />
     <Show when={editable}><div class="combo-authoring" data-testid="combo-authoring">
       <ProductField controlId="combo-selected-draft" label={message('comboAuthoring.selected')} description={message('comboAuthoring.selectedHint')} layout="stack" invalid={parsedSelection() === undefined}>
@@ -192,7 +181,6 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
       </ProductField>
       <ProductActionFooter><ProductButton data-testid="combo-menu-cancel" onClick={props.close}>{message('comboAuthoring.cancel')}</ProductButton><ProductButton variant="primary" data-testid="combo-menu-apply" disabled={parsedMenu() === undefined} onClick={applyMenu}>{message('comboAuthoring.applyMenu')}</ProductButton></ProductActionFooter>
     </div></Show>
-    <Show when={!multi && spec.optionSource !== undefined && editableFamily.length > 0}><fieldset class="input-family-labels" data-testid="input-family-labels"><legend>{message('inputFamily.labels.title')}</legend><For each={editableFamily}>{(option) => <label class="input-family-label-row"><span>{message('inputFamily.stableId', { id: memberId(option.value) })}</span><input data-testid={`input-family-label-${memberId(option.value)}`} aria-label={`${message('inputFamily.labels.item')}: ${memberId(option.value)}`} value={labels()[option.value] ?? option.label} onInput={(event) => setLabels((current) => ({ ...current, [option.value]: event.currentTarget.value }))} /></label>}</For><Show when={labelError()}><ProductNotice tone="error" testId="input-family-label-error">{labelError()}</ProductNotice></Show><button type="button" data-testid="input-family-label-apply" disabled={!labelsChanged() || labelError() !== undefined} onClick={commitLabels}>{message('inputFamily.labels.apply')}</button></fieldset></Show>
     <Show when={multi}><div class="multi-combo-values" data-testid="multi-combo-values"><For each={values()} fallback={<span class="combo-status">No selections</span>}>{(value, valueIndex) => <button type="button" class="multi-combo-value" classList={{ chip: spec.options['chip'] === true }} data-testid="multi-combo-value" data-oov={oov(value)} aria-label={`Remove ${label(value)}`} onClick={() => mutateValues((current) => current.filter((_item, candidate) => candidate !== valueIndex()))}>{label(value)}</button>}</For></div></Show>
     <ProductField controlId={multi ? 'multi-combo-search-control' : 'combo-search-control'} label="Search options" layout="compact"><input id={multi ? 'multi-combo-search-control' : 'combo-search-control'} data-testid={multi ? 'multi-combo-search' : 'combo-search'} placeholder={multi && typeof spec.options['placeholder'] === 'string' ? spec.options['placeholder'] : 'Search options...'} ref={(el) => queueMicrotask(() => el.focus())} value={query()} onInput={(event) => { highlightSource = 'keyboard'; setQuery(event.currentTarget.value); setIndex(0) }} onKeyDown={onKeyDown} /></ProductField>
     <Show when={folder().length > 0}><div class="combo-folder-navigation" data-testid="combo-folder-navigation"><button type="button" aria-label="Back to parent folder" onMouseDown={(event) => event.preventDefault()} onClick={() => openFolder(folder().slice(0, -1))}><Icon icon={ChevronLeft} /> Back</button><span>{folder().join(' / ')}</span></div></Show>

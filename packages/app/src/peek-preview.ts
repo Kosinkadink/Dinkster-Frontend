@@ -27,7 +27,7 @@
 
 import { defaultRenditionOf } from '@dinkster/client'
 import type { RenditionInfo, RenditionResult, ValuePeekResult, ValueQuery, ValueDescriptor, ValuePeekOptions, RenditionOptions } from '@dinkster/client'
-import { parseAssetTypeId } from '@dinkster/core'
+import { parseAssetTypeId, outputsOf } from '@dinkster/core'
 import type { CompanionSourceMap, NodeProgress, NodeSchema, TypeExpr } from '@dinkster/core'
 import { isModel3dMime } from './model3d-mime.js'
 import { isFile3dType } from './file3d-preview.js'
@@ -60,12 +60,11 @@ export function declaredPreviewCandidates(
   runtimeIds: readonly string[],
 ): readonly PeekCandidate[] {
   if (schema === undefined) return []
-  const outputs = schema.items.filter((item): item is Extract<NodeSchema['items'][number], { kind: 'output' }> =>
-    item.kind === 'output' && item.preview === true)
+  const outputs = outputsOf(schema).filter((item) => item.preview === true)
   return runtimeIds.flatMap((node) => outputs.map((output) => {
     const mediaKind = mediaKindOfType(output.type)
-    const metadataOutput = (name: string): string | undefined => schema.items.find((item) =>
-      item.kind === 'output' && item.type.kind === 'concrete' && item.type.name === name)?.id
+    const metadataOutput = (name: string): string | undefined => outputsOf(schema).find((item) =>
+      item.type.kind === 'concrete' && item.type.name === name)?.id
     const cameraOutput = mediaKind === 'model3d' ? metadataOutput('LOAD3D_CAMERA') : undefined
     const modelsOutput = mediaKind === 'model3d' ? metadataOutput('LOAD3D_MODEL_INFO') : undefined
     return { node, output: output.id, declaredIntent: true as const, ...(mediaKind === undefined ? {} : { mediaKind }),

@@ -49,7 +49,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: '31658bf8-proof', schemaWire: 1 },
+    dinkster: { version: '31658bf8-proof', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/assets/**', (route) => route.fulfill({
@@ -124,7 +124,7 @@ async function installGraph(page: Page): Promise<void> {
       category: 'proof',
       source: 'v3' as const,
       isOutputNode: true,
-      items: [{ kind: 'output' as const, id: output, type: valueType, ...(preview ? { preview: true } : {}) }],
+      body: [{ kind: 'output' as const, id: output, type: valueType, ...(preview ? { preview: true } : {}) }],
     })
     window.__dinksterTest!.app.registerSchemas([
       schema('ProofImage', 'image', concrete('IMAGE')),
@@ -134,7 +134,7 @@ async function installGraph(page: Page): Promise<void> {
       schema('ProofSavedVideo', 'saved', concrete('VIDEO')),
       {
         ...schema('ProofList', 'list', concrete('VIDEO')),
-        items: [{ kind: 'output' as const, id: 'list', type: { kind: 'list' as const, element: concrete('VIDEO') }, preview: true }],
+        body: [{ kind: 'output' as const, id: 'list', type: { kind: 'list' as const, element: concrete('VIDEO') }, preview: true }],
       },
       schema('ProofFailed', 'failed', concrete('VIDEO')),
       schema('ProofUnmarked', 'unmarked', concrete('VIDEO'), false),
@@ -491,7 +491,7 @@ test('visible media DOM stays capped while focused, playing, and selected previe
     const count = 30
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofMp4', displayName: 'ProofMp4', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'mp4', type: { kind: 'concrete', name: 'VIDEO' }, preview: true }],
+      body: [{ kind: 'output', id: 'mp4', type: { kind: 'concrete', name: 'VIDEO' }, preview: true }],
     }])
     const nodes = Object.fromEntries(Array.from({ length: count }, (_, index) => {
       const id = `media-${index}`
@@ -594,7 +594,7 @@ test('output pager cap retains focused, selected, and open-viewer roots without 
     const count = 30
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofPagedImage', displayName: 'ProofPagedImage', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } } }],
+      body: [{ kind: 'output', id: 'images', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } } }],
     }])
     const nodes = Object.fromEntries(Array.from({ length: count }, (_, index) => {
       const id = `pager-${index}`

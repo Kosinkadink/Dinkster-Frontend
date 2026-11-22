@@ -55,7 +55,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'match-type-e2e', schemaWire: 1 },
+    dinkster: { version: 'match-type-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
@@ -75,7 +75,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'MatchNodeE2E', displayName: 'Match Node', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'a', type: variable, optional: true },
           { kind: 'input', id: 'b', type: variable, optional: true },
           { kind: 'output', id: 'out', type: variable },
@@ -83,26 +83,26 @@ test.beforeEach(async ({ page }) => {
       },
       {
         type: 'ImageProducerE2E', displayName: 'Image Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
+        body: [{ kind: 'output', id: 'out', type: concrete('IMAGE') }],
       },
       {
         type: 'ImageListProducerE2E', displayName: 'Image List Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'list', element: concrete('IMAGE') } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'list', element: concrete('IMAGE') } }],
       },
       {
         type: 'ImageSinkE2E', displayName: 'Image Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'in', type: concrete('IMAGE'), optional: false }],
+        body: [{ kind: 'input', id: 'in', type: concrete('IMAGE'), optional: false }],
       },
       {
         type: 'AnyNodeE2E', displayName: 'Any Node', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'in', type: { kind: 'wildcard' }, optional: false },
           { kind: 'output', id: 'out', type: { kind: 'wildcard' } },
         ],
       },
       {
         type: 'ResizeImageMaskE2E', displayName: 'Resize Image/Mask', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'input', type: imageOrMask, optional: false },
           { kind: 'input', id: 'reference', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: true },
           { kind: 'output', id: 'resized', type: imageOrMask },
@@ -110,14 +110,14 @@ test.beforeEach(async ({ page }) => {
       },
       {
         type: 'ValueConvertE2E', displayName: 'Value Convert', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'value', type: fourTypes, optional: false },
           { kind: 'output', id: 'value', type: fourTypes },
         ],
       },
       {
         type: 'FormatStringE2E', displayName: 'Format String', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: fourTypes, optional: false }],
+        body: [{ kind: 'input', id: 'value', type: fourTypes, optional: false }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -283,27 +283,25 @@ test('wildcard Any accepts independently without capturing or propagating a type
   }
 })
 
-test('drilled input-family MatchType resolves each occurrence independently and reverts on disconnect', async ({ page }) => {
+test('drilled group-member MatchType resolves each occurrence independently and reverts on disconnect', async ({ page }) => {
   await page.evaluate(async () => {
     const variable = { kind: 'variable', templateId: 'T' }
     window.__dinksterTest!.app.registerSchemas([
       {
-        type: 'InputFamilyMatchE2E', displayName: 'Input Family Match', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        type: 'GroupMatchE2E', displayName: 'Group Match', category: 'test', source: 'v3', isOutputNode: false,
+        body: [
           {
-            kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-            dynamic: {
-              kind: 'autogrow',
-              template: [{ kind: 'input', id: 'value', type: variable, optional: false }],
-              naming: { kind: 'prefix', prefix: 'value', min: 1, max: 8 },
-            },
+            kind: 'group', id: 'items',
+            value: { kind: 'input', id: 'value', type: variable, optional: false },
+            keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+            grows: 'link', minMembers: 1, maxMembers: 8,
           },
           { kind: 'output', id: 'result', type: { kind: 'list', element: variable } },
         ],
       },
       {
         type: 'LatentProducerE2E', displayName: 'Latent Producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LATENT' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LATENT' } }],
       },
     ])
     await window.__dinksterTest!.app.openDocument({
@@ -316,12 +314,12 @@ test('drilled input-family MatchType resolves each occurrence independently and 
         }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 20 },
         sub: { id: 'sub', name: 'Wrapper', nodes: {
           match: {
-            id: 'match', type: 'InputFamilyMatchE2E', values: {},
-            dynamic: { items: { members: ['m0', 'm1'], seq: 2 } },
+            id: 'match', type: 'GroupMatchE2E', values: {},
+            dynamic: { items: { members: ['value1', 'value2'] } },
           },
         },
           links: {}, nets: {}, reroutes: {}, boundary: {
-            inputs: [{ id: 'in', binds: { kind: 'port', node: 'match', port: 'items.value', members: ['m0'] } }],
+            inputs: [{ id: 'in', binds: { kind: 'port', node: 'match', port: 'items.value1' } }],
             outputs: [{ id: 'out', binds: { kind: 'port', node: 'match', port: 'result' } }],
           }, nextOrdinal: 2 },
       },
@@ -345,7 +343,7 @@ test('drilled input-family MatchType resolves each occurrence independently and 
   })
 
   await drillInto(page, 'i1')
-  for (const port of ['items.value#m0', 'items.value#m1']) {
+  for (const port of ['items.value1', 'items.value2']) {
     expect(await type('match', port)).toEqual({ kind: 'variable', templateId: 'T' })
   }
   if (process.env['DINKSTER_MATCHTYPE_PROOF_DIR']) {
@@ -360,7 +358,7 @@ test('drilled input-family MatchType resolves each occurrence independently and 
   await expect.poll(() => type('i2', 'out')).toEqual(listOf('LATENT'))
 
   await drillInto(page, 'i1')
-  for (const port of ['items.value#m0', 'items.value#m1']) {
+  for (const port of ['items.value1', 'items.value2']) {
     await expect.poll(() => type('match', port)).toEqual({ kind: 'concrete', name: 'IMAGE' })
   }
   await expect.poll(() => type('match', 'result')).toEqual(listOf('IMAGE'))
@@ -379,7 +377,7 @@ test('drilled input-family MatchType resolves each occurrence independently and 
   expect(await type('i2', 'out')).toEqual(listOf('LATENT'))
 
   await drillInto(page, 'i1')
-  for (const port of ['items.value#m0', 'items.value#m1']) {
+  for (const port of ['items.value1', 'items.value2']) {
     await expect.poll(() => type('match', port)).toEqual({ kind: 'variable', templateId: 'T' })
   }
   await expect.poll(() => type('match', 'result')).toEqual({

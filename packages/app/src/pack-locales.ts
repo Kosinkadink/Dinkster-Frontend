@@ -2,8 +2,9 @@ import type { SchemaRegistry } from '@dinkster/client'
 import {
   schemaForEditorRole,
   type InputSpec,
-  type InterfaceItem,
   type NodeSchema,
+  type OptionRow,
+  type OutputSpec,
   type PackInfo,
   type WidgetSpec,
 } from '@dinkster/core'
@@ -209,35 +210,11 @@ const translatedInput = (
 ): InputSpec => {
   const port = portFor(input.id)
   const widget = translatedWidget(input.widget, (value) => comboLabelFor(input.id, value))
-  const dynamic = input.dynamic
-  const translatedDynamic = dynamic?.kind === 'dynamicCombo'
-    ? {
-        ...dynamic,
-        options: dynamic.options.map((option) => ({
-          ...option,
-          inputs: option.inputs.map((nested) => translatedInput(nested, portFor, comboLabelFor)),
-        })),
-      }
-    : dynamic?.kind === 'dynamicSlot'
-      ? {
-          ...dynamic,
-          inputs: dynamic.inputs.map((nested) => translatedInput(nested, portFor, comboLabelFor)),
-          ...(dynamic.variants !== undefined ? {
-            variants: dynamic.variants.map((variant) => ({
-              ...variant,
-              inputs: variant.inputs.map((nested) => translatedInput(nested, portFor, comboLabelFor)),
-            })),
-          } : {}),
-        }
-      : dynamic?.kind === 'autogrow'
-        ? { ...dynamic, template: dynamic.template.map((nested) => translatedInput(nested, portFor, comboLabelFor)) }
-        : undefined
   return {
     ...input,
     ...(port?.displayName !== undefined ? { displayName: port.displayName } : {}),
     ...(port?.doc !== undefined ? { tooltip: port.doc } : {}),
     ...(widget === undefined ? {} : { widget }),
-    ...(translatedDynamic === undefined ? {} : { dynamic: translatedDynamic }),
   }
 }
 
@@ -258,14 +235,50 @@ const translateSchema = (
   }
   const comboLabelFor = (id: string, value: string): string | undefined =>
     first(catalogs, (catalog) => nodeFor(catalog)?.combos?.[id]?.[value])
-  const items = schema.items.map((item): InterfaceItem => {
-    if (item.kind === 'input') return translatedInput(item, (id) => portFor('inputs', id), comboLabelFor)
-    if (item.kind !== 'output') return item
-    const port = portFor('outputs', item.id)
+  const translatedOutput = (output: OutputSpec): OutputSpec => {
+    const port = portFor('outputs', output.id)
     return {
-      ...item,
+      ...output,
       ...(port?.displayName !== undefined ? { displayName: port.displayName } : {}),
       ...(port?.doc !== undefined ? { tooltip: port.doc } : {}),
+    }
+  }
+  const translatedPort = <T extends InputSpec | OutputSpec>(row: T): T =>
+    (row.kind === 'input' ? translatedInput(row, (id) => portFor('inputs', id), comboLabelFor) : translatedOutput(row as OutputSpec)) as T
+  // Ports are looked up by their own id at any depth of the body.
+  const translatedRows = <T extends OptionRow>(rows: readonly T[]): T[] => rows.map((row): T => {
+    switch (row.kind) {
+      case 'input':
+      case 'output':
+        return translatedPort(row) as T
+      case 'section':
+        return { ...row, rows: translatedRows(row.rows) }
+      case 'row':
+        return { ...row, rows: translatedRows(row.rows) }
+      case 'group':
+        return {
+          ...row,
+          ...(row.value !== undefined ? { value: translatedPort(row.value) } : {}),
+          ...(row.member !== undefined ? { member: translatedRows(row.member) } : {}),
+        }
+      case 'choice':
+        return {
+          ...row,
+          shared: translatedRows(row.shared),
+          options: row.options.map((option) => ({ ...option, rows: translatedRows(option.rows) })),
+        }
+      case 'typeChoice':
+        return {
+          ...row,
+          rows: translatedRows(row.rows),
+          ...(row.variants !== undefined
+            ? { variants: row.variants.map((variant) => ({ ...variant, rows: translatedRows(variant.rows) })) }
+            : {}),
+        }
+      case 'described':
+        return { ...row, kinds: row.kinds.map(translatedPort) }
+      default:
+        return row
     }
   })
   const description = first(catalogs, (catalog) => nodeFor(catalog)?.description)
@@ -275,7 +288,7 @@ const translateSchema = (
     ...schema,
     displayName: first(catalogs, (catalog) => nodeFor(catalog)?.displayName) ?? schema.displayName,
     ...(description !== undefined ? { description } : {}),
-    items,
+    body: translatedRows(schema.body),
     ...(searchTerms.length > 0 ? { searchTerms } : {}),
   }
 }

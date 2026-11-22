@@ -10,7 +10,7 @@ const schemaFor = (options: readonly Json[], widgetType = 'COMBO'): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType, options: { options } } },
     { kind: 'input', id: 'tail', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
   ],

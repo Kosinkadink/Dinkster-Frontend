@@ -57,6 +57,7 @@ import {
   type ValueDiagnostic,
   type WidgetRegistry,
   type WorkflowDocument,
+  inputsOf,
 } from '@dinkster/core'
 import { imageAssetRefsOf, type DinksterValuesClient, type ExecutionLogEntry, type ExecutionState } from '@dinkster/client'
 import { deriveCompanions, liveExactnessFor, recordedProducerDisplay } from './companion-display.js'
@@ -98,7 +99,7 @@ const controllerSensitiveFor = (
       if (!node || !resolveSchema) return [runtimeId]
       const schema = resolveSchema(node.type)
       if (!schema) return [runtimeId]
-      const sensitive = schema.items.some((item) => item.kind === 'input' && item.widget?.controller === 'after_generate' &&
+      const sensitive = inputsOf(schema).some((item) => item.widget?.controller === 'after_generate' &&
         (node.controllers?.[item.id] ?? item.widget.controllerInitial ?? 'randomize') !== 'fixed')
       return sensitive ? [runtimeId] : []
     } catch {

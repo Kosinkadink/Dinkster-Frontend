@@ -5,6 +5,7 @@ import {
   type NodeData,
   type NodeSchema,
   type WidgetRegistry,
+  inputsOf,
 } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -23,8 +24,8 @@ import {
 /** Build the display-only node used by the palette preview. */
 export function transientPreviewNode(schema: NodeSchema): NodeData {
   const values = defaultValuesOf(schema) as Record<string, Json>
-  for (const item of schema.items) {
-    if (item.kind !== 'input' || item.widget?.widgetType !== 'COMBO' || values[item.id] !== undefined) continue
+  for (const item of inputsOf(schema)) {
+    if (item.widget?.widgetType !== 'COMBO' || values[item.id] !== undefined) continue
     const options = item.widget.options.options
     if (!Array.isArray(options) || options.length === 0) continue
     const first = options[0]

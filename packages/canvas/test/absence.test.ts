@@ -47,7 +47,7 @@ const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items,
+  body: items,
 })
 
 const schemas: Record<string, NodeSchema> = {

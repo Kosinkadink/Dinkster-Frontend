@@ -57,7 +57,6 @@ export function companionSourceOf(
       return source === undefined ? undefined : { kind: 'literal', value: source.value }
     }
     if (trace.kind !== 'output') return undefined
-    if ((trace.ref.members?.length ?? 0) > 0) return undefined
     const node = def.nodes[trace.ref.node]
     const schema = node === undefined ? undefined : resolveSchema?.(node.type)
     const knownInput = schema === undefined
@@ -95,7 +94,7 @@ export function companionSourcesOf(
   }
   for (const link of Object.values(def.links)) {
     const to = link.to
-    if (!isPortEndpoint(to) || (to.members?.length ?? 0) > 0) continue
+    if (!isPortEndpoint(to)) continue
     if (def.nodes[to.node] === undefined) continue
     const source = companionSourceOf(def, link.from, idx, resolveTapValue, resolveSchema)
     if (source !== undefined) put(to.node, to.port, source)
@@ -103,11 +102,9 @@ export function companionSourcesOf(
   // Nets drive inputs exactly like links; their source may itself expose a
   // schema-declared primitive identity value.
   for (const net of Object.values(def.nets ?? {})) {
-    if ((net.source.members?.length ?? 0) > 0) continue
     const source = companionSourceOf(def, net.source, idx, resolveTapValue, resolveSchema)
     if (source === undefined) continue
     for (const sink of net.sinks) {
-      if ((sink.members?.length ?? 0) > 0) continue
       if (def.nodes[sink.node] === undefined) continue
       put(sink.node, sink.port, source)
     }

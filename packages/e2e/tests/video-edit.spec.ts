@@ -9,16 +9,16 @@ const contract = JSON.parse(await readFile(new URL('../fixtures/video-edit-contr
 
 const schemaWire = contract.nodes['dinkster.video.trim']!.schemaVersion
 const typed = (name: string) => ({ kind: 'concrete', types: [name] })
-const input = (id: string, name: string, value?: unknown) => ({ role: 'input', id, type: typed(name), ...(value === undefined ? {} : { default: value }) })
-const node = (entries: unknown[]) => ({ schemaVersion: schemaWire, signature: 'video-edit-test', outputNode: true, interface: entries })
+const input = (id: string, name: string, value?: unknown) => ({ kind: 'input', id, type: typed(name), ...(value === undefined ? {} : { default: value }) })
+const node = (entries: unknown[]) => ({ schemaVersion: schemaWire, signature: 'video-edit-test', outputNode: true, body: entries })
 const catalog = {
   schemaVersion: 1, epoch: 1, dinkster: { version: 'video-edit-test', schemaWire }, nodes: {
     'test.video': node([
       input('source_version', 'INT', 0),
-      { role: 'output', id: 'video', type: typed('VIDEO') },
-      { role: 'output', id: 'images', type: typed('IMAGE') },
-      { role: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
-      { role: 'output', id: 'start_time', type: typed('FLOAT') },
+      { kind: 'output', id: 'video', type: typed('VIDEO') },
+      { kind: 'output', id: 'images', type: typed('IMAGE') },
+      { kind: 'output', id: 'strict_duration', type: typed('BOOLEAN') },
+      { kind: 'output', id: 'start_time', type: typed('FLOAT') },
     ]),
     ...contract.nodes,
     // Isolated compile targets; computational ports come from the backend fixture.
@@ -28,7 +28,7 @@ const catalog = {
       input('video', 'VIDEO'),
       { ...input('video_edit', 'VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
       input('strict_duration', 'BOOLEAN', false),
-      { role: 'output', id: 'video', type: typed('VIDEO') },
+      { kind: 'output', id: 'video', type: typed('VIDEO') },
     ]),
   },
 }
@@ -136,11 +136,11 @@ const persistedState = (page: Page) => page.evaluate(() => {
   const edit = tab.store.doc.graphs.g0!.nodes.edit!
   const registry = app.backends.get().find((backend) => backend.id === app.tabTargets.get().get(tab.id))?.registry.get()
     ?? app.backends.get()[0]!.registry.get()!
-  const schema = registry.schemas.get(edit.type) as { items: { kind: string; id?: string; widget?: { options: { features?: string[] } } }[] }
+  const schema = registry.schemas.get(edit.type) as { body: { kind: string; id?: string; widget?: { options: { features?: string[] } } }[] }
   return {
     workflow: app.exportDocument(tab.id),
     values: edit.values,
-    featureSubset: schema.items.find((item) => item.kind === 'input' && item.id === 'video_edit')?.widget?.options.features ?? [],
+    featureSubset: schema.body.find((item) => item.kind === 'input' && item.id === 'video_edit')?.widget?.options.features ?? [],
     compiledPrompt: compiled.artifact.prompt,
   }
 })

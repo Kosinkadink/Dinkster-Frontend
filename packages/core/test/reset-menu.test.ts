@@ -10,7 +10,7 @@ import type { Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { type MenuActionItem, type MenuContext, type MenuItem, type MenuTarget } from '../src/menus/contract.js'
 import { resetMenuContributions } from '../src/menus/reset-items.js'
-import type { InterfaceItem, NodeSchema, SchemaResolver } from '../src/index.js'
+import type { BodyRow, NodeSchema, SchemaResolver } from '../src/index.js'
 
 const tunableSchema: NodeSchema = {
   type: 'Tunable',
@@ -18,7 +18,7 @@ const tunableSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     {
       kind: 'input',
       id: 'seed',
@@ -33,24 +33,34 @@ const tunableSchema: NodeSchema = {
       optional: false,
       widget: { widgetType: 'INT', options: {}, default: 20 },
     },
-    { kind: 'section', id: 'adv', displayName: 'Advanced' },
     {
-      kind: 'input',
-      id: 'cfg',
-      type: { kind: 'concrete', name: 'FLOAT' },
-      optional: false,
-      section: 'adv',
-      widget: { widgetType: 'FLOAT', options: {}, default: 7.5 },
+      kind: 'section',
+      id: 'adv',
+      displayName: 'Advanced',
+      rows: [
+        {
+          kind: 'input',
+          id: 'cfg',
+          type: { kind: 'concrete', name: 'FLOAT' },
+          optional: false,
+          widget: { widgetType: 'FLOAT', options: {}, default: 7.5 },
+        },
+      ],
     },
-    { kind: 'section', id: 'empty', displayName: 'Empty' },
     {
-      kind: 'input',
-      id: 'img',
-      type: { kind: 'concrete', name: 'IMAGE' },
-      optional: false,
-      section: 'empty',
+      kind: 'section',
+      id: 'empty',
+      displayName: 'Empty',
+      rows: [
+        {
+          kind: 'input',
+          id: 'img',
+          type: { kind: 'concrete', name: 'IMAGE' },
+          optional: false,
+        },
+      ],
     },
-  ] satisfies InterfaceItem[],
+  ] satisfies BodyRow[],
 }
 
 const resolver: SchemaResolver = (type) => (type === 'Tunable' ? tunableSchema : undefined)

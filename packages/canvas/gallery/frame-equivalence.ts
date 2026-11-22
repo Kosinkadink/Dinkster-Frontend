@@ -414,7 +414,7 @@ export async function compareCanvasFrames(
         category: 'gallery',
         source: 'v3',
         isOutputNode: false,
-        items: [galleryWidgetInputs.find((input) => input.id === 'float')!],
+        body: [galleryWidgetInputs.find((input) => input.id === 'float')!],
       }
       const previous = loadDocument({
         format: 'dinkster-workflow',

@@ -78,6 +78,8 @@ export interface FormulaScope {
   readonly tables?: ReadonlyMap<string, FormulaTableValue>
   readonly derived?: ReadonlyMap<string, string>
   readonly inMember?: boolean
+  /** Allows `previous()`, in the formulas of steps applied with the user's own change of a field. */
+  readonly inOnEdit?: boolean
 }
 
 /** The state a formula is evaluated against. A missing name is unknown. */
@@ -90,6 +92,8 @@ export interface FormulaValues {
   readonly memberKey?: string | null
   /** Keyed by `fact(name)`, such as `fps(video)`. */
   readonly facts?: ReadonlyMap<string, FormulaValue>
+  /** The state before the user's change, for `previous()`; without it `previous()` is unknown. */
+  readonly previous?: FormulaValues
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +620,7 @@ const ARITY: Readonly<Record<string, readonly [number, number | null]>> = {
   index: [0, 0],
   key: [0, 0],
   known: [1, 1],
+  previous: [1, 1],
   ...Object.fromEntries(FORMULA_ASSET_FACTS.map((fact) => [fact, [1, 1] as const])),
 }
 const NAME_FACTS = new Set<string>(['linked', 'linked_type', ...FORMULA_ASSET_FACTS])
@@ -1102,6 +1107,7 @@ class Checker {
     private readonly derivedStack: readonly string[],
     private locals: ReadonlySet<string> = new Set(),
     private inComprehension = false,
+    private inPrevious = false,
   ) {}
 
   private count(n = 1): void {
@@ -1191,7 +1197,7 @@ class Checker {
     this.inComprehension = true
     this.visit(node.iterable)
     this.inComprehension = false
-    const inner = new Checker(this.scope, this.derivedStack, new Set([...this.locals, node.target]), true)
+    const inner = new Checker(this.scope, this.derivedStack, new Set([...this.locals, node.target]), true, this.inPrevious)
     inner.parts = this.parts + 1
     if (inner.parts > MAX_FORMULA_PARTS) refuse(`formula exceeds ${MAX_FORMULA_PARTS} parts`)
     inner.visit(node.element)
@@ -1212,6 +1218,17 @@ class Checker {
     this.count()
     if ((name === 'index' || name === 'key') && !this.scope.inMember) {
       refuse(`${name}() is only allowed inside a group member's rows`)
+    }
+    if (name === 'previous') {
+      if (!this.scope.inOnEdit) refuse("previous() is only allowed in a step applied with a field's change")
+      if (this.inPrevious) refuse('previous() cannot hold another previous()')
+      this.inPrevious = true
+      try {
+        this.visit(node.args[0]!)
+      } finally {
+        this.inPrevious = false
+      }
+      return
     }
     if (NAME_FACTS.has(name)) {
       const target = dotted(node.args[0]!)
@@ -1306,6 +1323,72 @@ export class Formula {
 
   evaluate(values: FormulaValues): FormulaOutcome {
     return new Evaluator(this.scope, values, new Map()).outcome(this)
+  }
+
+  /**
+   * The row names and the functions this formula reads, its derived formulas
+   * included. Comprehension names and table names are not rows.
+   */
+  uses(): { readonly names: ReadonlySet<string>; readonly calls: ReadonlySet<string> } {
+    const names = new Set<string>()
+    const calls = new Set<string>()
+    const walk = (node: Node, locals: ReadonlySet<string>): void => {
+      const path = dotted(node)
+      if (path !== undefined) {
+        if (!locals.has(path) && this.scope.names.has(path)) names.add(path)
+        return
+      }
+      switch (node.type) {
+        case 'constant':
+        case 'name':
+        case 'attribute':
+          return
+        case 'binary':
+          walk(node.left, locals)
+          walk(node.right, locals)
+          return
+        case 'unary':
+          walk(node.operand, locals)
+          return
+        case 'bool':
+          for (const value of node.values) walk(value, locals)
+          return
+        case 'compare':
+          walk(node.left, locals)
+          for (const comparator of node.comparators) walk(comparator, locals)
+          return
+        case 'if':
+          walk(node.test, locals)
+          walk(node.body, locals)
+          walk(node.orelse, locals)
+          return
+        case 'subscript':
+          walk(node.value, locals)
+          walk(node.index, locals)
+          return
+        case 'list':
+          for (const item of node.items) walk(item, locals)
+          return
+        case 'comprehension': {
+          walk(node.iterable, locals)
+          const inner = new Set([...locals, node.target])
+          walk(node.element, inner)
+          for (const condition of node.conditions) walk(condition, inner)
+          return
+        }
+        case 'call':
+          if (node.func.type === 'name') calls.add(node.func.name)
+          for (const argument of node.args) walk(argument, locals)
+          return
+      }
+    }
+    walk(this.tree, new Set())
+    for (const derived of this.derived.values()) {
+      const inner = derived.uses()
+      for (const name of inner.names) names.add(name)
+      for (const call of inner.calls) calls.add(call)
+    }
+    return { names, calls }
   }
 
   /** @internal */
@@ -1472,6 +1555,12 @@ class Evaluator {
       const value = name === 'index' ? this.values.memberIndex : this.values.memberKey
       if (value === undefined || value === null) throw STOP_UNKNOWN
       return typeof value === 'number' ? BigInt(value) : value
+    }
+    if (name === 'previous') {
+      if (this.values.previous === undefined) throw STOP_UNKNOWN
+      const before = new Evaluator(this.scope, this.values.previous, new Map())
+      for (const [local, value] of this.locals) before.locals.set(local, value)
+      return before.eval(node.args[0]!, formula)
     }
     if (name === 'known') {
       try {

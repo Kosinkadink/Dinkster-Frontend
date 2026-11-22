@@ -6,7 +6,6 @@ import {
   lifecycleCanonicalHash,
   lifecycleFlattenFingerprint,
   lifecycleSelectionFingerprint,
-  outputsOf,
   planFlattenOccurrenceTopology,
   planFlattenBoundaryRoutes,
   resolveStaticWidgetTap,
@@ -18,6 +17,7 @@ import {
   type NodeSchema,
   type ResolvedGeometryItem,
   type WorkflowDocument,
+  scopeRowsOf,
 } from '@dinkster/core'
 
 export interface LifecycleSelectionSnapshot extends LifecycleSelectionInput {
@@ -71,17 +71,16 @@ export function extractInvocation(
     const schema = resolve(node.type)
     return schema === undefined
       ? []
-      : [...inputsOf(schema), ...outputsOf(schema)]
-          .filter((port) => port.dynamic?.kind === 'dynamicSlot')
-          .map((port) => ({ node: node.id, port: port.id }))
+      : scopeRowsOf(schema.body)
+          .filter((row) => row.kind === 'typeChoice')
+          .map((row) => ({ node: node.id, port: row.id }))
   })
   const widgetTapSources = Object.values(graph.nodes).flatMap((node) => {
     const schema = resolve(node.type)
     if (schema === undefined) return []
-    return schema.items.flatMap((item, index) =>
-      item.kind === 'input' && item.hidden !== true && schema.items.findIndex((candidate) => candidate.kind === 'input' && candidate.id === item.id) === index &&
-      resolveStaticWidgetTap(schema, item.id).ok
-        ? [{ node: node.id, tap: item.id }]
+    return inputsOf(schema).flatMap((input) =>
+      input.hidden !== true && resolveStaticWidgetTap(schema, input.id).ok
+        ? [{ node: node.id, tap: input.id }]
         : [],
     )
   })

@@ -151,8 +151,7 @@ export function canonicalizeJson(raw: JsonObject): CanonicalizeResult {
 
   // Occurrence topology is a prerelease v1-in-place addition. Its negative
   // overlay is set-like: suppressions sort/deduplicate by structural identity
-  // and disappear when empty. Boundary-binding slot selections are likewise
-  // unordered, while member paths and route hops remain ordered. An empty
+  // and disappear when empty, while route hops remain ordered. An empty
   // never-allocated record carries no identity or semantics and is omitted;
   // any advanced cursor retains the empty owner skeleton forever.
   const rawTopologies = doc['occurrenceTopologies']
@@ -161,40 +160,10 @@ export function canonicalizeJson(raw: JsonObject): CanonicalizeResult {
     const topologies = doc['occurrenceTopologies'] as Record<string, unknown>
     let topologyRewrites = 0
 
-    const canonicalizeRoute = (route: unknown): void => {
-      if (!Array.isArray(route)) return
-      for (const leg of route) {
-        if (!isJsonObj(leg) || !isJsonObj(leg['binding'])) continue
-        const slots = leg['binding']['slots']
-        if (!Array.isArray(slots) || !slots.every((slot) => typeof slot === 'string')) continue
-        const sorted = [...slots].sort()
-        if (slots.some((slot, index) => slot !== sorted[index])) {
-          leg['binding']['slots'] = sorted
-          topologyRewrites++
-        }
-      }
-    }
-
     for (const [key, candidate] of Object.entries(topologies)) {
       if (!isJsonObj(candidate)) continue
-      const links = candidate['links']
-      if (isJsonObj(links)) {
-        for (const link of Object.values(links)) {
-          if (!isJsonObj(link)) continue
-          for (const side of ['from', 'to'] as const) {
-            const endpoint = link[side]
-            if (isJsonObj(endpoint) && endpoint['kind'] === 'boundary')
-              canonicalizeRoute(endpoint['route'])
-          }
-        }
-      }
-
       const suppressions = candidate['suppressedDeliveries']
       if (Array.isArray(suppressions)) {
-        for (const suppression of suppressions) {
-          if (isJsonObj(suppression) && suppression['kind'] === 'projectedLeg')
-            canonicalizeRoute(suppression['route'])
-        }
         if (suppressions.length === 0) {
           delete candidate['suppressedDeliveries']
           topologyRewrites++

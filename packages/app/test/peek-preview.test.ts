@@ -116,7 +116,7 @@ describe('peekCandidatesFor', () => {
   it('offers only explicit preview:true outputs in schema order', () => {
     const schema = {
       type: 'test.media',
-      items: [
+      body: [
         { kind: 'output', id: 'video', type: { kind: 'concrete', name: 'VIDEO' }, preview: true },
         { kind: 'output', id: 'unmarkedAudio', type: { kind: 'concrete', name: 'AUDIO' } },
         { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'AUDIO' }, preview: true },
@@ -133,7 +133,7 @@ describe('peekCandidatesFor', () => {
   it('carries model3d intent through concrete and asset-typed outputs', () => {
     const schema = {
       type: 'test.model3d',
-      items: [
+      body: [
         { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'MODEL3D' }, preview: true },
         {
           kind: 'output',
@@ -198,7 +198,7 @@ const transientOf = (e: unknown): boolean | undefined => (e as { transient?: boo
 
 describe('fetchPeekRendition', () => {
   it('keeps camera and model metadata on the same runtime occurrence and refuses changed identities', async () => {
-    const schema = { type: 'test.model-preview', items: [
+    const schema = { type: 'test.model-preview', body: [
       { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'FILE_3D_GLTF' }, preview: true },
       { kind: 'output', id: 'camera', type: { kind: 'concrete', name: 'LOAD3D_CAMERA' } },
       { kind: 'output', id: 'placement', type: { kind: 'concrete', name: 'LOAD3D_MODEL_INFO' } },

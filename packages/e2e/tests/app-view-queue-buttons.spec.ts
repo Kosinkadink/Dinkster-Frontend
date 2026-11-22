@@ -6,15 +6,15 @@ const proofDir = '/tmp/app-view-queue-buttons'
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'app-view-queue-buttons', schemaWire: 1 },
+  dinkster: { version: 'app-view-queue-buttons', schemaWire: 2 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.PartialOutput': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.PartialOutput',
       displayName: 'Partial output',
       category: 'test',
-      interface: [],
+      body: [],
       isOutputNode: true,
       signature: 'app-view-partial-output',
     },

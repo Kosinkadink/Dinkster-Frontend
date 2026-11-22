@@ -9,8 +9,8 @@ import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '..
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
-  const schema = parseDinksterSchema('SaveTargetFixture', { interface: [
-    { role: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
+  const schema = parseDinksterSchema('SaveTargetFixture', { body: [
+    { kind: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -66,11 +66,11 @@ it.each([false, true])('edits structured save destinations with writable grants 
 })
 
 it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
-  const schema = parseDinksterSchema('ResolutionFixture', { interface: [
-    { role: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
-    { role: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
-    { role: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
-    { role: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
+  const schema = parseDinksterSchema('ResolutionFixture', { body: [
+    { kind: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
+    { kind: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+    { kind: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
+    { kind: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -111,11 +111,11 @@ it('previews resolution with half-even rounding and edits descriptor-named sibli
 })
 
 it('edits camera siblings atomically with schema defaults, validation and undo without changing view', async () => {
-  const schema = parseDinksterSchema('CameraFixture', { interface: [
-    { role: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { role: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { role: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
-    { role: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
+  const schema = parseDinksterSchema('CameraFixture', { body: [
+    { kind: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+    { kind: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+    { kind: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
+    { kind: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -156,9 +156,9 @@ it('edits camera siblings atomically with schema defaults, validation and undo w
 it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
   const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
   const initial = kind === 'BOUNDING_BOX' ? { x: 0, y: 0, width: 12, height: 7 } : null
-  const schema = parseDinksterSchema('PreviewFixture', { interface: [
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-    { role: 'input', id: inputId, type: { kind: 'concrete', types: [kind] }, default: initial, widget: { type: kind } },
+  const schema = parseDinksterSchema('PreviewFixture', { body: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
+    { kind: 'input', id: inputId, type: { kind: 'concrete', types: [kind] }, default: initial, widget: { type: kind } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema).document!
   const graph = imported.graphs.g0!
@@ -226,8 +226,8 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
 
 it('edits a crop region atomically, rejects invalid drafts and supports undo', async () => {
   const initial = { x: 3, y: 7, width: 91, height: 23 }
-  const schema = parseDinksterSchema('CropFixture', { interface: [
-    { role: 'input', id: 'crop_region', type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX', component: 'ImageCrop' } },
+  const schema = parseDinksterSchema('CropFixture', { body: [
+    { kind: 'input', id: 'crop_region', type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX', component: 'ImageCrop' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
@@ -266,10 +266,10 @@ it('edits a crop region atomically, rejects invalid drafts and supports undo', a
 })
 
 it('edits only the schema-backed mount string, preserving prefix and undoable default selection', async () => {
-  const schema = parseDinksterSchema('SaveFixture', { interface: [
-    { role: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'frames/session' },
-    { role: 'input', id: 'mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'filename_prefix' },
-  ] }).schema!
+  const schema = parseDinksterSchema('SaveFixture', { body: [{ kind: 'row', rows: [
+    { kind: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'frames/session' },
+    { kind: 'input', id: 'mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' } },
+  ] }] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: ['frames/session', null] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
   const tab = { store } as unknown as Tab

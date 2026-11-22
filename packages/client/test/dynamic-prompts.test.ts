@@ -18,7 +18,7 @@ describe('dynamic prompt expansion pinned to ComfyUI_frontend bdc0345d', () => {
   it('expands only explicit true descriptors on a cloned submission graph', () => {
     const schema: NodeSchema = {
       type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'enabled', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { dynamicPrompts: true } } },
         { kind: 'input', id: 'disabled', type: { kind: 'concrete', name: 'STRING' }, optional: false,
@@ -59,7 +59,7 @@ describe('dynamic prompt expansion pinned to ComfyUI_frontend bdc0345d', () => {
     const disabled = { widgetType: 'STRING' as const, options: { dynamicPrompts: false } }
     const schema: NodeSchema = {
       type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'prompt', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      body: [{ kind: 'input', id: 'prompt', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { ...enabled, representations: {
           default: 'enabled', userSwitchable: true,
           representations: [

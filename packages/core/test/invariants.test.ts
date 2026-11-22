@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DynamicPortState, WorkflowDocument, GraphDef } from '../src/format/document.js'
-import { asDynamicMemberId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, type PortRef } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, type PortRef } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
@@ -63,7 +63,7 @@ describe('checkDocument', () => {
     expect(checkDocument(d).map((x) => x.code)).toContain('doc.input.multiDriver')
   })
 
-  it('rejects stale canonical, nested, and wire-15 member endpoints while preserving opaque paths', () => {
+  it('rejects stale member endpoints while preserving opaque paths', () => {
     const diagnostics = (dynamic: Record<string, DynamicPortState>, endpoint: PortRef, asNet = false) => {
       const target = { ...node('n2'), dynamic }
       const g = graph({
@@ -80,17 +80,9 @@ describe('checkDocument', () => {
     expect(diagnostics({ images: { seq: 1 } }, port('n2', 'images.m0'))).toContain('doc.dynamic.memberMissing')
     expect(diagnostics({ images: { seq: 1 } }, port('n2', 'images.m0'), true)).toContain('doc.dynamic.memberMissing')
     expect(diagnostics(
-      { items: { members: ['m0'], seq: 1 } },
-      { ...port('n2', 'items.sub.item'), members: [asDynamicMemberId('m0'), asDynamicMemberId('m1')] },
+      { items: { members: ['m0'], seq: 1 }, 'items.m0.sub': { seq: 1 } },
+      port('n2', 'items.m0.sub.m1.item'),
     )).toContain('doc.dynamic.memberMissing')
-    const nested = {
-      items: {
-        members: ['m0'], seq: 1,
-        memberState: { m0: { 'items.sub': { members: ['m1'], seq: 2 } } },
-      },
-    }
-    expect(diagnostics(nested, port('n2', 'items.m0.sub.m1.item'))).not.toContain('doc.dynamic.memberMissing')
-    expect(diagnostics(nested, port('n2', 'items.m0.sub.m0.item'))).toContain('doc.dynamic.memberMissing')
     const flattened = {
       outer: { members: ['root'], seq: 1 },
       'outer.root.inner': { members: ['child'], seq: 1 },
@@ -103,9 +95,9 @@ describe('checkDocument', () => {
 
     expect(diagnostics({ images: { members: ['m0'], seq: 1 } }, port('n2', 'images.m0')))
       .not.toContain('doc.dynamic.memberMissing')
-    expect(diagnostics({ mode: { selected: 'a' } }, { ...port('n2', 'mode.value'), members: [asDynamicMemberId('opaque')] }))
+    expect(diagnostics({ mode: { selected: 'a' } }, port('n2', 'mode.opaque.value')))
       .not.toContain('doc.dynamic.memberMissing')
-    expect(diagnostics({}, { ...port('n2', 'extension.path'), members: [asDynamicMemberId('opaque')] }))
+    expect(diagnostics({}, port('n2', 'extension.opaque.path')))
       .not.toContain('doc.dynamic.memberMissing')
   })
 

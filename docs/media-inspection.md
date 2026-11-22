@@ -78,7 +78,7 @@ The schema includes recursive `stream<element>` types, ordinary-input
 descriptors and media policies. Stream acceptance is Boolean: false normalizes
 to omission and non-Booleans are refused. Stream acceptance declares a range-aware consumer, not a
 separate cardinality. Chunk safety declares frame/sample-range preservation,
-names existing inputs/outputs and may be scoped to DynamicCombo options.
+names existing inputs/outputs and may be scoped to options of required choices.
 Uncovered options lose chunk-safety and stream-acceptance claims; materialization
 is backend-owned. These declarations survive catalog loading and registry identity;
 they do not invent a browser stream endpoint, polling ticket, chunk events,

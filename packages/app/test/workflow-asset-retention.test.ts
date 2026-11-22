@@ -21,7 +21,7 @@ const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
 const schema: NodeSchema = {
   type: 'Loader', displayName: 'Loader', category: 'test', source: 'v3', isOutputNode: false,
-  items: [{ kind: 'input', id: 'files', optional: false,
+  body: [{ kind: 'input', id: 'files', optional: false,
     type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } } }],
 }
 const resolve = (type: string) => type === 'Loader' ? schema : undefined
@@ -197,11 +197,10 @@ describe('workflow retention recovery', () => {
       const compositorInput = { kind: 'input' as const, id: 'compositor', optional: false,
         type: { kind: 'concrete' as const, name: 'COMPOSITOR' }, widget: { widgetType: 'COMPOSITOR', options: {}, default: {} } }
       const dormant = scenario === 'dormant' || scenario === 'dormant-missing'
-      const compositorSchema: NodeSchema = { ...schema, items: dormant ? [{
-        kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-          { key: 'active', inputs: [] }, { key: 'dormant', inputs: [compositorInput] },
-        ] },
+      const compositorSchema: NodeSchema = { ...schema, body: dormant ? [{
+        kind: 'choice', id: 'mode', required: true, shared: [], options: [
+          { key: 'active', rows: [] }, { key: 'dormant', rows: [compositorInput] },
+        ],
       }] : [compositorInput] }
       const workflow = session([]).doc
       const document: WorkflowDocument = { ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nodes: {
@@ -832,7 +831,7 @@ describe('retained app dispatch', () => {
     expect(retention).not.toHaveBeenCalled()
   })
 
-  it.each(['warning', 'error'] as const)('keeps generated-id warnings visible while shared ownership admits only valid identities: %s', async (severity) => {
+  it.each(['valid', 'error'] as const)('admits shared ownership of a generated boundary instance only with valid dynamic identities: %s', async (severity) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
     const local = session()
@@ -856,7 +855,6 @@ describe('retained app dispatch', () => {
     const resolveDocument = documentNodeResolver(document, app.registryForTab(tab)!.resolve)
     const instance = document.graphs.g0!.nodes.instance!
     const diagnostics = elaborateInterface(resolveDocument('g0', instance)!, instance, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics
-    expect(diagnostics).toContainEqual(expect.objectContaining({ severity: 'warning', code: 'elab.id.reserved' }))
     expect(diagnostics.some((entry) => entry.severity === 'error')).toBe(severity === 'error')
     const documents = new SharedWorkerDocumentAuthority()
     const workspace = new SharedWorkerTabAuthority()
@@ -870,9 +868,9 @@ describe('retained app dispatch', () => {
     try {
       await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
       const current = app.activeTab()!
-      expect('status' in current.store).toBe(severity === 'warning')
+      expect('status' in current.store).toBe(severity === 'valid')
       const roots = workflowAssetRoots(current.store.doc, current.store.historySnapshot(), app.registryForTab(current)!.resolve)
-      if (severity === 'warning') {
+      if (severity === 'valid') {
         expect(roots).toEqual({ complete: true, digests: [asset('a').digest] })
         const records = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
           .filter((key) => key.includes('dinkster.workflow-retentions.'))
@@ -889,12 +887,6 @@ describe('retained app dispatch', () => {
       }
       const after = elaborateInterface(resolveDocument('g0', instance)!, instance, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics
       expect(after).toEqual(diagnostics)
-      const ownerApp = app
-      const html = renderToString(() => createComponent(ProblemsPanel, {
-        app: ownerApp, diagnostics: () => after, compatSkips: () => [],
-      }))
-      expect(html).toContain('elab.id.reserved')
-      expect(html).toContain('workflow.input.files')
     } finally {
       app.dispose()
       for (const channel of channels) {
@@ -906,14 +898,13 @@ describe('retained app dispatch', () => {
 
   it('opens and executes valid active roots but keeps unsupported dormant ownership ineligible and publication refused', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const dynamic: NodeSchema = { ...schema, items: [{
-      kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
+    const dynamic: NodeSchema = { ...schema, body: [{
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'active', rows: [{
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
-      }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
+      }] }, { key: 'unsupported', rows: [{ kind: 'input', id: 'slot', optional: true,
         type: { kind: 'concrete', name: 'LOAD_3D' }, widget: { widgetType: 'LOAD_3D', options: {} },
-      }] }] },
+      }] }],
     }] }
     app = createWorkflowApp([dynamic])
     const ownerApp = app
@@ -1195,7 +1186,7 @@ describe('retained app dispatch', () => {
   it.each(['accepted', 'refused', 'direct', 'prepared'] as const)(
     'requires ownership when an opaque node default makes the census incomplete: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-      const opaque: NodeSchema = { ...schema, type: 'Opaque', items: [{
+      const opaque: NodeSchema = { ...schema, type: 'Opaque', body: [{
         kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'OPAQUE' },
         ext: { default: { handle: 'unrepresented dependency' } },
       }] }
@@ -1232,16 +1223,15 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it('admits fresh wire15 nodes as edits with incomplete ownership and a persistent warning', async () => {
+  it('admits fresh choice nodes as edits with incomplete ownership and a persistent warning', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const dynamic: NodeSchema = { ...schema, items: [{
-      kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
+    const dynamic: NodeSchema = { ...schema, body: [{
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'active', rows: [{
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
-      }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
+      }] }, { key: 'unsupported', rows: [{ kind: 'input', id: 'slot', optional: true,
         type: { kind: 'concrete', name: 'LOAD_3D' }, widget: { widgetType: 'LOAD_3D', options: {} },
-      }] }] },
+      }] }],
     }] }
     app = createWorkflowApp([dynamic])
     const tab = app.activeTab()!
@@ -1263,7 +1253,7 @@ describe('retained app dispatch', () => {
 
   it('admits changed compositor commands with the same document identity and saves the resolved snapshot', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const compositorSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'compositor', optional: false,
+    const compositorSchema: NodeSchema = { ...schema, body: [{ kind: 'input', id: 'compositor', optional: false,
       type: { kind: 'concrete', name: 'COMPOSITOR' }, widget: { widgetType: 'COMPOSITOR', options: {}, default: {} } }] }
     app = createWorkflowApp([compositorSchema])
     const image = { format: 'dinkster-image', formatVersion: 2, lineage: 'saved-compositor',
@@ -1852,7 +1842,7 @@ describe('retained app dispatch', () => {
 
   it('keeps numeric increments synchronous and individually undoable beside an asset', () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const numericSchema: NodeSchema = { ...schema, items: [{
+    const numericSchema: NodeSchema = { ...schema, body: [{
       kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'ASSET' },
       widget: { widgetType: 'ASSET', options: {} },
     }, {
@@ -1920,7 +1910,7 @@ describe('retained picker consumers', () => {
     vi.stubGlobal('fetch', async (url: string) => new Response('{}', {
       status: url.endsWith('/api/library/retention-clients') ? 404 : 503,
     }))
-    const unrelated: NodeSchema = { ...schema, type: 'Unrelated', items: [{ kind: 'input', id: 'mode',
+    const unrelated: NodeSchema = { ...schema, type: 'Unrelated', body: [{ kind: 'input', id: 'mode',
       optional: false, type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'COMBO', options: { options: ['first', 'second'] } },
     }] }
@@ -1969,7 +1959,7 @@ describe('retained picker consumers', () => {
       expect(reader.current()).toBe(false)
       expect(replacement.current()).toBe(true)
       const changed = freshRegistry()
-      changed.schemas.set(unrelated.type, { ...unrelated, items: unrelated.items.map((item) => item.kind === 'input'
+      changed.schemas.set(unrelated.type, { ...unrelated, body: unrelated.body.map((item) => item.kind === 'input'
         ? { ...item, widget: { widgetType: 'COMBO', options: { options: ['different'] } } } : item) })
       backend.registry.set(changed)
       expect(replacement.current()).toBe(false)
@@ -2089,41 +2079,6 @@ describe('retained workflow opens', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['missing', 'out-of-range', 'linked'] as const)('opens a %s output count for repair without certifying its roots', async (variant) => {
-    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const counted: NodeSchema = { ...schema, items: [...schema.items,
-      { kind: 'input', id: 'count', optional: false, type: { kind: 'concrete', name: 'INT' } },
-      { kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } },
-      { kind: 'output', id: 'outs', type: { kind: 'concrete', name: 'DATA' }, dynamic: {
-        kind: 'autogrow', materialization: 'wire15', count: { input: 'count', suffix: 'index' },
-        template: [{ kind: 'input', id: 'item', optional: false, type: { kind: 'concrete', name: 'DATA' } }],
-        naming: { kind: 'prefix', prefix: '', min: 1, max: 4 },
-      } },
-    ] }
-    const original = session().doc
-    const document: WorkflowDocument = { ...original, graphs: { g0: { ...original.graphs.g0!,
-      nodes: { n0: { ...original.graphs.g0!.nodes.n0!, values: {
-        files: [asset('a')], ...(variant === 'missing' ? {} : { count: variant === 'linked' ? 2 : 5 }),
-      } } },
-      links: variant === 'linked' ? { l0: { id: asLinkId('l0'),
-        from: { node: asNodeId('n0'), port: asPortId('count') },
-        to: { node: asNodeId('n0'), port: asPortId('count') },
-      } } : {},
-    } } }
-    app = createWorkflowApp([counted])
-    expect(await app.openDocument(document, 'Repair output count')).toEqual([])
-    const tab = app.activeTab()!
-    const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => counted, [], 'admission')
-    expect(roots).toMatchObject({ complete: false, digests: [asset('a').digest] })
-    expect(roots.refusal).toBeUndefined()
-    expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => counted).refusal)
-      .toBe('Workflow dynamic identities are invalid')
-    expect(await app.saveWorkflow(tab.id)).toBe(false)
-    expect(app.connection.retainAssets).toHaveBeenCalledWith(expect.anything(), {
-      revision: 0, complete: false, digests: [asset('a').digest],
-    })
-  })
-
   it.each(['accepted', 'edited', 'canceled'] as const)(
     'waits for the initial catalog before opening a workflow: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -2194,7 +2149,7 @@ describe('retained workflow opens', () => {
       if (scenario === 'refreshed-registry' || scenario === 'changed-schema' || scenario === 'changed-capabilities') {
         const registry = app.registry.get()!
         const schemas = new Map([...registry.schemas].map(([type, schema]) => [type, structuredClone(schema)]))
-        if (scenario === 'changed-schema') schemas.set(schema.type, { ...schema, items: [] })
+        if (scenario === 'changed-schema') schemas.set(schema.type, { ...schema, body: [] })
         app.registry.set({ ...registry, schemas, resolve: (type) => schemas.get(type),
           ...(scenario === 'changed-capabilities' ? { graphFeatures: ['typedLiteral'] } : {}) })
       }
@@ -2286,7 +2241,7 @@ describe('retained workflow opens', () => {
 
 describe('workflow candidate admission', () => {
   it('reuses ownership for existing static numeric literals but checks identities and contextual defaults', () => {
-    const numericSchema: NodeSchema = { ...schema, items: [
+    const numericSchema: NodeSchema = { ...schema, body: [
       { kind: 'input', id: 'scale', optional: false, type: { kind: 'concrete', name: 'FLOAT' },
         widget: { widgetType: 'FLOAT', options: {}, default: 1 } },
       { kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' },
@@ -2308,10 +2263,9 @@ describe('workflow candidate admission', () => {
     expect(workflowAssetRoots(numeric.document, history, () => numericSchema)).toEqual({ complete: true, digests: [asset('a').digest] })
     expect(workflowAssetRootsUnchanged(prepare('file', asset('b')), () => numericSchema)).toBe(false)
     expect(workflowAssetRootsUnchanged(prepare('file', 7), () => numericSchema)).toBe(false)
-    const contextual: NodeSchema = { ...numericSchema, items: [...numericSchema.items, {
-      kind: 'output', id: 'entries', type: { kind: 'concrete', name: 'IMAGE' },
-      dynamic: { kind: 'autogrow', count: { input: 'scale', suffix: 'index' }, template: [],
-        naming: { kind: 'prefix', prefix: 'entry', min: 0, max: 5 } },
+    const contextual: NodeSchema = { ...numericSchema, body: [...numericSchema.body, {
+      kind: 'group', id: 'entries', value: { kind: 'output', id: 'entry', type: { kind: 'concrete', name: 'IMAGE' } },
+      keys: { kind: 'numbered', prefix: 'entry', start: 0, pad: 0 }, grows: { count: 'scale' }, minMembers: 0, maxMembers: 5,
     }] }
     expect(workflowAssetRootsUnchanged(numeric, () => contextual)).toBe(false)
     expect(workflowAssetRootsUnchanged(numeric, () => undefined)).toBe(false)
@@ -2332,8 +2286,8 @@ describe('workflow candidate admission', () => {
   it('accepts parsed scalar schema metadata without treating it as asset storage', () => {
     const local = session()
     const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
-      Loader: { version: 3, idempotent: false, occupies: ['cpu'], ioBound: true, interface: [
-        { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      Loader: { version: 3, idempotent: false, occupies: ['cpu'], ioBound: true, body: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
       ] },
     } })
     expect(registry.resolve('Loader')).toBeDefined()
@@ -2350,10 +2304,10 @@ describe('workflow candidate admission', () => {
   it('retains effective parsed non-widget defaults and historical overrides', () => {
     const local = session()
     const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
-      Loader: { interface: [{ role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] },
-        forceInput: true, default: asset('b') }] },
+      Loader: { body: [{ kind: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] },
+        pinFirst: true, default: asset('b') }] },
     } })
-    expect(registry.resolve('Loader')?.items[0]).toMatchObject({ ext: { default: asset('b') } })
+    expect(registry.resolve('Loader')?.body[0]).toMatchObject({ ext: { default: asset('b') } })
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
       n0: { id: asNodeId('n0'), type: 'Loader', values: {} },
     } } } }
@@ -2371,7 +2325,7 @@ describe('workflow candidate admission', () => {
 
   it('retains region element lists using the occurrence contract', () => {
     const local = session()
-    const body: NodeSchema = { ...schema, items: [
+    const body: NodeSchema = { ...schema, body: [
       { kind: 'input', id: 'file', optional: false, type: assetType },
       { kind: 'output', id: 'out', type: assetType },
     ] }
@@ -2395,25 +2349,25 @@ describe('workflow candidate admission', () => {
     'censuses real retained widget declarations without guessing ownership: %s', (scenario) => {
       const local = session([])
       const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
-        Loader: { version: 1, idempotent: true, interface: [
-          { role: 'input', id: 'selections', required: true,
+        Loader: { version: 1, idempotent: true, body: [
+          { kind: 'input', id: 'selections', required: true,
             type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
             default: ['red', 'blue'], widget: { type: 'MULTI_COMBO', options: ['red', 'green', 'blue'] } },
-          { role: 'input', id: 'markdown', required: true, type: { kind: 'concrete', types: ['STRING'] },
+          { kind: 'input', id: 'markdown', required: true, type: { kind: 'concrete', types: ['STRING'] },
             default: '# Try Markdown', widget: { type: 'MARKDOWN' } },
-          { role: 'input', id: 'colors', required: true,
+          { kind: 'input', id: 'colors', required: true,
             type: { kind: 'list', element: { kind: 'concrete', types: [scenario === 'wrong-list-socket' ? 'ASSET' : 'STRING'] } },
             default: ['#ff6600', '#2255aa'], widget: { type: 'COLORS' } },
-          { role: 'input', id: 'button', required: true, type: { kind: 'concrete', types: ['STRING'] },
+          { kind: 'input', id: 'button', required: true, type: { kind: 'concrete', types: ['STRING'] },
             default: '', widget: { type: 'BUTTON', display_name: 'Open node help', command: 'node.help' } },
-          { role: 'input', id: 'items', required: true,
+          { kind: 'input', id: 'items', required: true,
             type: { kind: 'list', element: { kind: 'concrete', types: ['STRING'] } },
             default: ['first', 'second'], widget: { type: 'STRING', multiline: true } },
-          { role: 'input', id: 'target', required: true, type: { kind: 'concrete', types: ['SAVE_TARGET'] },
+          { kind: 'input', id: 'target', required: true, type: { kind: 'concrete', types: ['SAVE_TARGET'] },
             default: null, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
         ] },
       } })
-      expect(registry.resolve('Loader')?.items).toHaveLength(6)
+      expect(registry.resolve('Loader')?.body).toHaveLength(6)
       const values = scenario === 'default' ? {} : {
         selections: ['green'], markdown: '**Edited**', colors: ['#123456'], button: null,
         items: scenario === 'embedded-asset' ? [asset('c')] : ['third'],
@@ -2435,8 +2389,8 @@ describe('workflow candidate admission', () => {
       const local = session([])
       const audioAssetRef = { ...asset('a'), name: 'recording.webm', mediaType: 'audio/webm', virtualPath: 'imports/recording.webm' }
       const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
-        Recorder: { interface: [
-          { role: 'input', id: 'audio', type: { kind: 'concrete', types: [scenario === 'foreign-socket' ? 'FOREIGN' : 'AUDIO'] },
+        Recorder: { body: [
+          { kind: 'input', id: 'audio', type: { kind: 'concrete', types: [scenario === 'foreign-socket' ? 'FOREIGN' : 'AUDIO'] },
             widget: { type: 'AUDIO_RECORD' } },
         ] },
       } })
@@ -2470,7 +2424,7 @@ describe('workflow candidate admission', () => {
     { widgetType: 'VIDEO_EDIT', value: { trim: { start_time: 1, duration: 3 }, hidden: asset('e') }, complete: false, digests: [asset('e').digest] },
   ])('keeps $widgetType ownership closed for $value', ({ widgetType, value, complete, digests }) => {
     const local = session([])
-    const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'value', optional: true,
+    const candidate: NodeSchema = { ...schema, body: [{ kind: 'input', id: 'value', optional: true,
       type: { kind: 'concrete', name: widgetType }, widget: { widgetType, options: {} },
     }] }
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
@@ -2483,7 +2437,7 @@ describe('workflow candidate admission', () => {
 
   it.each(['NUMBER', 'opaque'])('checks numeric widget metadata without accepting unknown kinds: %s', (widgetType) => {
     const local = session()
-    const numeric: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'value', optional: false,
+    const numeric: NodeSchema = { ...schema, body: [{ kind: 'input', id: 'value', optional: false,
       type: { kind: 'concrete', name: 'FLOAT' }, widget: { widgetType, options: {}, default: 3.5 },
     }] }
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
@@ -2516,7 +2470,7 @@ describe('workflow candidate admission', () => {
     { name: 'null', value: null, valid: false },
   ])('classifies closed CURVE values without discarding opaque roots: $name', ({ value, valid }) => {
     const local = session()
-    const curveSchema: NodeSchema = { ...schema, items: [...schema.items, {
+    const curveSchema: NodeSchema = { ...schema, body: [...schema.body, {
       kind: 'input', id: 'curve', optional: false, type: { kind: 'concrete', name: 'CURVE' },
       widget: { widgetType: 'CURVE', options: {}, default: { points: [[0, 0], [1, 1]] } },
     }] }
@@ -2537,7 +2491,7 @@ describe('workflow candidate admission', () => {
       .map((scenario) => ({ socket, scenario }))))(
     'counts $socket-backed colors without inventing assets: $scenario', ({ socket, scenario }) => {
       const local = session()
-      const colorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+      const colorSchema: NodeSchema = { ...schema, body: [...schema.body, {
         kind: 'input', id: 'color', optional: false,
         type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'FLOAT' : socket },
         ...(scenario === 'socket' ? {} : { widget: {
@@ -2569,7 +2523,7 @@ describe('workflow candidate admission', () => {
     'retains compositor document identities without certifying unresolved resources: %s', (scenario) => {
       const local = session()
       const recipe = { version: 2, documentDigest: null, commands: [] }
-      const compositorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+      const compositorSchema: NodeSchema = { ...schema, body: [...schema.body, {
         kind: 'input', id: 'compositor', optional: false,
         type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'STRING' : 'COMPOSITOR' },
         widget: { widgetType: scenario === 'unknown-widget' ? 'opaque' : 'COMPOSITOR', options: {},
@@ -2600,7 +2554,7 @@ describe('workflow candidate admission', () => {
   it('keeps configured compositor document roots after clearing an undoable recipe', () => {
     const local = session()
     const empty = { version: 2, documentDigest: null, commands: [] }
-    const compositorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+    const compositorSchema: NodeSchema = { ...schema, body: [...schema.body, {
       kind: 'input', id: 'compositor', optional: false, type: { kind: 'concrete', name: 'COMPOSITOR' },
       widget: { widgetType: 'COMPOSITOR', options: {}, default: empty },
     }] }
@@ -2623,7 +2577,7 @@ describe('workflow candidate admission', () => {
   it.each(['default', 'selected', 'cleared', 'typed', 'unknown-widget', 'invalid-value', 'invalid-binding'] as const)(
     'counts mount selection without losing stored or historical assets: %s', (scenario) => {
       const local = session()
-      const mountSchema: NodeSchema = { ...schema, items: [...schema.items, {
+      const mountSchema: NodeSchema = { ...schema, body: [...schema.body, {
         kind: 'input', id: 'destination', optional: false,
         type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'FLOAT' : 'STRING' },
         widget: { widgetType: scenario === 'unknown-widget' ? 'opaque' : 'MOUNT', options: {}, default: null },
@@ -2650,38 +2604,32 @@ describe('workflow candidate admission', () => {
 
   const assetInput = (id: string, letter: string) => ({ kind: 'input' as const, id,
     type: assetType, optional: true, widget: { widgetType: 'ASSET' as const, options: {}, default: asset(letter) } })
-  const dynamicSchema: NodeSchema = { ...schema, items: [
-    { kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-      dynamic: { kind: 'dynamicCombo', options: [
-        { key: 'a', inputs: [assetInput('file', 'a')] },
-        { key: 'b', inputs: [assetInput('file', 'b')] },
-      ] } },
-    { kind: 'input', id: 'slot', type: assetType, optional: true,
-      dynamic: { kind: 'dynamicSlot', slotType: assetType, inputs: [assetInput('file', 'c')] } },
-    { kind: 'input', id: 'items', type: assetType, optional: true,
-      dynamic: { kind: 'autogrow', template: [assetInput('file', 'd')],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } },
+  const dynamicSchema: NodeSchema = { ...schema, body: [
+    { kind: 'choice', id: 'mode', required: false, shared: [], options: [
+      { key: 'a', rows: [assetInput('file', 'a')] },
+      { key: 'b', rows: [assetInput('other', 'b')] },
+    ] },
+    { kind: 'typeChoice', id: 'slot', type: assetType, required: false, rows: [assetInput('file', 'c')] },
+    { kind: 'group', id: 'items', value: assetInput('file', 'd'),
+      keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4 },
   ] }
 
   it.each(['known', 'ambiguous', 'typed', 'foreign-typed', 'invalid-choice', 'unknown-state'] as const)(
     'retains dormant slot dependents without guessing branch types: %s', (scenario) => {
-      const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'source', optional: false,
-        type: { kind: 'concrete', name: 'STRING' }, dynamic: {
-          kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' }, inputs: [],
-          variants: [
-            { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [assetInput('shared', 'a')] },
-            { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [
-              { ...assetInput('shared', 'b'), type: scenario === 'known' ? assetType : { kind: 'concrete', name: 'STRING' } },
-              assetInput('dormant', 'e'),
-            ] },
-          ],
-        },
+      const candidate: NodeSchema = { ...schema, body: [{ kind: 'typeChoice', id: 'source', required: true, rows: [],
+        variants: [
+          { key: 'text', type: { kind: 'concrete', name: 'STRING' }, rows: [assetInput('shared', 'a')] },
+          { key: 'integer', type: { kind: 'concrete', name: 'INT' }, rows: [
+            { ...assetInput('shared', 'b'), type: scenario === 'known' ? assetType : { kind: 'concrete', name: 'STRING' } },
+            assetInput('dormant', 'e'),
+          ] },
+        ],
       }] }
       const local = session()
       const value = scenario === 'typed' ? { $typed: { type: 'asset<DATA>', value: asset('c') } }
         : scenario === 'foreign-typed' ? { $typed: { type: 'INT', value: 5 } } : asset('c')
       const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
-        n0: { id: asNodeId('n0'), type: 'Loader', values: { source: 'selected', 'source.shared': value, 'source.dormant': asset('d') },
+        n0: { id: asNodeId('n0'), type: 'Loader', values: { 'source.shared': value, 'source.dormant': asset('d') },
           dynamic: { source: { selected: scenario === 'invalid-choice' ? 'gone' : 'text' },
             ...(scenario === 'unknown-state' ? { 'source.unknown': { selected: 'text' } } : {}) } },
       } } } }
@@ -2694,16 +2642,13 @@ describe('workflow candidate admission', () => {
     },
   )
 
-  it.each(['resolved', 'conflicting', 'typed'] as const)('censuses stored wire15 branch values: %s', (scenario) => {
+  it.each(['resolved', 'typed'] as const)('censuses stored values of a row shared by choice options: %s', (scenario) => {
     const local = session()
-    const candidate: NodeSchema = { ...schema, items: [{
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'a', inputs: [assetInput('file', 'a')] },
-        { key: 'b', inputs: [{ ...assetInput('file', 'b'),
-          type: scenario === 'resolved' ? assetType : { kind: 'concrete', name: 'STRING' } },
-        assetInput('other', 'e')] },
-      ] },
+    const candidate: NodeSchema = { ...schema, body: [{
+      kind: 'choice', id: 'mode', required: true, shared: [assetInput('file', 'a')], options: [
+        { key: 'a', rows: [{ kind: 'use', id: 'file' }] },
+        { key: 'b', rows: [{ kind: 'use', id: 'file', default: asset('b') }, assetInput('other', 'e')] },
+      ],
     }] }
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
       n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' } },
@@ -2711,25 +2656,37 @@ describe('workflow candidate admission', () => {
           'mode.other': asset('d') } },
     } } } }
     const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate)
-    expect(roots.digests).toEqual([asset('c').digest, asset('d').digest])
-    expect(roots.complete).toBe(scenario !== 'conflicting')
-    if (scenario !== 'conflicting') expect(roots.incompleteDiagnostics).toBeUndefined()
-    else expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({
-      code: 'workflow.asset.ambiguousInput', message: expect.stringContaining("Stored input 'mode.file'"),
-    })])
+    expect(roots).toEqual({ complete: true, digests: [asset('c').digest, asset('d').digest] })
+  })
+
+  it('admits a document whose required choice has nothing stored or whose group is below its minimum', () => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, body: [
+      { kind: 'input', id: 'kept', optional: true, type: assetType, widget: { widgetType: 'ASSET', options: {} } },
+      { kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] },
+      { kind: 'group', id: 'items', value: { ...assetInput('file', 'd'), optional: false },
+        keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 }, grows: 'link', minMembers: 2 },
+    ] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { kept: asset('c') } },
+    } } } }
+    const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate, [], 'admission')
+    expect(roots.refusal).toBeUndefined()
+    expect(roots.complete).toBe(false)
+    expect(roots.digests).toEqual([asset('c').digest])
+    expect(roots.incompleteDiagnostics).toContainEqual(expect.objectContaining({ code: 'prompt.missing_dynamic_choice' }))
   })
 
   it.each(['missing-node', 'missing-input', 'opaque', 'selection-name', 'list'] as const)(
     'names exactly unresolved stored inputs and preserves known roots: %s', (scenario) => {
       const local = session()
-      const candidate: NodeSchema = { ...schema, items: [{
-        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-          { key: 'a', inputs: [assetInput('file', 'a')] },
-          { key: 'b', inputs: [{ ...assetInput('future', 'b'),
+      const candidate: NodeSchema = { ...schema, body: [{
+        kind: 'choice', id: 'mode', required: true, shared: [], options: [
+          { key: 'a', rows: [assetInput('file', 'a')] },
+          { key: 'b', rows: [{ ...assetInput('future', 'b'),
             type: scenario === 'opaque' ? { kind: 'concrete', name: 'FUTURE' }
               : scenario === 'list' ? { kind: 'list', element: assetType } : assetType }] },
-        ] },
+        ],
       }] }
       const input = scenario === 'missing-input' ? 'mode.unknown' : 'mode.future'
       const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
@@ -2750,23 +2707,21 @@ describe('workflow candidate admission', () => {
     },
   )
 
-  it('censuses dormant wire15 branches in independent nested family member scopes', () => {
+  it('censuses dormant choice options in independent group member scopes', () => {
     const local = session()
-    const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'items', type: assetType, optional: true,
-      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 }, template: [{
-        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-          { key: 'a', inputs: [assetInput('file', 'a')] },
-          { key: 'b', inputs: [assetInput('file', 'b'), assetInput('other', 'e')] },
-        ] },
-      }] } }] }
+    const candidate: NodeSchema = { ...schema, body: [{ kind: 'group', id: 'items',
+      keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4, member: [{
+        kind: 'choice', id: 'mode', required: false, shared: [assetInput('file', 'a')], options: [
+          { key: 'a', rows: [{ kind: 'use', id: 'file' }] },
+          { key: 'b', rows: [{ kind: 'use', id: 'file', default: asset('b') }, assetInput('other', 'e')] },
+        ],
+      }] }] }
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
       n0: { id: asNodeId('n0'), type: 'Loader', values: {
-        'items.mode.file#m0': asset('c'), 'items.mode.other#m0': asset('d'),
-        'items.mode.file#m1': asset('f'),
-      }, dynamic: { items: { members: ['m0', 'm1'], memberState: {
-        m0: { 'items.mode': { selected: 'a' } }, m1: { 'items.mode': { selected: 'b' } },
-      } } } },
+        'items.item1.mode.file': asset('c'), 'items.item1.mode.other': asset('d'),
+        'items.item2.mode.file': asset('f'),
+      }, dynamic: { items: { members: ['item1', 'item2'] },
+        'items.item1.mode': { selected: 'a' }, 'items.item2.mode': { selected: 'b' } } },
     } } } }
     expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate))
       .toEqual({ complete: true, digests: ['c', 'd', 'e', 'f'].map((letter) => asset(letter).digest) })
@@ -2775,8 +2730,8 @@ describe('workflow candidate admission', () => {
   it('retains inactive branch, disconnected slot and family values but only effective defaults', () => {
     const local = session()
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
-      n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' }, items: { members: ['m0'] } },
-        values: { 'mode.[b].file': asset('e'), 'slot.file': asset('f'), 'items.file#m0': asset('c') } },
+      n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' }, items: { members: ['item1'] } },
+        values: { 'mode.other': asset('e'), 'slot.file': asset('f'), 'items.item1': asset('c') } },
     } } } }
     expect(workflowAssetRoots(document, local.historySnapshot(), () => dynamicSchema))
       .toEqual({ complete: true, digests: ['a', 'c', 'e', 'f'].map((letter) => asset(letter).digest) })
@@ -2797,8 +2752,8 @@ describe('workflow candidate admission', () => {
   it('rechecks shared dynamic nodes when historical connectivity activates slot defaults', () => {
     const local = session()
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
-      n0: { id: asNodeId('n0'), type: 'Loader', values: {} },
-      n1: { id: asNodeId('n1'), type: 'Loader', values: {} },
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {}, dynamic: { mode: { selected: 'a' } } },
+      n1: { id: asNodeId('n1'), type: 'Loader', values: {}, dynamic: { mode: { selected: 'a' } } },
     } } } }
     const history = { revision: 1, redo: [], undo: [{ forward: [], inverse: [{ op: 'add' as const,
       path: ['graphs', 'g0', 'links', 'l0'], value: { id: 'l0', from: { node: 'n1', port: 'out' }, to: { node: 'n0', port: 'slot' } },
@@ -2812,10 +2767,10 @@ describe('workflow candidate admission', () => {
     'requires supported types from every literal consumer: %s', (scenario) => {
       const local = session()
       const source = { id: asValueSourceId('literal'), value: scenario === 'scalar' ? 7 : [asset('e')] }
-      const loader: NodeSchema = scenario === 'scalar' ? { ...schema, items: [{
+      const loader: NodeSchema = scenario === 'scalar' ? { ...schema, body: [{
         kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'INT' },
       }] } : schema
-      const opaque: NodeSchema = { ...schema, type: 'Opaque', items: [{
+      const opaque: NodeSchema = { ...schema, type: 'Opaque', body: [{
         kind: 'input', id: 'files', optional: false, type: { kind: 'wildcard' },
       }] }
       const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!,
@@ -2877,7 +2832,7 @@ describe('workflow candidate admission', () => {
   })
 
   it('clears an asset widget while retaining its undoable asset', async () => {
-    const assetSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'files', optional: false,
+    const assetSchema: NodeSchema = { ...schema, body: [{ kind: 'input', id: 'files', optional: false,
       type: { kind: 'concrete', name: 'ASSET' }, widget: { widgetType: 'ASSET', options: {}, default: null },
     }] }
     const document = session().doc

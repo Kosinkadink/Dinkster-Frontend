@@ -10,22 +10,19 @@
  * ONE entry that matches both `in:image` and `in:latent`, because the
  * variable's allowed set is consulted - the "many forms of one node"
  * problem is solved by the type grammar, not by search pollution. The
- * same walk covers dynamic interfaces (autogrow templates, dynamicCombo
- * option sets, dynamicSlot dependents), so inputs that only exist in some
+ * same walk covers the whole body (group members, the rows of every
+ * option, type-choice variants), so inputs that only exist in some
  * elaborations still make the node findable.
  */
 
 import { atomNamesOf, typesCompatible } from './schema/type-relations.js'
 import { elaborateInterface, materializeFramesOf, type MaterializeFrame } from './schema/elaborate.js'
+import { defaultValuesOf, initialDynamicStateOf } from './schema/body.js'
 import {
-  defaultValuesOf,
-  initialDynamicStateOf,
-  inputsOf,
-  outputsOf,
+  allRowsOf,
   parseAssetTypeId,
   parseStreamTypeId,
   parseListTypeId,
-  type DynamicSpec,
   type InputSpec,
   type NodeSchema,
   type OutputSpec,
@@ -119,7 +116,6 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
       return t.allowedTypes === undefined || t.allowedTypes.some((a) => typeMatchesToken(a, token))
     case 'tuple':
       return t.elements.some((element) => typeMatchesToken(element, token))
-    case 'family_tuple':
     case 'tuple_element':
       return false
     case 'concrete':
@@ -145,42 +141,25 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
 // Schema port matching
 // ---------------------------------------------------------------------------
 
-function* dynamicInputTypes(spec: DynamicSpec): Generator<TypeExpr> {
-  switch (spec.kind) {
-    case 'autogrow':
-      for (const input of spec.template) yield* inputTypesOf(input)
-      return
-    case 'dynamicCombo':
-      for (const option of spec.options) for (const input of option.inputs) yield* inputTypesOf(input)
-      return
-    case 'dynamicSlot':
-      yield spec.slotType
-      for (const input of spec.inputs) yield* inputTypesOf(input)
-      return
+/** Every input or output type of the body at any depth, type-choice pins and their variants included. */
+function* bodyTypes(schema: NodeSchema, side: 'input' | 'output'): Generator<TypeExpr> {
+  for (const row of allRowsOf(schema.body)) {
+    if (row.kind === side && !(row.kind === 'input' && row.hidden === true)) yield (row as InputSpec | OutputSpec).type
+    if (side === 'input' && row.kind === 'typeChoice') {
+      if (row.type !== undefined) yield row.type
+      for (const variant of row.variants ?? []) yield variant.type
+    }
   }
 }
 
-function* inputTypesOf(input: InputSpec): Generator<TypeExpr> {
-  if (input.hidden === true) return
-  yield input.type
-  if (input.dynamic) yield* dynamicInputTypes(input.dynamic)
-}
-
-function* outputTypesOf(output: OutputSpec): Generator<TypeExpr> {
-  yield output.type
-  // A dynamic output family's template inputs remain inputs; only slot types
-  // surface here.
-  if (output.dynamic?.kind === 'dynamicSlot') yield output.dynamic.slotType
-}
-
-/** Every declared input type, including dynamic elaboration surfaces. */
+/** Every declared input type, including rows that exist only in some members or options. */
 export function* schemaInputTypes(schema: NodeSchema): Generator<TypeExpr> {
-  for (const input of inputsOf(schema)) yield* inputTypesOf(input)
+  yield* bodyTypes(schema, 'input')
 }
 
-/** Every declared output type, including dynamic elaboration surfaces. */
+/** Every declared output type, including rows that exist only in some members or options. */
 export function* schemaOutputTypes(schema: NodeSchema): Generator<TypeExpr> {
-  for (const output of outputsOf(schema)) yield* outputTypesOf(output)
+  yield* bodyTypes(schema, 'output')
 }
 
 /**
@@ -231,7 +210,6 @@ export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
   switch (type.kind) {
     case 'tuple':
       return type.elements.every(hasKnownLinkDropAnchorType)
-    case 'family_tuple':
     case 'tuple_element':
       return false
     case 'concrete':
@@ -279,18 +257,14 @@ export function schemaMatchesLinkDrop(
  * connections) - the same surface the canvas will render the moment the
  * node lands. Closed-domain targets win over intentionally generic targets;
  * interface order wins within each class, mirroring canvas priority.
- * Dynamic surfaces are first-class: an autogrow family's min-fill/ghost
- * member is a legal target, carrying the `dynamic.materialize` frames the
- * connect must batch with (hazard N3), and a DynamicCombo's DEFAULT branch
- * inputs are real addressable ports. Selector rows (branch switching goes
- * through dynamic.selectOption, never link.connect) and unknown-kind
- * placeholders are never targets. Undefined = insert unconnected.
+ * Dynamic surfaces are first-class: a group's offered member is a legal target, carrying the `dynamic.materialize` frames the
+ * connect must batch with (hazard N3), and a choice's start option
+ * inputs are real addressable ports. A choice's own dropdown (switching
+ * goes through dynamic.selectOption, never link.connect) is never a target. Undefined = insert unconnected.
  */
 export interface AutoConnectTarget {
-  /** link.connect endpoint port (family slot path for dynamic members). */
+  /** link.connect endpoint port: the row's flattened id. */
   readonly port: string
-  /** link.connect endpoint members, when the target is a family member. */
-  readonly members?: readonly string[]
   /** dynamic.materialize frames the connect must batch with, when the target is synthetic. */
   readonly materialize?: readonly MaterializeFrame[]
 }
@@ -312,7 +286,7 @@ export function autoConnectTarget(
     if (item.kind === 'section' || item.kind === 'growth') continue
     if ((item.kind === 'input') !== (seeking === 'in')) continue
     if (item.kind === 'input' && item.spec.hidden === true) continue
-    if (item.origin.kind === 'selector' || item.origin.kind === 'unknown') continue
+    if (item.origin.kind === 'selector') continue
     if (item.kind === 'output' && item.wireable === false) continue
     const ok =
       seeking === 'in'
@@ -322,7 +296,6 @@ export function autoConnectTarget(
     const frames = materializeFramesOf(items, item)
     const target: AutoConnectTarget = {
       port: item.address.port,
-      ...(item.address.members !== undefined ? { members: item.address.members } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
     }
     if (hasKnownLinkDropAnchorType(item.spec.type)) return target

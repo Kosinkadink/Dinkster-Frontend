@@ -84,17 +84,13 @@ type OccurrenceLinkEndpoint =
   | {
       readonly kind: "boundary"
       readonly occurrence: OccurrenceRef
-      readonly address: {
-        readonly port: PortId
-        readonly members?: readonly DynamicMemberId[]
-      }
+      readonly address: { readonly port: PortId }
       readonly route: readonly BoundaryRouteLeg[]
     }
 ```
 
-Route identity compares canonical boundary bindings. Unordered `slots` are
-sorted for comparison, ordered dynamic member paths stay ordered, and every
-exposure-changing binding field participates. A reordered fan-out list stays
+Route identity compares canonical boundary bindings; every exposure-changing
+binding field participates. A reordered fan-out list stays
 valid; rebinding, an ambiguous address, a removed materialized member, or a
 changed crossing fails closed. Bindings do not gain separate persisted ids.
 Document ingress reports `doc.occurrenceTopology.routeInvalid` when a saved

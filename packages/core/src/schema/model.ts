@@ -53,7 +53,6 @@ export type TypeExpr =
   | { readonly kind: 'asset'; readonly element: TypeExpr }
   | { readonly kind: 'stream'; readonly element: TypeExpr }
   | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
-  | { readonly kind: 'family_tuple'; readonly input: string }
   | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
 
 /** COMBO is a concrete type carrying a string, boolean, or finite number. */
@@ -305,17 +304,14 @@ export interface WidgetDescriptorSpec {
   readonly controllerInitial?: 'fixed' | 'increment' | 'decrement' | 'randomize'
   /** Declarative remote option source (combos and kin). */
   readonly remote?: RemoteSourceSpec
-  /** Ordered options derived from one occurrence-local input family. */
-  readonly optionSource?: InputFamilyOptionSourceSpec
   /** Ordered choices authored on an occurrence, independently of its selected value. */
   readonly editableOptions?: true
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
-}
-
-export interface InputFamilyOptionSourceSpec {
-  /** Family construct path. Values are stable member suffixes. */
-  readonly inputFamily: string
+  /** A custom or compositor widget's own part names -> the row ids it writes. */
+  readonly writes?: Readonly<Record<string, string>>
+  /** A custom or compositor widget's own part names -> the row ids it reads. */
+  readonly reads?: Readonly<Record<string, string>>
 }
 
 export interface TextCompletionItemSpec {
@@ -328,7 +324,6 @@ export interface TextCompletionItemSpec {
 
 export interface TextCompletionsSpec {
   readonly items: readonly TextCompletionItemSpec[]
-  readonly inputFamilies: readonly string[]
 }
 
 /** One stable schema-authored name for one widget presentation. */
@@ -431,174 +426,78 @@ export interface RemoteSourceSpec {
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic constructs
+// Formulas, lookups and steps as a declaration carries them
 // ---------------------------------------------------------------------------
 
-/**
- * Autogrow: a growable family of port GROUPS stamped from a template.
- *
- * `template` is the ordered list of slots each member stamps - most families
- * have exactly one slot, but a grouped template stamps ALL slots per member
- * and the member promotes/removes as a unit. Non-empty by construction
- * (parsers reject empty templates). Slot ids address stamped ports as
- * '<familyId>.<slotId>' regardless of slot count, so a schema growing from
- * one slot to a group never reshapes existing document addresses.
- */
-export interface AutogrowSpec {
-  readonly kind: 'autogrow'
-  readonly template: readonly InputSpec[]
-  /** Each stored member binds its own variables instead of sharing the family template. */
-  readonly independentTypes?: boolean
-  /** Only initial vocabulary positions require a required template leaf. */
-  readonly optionalAfterMinimum?: boolean
-  /** Wire-15 document-driven materialization (absent keeps wire-14 identity). */
-  readonly materialization?: 'wire15'
-  readonly naming:
-    | { readonly kind: 'prefix'; readonly prefix: string; readonly min?: number; readonly max?: number }
-    | { readonly kind: 'names'; readonly names: readonly string[]; readonly min?: number }
-    /**
-     * Wire-15 native free-suffix vocabulary. The decoder retains its bounds,
-     * but document materialization deliberately does not support this arm yet.
-     */
-    | { readonly kind: 'native'; readonly min?: number; readonly max?: number }
-  /**
-   * Display/api ordinal offset (derived boundary schemas only): a forwarded
-   * family whose definition holds N prefix members numbers instance members
-   * from N ('item2' when the definition owns item0/item1), and elaborated
-   * ancestry ordinals report the merged position. Additive across chained
-   * forwarding. NEVER identity - member ids stay the identity (hazard F3).
-   */
-  readonly ordinalOffset?: number
+/** A formula over the node's own rows (mirror/formula.ts evaluates it). */
+export interface FormulaSpec {
+  readonly formula: string
 }
-
-/** A top-level output family's fixed arity, read from an ordinary integer input. */
-export interface CountBoundOutputAutogrowSpec extends AutogrowSpec {
-  readonly count: {
-    readonly input: string
-    readonly suffix: 'index'
-    /**
-     * Derived boundary schemas retain a valid definition value as fallback.
-     * A fixed projection has no editable instance count input.
-     */
-    readonly boundaryProjection?: { readonly fallback?: number; readonly fixed?: true }
-  }
-}
-
-/** Effective count for a native or derived count-bound output family. */
-export const outputCountValueOf = (
-  spec: CountBoundOutputAutogrowSpec,
-  values: Readonly<Record<string, unknown>>,
-): unknown => spec.count.boundaryProjection?.fixed === true
-  ? spec.count.boundaryProjection.fallback
-  : Object.hasOwn(values, spec.count.input)
-    ? values[spec.count.input]
-    : spec.count.boundaryProjection?.fallback
 
 /**
- * Effective LOCAL member bounds of an autogrow family (before any
- * ordinalOffset). Single source for the prefix-naming default cap - derive
- * and elaboration must never disagree on capacity (hazard F4).
+ * A call to a pack's lookup function. The editor never calls one: a place
+ * whose value comes from a lookup shows its "while unknown" answer.
  */
-export const autogrowBounds = (spec: AutogrowSpec): { readonly min: number; readonly max: number } =>
-  spec.naming.kind === 'native'
-    // Wire-15 decode/model foundation only: until a document suffix source is
-    // pinned, existing consumers must not invent ordinal members for a native
-    // free-suffix family. The declaration remains intact on spec.naming.
-    ? { min: 0, max: 0 }
-    : spec.naming.kind === 'names'
-    ? { min: spec.naming.min ?? 0, max: spec.naming.names.length }
-    : { min: spec.naming.min ?? 0, max: spec.naming.max ?? 10 }
-
-/** DynamicCombo: selecting an option swaps in that option's input set. */
-export interface DynamicComboSpec {
-  readonly kind: 'dynamicCombo'
-  /** Wire-15 choices persist explicit state; absent legacy state displays the first option. */
-  readonly materialization?: 'wire15'
-  readonly options: readonly { readonly key: string; readonly inputs: readonly InputSpec[] }[]
-  /** Schema-side fallback used when occurrence state has no valid selection. */
-  readonly defaultOption?: string
+export interface LookupSpec {
+  /** Module path inside the pack and function name; opaque to the editor. */
+  readonly lookup: string
+  /** Field ids and formulas, by position. */
+  readonly args: readonly (string | FormulaSpec)[]
 }
 
-/** Join one schema item onto its persisted value/dynamic-state path. */
-export const joinValuePath = (prefix: string, item: string): string =>
-  prefix === '' ? item : `${prefix}.${item}`
+/** A literal, or a formula that works it out. */
+export type Formulated<T> = T | FormulaSpec
+/** A literal, a formula, or a lookup. */
+export type Looked<T> = T | FormulaSpec | LookupSpec
 
-/** Persisted value-path prefix for one DynamicCombo branch. */
-export const comboBranchValuePath = (construct: string, option: string): string =>
-  `${construct}.[${option}]`
+export const isFormulaSpec = (value: unknown): value is FormulaSpec =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) &&
+  typeof (value as { formula?: unknown }).formula === 'string' && Object.keys(value).length === 1
+
+export const isLookupSpec = (value: unknown): value is LookupSpec =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) &&
+  typeof (value as { lookup?: unknown }).lookup === 'string'
 
 /**
- * The one selection rule used by elaboration and boundary projection. Keeping
- * this here prevents derived subgraph selectors from choosing a branch that
- * differs from the definition they forward.
+ * One action step, kept as declared. Running steps is not built in the
+ * editor; a button that holds them is drawn and does nothing.
  */
-export const effectiveComboOption = (
-  spec: DynamicComboSpec,
-  state: { readonly selected?: string } | undefined,
-): string | undefined => {
-  const keys = spec.options.map((o) => o.key)
-  if (state?.selected !== undefined && keys.includes(state.selected)) return state.selected
-  if (spec.materialization === 'wire15') return keys[0]
-  return spec.defaultOption !== undefined && keys.includes(spec.defaultOption)
-    ? spec.defaultOption
-    : keys[0]
+export interface StepSpec {
+  readonly step: string
+  readonly [field: string]: unknown
 }
 
-export interface DynamicSlotVariant {
-  /**
-   * Schema-authored identity embedded verbatim in document value paths
-   * ('slot.[key].x') and in the graph wire's per-node slotVariants object.
-   * Keys never become wire id SEGMENTS (the settled contract, Dinkster c2ac572:
-   * dependents lower construct-local as 'slot.x'), so the grammar is the
-   * backend's construction-enforced [A-Za-z0-9_-]+ - dotless because the
-   * bracket path syntax and the choice wire both carry it verbatim.
-   */
-  readonly key: string
-  readonly type: TypeExpr
-  /**
-   * Per-variant nested inputs (each may carry its own widget - "per-type
-   * widget specs"). Two variants of one slot may reuse the same local name
-   * (mutually exclusive by construction), but under construct-local wire
-   * naming a variant local must not reuse a frontend-modeled SHARED
-   * dependent's id - elaboration skips such an input loudly.
-   */
-  readonly inputs: readonly InputSpec[]
-  /** Variant documentation (wire 'doc'; presentation only, signature-excluded). */
-  readonly tooltip?: string
+/** A validation rule: a formula that must be true, its message, and an optional fix. */
+export interface RuleSpec {
+  readonly check: FormulaSpec
+  readonly message: string
+  readonly fix: readonly StepSpec[]
 }
-
-/** DynamicSlot: connecting a typed slot reveals its dependent inputs. */
-export interface DynamicSlotSpec {
-  readonly kind: 'dynamicSlot'
-  /** Wire-15 slots materialize from stored values/links or explicit choices. */
-  readonly materialization?: 'wire15'
-  readonly slotType: TypeExpr
-  readonly inputs: readonly InputSpec[]
-  readonly variants?: readonly DynamicSlotVariant[]
-  /** Node-level MatchType variable bound by the selected closed-slot variant. */
-  readonly typeTemplateId?: string
-  // Deliberately no defaultVariant. Specialization is chosen by the connect
-  // gesture from the CONNECTED type; a schema fallback would contradict that
-  // contract and make an unresolved connection silently type-dependent.
-  readonly forceInput?: boolean
-}
-
-export type DynamicSpec = AutogrowSpec | DynamicComboSpec | DynamicSlotSpec
 
 // ---------------------------------------------------------------------------
-// Interface items (ordered)
+// The node body: an ordered tree of rows
 // ---------------------------------------------------------------------------
 
 interface PortSpecBase {
-  /** Schema port id - the key values/links use. Unique within the node. */
+  /**
+   * Row id, unique among the inputs (or outputs) of its scope. Elaborated
+   * specs carry the flattened id instead (`loras.2.strength`).
+   */
   readonly id: string
   readonly displayName?: string
+  /** A label the declaration works out by formula; `displayName` is then unset. */
+  readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
+  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
   readonly maskPolarity?: MaskPolarity
   readonly maskSemantic?: MaskSemantic
-  /** Presentation section this item belongs to (collapsible grouping). */
+  /**
+   * Set by elaboration, never declared: the flattened id of the innermost
+   * section that holds this row.
+   */
   readonly section?: string
   readonly ext?: Readonly<Record<string, unknown>>
 }
@@ -621,16 +520,13 @@ export type MaskSemantic = 'alpha' | 'selection' | 'other'
  */
 export type AbsentPolicy = 'skip' | 'accept' | 'fail' | 'omit'
 
+/** A pin, a field, or both. */
 export interface InputSpec extends PortSpecBase {
   readonly kind: 'input'
   readonly type: TypeExpr
   readonly optional: boolean
-  /** Presentation-only placement beside a sibling input; declaration order is unchanged. */
-  readonly adjacentTo?: string
   /** Derived boundary input forwarding an edit-time schema literal. */
   readonly outputSchemaSource?: true
-  /** Descriptor editor contract projected independently of boundary outputs. */
-  readonly outputDescriptors?: OutputDescriptorsSpec
   /** Declared absence policy; undefined = the required-ness default. */
   readonly onAbsent?: AbsentPolicy
   /** The execution accepts storage-backed values directly (wire 39); true or omitted. */
@@ -640,18 +536,23 @@ export interface InputSpec extends PortSpecBase {
   readonly acceptsList?: true
   /** Widget backing; when present the input has a value unless connected. */
   readonly widget?: WidgetSpec
-  /** Widget-backed input forced to render as a socket. */
+  /** A field shown as a pin until the user converts it (declared `pin_first`). */
   readonly forceInput?: boolean
-  /** Presentation-only omission of the incoming socket; values and output taps are unchanged. */
+  /** A field with no input pin (declared `pin=False`); values and output taps are unchanged. */
   readonly socketless?: boolean
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */
   readonly sourceFilename?: SourceFilenameSpec
-  readonly advanced?: boolean
-  /** Compatibility-only input retained for compile and serialization, but omitted from authoring surfaces. */
+  /** Stored and executed, never shown. */
   readonly hidden?: true
-  readonly dynamic?: DynamicSpec
+  /** Steps the host applies together with the user's own change of this field; kept as declared. */
+  readonly onEdit?: readonly StepSpec[]
+  /**
+   * Set by elaboration, never declared: the flattened id of the field drawn
+   * before this one on a line of several fields.
+   */
+  readonly adjacentTo?: string
 }
 
 export interface SourceFilenameSpec {
@@ -670,7 +571,7 @@ export interface OutputRepresents {
   readonly input: string
   /** Client-side conversion from the selected asset to the output. */
   readonly rendition: string
-  /** Required DynamicCombo selections for which the representation is sound. */
+  /** Required choice selections for which the representation is sound. */
   readonly applies?: Readonly<Record<string, readonly string[]>>
 }
 
@@ -685,31 +586,7 @@ export interface OutputKnownValue {
   readonly input: string
 }
 
-/** Ordered output schema stored as JSON in an ordinary string input. */
-export interface OutputDescriptorsSpec {
-  readonly input: string
-  readonly choices: readonly (Pick<OutputSpec, 'alphaPolicy' | 'maskPolarity' | 'maskSemantic'> & {
-    readonly id: string
-    readonly type: Extract<TypeExpr, { kind: 'concrete' }>
-    readonly displayName?: string
-    readonly optional?: boolean
-    readonly preview?: true
-    readonly doc?: string
-  })[]
-  readonly minEntries: number
-  readonly maxEntries: number
-  readonly fixedIds: boolean
-  readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
-  /** A direct boundary port selects one stable entry, never its position. */
-  readonly selectedId?: string
-  readonly boundaryProjection?: {
-    readonly fallback?: unknown
-    readonly fixed?: true
-    readonly assetFallback?: unknown
-    readonly assetFixed?: true
-  }
-}
-
+/** An output pin. Inside a group member or an option it exists only with it. */
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
   readonly type: TypeExpr
@@ -732,19 +609,228 @@ export interface OutputSpec extends PortSpecBase {
   readonly represents?: OutputRepresents
   /** Exact pre-execution value sourced from a typed primitive identity input. */
   readonly knownValue?: OutputKnownValue
-  readonly dynamic?: DynamicSpec | CountBoundOutputAutogrowSpec
-  readonly outputDescriptors?: OutputDescriptorsSpec
 }
 
-/** Pure-presentation constructs may appear in the ordered interface too. */
+/** A stored value with no pin and no field, written by an editor or an action. */
+export interface StateSpec {
+  readonly kind: 'state'
+  readonly id: string
+  readonly type: TypeExpr
+  readonly default?: unknown
+  /** False: kept with the workflow, never sent to a run, in no cache key. */
+  readonly partOfRun: boolean
+}
+
+/** A titled box that opens and closes. Layout only: it opens no scope. */
 export interface SectionSpec {
   readonly kind: 'section'
+  /** Unique among the sections of its scope; elaborated sections carry the flattened id. */
   readonly id: string
-  readonly displayName?: string
+  readonly displayName?: Formulated<string>
+  readonly tooltip?: Formulated<string>
+  readonly visible?: Formulated<boolean>
+  /** A section under a choice's option may place the choice's shared rows by `Use`. */
+  readonly rows: readonly OptionRow[]
   readonly collapsedByDefault?: boolean
+  /** False: the open box shows no name, only a small tab that closes it. */
+  readonly openName?: false
 }
 
-export type InterfaceItem = InputSpec | OutputSpec | SectionSpec
+/** Two to four fields, buttons or notes side by side. Layout only: it opens no scope. */
+export interface RowSpec {
+  readonly kind: 'row'
+  readonly rows: readonly (InputSpec | ButtonSpec | NoteSpec)[]
+}
+
+/**
+ * A widget with no value of its own, on a line of its own. Layout: it is not
+ * stored, run or drawn by the editor yet; its widget names the rows it writes
+ * and reads.
+ */
+export interface EditorSpec {
+  readonly kind: 'editor'
+  readonly id: string
+  readonly widget: WidgetSpec
+  readonly visible?: Formulated<boolean>
+}
+
+/** Read-only text, usually a formula. */
+export interface NoteSpec {
+  readonly kind: 'note'
+  readonly id: string
+  readonly text: Looked<string>
+  /** What the note shows while its formula is unknown. */
+  readonly unknown?: string
+  readonly visible?: Formulated<boolean>
+}
+
+/** Runs an action. The editor draws it and does not run its steps. */
+export interface ButtonSpec {
+  readonly kind: 'button'
+  readonly id: string
+  readonly label: string
+  readonly tooltip?: Formulated<string>
+  readonly visible?: Formulated<boolean>
+  readonly steps: readonly StepSpec[]
+  readonly enabled?: Formulated<boolean>
+  readonly disabledReason?: Formulated<string>
+  /** A lucide icon name from the engine's list. */
+  readonly icon?: string
+}
+
+/** How a group's members are named: the middle part of each flattened id. */
+export type GroupKeysSpec =
+  | { readonly kind: 'numbered'; readonly prefix: string; readonly start: number; readonly pad: number }
+  | { readonly kind: 'named'; readonly names: readonly string[] }
+
+/**
+ * How a group grows: when something is plugged into its spare member, when a
+ * field of the spare member is filled, from an add button, to match a count
+ * formula over stored values, or with a list-valued field (not flattened yet).
+ */
+export type GroupGrowsSpec =
+  | 'link'
+  | 'filled'
+  | 'button'
+  | { readonly count: string }
+  | { readonly followList: string }
+
+/** A box that repeats its member rows. */
+export interface GroupSpec {
+  readonly kind: 'group'
+  readonly id: string
+  readonly displayName?: Formulated<string>
+  readonly tooltip?: Formulated<string>
+  readonly visible?: Formulated<boolean>
+  /** A group of values: one input or output per member, flattened `<group>.<key>`. */
+  readonly value?: InputSpec | OutputSpec
+  /** A group of records: these rows per member, flattened `<group>.<key>.<row>`. */
+  readonly member?: readonly BodyRow[]
+  readonly keys: GroupKeysSpec
+  readonly grows: GroupGrowsSpec
+  readonly minMembers: number
+  readonly maxMembers?: number
+  /** A type variable used in a member's rows belongs to that member alone. */
+  readonly independentTypes?: true
+  /** A member row's own `required` holds for the first `minMembers` members only. */
+  readonly optionalAfterMinimum?: true
+  readonly reorderable?: true
+  readonly addLabel?: string
+  readonly memberLabel?: Formulated<string>
+  readonly openName?: false
+}
+
+/** One option of a choice: its key and the rows it holds. */
+export interface OptionSpec {
+  readonly key: string
+  readonly label?: string
+  readonly rows: readonly OptionRow[]
+}
+
+/** A shared row of a choice, placed under one option with that place's overrides. */
+export interface UseSpec {
+  readonly kind: 'use'
+  readonly id: string
+  readonly displayName?: string
+  readonly tooltip?: string
+  /** `null` removes the shared row's widget in this place. */
+  readonly widget?: WidgetSpec | null
+  readonly default?: unknown
+  readonly required?: boolean
+  /** For a shared choice: which of its option keys are offered here. */
+  readonly only?: readonly string[]
+  /** For a shared choice: overrides of rows inside it, by id. */
+  readonly inside?: readonly UseSpec[]
+}
+
+export type OptionRow = BodyRow | UseSpec
+
+/** A dropdown or a boolean that leads, and the rows each option holds. */
+export interface ChoiceSpec {
+  readonly kind: 'choice'
+  readonly id: string
+  readonly displayName?: Formulated<string>
+  readonly tooltip?: Formulated<string>
+  readonly visible?: Formulated<boolean>
+  readonly options: readonly OptionSpec[]
+  /** Rows more than one option uses, declared once and named by `UseSpec`. */
+  readonly shared: readonly BodyRow[]
+  /** In place of a dropdown: a formula over stored values and link state that gives the key. */
+  readonly leader?: string
+  /** The option a new node starts on. */
+  readonly default?: string
+  /** False: "none" may be chosen, and then no row exists. */
+  readonly required: boolean
+  readonly hidden?: true
+  readonly onEdit?: readonly StepSpec[]
+}
+
+/** One variant of a type choice: the type plugged in and the rows it reveals. */
+export interface VariantSpec {
+  readonly key: string
+  readonly type: TypeExpr
+  readonly rows: readonly BodyRow[]
+  readonly tooltip?: string
+}
+
+/** A choice led by the type plugged into its pin. */
+export interface TypeChoiceSpec {
+  readonly kind: 'typeChoice'
+  readonly id: string
+  readonly displayName?: Formulated<string>
+  readonly tooltip?: Formulated<string>
+  readonly visible?: Formulated<boolean>
+  /** Closed variants; absent for an open slot of `type`. */
+  readonly variants?: readonly VariantSpec[]
+  readonly type?: TypeExpr
+  /** Rows every variant has. */
+  readonly rows: readonly BodyRow[]
+  readonly required: boolean
+  /** Node-level type variable bound by the chosen variant. */
+  readonly typeVariable?: string
+}
+
+/** Rows listed by a stored description, stored under the row's own id. */
+export interface DescribedSpec {
+  readonly kind: 'described'
+  readonly id: string
+  readonly displayName?: Formulated<string>
+  readonly tooltip?: Formulated<string>
+  readonly visible?: Formulated<boolean>
+  /** The rows an entry may be; an entry names one by id. */
+  readonly kinds: readonly (InputSpec | OutputSpec)[]
+  readonly minEntries: number
+  readonly maxEntries: number
+  readonly fixedIds: boolean
+  readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
+}
+
+export type BodyRow =
+  | InputSpec
+  | OutputSpec
+  | StateSpec
+  | SectionSpec
+  | RowSpec
+  | NoteSpec
+  | EditorSpec
+  | ButtonSpec
+  | GroupSpec
+  | ChoiceSpec
+  | TypeChoiceSpec
+  | DescribedSpec
+
+/** The rows of one scope with the rows of its sections and lines in their place. */
+export function scopeRowsOf(rows: readonly OptionRow[]): readonly OptionRow[] {
+  const found: OptionRow[] = []
+  const visit = (items: readonly OptionRow[]): void => {
+    for (const row of items) {
+      if (row.kind === 'section' || row.kind === 'row') visit(row.rows)
+      else found.push(row)
+    }
+  }
+  visit(rows)
+  return found
+}
 
 // ---------------------------------------------------------------------------
 // NodeSchema
@@ -888,20 +974,6 @@ export type SelectorBranchDisplay = 'active' | 'inactive' | 'neutral'
 
 export type ExecutionArm = 'native' | 'comfyui'
 
-export type ConditionalWidgetValue = null | string | boolean | number
-
-export interface ConditionalWidgetCondition {
-  readonly input: string
-  readonly values: readonly ConditionalWidgetValue[]
-}
-
-export interface ConditionalWidgetGroup {
-  readonly input: string
-  readonly values: readonly ConditionalWidgetValue[]
-  readonly members: readonly string[]
-  readonly requires?: readonly ConditionalWidgetCondition[]
-}
-
 export type MirrorKind = 'expression' | 'glsl'
 
 export type MirrorPrecision = 'exact' | 'bounded'
@@ -977,8 +1049,18 @@ export interface NodeSchema {
   }
   readonly description?: string
   readonly source: SchemaSource
-  /** Ordered as declared. Inputs, outputs, sections - any order. */
-  readonly items: readonly InterfaceItem[]
+  /** The node body: ordered rows, some of them boxes holding more rows. */
+  readonly body: readonly BodyRow[]
+  /** Constants formulas may name. */
+  readonly tables?: Readonly<Record<string, unknown>>
+  /** Named formulas other formulas may use. */
+  readonly derived?: Readonly<Record<string, string>>
+  /** Rules about the node as a whole, shown on its title. */
+  readonly validate?: readonly RuleSpec[]
+  /** Text or a formula after the node's title. */
+  readonly titleSuffix?: Formulated<string>
+  /** Buttons in the node's menu; drawn and inert, as body buttons are. */
+  readonly menu?: readonly ButtonSpec[]
   /** Type authority for explicit occurrence-authored extra input names. Absent means closed. */
   readonly additionalInputs?: TypeExpr
   readonly isOutputNode: boolean
@@ -1019,17 +1101,10 @@ export interface NodeSchema {
   readonly searchAliases?: readonly string[]
   /** Frontend-only discoverability vocabulary (wire v8; never resolution or identity). */
   readonly searchTerms?: readonly string[]
-  /**
-   * Historical alias metadata retained from schema payloads. Native registry
-   * resolution ignores it and accepts only exact registered node IDs.
-   */
-  readonly aliases?: readonly string[]
   /** Hidden inputs the compiler must inject (V1 wire names preserved). */
   readonly hidden?: readonly string[]
   /** Optional server-owned document-time branch selector (schema wire 15). */
   readonly selector?: NodeSelectorSpec
-  /** Presentation-only visibility groups for top-level static widgets (wire 27). */
-  readonly widgetGroups?: readonly ConditionalWidgetGroup[]
   readonly ext?: Readonly<Record<string, unknown>>
 }
 
@@ -1075,28 +1150,45 @@ export const searchVisibilityOf = (s: NodeSchema): 'normal' | SearchVisibility =
 export const isDeprecated = (s: NodeSchema): boolean =>
   s.deprecation !== undefined || s.deprecated === true
 
-/** Convenience accessors (derive, don't store). */
+/** The node's own inputs and outputs: its top scope, through sections and lines. */
 export const inputsOf = (s: NodeSchema): readonly InputSpec[] =>
-  s.items.filter((i): i is InputSpec => i.kind === 'input')
+  scopeRowsOf(s.body).filter((row): row is InputSpec => row.kind === 'input')
 export const outputsOf = (s: NodeSchema): readonly OutputSpec[] =>
-  s.items.filter((i): i is OutputSpec => i.kind === 'output')
+  scopeRowsOf(s.body).filter((row): row is OutputSpec => row.kind === 'output')
 export const hasPreviewSurface = (s: NodeSchema): boolean =>
   s.emitsPreviews === true || outputsOf(s).some((output) => output.preview === true)
-export const outputCountInputsOf = (s: NodeSchema): readonly string[] =>
-  [...new Set(outputsOf(s).flatMap((output) =>
-    output.dynamic?.kind === 'autogrow' && 'count' in output.dynamic
-      ? output.dynamic.count.boundaryProjection?.fixed === true ? [] : [output.dynamic.count.input]
-      : []))]
 
-/** Inputs whose literal values determine the edit-time output interface. */
-export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] =>
-  [...new Set([...outputCountInputsOf(s), ...inputsOf(s).filter((input) => input.outputSchemaSource).map((input) => input.id), ...outputsOf(s).flatMap((output) => {
-    const spec = output.outputDescriptors
-    return spec === undefined ? [] : [
-      ...(spec.boundaryProjection?.fixed ? [] : [spec.input]),
-      ...(spec.probe === undefined || spec.boundaryProjection?.assetFixed ? [] : [spec.probe.input]),
-    ]
-  })])]
+/** Every row of the body at any depth, boxes before the rows they hold. */
+export function allRowsOf(rows: readonly OptionRow[]): readonly OptionRow[] {
+  const found: OptionRow[] = []
+  const visit = (items: readonly OptionRow[]): void => {
+    for (const row of items) {
+      found.push(row)
+      switch (row.kind) {
+        case 'section':
+        case 'row':
+          visit(row.rows)
+          break
+        case 'group':
+          visit(row.value !== undefined ? [row.value] : row.member ?? [])
+          break
+        case 'choice':
+          visit(row.shared)
+          for (const option of row.options) visit(option.rows)
+          break
+        case 'typeChoice':
+          visit(row.rows)
+          for (const variant of row.variants ?? []) visit(variant.rows)
+          break
+        case 'described':
+          visit(row.kinds)
+          break
+      }
+    }
+  }
+  visit(rows)
+  return found
+}
 
 /** An input whose concrete COMBO value is edited by a combo dropdown. */
 export const isComboWidgetInput = (spec: InputSpec): boolean =>
@@ -1110,70 +1202,4 @@ export const isImageAssetInput = (spec: InputSpec): boolean => {
   return spec.hidden !== true && isAssetWidgetInput(spec) &&
     (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>' ||
       (type === 'ASSET' && spec.widget?.kind === 'media/image'))
-}
-
-/**
- * Materialize keyed widget defaults for a FRESH node instance. Visible defaults
- * are copied into the document at creation so a later schema change never
- * silently reinterprets a saved workflow (reproducibility beats derivation
- * here). Hidden compatibility inputs and inputs without a declared default are
- * absent.
- */
-export const defaultValuesOf = (s: NodeSchema): Record<string, unknown> => {
-  const values: Record<string, unknown> = {}
-  for (const item of s.items) {
-    if (item.kind === 'input' && item.hidden !== true && item.dynamic?.kind !== 'dynamicCombo' &&
-        item.widget && item.widget.default !== undefined) {
-      values[item.id] = item.widget.default
-    }
-  }
-  return values
-}
-
-/**
- * Materialize required wire-15 family members and DynamicCombo selections for
- * a fresh node. Combo defaults do not participate; recurse only through the
- * active branch and members that exist at creation.
- */
-export const initialDynamicStateOf = (
-  s: NodeSchema,
-): Record<string, {
-  readonly selected?: string
-  readonly members?: readonly string[]
-  readonly seq?: number
-}> => {
-  const state: Record<string, {
-    readonly selected?: string
-    readonly members?: readonly string[]
-    readonly seq?: number
-  }> = {}
-  const visit = (items: readonly InputSpec[], prefix: string): void => {
-    for (const item of items) {
-      const dynamic = item.dynamic
-      const construct = joinValuePath(prefix, item.id)
-      if (dynamic?.kind === 'autogrow' && dynamic.materialization === 'wire15') {
-        const { min } = autogrowBounds(dynamic)
-        if (min === 0 || dynamic.naming.kind === 'native' ||
-          (dynamic.optionalAfterMinimum && dynamic.template[0]!.optional)) continue
-        const prefix = dynamic.naming.kind === 'prefix' ? dynamic.naming.prefix : ''
-        const members = dynamic.naming.kind === 'names'
-          ? dynamic.naming.names.slice(0, min)
-          : Array.from({ length: min }, (_, index) => dynamic.optionalAfterMinimum
-            ? `${prefix}${index + (dynamic.ordinalOffset ?? 0)}` : `m${index}`)
-        state[construct] = {
-          members,
-          ...(dynamic.naming.kind === 'prefix' ? { seq: min } : {}),
-        }
-        for (const member of members) visit(dynamic.template, joinValuePath(construct, member))
-        continue
-      }
-      if (dynamic?.kind !== 'dynamicCombo' || dynamic.materialization !== 'wire15') continue
-      const option = dynamic.options[0]
-      if (option === undefined) continue
-      state[construct] = { selected: option.key }
-      visit(option.inputs, construct)
-    }
-  }
-  visit(inputsOf(s), '')
-  return state
 }

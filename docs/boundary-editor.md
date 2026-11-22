@@ -46,14 +46,6 @@ acceptance clears the draft. Navigating away clears transient drafts and
 notices without cancelling a submitted command. Its later completion cannot
 clear a newer draft or report a refusal in another view.
 
-## Subgraph field values
-
-A subgraph node displays the value a run sends: a value set on the instance
-wins, otherwise a forwarded option field inherits the inner node's stored
-value. Scene construction derives this state when no occurrence view is
-supplied, including gallery and standalone canvas callers, without writing
-inherited values into the document.
-
 ## Canvas panel positions
 
 The Inputs and Outputs panels inside a subgraph keep their own saved positions.
@@ -65,18 +57,15 @@ paste or import. Opening an older document does not change it: the first command
 that edits a definition stores its previously drawn panel positions in that same
 undo step. Undo restores the edited items and the panels' original places.
 
-## Nested slot exposure
+## Groups and choices
 
-A forwarded family starts in **Tracks template** mode. New nested slots become
-exposed automatically. **Pin selection** records the current explicit slot
-set; checkboxes then expose a whole subtree, a narrowed subtree, or no part of
-that subtree. **Track all slots** removes the explicit set.
-
-The document remains authoritative. Slot edits use `boundary.setSlots` and
-`boundary.clearSlots`, remain one undo step, and never keep a second local
-selection. The panel refuses an empty pinned selection, reports invalid stored
-paths and derivation diagnostics inline, and names an unavailable schema
-catalog instead of hiding the exposure state.
+A boundary item forwards one inner input or output by its flattened id, such
+as `loras.lora0.strength` (see [Node body](node-body.md)). Forwarding a whole
+group, choice or type choice is refused: the item shows the
+`boundary.familyBind` diagnostic inline, and compilation reports the bound id
+as an unknown port (`compile.port.unknownInput` or
+`compile.port.unknownOutput`). Other boundary diagnostics, such as a
+row of an option that is not chosen, also appear inline on their item.
 
 ## Regions and frozen views
 

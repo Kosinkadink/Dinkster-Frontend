@@ -45,10 +45,10 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
   page.on('pageerror', (error) => errors.push(error.message))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'unbound-scene-test', schemaWire: 1 }, packs: {},
-    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
-      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'unbound-scene-test', schemaWire: 2 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
     ] } },
   } }))
   await page.goto('/')
@@ -94,10 +94,10 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
 nativeTest('draws, rebinds, and extracts an imported input boundary with mixed direct and reroute fanout', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 1 }, packs: {},
-    nodes: { Relay: { displayName: 'Relay', category: 'test', interface: [
-      { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
-      { role: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'junction-scene-test', schemaWire: 2 }, packs: {},
+    nodes: { Relay: { displayName: 'Relay', category: 'test', body: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      { kind: 'output', id: 'result', type: { kind: 'concrete', types: ['INT'] } },
     ] } },
   } }))
   await page.goto('/')
@@ -285,24 +285,24 @@ nativeTest.describe('native structural output boundaries', () => {
         json: {
           schemaVersion: 1,
           epoch: 1,
-          dinkster: { version: 'boundary-contract-fixture', schemaWire: 1 },
+          dinkster: { version: 'boundary-contract-fixture', schemaWire: 2 },
           nodes: {
             CLIPTextEncode: {
               outputNode: true,
-              interface: [
+              body: [
                 {
-                  role: 'input',
+                  kind: 'input',
                   id: 'text',
                   type: { kind: 'concrete', types: ['STRING'] },
                 },
                 {
-                  role: 'input',
+                  kind: 'input',
                   id: 'clip',
                   type: { kind: 'concrete', types: ['CLIP'] },
-                  optional: true,
+                  required: false,
                 },
                 {
-                  role: 'output',
+                  kind: 'output',
                   id: 'CONDITIONING',
                   type: { kind: 'concrete', types: ['CONDITIONING'] },
                 },

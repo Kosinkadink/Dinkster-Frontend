@@ -1,6 +1,6 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
-import { effectiveAbsentPolicy, effectiveWidgetDefault, formatWidgetValue, t as translate } from '@dinkster/core'
-import type { InputSpec, RegionContract, TypeExpr } from '@dinkster/core'
+import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, t as translate } from '@dinkster/core'
+import type { InputSpec, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr } from '@dinkster/core'
 
 export interface TooltipContent {
   readonly title?: string
@@ -148,6 +148,14 @@ const outputSummary = (region: RegionContract): string => {
       : `${id} gathered`).join('; ')}`
 }
 
+/** The row a flattened port id names on this node, as its elaborated interface shows it. */
+const portSpecOf = (schema: NodeSchema | undefined, node: NodeData, side: 'input' | 'output', port: string): InputSpec | OutputSpec | undefined => {
+  if (schema === undefined) return undefined
+  const item = elaborateInterface(schema, node).items.find((candidate) =>
+    candidate.kind === side && candidate.address.port === port)
+  return item?.kind === 'input' || item?.kind === 'output' ? item.spec : undefined
+}
+
 const absentPolicyLine = (input: InputSpec): string => {
   const policy = effectiveAbsentPolicy(input)
   const source = input.onAbsent === undefined
@@ -258,7 +266,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
   }
   if (t.kind === 'pin') {
     const schema = context.resolveSchema?.(t.hit.node.node.type)
-    const port = schema?.items.find((item: any) => item.kind === (t.hit.direction === 'in' ? 'input' : 'output') && item.id === t.hit.portId)
+    const port = portSpecOf(schema, t.hit.node.node, t.hit.direction === 'in' ? 'input' : 'output', t.hit.portId)
     const type = presentedType(defaultTokens, t.hit.type)
     const matchVariable: string | undefined = t.hit.pin.matchVariable
     const matchConstraint = t.hit.pin.matchConstraint as TypeExpr | undefined
@@ -304,7 +312,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ? values[row.valueKey]
       : effectiveWidgetDefault(row.spec)
     const schema = context.resolveSchema?.(t.hit.node.node.type)
-    const input = schema?.items.find((item: any) => item.kind === 'input' && item.id === row.inputId)
+    const input = portSpecOf(schema, t.hit.node.node, 'input', row.inputId)
     const detail = [
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
       ...(input?.tooltip ? [input.tooltip] : []),

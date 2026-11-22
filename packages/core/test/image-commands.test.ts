@@ -17,7 +17,7 @@ const schema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [{
+  body: [{
     kind: 'input',
     id: 'image',
     type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
@@ -102,7 +102,7 @@ const compositorSchema: NodeSchema = {
   category: 'test',
   source: 'v3',
   isOutputNode: true,
-  items: [{
+  body: [{
     kind: 'input',
     id: 'compositor',
     type: { kind: 'concrete', name: 'COMPOSITOR' },
