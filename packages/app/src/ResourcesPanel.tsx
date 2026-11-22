@@ -101,11 +101,18 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const configuredBudgets = () => (settings()?.settings['memory-budgets']?.value ?? {}) as Record<string, unknown>
   const otherBudgets = () => [...new Set([...Object.keys(configuredBudgets()), ...Object.keys(status()?.memoryGovernor ?? {})])].filter((device) => !sliderCards().includes(device))
   const budgetName = (device: string) => device === 'ram' ? message('resources.systemMemory') : device === 'disk' ? message('resources.disk') : device
-  const otherBudgetValue = (device: string) => {
+  const configuredBudgetValue = (device: string) => {
     const value = configuredBudgets()[device]
     const size = typeof value === 'number' ? value / 1_000_000_000 : undefined
-    return otherBudgetDraft()[device] ?? (size === undefined ? value === undefined ? '' : String(value) : `${Number.isInteger(size) ? size.toFixed(1) : size} GB`)
+    return size === undefined ? value === undefined ? '' : String(value) : `${Number.isInteger(size) ? size.toFixed(1) : size} GB`
   }
+  const otherBudgetValue = (device: string) => otherBudgetDraft()[device] ?? configuredBudgetValue(device)
+  const changeOtherBudget = (device: string, value: string) => setOtherBudgetDraft((current) => {
+    const next = { ...current }
+    if (value === configuredBudgetValue(device)) delete next[device]
+    else next[device] = value
+    return next
+  })
   const saveOtherBudgets = async () => {
     await act(async () => {
       const value = { ...configuredBudgets() }
@@ -217,8 +224,8 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
                 <strong>{message('resources.otherLimits')}</strong>
                 <p class="dinkster-description">{message('resources.exactLimitHelp')}</p>
                 <For each={otherBudgets()}>{(device) => <ProductField label={budgetName(device)}>{(attributes) => <div class="dinkster-stack">
-                  <ProductTextInput {...attributes} value={otherBudgetValue(device)} placeholder={message('runtimeSettings.memory.automatic')} disabled={pending() || stale()} onInput={(event) => setOtherBudgetDraft((current) => ({ ...current, [device]: event.currentTarget.value }))} />
-                  <ProductButton type="button" disabled={pending() || stale() || otherBudgetValue(device) === ''} onClick={() => setOtherBudgetDraft((current) => ({ ...current, [device]: '' }))}>{message('runtimeSettings.memory.automatic')}</ProductButton>
+                  <ProductTextInput {...attributes} value={otherBudgetValue(device)} placeholder={message('runtimeSettings.memory.automatic')} disabled={pending() || stale()} onInput={(event) => changeOtherBudget(device, event.currentTarget.value)} />
+                  <ProductButton type="button" disabled={pending() || stale() || otherBudgetValue(device) === ''} onClick={() => changeOtherBudget(device, '')}>{message('runtimeSettings.memory.automatic')}</ProductButton>
                 </div>}</ProductField>}</For>
                 <ProductButton type="submit" fill="solid" disabled={pending() || stale() || Object.keys(otherBudgetDraft()).length === 0}>{message('runtimeSettings.action.apply')}</ProductButton>
               </form>

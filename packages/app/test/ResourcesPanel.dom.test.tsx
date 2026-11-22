@@ -77,8 +77,14 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   expect(field('custom').value).toBe('0.123456789 GB')
   expect(root.querySelectorAll('[role="slider"]')).toHaveLength(1)
   const input = (name: string, value: string) => { const element = field(name); element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })) }
-  input('System memory', '1.75 GB'); input('custom', '7G'); input('vram:cuda:1', '987654321')
   const form = field('Disk').closest('form')!
+  const apply = form.querySelector<HTMLButtonElement>('button[type="submit"]')!
+  expect(apply.disabled).toBe(true)
+  input('System memory', '9.0 GB')
+  expect(apply.disabled).toBe(false)
+  input('System memory', '10.0 GB')
+  expect(apply.disabled).toBe(true)
+  input('System memory', '1.75 GB'); input('custom', '7G'); input('vram:cuda:1', '987654321')
   field('Disk').parentElement!.querySelector('button')!.click()
   form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
   expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 1.75e9, 'vram:cuda:1': 987654321, custom: '7G' })
