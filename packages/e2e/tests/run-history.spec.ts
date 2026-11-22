@@ -9,7 +9,7 @@
  *   without it while the sourceDocument asset bytes survive;
  * - a delete transport failure lands in Problems (history.deleteFailed)
  *   and the record stays;
- * - 'Clear all' arms to 'Confirm clear' and wipes the scope only on the
+ * - 'Clear finished' arms to 'Confirm clear' and wipes the scope only on the
  *   second click.
  *
  * The clear test wipes the ENTIRE local history scope of the target server
@@ -261,6 +261,8 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=100`)).json() as
     { records: { jobId: string }[] }
   expect(listing.records.some((r) => r.jobId === jobId)).toBe(false)
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(0)
 })
 
 test('a delete failure lands in Problems and keeps the record', async ({ page }) => {
@@ -278,6 +280,8 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   await remove.click()
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(1)
 })
 
 test('runs lingering through a backend switch can never clear the incoming backend', async ({ page }) => {
@@ -325,7 +329,7 @@ test('runs lingering through a backend switch can never clear the incoming backe
   // impatient clicks cannot route a wipe to the incoming backend.
   const clear = page.getByTestId('collection-source-action')
   await expect(clear).toBeDisabled()
-  await expect(clear).toHaveText('Clear all') // never armed
+  await expect(clear).toHaveText('Clear finished') // never armed
   await expect(entryFor(page, jobId)).toHaveCount(1)
   expect(clearCalls).toEqual([])
 
@@ -347,18 +351,23 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   await expect(assets.getByTestId('collection-empty')).toBeVisible()
   await openRuns(page)
   await expect(assets).toBeVisible()
-  await expect(page.getByTestId('collection-entry').first()).toBeVisible()
+  const runs = page.getByTestId('runs-panel')
+  await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
 
-  const clear = page.getByTestId('collection-source-action')
-  await expect(clear).toHaveText('Clear all')
+  const clear = runs.getByTestId('collection-source-action')
+  await expect(clear).toHaveText('Clear finished')
   await clear.click()
   // Armed, not executed: entries survive the first click.
   await expect(clear).toHaveText('Confirm clear')
-  await expect(page.getByTestId('collection-entry').first()).toBeVisible()
+  await expect(runs.getByTestId('runs-clear-confirmation')).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
 
   await clear.click()
-  await expect(page.getByTestId('runs-panel').getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
+  await expect(runs.getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }
   expect(listing.records).toHaveLength(0)
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await expect(runs.getByTestId('execution-row')).toHaveCount(0)
+  await expect(runs).toContainText('No runs for this workflow')
 })

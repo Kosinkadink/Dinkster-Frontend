@@ -217,8 +217,15 @@ test('Selection only follows canvas selection without changing the full problem 
 })
 
 test('the problem indicator is discoverable from every right-panel state and clears at zero', async ({ page }) => {
-  // The default active rail tab is Runs, so Problems starts INACTIVE;
-  // at the default rail width it is clipped into the all-tabs menu.
+  // Extra panels make clipping explicit rather than depending on core tab count.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    for (let index = 0; index < 3; index++) app.panels.register({
+      id: `attention-fixture-${index}`, title: `Additional panel ${index + 1}`,
+      placement: 'rail', allowedPlacements: ['rail'], order: index, when: () => true,
+      component: () => document.createElement('div'),
+    })
+  })
   const problemsTab = railTab(page, 'problems')
   const overflowButton = page.getByTestId('dock-zone-right').getByTestId('dock-zone-overflow-button')
   await expect(problemsTab).toHaveAttribute('aria-selected', 'false')

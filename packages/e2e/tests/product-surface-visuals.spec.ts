@@ -305,6 +305,13 @@ test('stored run outputs load only after selection and retain their original ide
   await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
   await page.getByTestId('runs-panel').getByTestId('collection-search').fill('absent run')
   await expect(empty).toHaveText('No matches.')
+  await page.getByTestId('runs-panel').getByTestId('collection-source-action').click()
+  const confirmation = page.getByTestId('runs-clear-confirmation')
+  await expect(confirmation).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-1440.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(confirmation).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-900.png'), animations: 'disabled' })
 })
 
 test('App view validation and remote failures keep editable controls', async ({ page }) => {

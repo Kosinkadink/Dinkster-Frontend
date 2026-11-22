@@ -1,5 +1,8 @@
 {
   "shell.panel.runs.title": "运行",
+  "runs.clear.action": "清除已结束的运行",
+  "runs.clear.confirm": "确认清除",
+  "runs.clear.confirmation": "移除此后端上所有工作流的每个已结束的运行。已保存的文件会保留。",
   "runs.scope": "运行范围",
   "runs.scope.workflow": "此工作流",
   "runs.scope.all": "所有工作流",

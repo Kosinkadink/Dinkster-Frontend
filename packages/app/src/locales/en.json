@@ -1,6 +1,9 @@
 {
   "shell.panel.runs.title": "Runs",
   "runs.scope": "Runs scope",
+  "runs.clear.action": "Clear finished",
+  "runs.clear.confirm": "Confirm clear",
+  "runs.clear.confirmation": "Removes every finished run on this backend, for all workflows. Saved files stay.",
   "runs.scope.workflow": "This workflow",
   "runs.scope.all": "All workflows",
   "runs.details": "Details",

@@ -2998,6 +2998,8 @@ export class AppState {
    * rebinding per backend). Same pattern as CanvasHost's docTick.
    */
   readonly backendsTick: Signal<number> = createSignal(0)
+  /** Confirmed-deleted history rows stay out of run lists without clearing canvas results. */
+  readonly hiddenHistoryExecutions: Signal<ReadonlySet<string>> = createSignal(new Set<string>())
 
   /**
    * Tabs currently joined to a shared session, keyed by tab id. Session-only
@@ -9340,6 +9342,21 @@ export class AppState {
     return true
   }
 
+  private async confirmRemovedHistoryExecutions(backend: Extract<Backend, { protocol: 'dinkster' }>, runId?: string): Promise<void> {
+    const candidates = this.executionList().filter((execution) => execution.ref.connection === backend.id &&
+      execution.status !== 'queued' && execution.status !== 'running' && execution.jobRef !== undefined &&
+      (runId === undefined || execution.jobRef === runId))
+    const removed = await Promise.all(candidates.map(async (execution) => {
+      try {
+        return await backend.connection.getHistoryRun(execution.jobRef!, LIBRARY_SCOPE) === undefined ? execution.key : undefined
+      } catch {
+        return undefined
+      }
+    }))
+    if (!this.ownerStillLive(backend)) return
+    this.hiddenHistoryExecutions.update((keys) => new Set([...keys, ...removed.filter((key) => key !== undefined)]))
+  }
+
   /**
    * Delete ONE durable run record (never asset bytes or library records,
    * by contract). False on miss - already gone elsewhere is not an error.
@@ -9352,7 +9369,6 @@ export class AppState {
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
         this.retireUnusedResultOwners()
-        this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
     } catch (e) {
@@ -9360,6 +9376,9 @@ export class AppState {
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return false
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend, runId)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -9375,13 +9394,15 @@ export class AppState {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
       this.retireUnusedResultOwners()
-      if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return 0
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 

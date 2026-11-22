@@ -39,7 +39,7 @@ import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js
 import { AppView } from './AppView.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
-import { ProductActionFooter } from './ProductForm.js'
+import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
@@ -1100,10 +1100,11 @@ export function App(props: {
   const selectedRun = (): ExecutionState | undefined =>
     selectedRunKey() === undefined ? activeExecution() : executions().get(selectedRunKey()!) ??
       (selectedStoredRun()?.key === selectedRunKey() ? selectedStoredRun() : undefined)
+  const hiddenHistoryExecutions = useSignal(app.hiddenHistoryExecutions)
   const workflowExecutions = (): readonly ExecutionState[] => {
     executions()
     const tab = activeTab()
-    return tab ? app.executionsForTab(tab) : []
+    return tab ? app.executionsForTab(tab).filter((execution) => !hiddenHistoryExecutions().has(execution.key)) : []
   }
 
   /** The live tab an execution's lineage belongs to, if it is open. */
@@ -1485,6 +1486,9 @@ export function App(props: {
           { id: 'all', label: message('runs.scope.all'), value: 'all' },
         ]} onSelect={(option) => setRunScope(option.value)} />
       <Show when={runScope() === 'workflow'} fallback={<>
+        <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
+          <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
+        </Show>
         <Show when={activeBackend().protocol === 'dinkster'}>
           <div role="list" aria-label={message('runs.pending')}>
             <RunList runs={pendingRuns()} />
@@ -1496,7 +1500,7 @@ export function App(props: {
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected, actions) => <StoredRun entry={entry} selected={selected} actions={actions} />}
           onAction={libraryEntryAction}
-          sourceActions={[{ sourceId: 'runs', id: 'clear', label: clearArmed() ? 'Confirm clear' : 'Clear all' }]}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
