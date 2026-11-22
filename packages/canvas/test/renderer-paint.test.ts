@@ -1759,6 +1759,19 @@ describe('node chrome paint on the live renderer', () => {
       expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], '2/3'))).toBe(true)
       expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
     }
+    // A single executed output loading its picture keeps its panel too, so
+    // its pager and an open output viewer stay; a bare loading preview folds.
+    const projected = (preview: NodePreview) => {
+      const { ctx } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setScene(scene)
+      renderer.setNodePreviews({ [node.id]: preview })
+      const layout = nodeOf(renderer.getScene(), node.id).layout
+      renderer.dispose()
+      return layout
+    }
+    expect(projected({ status: 'loading', count: 1, index: 0 }).preview?.compact).not.toBe(true)
+    expect(projected({ status: 'loading' }).preview?.compact).toBe(true)
     const page = paintWith(scene, (renderer) => renderer.setNodePreviews({
       [node.id]: { image: {} as CanvasImageSource, width: 320, height: 240, count: 3, index: 1 },
     }))
