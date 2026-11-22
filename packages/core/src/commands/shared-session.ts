@@ -104,6 +104,7 @@ import {
  */
 const sessionPatchCommand: CommandDefinition = {
   id: 'session.patch',
+  replaysHistory: true,
   run(_doc, params, tx) {
     const ops = (params as { ops?: unknown })?.ops
     if (!Array.isArray(ops)) throw new Error('session.patch: params.ops must be an array')

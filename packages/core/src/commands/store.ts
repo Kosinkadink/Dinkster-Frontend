@@ -545,7 +545,7 @@ export class DocumentStore implements DocumentStoreContract {
     let commandDiags: readonly Diagnostic[]
     try {
       commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, this.executionContext())
-      if (!hasErrors(commandDiags) && tx.forward.length > 0 && this.boundaryPositionsFor) {
+      if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.boundaryPositionsFor) {
         const changedGraphs = new Set(Object.keys(tx.current.graphs).filter((id) =>
           tx.current.graphs[id] !== this.doc.graphs[id] ||
           tx.current.view.graphs[id] !== this.doc.view.graphs[id]))
