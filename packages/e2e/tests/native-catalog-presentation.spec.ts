@@ -30,7 +30,7 @@ test.beforeEach(async ({ page, request }) => {
   const sameOrigin = await request.get('/api/nodes')
   expect(sameOrigin.ok()).toBe(true)
   const payload = await sameOrigin.json() as { dinkster?: { schemaWire?: number }; nodes?: Record<string, unknown> }
-  expect(payload.dinkster?.schemaWire).toBe(1)
+  expect(payload.dinkster?.schemaWire).toBe(2)
   expect(payload.nodes?.['dinkster.utilities.preview_any']).toBeDefined()
   expect(payload.nodes?.['dinkster.image.save_image']).toBeDefined()
 

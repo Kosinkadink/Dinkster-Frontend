@@ -29,16 +29,16 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'pack-custom-widget-e2e', schemaWire: 1 },
+    dinkster: { version: 'pack-custom-widget-e2e', schemaWire: 2 },
     packs: { isopack: { displayName: 'Isolated Pack' } },
     nodes: {
       'iso.blob_out': {
-        schemaVersion: 1,
+        schemaVersion: 2,
         displayName: 'Blob Out',
         category: 'test',
         pack: 'isopack',
-        interface: [{
-          role: 'input', id: 'size', type: { kind: 'concrete', types: ['INT'] },
+        body: [{
+          kind: 'input', id: 'size', type: { kind: 'concrete', types: ['INT'] },
           required: false, default: 8,
           widget: { type: 'isopack.size', min: 1, max: 12, unit: 'bytes' },
         }],

@@ -37,9 +37,9 @@ for (const accepted of [true, false]) {
       await page.waitForFunction(() =>
         window.__dinksterTest?.app.backends.get()[0]?.connection.status.get() === 'connected')
       return route.fulfill({ json: {
-        schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
-        nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
-          { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
+        schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 2 },
+        nodes: { Recorder: { schemaVersion: 2, displayName: 'Audio recording', body: [
+          { kind: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
         ] } },
       } })
     })
@@ -121,9 +121,9 @@ for (const accepted of [true, false]) {
     const gate = new Promise<void>((resolve) => { release = resolve })
     await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'picker-ownership', schemaWire: 1 },
-      nodes: { Picker: { schemaVersion: 1, displayName: 'Asset picker', interface: [
-        { role: 'input', id: 'source', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/vae' } },
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'picker-ownership', schemaWire: 2 },
+      nodes: { Picker: { schemaVersion: 2, displayName: 'Asset picker', body: [
+        { kind: 'input', id: 'source', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/vae' } },
       ] } },
     } }))
     await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [{ id: 'vae', mode: 'read', state: 'ready', kind: 'model/vae' }] } }))
@@ -186,9 +186,9 @@ test('native source choices preserve names, cancel, unavailable values and backe
   const queries: string[] = []
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'source-choice-contract', schemaWire: 1 },
-    nodes: { SourceChoice: { schemaVersion: 1, displayName: 'Source choice', interface: [
-      { role: 'input', id: 'source', type: { kind: 'concrete', types: ['COMBO'] }, default: 'old/source', widget: { type: 'ASSET', accept: [], kind: 'directory/dataset', selection: true } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'source-choice-contract', schemaWire: 2 },
+    nodes: { SourceChoice: { schemaVersion: 2, displayName: 'Source choice', body: [
+      { kind: 'input', id: 'source', type: { kind: 'concrete', types: ['COMBO'] }, default: 'old/source', widget: { type: 'ASSET', accept: [], kind: 'directory/dataset', selection: true } },
     ] } },
   } }))
   await page.route('/api/assets/selections*', (route) => {
@@ -262,9 +262,9 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
   let staleFinished = false
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'vae-source-contract', schemaWire: 1 },
-    nodes: { VaeSource: { schemaVersion: 1, displayName: 'VAE source', interface: [
-      { role: 'input', id: 'source', type: { kind: 'union', types: ['COMBO', 'ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/vae', selection: true } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'vae-source-contract', schemaWire: 2 },
+    nodes: { VaeSource: { schemaVersion: 2, displayName: 'VAE source', body: [
+      { kind: 'input', id: 'source', type: { kind: 'union', types: ['COMBO', 'ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/vae', selection: true } },
     ] } },
   } }))
   await page.route('/api/assets/selections*', async (route) => {

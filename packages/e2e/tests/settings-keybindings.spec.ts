@@ -87,7 +87,7 @@ test('a changed setting persists through reload', async ({ page }) => {
 
 test('frame-rate diagnostics default off and persist with an optional status readout', async ({ page }, info) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 1 }, packs: {}, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})

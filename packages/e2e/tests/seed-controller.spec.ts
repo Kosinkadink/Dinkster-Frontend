@@ -65,7 +65,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
     await page.route('**/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
       ? route.fallback() : route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
@@ -89,7 +89,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
     const node = test.renderer!.getScene().nodes.find((item: any) => item.id === 'n0')!
     const registry = test.app.registry.get()!
     const original = registry.resolve(node.node.type)!
-    test.app.registerSchemas([{ ...original, items: original.items.map((item: any) =>
+    test.app.registerSchemas([{ ...original, body: original.body.map((item: any) =>
       item.kind === 'input' && item.id === 'width' && item.widget
         ? { ...item, widget: { ...item.widget, controller: 'after_generate' } }
         : item,
@@ -129,7 +129,7 @@ documentTest('20 rapid INT increments commit exact declared steps and undo indiv
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT', options: { min: 0, max: Number.MAX_SAFE_INTEGER, step: 3 }, default: 100,
@@ -179,7 +179,7 @@ documentTest('completed runs advance promoted controller values on each subgraph
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'PromotedControllerE2E', displayName: 'Promoted Controller', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         {
           kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: {
@@ -255,7 +255,7 @@ documentTest('promoted fan-out advancement follows primary binding order', {
   await page.evaluate(async () => {
     const controlled = (type: string, name: string) => ({
       type, displayName: name, category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         {
           kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: {
@@ -356,7 +356,7 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RefreshComboE2E', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO', options: {}, default: 'alpha', controller: 'after_refresh',

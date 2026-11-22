@@ -8,7 +8,7 @@ interface RegistryView {
   readonly hash: string
   readonly resolve: (type: string) => {
     readonly displayName: string
-    readonly items: readonly {
+    readonly body: readonly {
       readonly kind: string
       readonly widget?: { readonly options: Readonly<Record<string, unknown>> }
     }[]
@@ -67,7 +67,7 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'wire44-proof', schemaWire: 1 },
+      dinkster: { version: 'wire44-proof', schemaWire: 2 },
       packs: {
         proof: {
           displayName: 'RAW proof pack',
@@ -77,19 +77,19 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
       },
       nodes: {
         'proof.localized': {
-          schemaVersion: 1,
+          schemaVersion: 2,
           displayName: 'RAW untranslated node',
           description: 'RAW untranslated description',
           category: 'proof',
           pack: 'proof',
-          interface: [
+          body: [
             {
-              role: 'input', id: 'color', displayName: 'RAW color', required: true,
+              kind: 'input', id: 'color', label: 'RAW color', required: true,
               type: { kind: 'concrete', types: ['COMBO'] },
               widget: { type: 'COMBO', options: ['red', 'blue'] },
             },
             {
-              role: 'output', id: 'image', displayName: 'RAW image',
+              kind: 'output', id: 'image', label: 'RAW image',
               type: { kind: 'concrete', types: ['IMAGE'] },
             },
           ],
@@ -137,7 +137,7 @@ test('wire 44 pack presentation updates live with exact fallback and no schema r
   const registryFacts = await page.evaluate(() => {
     const registry = window.__dinksterTest!.app.backends.get()[0]!.registry.get() as unknown as RegistryView
     const node = registry.resolve('proof.localized')!
-    const input = node.items.find((item) => item.kind === 'input')
+    const input = node.body.find((item) => item.kind === 'input')
     return {
       hash: registry.hash,
       options: input?.kind === 'input' ? input.widget?.options['options'] : undefined,

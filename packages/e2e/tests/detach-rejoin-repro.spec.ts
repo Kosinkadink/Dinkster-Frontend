@@ -8,8 +8,8 @@ import {
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'window-test', schemaWire: 1 },
-  nodes: { TestNode: { displayName: 'Test node', category: 'test', interface: [] } },
+  dinkster: { version: 'window-test', schemaWire: 2 },
+  nodes: { TestNode: { displayName: 'Test node', category: 'test', body: [] } },
 }
 
 test.beforeEach(async ({ context }) => {
@@ -32,7 +32,7 @@ async function ready(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [],
+        body: [],
       },
     ]),
   )

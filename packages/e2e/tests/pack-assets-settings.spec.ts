@@ -49,7 +49,7 @@ test('declared pack settings are editable through the native connection', async 
       json: {
         schemaVersion: 1,
         epoch: 1,
-        dinkster: { version: 'pack-assets-settings-e2e', schemaWire: 1 },
+        dinkster: { version: 'pack-assets-settings-e2e', schemaWire: 2 },
         packs: {
           'render.pack': { displayName: 'Render Pack', settings: true },
         },

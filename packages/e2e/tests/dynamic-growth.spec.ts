@@ -1,15 +1,15 @@
 /**
- * Browser regression for the nested-only Autogrow growth affordance,
- * driven through the PRODUCTION CanvasHost with real mouse input.
+ * Browser regression for the growth row of a group whose member holds only
+ * nested groups, driven through the PRODUCTION CanvasHost with real mouse
+ * input.
  *
- * A fresh node whose Autogrow template contains only min-0 nested
- * Autogrows emits no ghost pins (the single-ghost rule suppresses the
- * inner ghost tree beneath the outer ghost), so the elaborator emits a
- * clickable growth row instead. These tests prove the full production
- * path: scene row -> real hit test -> interaction gesture ->
- * dynamic.materialize dispatch -> rerender -> undo, at BOTH nesting
- * levels (outer growth on a fresh node, inner growth after the outer
- * member persists).
+ * An offered member of such a group shows no pin or field (groups inside a
+ * member the document does not store offer nothing), so the elaborator
+ * emits a clickable growth row instead. These tests prove the full
+ * production path: scene row -> real hit test -> interaction gesture ->
+ * dynamic.materialize dispatch -> rerender -> undo, at BOTH nesting levels
+ * (outer growth on a fresh node, inner growth after the outer member
+ * persists).
  */
 import { expect, test, type Page } from './fixtures.js'
 
@@ -25,7 +25,7 @@ const growthRows = (page: Page) =>
       .map((r) => ({
         construct: r.construct!,
         label: r.label!,
-        frames: r.frames!.map((f) => ({ construct: f.construct, members: [...f.members] })),
+        frames: r.frames!.map((f) => ({ construct: f.construct, members: [...f.members], seq: (f as { readonly seq?: number }).seq })),
       }))
   })
 
@@ -54,9 +54,10 @@ async function growthRowPoint(page: Page, construct: string): Promise<{ x: numbe
 async function openGrowthWorkflow(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const IMAGE = { kind: 'concrete', name: 'IMAGE' }
-    // Three-level nested-only Autogrow: items > sub > leaf, every level
-    // min-0 with no static slot until the innermost template ('s'). A fresh
-    // node therefore renders NO pins at all - only the outer growth row.
+    // Three nested groups: items > sub > leaf, every level min-0 and only
+    // the innermost one holding an input ('leaf' members are inputs). A
+    // fresh node therefore renders NO pins at all - only the outer growth
+    // row.
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'GrowthNestTest',
@@ -64,41 +65,35 @@ async function openGrowthWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [
+        body: [
           {
-            kind: 'input',
+            kind: 'group',
             id: 'items',
-            type: IMAGE,
-            optional: true,
-            dynamic: {
-              kind: 'autogrow',
-              template: [
-                {
-                  kind: 'input',
-                  id: 'sub',
-                  type: IMAGE,
-                  optional: true,
-                  dynamic: {
-                    kind: 'autogrow',
-                    template: [
-                      {
-                        kind: 'input',
-                        id: 'leaf',
-                        type: IMAGE,
-                        optional: true,
-                        dynamic: {
-                          kind: 'autogrow',
-                          template: [{ kind: 'input', id: 's', type: IMAGE, optional: true }],
-                          naming: { kind: 'prefix', prefix: 'leaf', min: 0, max: 3 },
-                        },
-                      },
-                    ],
-                    naming: { kind: 'prefix', prefix: 'sub', min: 0, max: 3 },
+            keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+            grows: 'link',
+            minMembers: 0,
+            maxMembers: 3,
+            member: [
+              {
+                kind: 'group',
+                id: 'sub',
+                keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 },
+                grows: 'link',
+                minMembers: 0,
+                maxMembers: 3,
+                member: [
+                  {
+                    kind: 'group',
+                    id: 'leaf',
+                    keys: { kind: 'numbered', prefix: 'leaf', start: 0, pad: 0 },
+                    grows: 'link',
+                    minMembers: 0,
+                    maxMembers: 3,
+                    value: { kind: 'input', id: 's', type: IMAGE, optional: true },
                   },
-                },
-              ],
-              naming: { kind: 'prefix', prefix: 'item', min: 0, max: 3 },
-            },
+                ],
+              },
+            ],
           },
           { kind: 'output', id: 'out', type: IMAGE },
         ],
@@ -127,41 +122,39 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('clicking the growth row materializes the member through production hit + dispatch; undo restores', async ({ page }) => {
+  expect(await growthRows(page)).toEqual([
+    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['item0'], seq: 1 }] },
+  ])
   const point = await growthRowPoint(page, 'items')
   await page.mouse.click(point.x, point.y)
 
   // The outer member persisted through the REAL interaction path.
   let doc = await activeDoc(page)
   let dyn = doc.graphs.g0!.nodes.p!.dynamic
-  expect(dyn?.items?.members).toEqual(['m0'])
+  expect(dyn?.items).toEqual({ members: ['item0'], seq: 1 })
 
-  // Rerender: the outer offer moved to m1 and the persisted member's inner
-  // nested-only family now offers ITS growth with cumulative frames.
+  // Rerender: the stored member's inner group offers ITS growth. The outer
+  // group offers no spare member: a link-grown group offers one only once
+  // every stored member is in use, and item0 holds no value or wire yet.
   expect(await growthRows(page)).toEqual([
     {
-      construct: 'items.sub',
-      label: 'item0.sub',
-      frames: [
-        { construct: 'items', members: ['m0'] },
-        { construct: 'items.sub', members: ['m0'] },
-      ],
+      construct: 'items.item0.sub',
+      label: 'sub',
+      frames: [{ construct: 'items.item0.sub', members: ['sub0'], seq: 1 }],
     },
-    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['m1'] }] },
   ])
-  // Still no pins: sub's template is itself nested-only, and its ghost tree
-  // is suppressed beneath the outer trailing ghost.
+  // Still no pins: the offered sub member's leaf group offers nothing.
   expect(await inputPins(page)).toEqual([])
 
   // One undo step reverts the materialization and restores the fresh offer.
-  // Member ids are never recycled (CO3: undo keeps the seq high-water mark,
-  // core store.test.ts/dynamic-commands.test.ts), so the re-offered ghost
-  // is m1 - the LABEL stays positional ('items'), so users see no change.
+  // Member keys are never reused (undo keeps the seq high-water mark, core
+  // dynamic-commands.test.ts), so the re-offered member is item1.
   await page.keyboard.press('Control+z')
   doc = await activeDoc(page)
   dyn = doc.graphs.g0!.nodes.p!.dynamic
   expect(dyn?.items?.members ?? []).toEqual([])
   expect(await growthRows(page)).toEqual([
-    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['m1'] }] },
+    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['item1'], seq: 2 }] },
   ])
   await expect(page.getByTestId('problems-panel')).not.toContainText(/solve\.|compile\.|elab\./)
 })
@@ -169,41 +162,34 @@ test('clicking the growth row materializes the member through production hit + d
 test('inner growth rows click through the same path, and the leaf level finally ghosts a pin', async ({ page }) => {
   const outer = await growthRowPoint(page, 'items')
   await page.mouse.click(outer.x, outer.y)
-  // Click the INNER growth row: two-level frames, one dispatch, one undo step.
-  const inner = await growthRowPoint(page, 'items.sub')
+  // Click the INNER growth row: one dispatch, one undo step.
+  const inner = await growthRowPoint(page, 'items.item0.sub')
   await page.mouse.click(inner.x, inner.y)
 
   const doc = await activeDoc(page)
-  const node = doc.graphs.g0!.nodes.p! as {
-    dynamic?: {
-      items?: { members?: string[]; memberState?: Record<string, Record<string, { members?: string[] }>> }
-    }
-  }
-  expect(node.dynamic?.items?.members).toEqual(['m0'])
-  // Nested state persisted under the outer member's cursor (memberState.m0).
-  expect(node.dynamic?.items?.memberState?.m0?.['items.sub']?.members).toEqual(['m0'])
+  const dynamic = doc.graphs.g0!.nodes.p!.dynamic
+  expect(dynamic?.items?.members).toEqual(['item0'])
+  // A nested group's state is its own top-level entry under its flattened id.
+  expect(dynamic?.['items.item0.sub']?.members).toEqual(['sub0'])
 
-  // The persisted sub member's leaf family ghosts normally now - the
-  // affordance chain bottoms out in an ordinary connectable ghost pin.
-  const pins = await inputPins(page)
-  expect(pins.some((p) => p.portId.startsWith('items.sub.leaf.s') && p.ghost)).toBe(true)
-  // Growth offers now: leaf level none (it renders pins), sub level next
-  // member, outer next member.
-  const rows = await growthRows(page)
-  expect(rows.map((r) => r.construct).sort()).toEqual(['items', 'items.sub'])
+  // The stored sub member's leaf group ghosts normally now - the affordance
+  // chain bottoms out in an ordinary connectable ghost pin.
+  expect(await inputPins(page)).toEqual([{ portId: 'items.item0.sub.sub0.leaf.leaf0', ghost: true }])
+  // No growth row is left: the ghost pin is the leaf group's offer, and
+  // neither outer group offers a spare member while its member is unused.
+  expect(await growthRows(page)).toEqual([])
   await expect(page.getByTestId('problems-panel')).not.toContainText(/solve\.|compile\.|elab\./)
 
   // Two independent undo steps unwind inner then outer.
   await page.keyboard.press('Control+z')
-  let undone = await activeDoc(page)
-  let dynNow = (undone.graphs.g0!.nodes.p! as { dynamic?: { items?: { members?: string[] } } }).dynamic
-  expect(dynNow?.items?.members).toEqual(['m0'])
+  let undone = (await activeDoc(page)).graphs.g0!.nodes.p!.dynamic
+  expect(undone?.items?.members).toEqual(['item0'])
+  expect(undone?.['items.item0.sub']?.members ?? []).toEqual([])
   await page.keyboard.press('Control+z')
-  undone = await activeDoc(page)
-  dynNow = (undone.graphs.g0!.nodes.p! as { dynamic?: { items?: { members?: string[] } } }).dynamic
-  expect(dynNow?.items?.members ?? []).toEqual([])
-  // CO3 high-water mark: m0 was minted and undone, so the fresh offer is m1.
+  undone = (await activeDoc(page)).graphs.g0!.nodes.p!.dynamic
+  expect(undone?.items?.members ?? []).toEqual([])
+  // Seq high-water mark: item0 was made and undone, so the fresh offer is item1.
   expect(await growthRows(page)).toEqual([
-    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['m1'] }] },
+    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['item1'], seq: 2 }] },
   ])
 })

@@ -9,14 +9,14 @@ const primitiveSchema = (
   defaultValue: string | number | boolean,
   widget?: Record<string, unknown>,
 ) => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType,
   displayName,
   category: 'test/primitives',
   idempotent: true,
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'source',
       type: concrete(type),
       required: false,
@@ -24,7 +24,7 @@ const primitiveSchema = (
       ...(widget === undefined ? {} : { widget }),
     },
     {
-      role: 'output',
+      kind: 'output',
       id: 'result',
       type: concrete(type),
       knownValue: { input: 'source' },
@@ -33,15 +33,15 @@ const primitiveSchema = (
 })
 
 const sinkSchema = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'e2e.known-value-sink',
   displayName: 'Known value results',
   category: 'test',
   outputNode: true,
-  interface: [
-    { role: 'input', id: 'integer', type: concrete('INT'), required: false, default: 0 },
+  body: [
+    { kind: 'input', id: 'integer', type: concrete('INT'), required: false, default: 0 },
     {
-      role: 'input',
+      kind: 'input',
       id: 'integer_as_float',
       type: concrete('FLOAT'),
       required: false,
@@ -49,15 +49,15 @@ const sinkSchema = {
       widget: { type: 'NUMBER', step: 0.1 },
     },
     {
-      role: 'input',
+      kind: 'input',
       id: 'decimal',
       type: concrete('FLOAT'),
       required: false,
       default: 0,
       widget: { type: 'NUMBER', step: 0.1 },
     },
-    { role: 'input', id: 'text', type: concrete('STRING'), required: false, default: '' },
-    { role: 'input', id: 'flag', type: concrete('BOOLEAN'), required: false, default: false },
+    { kind: 'input', id: 'text', type: concrete('STRING'), required: false, default: '' },
+    { kind: 'input', id: 'flag', type: concrete('BOOLEAN'), required: false, default: false },
   ],
 }
 
@@ -74,7 +74,7 @@ test('wire-34 primitive identity declarations show typed values before execution
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'primitive-known-values-proof', schemaWire: 1 },
+    dinkster: { version: 'primitive-known-values-proof', schemaWire: 2 },
     nodes: {
       'e2e.identity.integer': primitiveSchema(
         'e2e.identity.integer', 'Integer identity', 'INT', 0,
@@ -94,11 +94,11 @@ test('wire-34 primitive identity declarations show typed values before execution
   expect(await page.evaluate(() => {
     const schemas = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!.schemas as ReadonlyMap<
       string,
-      { type: string; items: readonly { kind: string; knownValue?: { input: string } }[] }
+      { type: string; body: readonly { kind: string; knownValue?: { input: string } }[] }
     >
     return [...schemas.values()].filter((schema) => schema.type.startsWith('e2e.identity.')).map((schema) => ({
       type: schema.type,
-      knownValue: schema.items.find((item) => item.kind === 'output')?.knownValue,
+      knownValue: schema.body.find((item) => item.kind === 'output')?.knownValue,
     }))
   })).toEqual([
     { type: 'e2e.identity.integer', knownValue: { input: 'source' } },

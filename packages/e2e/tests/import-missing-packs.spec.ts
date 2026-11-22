@@ -4,22 +4,22 @@ import { expect, nativeTest as test, openRailPanel } from './fixtures.js'
 
 test('keeps installed conversions and editable missing-pack placeholders during a registry outage', async ({ page }) => {
   let reachable = false
-  const stringPort = { role: 'input', id: 'text', required: true,
+  const stringPort = { kind: 'input', id: 'text', required: true,
     type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } }
-  const installed = { schemaVersion: 1, displayName: 'Installed Text', interface: [stringPort],
+  const installed = { schemaVersion: 2, displayName: 'Installed Text', body: [stringPort],
     replacements: [{ from: 'InstalledLegacy', cases: [{ to: 'dinkster.text.installed', inputs: { text: { kind: 'copy', input: 'text' } }, outputs: {} }] }] }
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, nodes: { 'dinkster.text.installed': installed },
+    schemaVersion: 2, nodes: { 'dinkster.text.installed': installed },
   } }))
   await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) => reachable
     ? route.fulfill({ json: { schemaVersion: 1, items: [{ from: 'MissingLegacy', candidates: [{ pack: 'dinkster-missing', version: '0.0.1', target: 'dinkster.missing.text',
       rule: { from: 'MissingLegacy', cases: [{ to: 'dinkster.missing.text', inputs: { text: { kind: 'copy', input: 'text' } }, outputs: {} }] },
     }] }] } }) : route.fulfill({ status: 503 }))
   await page.route('https://registry.dinkster.org/static/packs/*/*/schemas.json', (route) => route.fulfill({ json: {
-    packName: 'dinkster-missing', version: '0.0.1', schemas: [{ nodeType: 'dinkster.missing.text', schemaWireVersion: 1,
-      schema: { schemaVersion: 1, displayName: 'Missing Pack Text', interface: [stringPort] } }],
+    packName: 'dinkster-missing', version: '0.0.1', schemas: [{ nodeType: 'dinkster.missing.text', schemaWireVersion: 2,
+      schema: { schemaVersion: 2, displayName: 'Missing Pack Text', body: [stringPort] } }],
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
@@ -75,8 +75,8 @@ test('reports missing packs and preserves edits as the active registry gains the
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: installed ? 2 : 1, nodes: installed ? {
-      'dinkster.image.save_image': { schemaVersion: 1, displayName: 'SaveImage', interface: [] },
+    schemaVersion: 2, epoch: installed ? 2 : 1, nodes: installed ? {
+      'dinkster.image.save_image': { schemaVersion: 2, displayName: 'SaveImage', body: [] },
     } : {},
   } }))
   await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) => route.fulfill({ json: {
@@ -90,8 +90,8 @@ test('reports missing packs and preserves edits as the active registry gains the
   await page.route('https://registry.dinkster.org/static/packs/*/*/schemas.json', (route) => {
     const pack = new URL(route.request().url()).pathname.split('/')[3]!
     const type = pack === 'dinkster-image' ? 'dinkster.image.save_image' : 'dinkster.sampling.k_sampler'
-    return route.fulfill({ json: { packName: pack, version: '0.0.1', schemas: [{ nodeType: type, schemaWireVersion: 1,
-      schema: { schemaVersion: 1, displayName: type, interface: [] } }] } })
+    return route.fulfill({ json: { packName: pack, version: '0.0.1', schemas: [{ nodeType: type, schemaWireVersion: 2,
+      schema: { schemaVersion: 2, displayName: type, body: [] } }] } })
   })
   await page.route('/api/packs/install/prepare', (route) => {
     plans.push(route.request().postDataJSON())

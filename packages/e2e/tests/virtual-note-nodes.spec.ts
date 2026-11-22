@@ -7,15 +7,15 @@ if (proofDir) mkdirSync(proofDir, { recursive: true })
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'virtual-note-e2e', schemaWire: 1 },
+  dinkster: { version: 'virtual-note-e2e', schemaWire: 2 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.Output': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.Output',
       displayName: 'Output',
       category: 'test',
-      interface: [],
+      body: [],
       isOutputNode: true,
       signature: 'virtual-note-output',
     },

@@ -6,9 +6,9 @@ const RANGE_FILL = '#343940'
 const advertisedWires: string[] = []
 
 const numberInput = (id: string, display?: string, displayName?: string) => ({
-  role: 'input', id, required: true,
+  kind: 'input', id, required: true,
   type: { kind: 'concrete', types: ['FLOAT'] },
-  ...(displayName === undefined ? {} : { displayName }),
+  ...(displayName === undefined ? {} : { label: displayName }),
   widget: {
     type: 'NUMBER', min: 0, max: 100, step: 1,
     ...(display === undefined ? {} : { display }),
@@ -18,13 +18,13 @@ const numberInput = (id: string, display?: string, displayName?: string) => ({
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-number-display-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-number-display-proof', schemaWire: 2 },
   nodes: {
     'test.number_display': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'NUMBER display wire 18',
       category: 'test',
-      interface: [
+      body: [
         numberInput('declared_slider', 'slider', 'Declared slider with a deliberately very long label'),
         numberInput('bounded_ordinary'),
         numberInput('explicit_number', 'number'),

@@ -26,35 +26,35 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'editor-role-e2e', schemaWire: 1 },
+    dinkster: { version: 'editor-role-e2e', schemaWire: 2 },
     packs: { test: { displayName: 'Test' } },
     nodes: {
       'synthetic.compositor': {
-        schemaVersion: 1,
+        schemaVersion: 2,
         nodeType: 'synthetic.compositor',
         displayName: 'Synthetic Compositor',
         category: 'test',
         pack: 'test',
         signature: 'editor-role-e2e-compositor',
         editorRole: 'compositor',
-        interface: [{
-          role: 'input', id: 'recipe', required: true,
+        body: [{
+          kind: 'input', id: 'recipe', required: true,
           type: { kind: 'concrete', types: ['COMPOSITOR'] },
           widget: { type: 'COMPOSITOR' },
           default: { version: 2, documentDigest: null, commands: [] },
         }],
       },
       'synthetic.curve': {
-        schemaVersion: 1,
+        schemaVersion: 2,
         nodeType: 'synthetic.curve',
         displayName: 'Synthetic Curve',
         category: 'test',
         pack: 'test',
         signature: 'editor-role-e2e-curve',
         editorRole: 'curve',
-        interface: [
+        body: [
           {
-            role: 'input',
+            kind: 'input',
             id: 'curve',
             required: true,
             type: { kind: 'concrete', types: ['CURVE'] },
@@ -68,7 +68,7 @@ test.beforeEach(async ({ page }) => {
             },
           },
           {
-            role: 'input',
+            kind: 'input',
             id: 'enabled',
             required: true,
             type: { kind: 'concrete', types: ['BOOLEAN'] },

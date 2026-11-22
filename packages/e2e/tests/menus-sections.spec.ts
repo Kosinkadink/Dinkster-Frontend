@@ -64,7 +64,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-name-dispatch')) {
     await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
@@ -98,7 +98,7 @@ documentTest('canvas name prompts await acceptance and keep refused or newer dra
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
-      type: 'NameTest', displayName: 'Original name', category: 'test', source: 'v3', isOutputNode: false, items: [],
+      type: 'NameTest', displayName: 'Original name', category: 'test', source: 'v3', isOutputNode: false, body: [],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'name-dispatch', root: 'g0',
@@ -465,18 +465,23 @@ async function openSectionedWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-          { kind: 'section', id: 'adv', displayName: 'Advanced' },
           {
-            kind: 'input',
-            id: 'w',
-            type: { kind: 'concrete', name: 'INT' },
-            optional: false,
-            section: 'adv',
-            widget: { widgetType: 'INT', options: {}, default: 20 },
+            kind: 'section',
+            id: 'adv',
+            displayName: 'Advanced',
+            rows: [
+              {
+                kind: 'input',
+                id: 'w',
+                type: { kind: 'concrete', name: 'INT' },
+                optional: false,
+                widget: { widgetType: 'INT', options: {}, default: 20 },
+              },
+              { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+            ],
           },
-          { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'IMAGE' }, optional: false, section: 'adv' },
           { kind: 'output', id: 'x', type: { kind: 'concrete', name: 'IMAGE' } },
         ],
       },
@@ -486,7 +491,7 @@ async function openSectionedWorkflow(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
     ])
     await app.openDocument(

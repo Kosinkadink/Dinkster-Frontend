@@ -7,10 +7,10 @@ const catalogTest = test.extend({ widgetDocument: false })
 
 catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 1 },
-    nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, interface: [
-      { role: 'input', id: 'bit_depth', type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', widget: { type: 'COMBO', options: ['auto', 8, 10] } },
-      { role: 'input', id: 'identity', type: { kind: 'concrete', types: ['COMBO'] }, default: true, widget: { type: 'COMBO', options: [
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 2 },
+    nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, body: [
+      { kind: 'input', id: 'bit_depth', type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', widget: { type: 'COMBO', options: ['auto', 8, 10] } },
+      { kind: 'input', id: 'identity', type: { kind: 'concrete', types: ['COMBO'] }, default: true, widget: { type: 'COMBO', options: [
         { value: 8, label: 'Integer eight' }, { value: '8', label: 'String eight' },
         { value: true, label: 'Boolean true' }, { value: 1, label: 'Integer one' },
       ] } },
@@ -40,9 +40,9 @@ catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edit
 
 catalogTest('native integer RGB color edits retain numeric values without catalog warnings', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'integer-color-fixture', schemaWire: 1 },
-    nodes: { IntegerColor: { displayName: 'Integer RGB color', outputNode: true, interface: [
-      { role: 'input', id: 'color', type: { kind: 'concrete', types: ['INT'] }, default: 0, widget: { type: 'NUMBER', min: 0, max: 16777215, step: 1, display: 'color' } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'integer-color-fixture', schemaWire: 2 },
+    nodes: { IntegerColor: { displayName: 'Integer RGB color', outputNode: true, body: [
+      { kind: 'input', id: 'color', type: { kind: 'concrete', types: ['INT'] }, default: 0, widget: { type: 'NUMBER', min: 0, max: 16777215, step: 1, display: 'color' } },
     ] } },
   } }))
   await page.goto('/')
@@ -73,12 +73,12 @@ catalogTest('native integer RGB color edits retain numeric values without catalo
 
 catalogTest('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 1 },
-    nodes: { SocketlessFixture: { displayName: 'Socketless color fixture', outputNode: true, interface: [
-      { role: 'input', id: 'style', type: { kind: 'concrete', types: ['STRING'] }, default: 'solid' },
-      { role: 'dynamicCombo', id: 'padding', options: [{ key: 'color', inputs: [
-        { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', socketless: true, widget: { type: 'COLOR' } },
-        { role: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'socketless-fixture', schemaWire: 2 },
+    nodes: { SocketlessFixture: { displayName: 'Socketless color fixture', outputNode: true, body: [
+      { kind: 'input', id: 'style', type: { kind: 'concrete', types: ['STRING'] }, default: 'solid' },
+      { kind: 'choice', id: 'padding', shared: [], options: [{ key: 'color', rows: [
+        { kind: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', pin: false, widget: { type: 'COLOR' } },
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
       ] }] },
     ] } },
   } }))
@@ -194,7 +194,7 @@ test.beforeEach(async ({ page, widgetDocument }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'widget-editors-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
+    dinkster: { version: 'widget-editors-e2e', schemaWire: 2, graphFeatures: ['decimalInt'] },
     nodes: {},
   } }))
   await page.route('/system_stats', (route) =>
@@ -211,7 +211,7 @@ test.beforeEach(async ({ page, widgetDocument }) => {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'WidgetEditorsTest', displayName: 'Widget Editors', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }),
         widget('amount', 'FLOAT', 1.5, { min: 0, max: 10 }),
         widget('title', 'STRING', 'old'),
@@ -296,7 +296,7 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AudioRecordWidgetTest', displayName: 'Record audio', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
+      body: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
         widget: { widgetType: 'AUDIO_RECORD', options: {} } }],
     }])
     await app.openDocument({
@@ -385,7 +385,7 @@ test('COLORS stages exact ordered palettes with add, remove, reorder and one und
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         ...(['palette', 'empty', 'long'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }, optional: false,
           widget: { widgetType: 'COLORS', default: id === 'empty' ? [] : id === 'long' ? Array.from({ length: 17 }, () => '#112233') : initial, options: {} } })),
         { kind: 'input', id: 'color', type: { kind: 'concrete', name: 'STRING' }, optional: false,
@@ -462,7 +462,7 @@ test('MARKDOWN previews safely and edits one undoable source string', async ({ p
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MarkdownWidgetTest', displayName: 'Workflow notes', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         ...(['notes', 'readonly'] as const).map((id) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'STRING' }, optional: false,
           widget: { widgetType: 'MARKDOWN', default: source, options: { read_only: id === 'readonly' } } })),
         { kind: 'input', id: 'title', type: { kind: 'concrete', name: 'STRING' }, optional: false,
@@ -543,7 +543,7 @@ test('BUTTON actions invoke registered commands without changing widget values',
     } })
     app.registerSchemas([{
       type: 'ButtonWidgetTest', displayName: 'Capture controls', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         ...([
           ['capture', { display_name: 'Capture frame', command: 'fixture.capture' }],
           ['busy', { display_name: 'Busy action', command: 'fixture.busy' }],
@@ -598,7 +598,7 @@ test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Com
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'WidgetEditorsTest', displayName: 'Float sliders', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { display: 'slider', min: -0.5, max: 2.5, step: 0.25, round: 0.01, precision: 2 }, default: 0.5 } },
         { kind: 'input', id: 'ordinary', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, widget: { widgetType: 'FLOAT', options: { min: -0.5, max: 2.5 }, default: 0.5 } },
       ],
@@ -653,7 +653,7 @@ catalogTest('numeric union uses FLOAT editing in canvas and exposed AppView with
   const fixture = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'numeric-union-e2e', schemaWire: 1, graphFeatures: ['decimalInt'] },
+    dinkster: { version: 'numeric-union-e2e', schemaWire: 2, graphFeatures: ['decimalInt'] },
     nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
   } }))
   await page.goto('/')
@@ -695,7 +695,7 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
     app.settings.set('features.appView.enabled', true)
     app.registerSchemas([{
       type: 'PrimitiveListEditorTest', displayName: 'Text list', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'texts', optional: false,
         type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } },
         widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: { multiline: false } }, default: ['red', 'blue'] },
@@ -782,7 +782,7 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'ExactSeedE2E', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT',
@@ -843,7 +843,7 @@ test('unbounded INT stepping crosses the JavaScript safe-integer boundary exactl
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'UnboundedIntE2E', displayName: 'Unbounded Integer', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
@@ -1330,7 +1330,7 @@ test('numeric edge controls step an intrinsic default while body activation rema
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'IntrinsicNumericTest', displayName: 'Intrinsic Numeric', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: { min: 2, max: 4, step: 0.5 } },
       }],
@@ -1365,7 +1365,7 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'PassThroughTest', displayName: 'Pass Through', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('number', 'INT', 0),
         widget('text', 'STRING', ''),
         {
@@ -1492,13 +1492,13 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     const concreteInt = { kind: 'concrete', name: 'INT' } as const
     window.__dinksterTest!.app.registerSchemas([{
       type: 'UnprovenSourceTest', displayName: 'Unproven Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'value', type: concreteInt, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } },
         { kind: 'output', id: 'out', type: concreteInt },
       ],
     }, {
       type: 'UnprovenSinkTest', displayName: 'Unproven Sink', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'width', type: concreteInt, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 512 },
       }],
@@ -1787,7 +1787,7 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'HugeComboTest', displayName: 'Huge Combo', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO',

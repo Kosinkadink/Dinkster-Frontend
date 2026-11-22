@@ -61,10 +61,10 @@ const modelOnlyWorkflow = (model = RAW_MODEL) => ({
 async function setup(page: Page, guesses: Guesses): Promise<void> {
   await page.routeWebSocket('ws://asset-guesses.test/api/events?*', () => {})
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 },
     nodes: {
-      TestModelLoader: { schemaVersion: 1, nodeType: 'TestModelLoader', displayName: 'Test Model Loader', interface: [{ role: 'input', id: 'model', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['*/*'] } }] },
-      TestImageLoader: { schemaVersion: 1, nodeType: 'TestImageLoader', displayName: 'Test Image Loader', interface: [{ role: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['image/*'] } }] },
+      TestModelLoader: { schemaVersion: 2, nodeType: 'TestModelLoader', displayName: 'Test Model Loader', body: [{ kind: 'input', id: 'model', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['*/*'] } }] },
+      TestImageLoader: { schemaVersion: 2, nodeType: 'TestImageLoader', displayName: 'Test Image Loader', body: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', types: ['core.asset'] } }, widget: { type: 'ASSET', accept: ['image/*'] } }] },
     },
   } }))
   await page.route(`${MOCK}/api/assets/guess`, async (route) => {

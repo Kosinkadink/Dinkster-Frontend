@@ -21,7 +21,7 @@ async function install(
   await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 2 }, nodes: {} } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('**/api/values?*', async (route) => {
     const url = new URL(route.request().url())
@@ -72,7 +72,7 @@ async function install(
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'VideoControlsTest', displayName: 'Video inspection', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'output', id: 'clips', type: { kind: 'list', element: { kind: 'concrete', name: 'VIDEO' } }, preview: true },
         { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'VIDEO' }, preview: true },
       ],
@@ -359,7 +359,7 @@ test('selected cloud-only VIDEO input explicitly waits for a bounded route in Ca
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'VideoInputTest', displayName: 'Cloud video input', category: 'test', source: 'v3',
-      items: [{ kind: 'input', id: 'asset', type: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
+      body: [{ kind: 'input', id: 'asset', type: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
         widget: { widgetType: 'ASSET', options: { accept: ['video/*'] }, default: null } }],
     }])
     await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-input', root: 'g0',

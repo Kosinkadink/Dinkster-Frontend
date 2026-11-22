@@ -18,32 +18,32 @@ const sd15DefaultWorkflow = JSON.parse(readFileSync(
 )) as Record<string, unknown>
 
 // Simplified frontend contract schemas, not a native runtime catalog snapshot.
-const input = (id: string, type: string, widget?: Record<string, unknown>) => ({
-  role: 'input', id, type: { kind: 'concrete', types: [type] }, ...(widget ? { widget } : {}),
+const input = (id: string, type: string, widget?: Record<string, unknown>, row?: Record<string, unknown>) => ({
+  kind: 'input', id, type: { kind: 'concrete', types: [type] }, ...(widget ? { widget } : {}), ...row,
 })
-const output = (id: string) => ({ role: 'output', id, type: { kind: 'concrete', types: [id] } })
+const output = (id: string) => ({ kind: 'output', id, type: { kind: 'concrete', types: [id] } })
 const nativeSchemas = {
-  CheckpointLoaderSimple: { interface: [
+  CheckpointLoaderSimple: { body: [
     input('ckpt_name', 'COMBO', { type: 'COMBO', options: ['sd15.safetensors', 'v1-5-pruned-emaonly.safetensors', 'v1-5-pruned-emaonly-fp16.safetensors'] }),
     output('MODEL'), output('CLIP'), output('VAE'),
   ] },
-  CLIPTextEncode: { outputNode: true, interface: [
+  CLIPTextEncode: { outputNode: true, body: [
     input('text', 'STRING'), input('clip', 'CLIP'), output('CONDITIONING'),
   ] },
-  EmptyLatentImage: { interface: [
+  EmptyLatentImage: { body: [
     input('width', 'INT'), input('height', 'INT'), input('batch_size', 'INT'), output('LATENT'),
   ] },
-  KSampler: { interface: [
-    input('model', 'MODEL'), input('seed', 'INT', { type: 'NUMBER', controlAfterGenerate: 'fixed' }),
+  KSampler: { body: [
+    input('model', 'MODEL'), input('seed', 'INT', undefined, { afterRun: 'fixed' }),
     input('steps', 'INT'), input('cfg', 'FLOAT'),
     input('sampler_name', 'COMBO', { type: 'COMBO', options: ['euler', 'heun'] }),
     input('scheduler', 'COMBO', { type: 'COMBO', options: ['normal', 'karras'] }),
     input('positive', 'CONDITIONING'), input('negative', 'CONDITIONING'), input('latent_image', 'LATENT'),
     input('denoise', 'FLOAT'), output('LATENT'),
   ] },
-  VAEDecode: { interface: [input('samples', 'LATENT'), input('vae', 'VAE'), output('IMAGE')] },
-  PreviewImage: { outputNode: true, interface: [input('images', 'IMAGE')] },
-  SaveImage: { outputNode: true, interface: [input('images', 'IMAGE'), input('filename_prefix', 'STRING')] },
+  VAEDecode: { body: [input('samples', 'LATENT'), input('vae', 'VAE'), output('IMAGE')] },
+  PreviewImage: { outputNode: true, body: [input('images', 'IMAGE')] },
+  SaveImage: { outputNode: true, body: [input('images', 'IMAGE'), input('filename_prefix', 'STRING')] },
 }
 
 test.beforeAll(() => {
@@ -59,7 +59,7 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'import-contract-fixture', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'import-contract-fixture', schemaWire: 2 },
     nodes: nativeSchemas,
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})

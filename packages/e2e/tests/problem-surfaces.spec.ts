@@ -66,7 +66,7 @@ test.beforeEach(async ({ page, proofDocument }) => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ProofNode', displayName: 'Proof Node', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'steps', displayName: 'Steps', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+        body: [{ kind: 'input', id: 'steps', displayName: 'Steps', type: { kind: 'concrete', name: 'INT' }, optional: false }],
       },
     ])
     // Two disconnected nodes: no links, so the solver contributes no
@@ -98,13 +98,13 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
       : "Pack 'modifier' cannot receive a resident value from pack 'models' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference."
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
-      dinkster: { version: 'resident-process-test', schemaWire: 1, graphFeatures: ['regions', 'typedLiteral'] },
+      dinkster: { version: 'resident-process-test', schemaWire: 2, graphFeatures: ['regions', 'typedLiteral'] },
       nodes: {
-        'proof.model': { displayName: 'Loaded model', pack: 'models', interface: [
-          { role: 'output', id: 'model', type: { kind: 'concrete', types: ['MODEL'] } },
+        'proof.model': { displayName: 'Loaded model', pack: 'models', body: [
+          { kind: 'output', id: 'model', type: { kind: 'concrete', types: ['MODEL'] } },
         ], residentAffinity: { types: ['MODEL'], routes: [{ process: 'models', pack: 'models', worker: 'local' }] } },
-        'proof.modify': { displayName: 'Model modifier', pack: 'modifier', outputNode: true, interface: [
-          { role: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['MODEL'] } },
+        'proof.modify': { displayName: 'Model modifier', pack: 'modifier', outputNode: true, body: [
+          { kind: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['MODEL'] } },
         ], ...(state === 'host-refused' ? { unavailableReason: reason } : {}),
         residentAffinity: { types: ['MODEL'], routes: [{ process: state === 'isolated' ? 'isolated' : 'models', pack: 'modifier', worker: 'local' }] } },
       },

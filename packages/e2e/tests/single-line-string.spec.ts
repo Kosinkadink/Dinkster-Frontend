@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
       json: {
         schemaVersion: 1,
         epoch: 1,
-        dinkster: { version: 'string-layout-fixture', schemaWire: 1 },
+        dinkster: { version: 'string-layout-fixture', schemaWire: 2 },
         nodes: {},
       },
     }),
@@ -48,7 +48,7 @@ test.describe('single-line STRING device-pixel layout', () => {
           category: 'test',
           source: 'v3',
           isOutputNode: false,
-          items: [
+          body: [
             {
               kind: 'input',
               id: 'text',

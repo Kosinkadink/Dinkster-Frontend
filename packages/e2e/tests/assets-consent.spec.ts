@@ -14,7 +14,7 @@ const plans = {
 async function prepare(page: Page): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('**/api/assets', (route) => route.fulfill({ status: 404, body: 'source document storage unavailable in isolated proof' }))
@@ -27,7 +27,7 @@ async function prepare(page: Page): Promise<void> {
   await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
-      type: 'AssetConsentOutput', displayName: 'Asset consent output', category: 'test', source: 'v3', isOutputNode: true, items: [],
+      type: 'AssetConsentOutput', displayName: 'Asset consent output', category: 'test', source: 'v3', isOutputNode: true, body: [],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-consent-e2e', root: 'g0',
