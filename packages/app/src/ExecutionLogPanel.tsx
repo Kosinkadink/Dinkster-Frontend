@@ -81,19 +81,12 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
   const locale = useSignal(activeLocale)
   // '' = follow the active tab's run; a key pins one specific run.
   const [selectedKey, setSelectedKey] = createSignal('')
-  const activeKey = createMemo(() => props.active()?.key)
   const [hiddenLevels, setHiddenLevels] = createSignal<ReadonlySet<ExecutionLogRowLevel>>(new Set())
   // '' = all nodes; a runtime node id filters to that node's rows.
   const [nodeFilter, setNodeFilter] = createSignal('')
   // Badge-driven grouped filter: one scene node's runtime occurrences. Any
   // manual node selection clears it.
   const [groupFilter, setGroupFilter] = createSignal<ReadonlySet<string> | undefined>(undefined)
-  createEffect(() => {
-    activeKey()
-    setSelectedKey('')
-    setNodeFilter('')
-    setGroupFilter(undefined)
-  })
 
   const execution = (): ExecutionState | undefined => {
     const key = selectedKey()

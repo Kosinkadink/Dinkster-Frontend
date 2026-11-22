@@ -59,14 +59,6 @@ export async function selectProductOption(page: Page, control: Locator, optionId
   await expect(control).toHaveAttribute('data-selected-id', selectedId)
 }
 
-export async function executionDetails(row: Locator): Promise<Locator> {
-  const details = row.locator('details.runs-details')
-  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
-    await details.locator('summary').click()
-  }
-  return details.getByTestId('run-details')
-}
-
 export async function openRailPanel(page: Page, title: string): Promise<void> {
   const rail = page.getByTestId('dock-zone-right')
   if (!await rail.isVisible()) {
