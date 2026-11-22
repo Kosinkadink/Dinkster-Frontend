@@ -208,15 +208,15 @@ constraints. The decoder retains the FLOATS socket and scalar default, min and
 step; it does not replace the runtime type with FLOAT or a primitive list.
 Unforced FLOATS and list<FLOATS> do not accept this numeric presentation.
 
-Native inputs may declare the boolean `socketless` presentation flag. True
-omits only the incoming socket and its hit target, preserving the editor,
-outgoing value tap, runtime type, default, positional slot and compile value.
-Nested branches and family members retain the flag in their own scopes.
-It does not change registry identity and cannot be combined with `forceInput`.
+Native inputs may declare `pin: false`. It omits only the incoming socket and
+its hit target, preserving the editor, outgoing value tap, runtime type,
+default, positional slot and compile value. Inputs inside choice options and
+group members retain it. It does not change registry identity and cannot be
+combined with `pinFirst`.
 
-Subgraph boundaries can promote inputs from the selected native DynamicCombo
-branch using their materialized input paths. The promoted widget inherits its
-stored value; inputs from inactive branches remain unavailable.
+Subgraph boundaries can promote inputs from a choice's chosen option using
+their flattened ids (`<choice>.<row>`). The promoted widget inherits its
+stored value; inputs of options that are not chosen remain unavailable.
 
 Native save inputs keep `filename_prefix` as a STRING and append an optional
 STRING `mount` with the closed widget descriptor `{"type":"MOUNT"}`. Null or
@@ -229,16 +229,15 @@ to the generic MOUNT descriptor, which can present other STRING inputs.
 MOUNT defaults accept strings or null; other JSON shapes fall back to null.
 Malformed string ids remain visible for validation rather than silently
 selecting a different mount.
-The input's `adjacentTo` names a different sibling input for presentation only.
-The codec preserves declaration order, including positional widget slots, and
-rejects empty, self-referencing, cyclic or missing sibling hints and extra MOUNT fields.
-Visible widgets honor the hint horizontally beside the referenced sibling on
-the same line in the same section, with independent editors and separated
-input/value-output sockets on the outer borders in distinct vertical slots,
-so connected wires stay visible outside the node. A shared line has a width
-floor for both controls; a hidden or socket-only sibling leaves ordinary row order.
-Nested branch and family hints resolve within their own materialized sibling
-scope; they never attach to a different member or change declaration order.
+A schema puts the mount beside its prefix by declaring both in one Row of the
+node body (see [Node body](node-body.md)); this is presentation only and
+preserves declaration order, including positional widget slots. The codec
+rejects extra MOUNT fields. Visible widgets of a Row share one line in the
+same section, with independent editors and separated input/value-output
+sockets on the outer borders in distinct vertical slots, so connected wires
+stay visible outside the node. A shared line has a width floor for both
+controls; a hidden or socket-only field leaves ordinary row order. A Row
+inside a choice option or group member places only its own fields.
 The MOUNT editor uses the existing mount index, offers only ready writable
 mounts and an explicit default-output choice, and commits only a mount string
 or null. Missing saved mount ids remain visible as unavailable, not silently
@@ -248,7 +247,7 @@ Positional and keyed static COMBO widgets preserve strings, booleans, and
 finite numbers exactly through import, editing, native save/reopen, and
 compilation. Numeric 8 differs from string "8", and true differs from 1.
 Display labels never rewrite stored values; unmatched values remain available
-for ordinary validation. Dynamic branch and input-family keys remain strings,
+for ordinary validation. Choice keys and group member keys remain strings,
 and MULTI_COMBO retains its string-only option and value contract.
 
 ComfyUI `Note` and `MarkdownNote` records translate directly to Dinkster's
@@ -259,9 +258,9 @@ remain Dinkster workflow documents. Notes never enter the executable graph sent
 to a backend. Reroutes remain document constructs and use the topology
 translator.
 
-Import reconstructs Autogrow members from every authored input slot, including
-unlinked slots, before decoding positional or keyed widgets. It does not copy
-families to another node type or insert helper nodes. The class/version upgrade
+Import reconstructs group members (ComfyUI Autogrow) from authored input slots
+before decoding positional or keyed widgets. It does not copy groups to
+another node type or insert helper nodes. The class/version upgrade
 table changes widget values only; it is not a graph migration
 or a family replacement mechanism.
 
@@ -298,13 +297,13 @@ retaining the internal reroute vertices, links and positions. Dangling or cyclic
 chains refuse import rather than guessing a source. Input boundaries through
 reroutes retain their junction attachment and internal fan-out links.
 
-Input boundaries attached to materialized native family members use the exact
-elaborated member address, including grouped template input suffixes and nested
-members beneath ordinary outer families. Only members retained in the node's
-dynamic state resolve; absent members do not create ports or helper nodes.
-Native save/reopen preserves these bindings. Flatten planning resolves concrete
-member targets against the same retained node state and preserves their exact
-endpoint addresses without allocating replacement family members.
+Input boundaries attached to stored group members of a native node use the
+member row's flattened id, including rows of record members and members of
+nested groups. Only members stored in the node's dynamic state resolve; absent
+members do not create ports or helper nodes. Native save/reopen preserves these
+bindings. Flatten planning resolves member targets against the same stored
+node state and preserves their exact endpoint addresses without allocating
+replacement members.
 
 Modern instance widget arrays follow promoted-input order without implicit
 seed-controller entries, even when the instance socket array omits widget-only

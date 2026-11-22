@@ -265,67 +265,40 @@ WidgetKind contract, not ad-hoc per call site. An empty merge is a
 diagnostic, never a silent pick-one. Adding a widget kind means declaring its
 merge rule explicitly or opting out of derivation.
 
-## Dynamic families through subgraph boundaries (forwarding)
+## Groups and choices through subgraph boundaries
 
 The old frontend mutates the shared definition's slot arrays when an instance
 connects to a dynamic input, then compensates across every other instance and
 nesting level - the bookkeeping nightmare that makes autogrow-in-subgraphs
-untrustworthy there. Forwarding (a boundary item exposing a whole inner
-family, including split forwarding: definition-local prefix members plus
-instance-appended suffix members) is designed so that class of bug is
-structurally impossible. These invariants are what keep it that way.
+untrustworthy there. Dinkster avoids that class of bug by never letting an
+instance own part of an inner group, choice or type choice. These invariants
+are what keep it that way.
 
-### F1. Member state never merges; only derived artifacts do
+### F1. A boundary forwards one flattened row, never a whole construct
 
-Definition-local members persist on the inner node inside the definition
-(shared by all instances, like every other definition edit). Instance members
-persist on the instance node in its parent graph. The concatenated list
-exists ONLY in derived state: the flattener synthesizes a per-occurrence
-merged `DynamicPortState` and feeds it to the SAME `elaborateInterface` - no
-family-aware fork of elaboration, no persisted merged list, ever.
+A boundary item binds one inner input or output by its flattened id
+([Node body](node-body.md)). Forwarding a whole group, choice or type choice
+is refused (`boundary.familyUnsupported` at derive time,
+`compile.boundary.forwardUnresolved` at compile time), and a binding that
+carries member ids is refused (`boundary.memberPath`). Member and choice state
+therefore lives only on the inner node inside the definition, shared by all
+instances like every other definition edit.
 
-Failure mode if broken: one list with definition-wide undo semantics in one
-segment and per-instance semantics in the other - the braided-state cascade
-this design exists to prevent.
+Failure mode if broken: an instance growing or switching an inner construct
+writes state the definition and sibling instances also read - the
+braided-state cascade this design exists to prevent.
 
-### F2. Ordering is pinned: definition prefix, then instance suffix
+### F2. A forwarded row must exist on the inner node
 
-Recursively for nested forwarding: innermost definition's members first.
-Ordinals (and therefore positional api names and labels) are assigned over
-the merged list per occurrence at compile/derive time. Never invent a second
-ordering, never let view code sort members, never persist ordinals.
+A forwarded member row needs its member stored on the inner node
+(`boundary.memberMissing`), except in a group grown to a count; a row under a
+choice or type choice needs its option or variant chosen
+(`boundary.branchInactive`). Never let derivation or compilation invent the
+member or the choice the binding needs.
 
-Failure mode if broken: instances silently feeding the wrong wire inputs
-after a definition edit.
+### F3. Compilation discovers every occurrence before resolving anything
 
-### F3. Renumbering is correct; identity is the member id
-
-A definition adding/removing a prefix member shifts every instance's ordinals
-and labels. That is truthful, deterministic, and harmless BECAUSE nothing in
-any document keys on ordinal: links and values key on stable member ids,
-api names are compile output. Any feature that stores an ordinal (or a label)
-as identity reintroduces the positional-widget-array bug this project was
-started to kill.
-
-### F4. Capacity arithmetic is baked into the derived schema
-
-`deriveBoundarySchema` computes the forwarded family's effective bounds
-(min/max reduced by the prefix count) and the label/ordinal offset, and bakes
-them into the derived spec. Instances never inspect definition internals at
-runtime; a definition change rederives the boundary schema (the existing
-invalidation path). Definition-local members exceeding the family cap is a
-derive-time diagnostic; exactly-at-cap is legal (instances see no ghost).
-
-### F5. Ghosts are per-view affordances, never shared
-
-The trailing ghost member is synthesized by elaboration, never persisted,
-never compiled. The definition editor's ghost and each instance's ghost are
-therefore independent by construction. Any "optimization" that persists a
-ghost or shares it across views recreates the two-owners-of-one-slot cascade.
-
-### F6. Compilation discovers every occurrence before resolving anything
-
-Forwarding makes an inner node's effective interface OCCURRENCE-dependent.
+Promoted values make an inner node's effective state OCCURRENCE-dependent.
 The compiler is therefore phased: (1) walk the complete occurrence tree
 outside-in, building every parent->child crossing, occurrence-local
 dynamic-state overlay, and projected connectivity; (2) resolve promoted
@@ -333,86 +306,29 @@ values; (3) lower values/links/nets. Promoted-value resolution is deferred
 (`pendingPromotions`, still outside-in for first-write-wins) because a
 chained value can cross several boundaries whose crossings must all already
 exist. Do not "simplify" by resolving values during discovery - chained
-forwarding breaks the moment a resolver needs a context that has not been
+promotion breaks the moment a resolver needs a context that has not been
 created yet. Type solving and partial-execution topology must eventually
 consume this same effective occurrence graph, not rebuild their own.
 
-### F7. One crossing abstraction owns all boundary address interpretation
+### F4. Boundary item matching never guesses
 
-`crossing.ts` is the ONLY interpreter of forwarded addresses. The same
-`FamilyCrossing` (built from the same `resolveBoundaryRoute` schema
-derivation uses) owns: outer address -> inner endpoint translation, suffix
-member-id rebasing, nested `memberState` key rebasing (boundary id -> inner
-construct path), state overlays, connectivity projection, promoted-value
-translation, and input/output symmetry. Boundary ITEM selection is part of
-this: ids may legally contain '.', so `matchBoundaryItem` enumerates every
-candidate interpretation and requires exactly one fit (first-segment
-shortcuts and longest-prefix-wins are banned, same as
-`resolveBoundaryRoute`); a genuine collision is an explicit ambiguity
-diagnostic, never a silent pick. Any second, "local" re-parse of a stamped
-path for one concern is how the legacy frontend's boundary bookkeeping
-became a minefield; extend the crossing instead.
+Boundary ids may legally contain '.', so `matchBoundaryItem` (`crossing.ts`)
+enumerates every candidate interpretation of an outer address and requires
+exactly one fit (first-segment shortcuts and longest-prefix-wins are banned,
+same as `resolveBoundaryRoute`); a genuine collision is an explicit
+ambiguity diagnostic, never a silent pick. Any second, "local" re-parse of a
+boundary path for one concern is how the legacy frontend's boundary
+bookkeeping became a minefield.
 
-Nested routes must also be MATERIALIZED: every concrete ancestor member a
-forwarding route crosses must be present in that family's persisted
-`members` list at the corresponding scope (orphan `memberState` proves
-nothing - `members` is the sole membership source, F3). An absent ancestor
-is a compile error at the instance site; silently deriving state beneath it
-would strand the instance suffix unreachably.
+### F5. Occurrence-local elaboration must not leak between occurrences
 
-### F8. Rebased ids are derived, occurrence-local, and unmintable
-
-Instance-appended suffix members project into the inner node's namespace
-under NUL-prefixed rebased ids (one prefix accumulates per crossing when
-chained). They exist only in per-compile derived state - never in documents,
-never in commands, and NUL is unmintable by user input, so they can never
-collide with definition prefix ids. Persisting a rebased id, or exposing one
-through any interface a document could echo back, breaks the identity model.
-
-### F9. Occurrence-local elaboration must not leak between occurrences
-
-A forwarded target elaborates per occurrence (overlay + projected
-connectivity); everything else keeps the per-definition cache. The two
-caches key differently and must never mix: a definition-cache hit for an
-overlaid node silently shows one instance another instance's members - the
-exact cross-instance leak F1 exists to prevent. The occurrence cache keys on
-the full occurrence key (instance path + node), which is injective because
-ids cannot contain the packing character.
-
-### F10. Slot selection filters the derived template, never identity
-
-Slot-selective forwarding (`binds.slots`) filters WHICH template slots the
-derived family exposes, in TEMPLATE order regardless of listing order. It
-never touches member ids, stored values, capacity arithmetic (F4), or
-ordinal offsets - toggling or removing the selection only re-derives the
-boundary schema. A family still has ONE forwarding owner (F1); selection
-never splits a family across two boundary items, which would need synced
-member lists. Instance-appended members stamp the FULL template on the inner
-node: unexposed widget-backed slots compile their template defaults, and a
-selection leaving a required socket-only slot unexposed on a growable input
-family is a DERIVE-TIME error (`boundary.slotStarved`), not a per-instance
-compile surprise. Addresses under unexposed slots fail crossing translation
-loudly (`compile.boundary.slotNotExposed`); stale VALUES under them are
-dormant preserved state, like removed members. An explicit full selection is
-NOT redundant with absence: it pins exposure across schema evolution
-(template slots added later stay hidden until selected).
-
-Entries are DOTTED PATHS: a bare id exposes a slot (for a nested autogrow,
-its whole subtree, tracking nested schema evolution); 'sub.s' exposes the
-nested construct NARROWED to the listed descendants, with ancestor exposure
-implied. Splitting on '.' is the field's own grammar, never id parsing -
-template slot ids may not contain dots (`elab.id.reserved` warns; the safe
-id set is `[A-Za-z0-9_-]+`, with all structural punctuation reserved for
-future selector/address syntax). Whole-subtree and narrowed selection of the
-same construct are mutually exclusive (`boundary.slotConflict`); narrowing
-recurses through autogrow constructs only (`boundary.slotNotNestable`).
-Starvation is selection-aware with one deliberate asymmetry: hiding a whole
-min-0 nested family is legal (it materializes nothing), but a NARROWED
-nested family is exposed and growable from the instance, so a hidden
-required socket-only slot inside it starves regardless of its min. Crossing
-exposure matches segment-wise: an address at/under a selected path is
-exposed, and so is an ANCESTOR construct of one (growth and member state
-target the construct itself); everything else is stale and fails loudly.
+A node with an occurrence overlay (promoted values) or projected
+connectivity elaborates per occurrence; everything else keeps the
+per-definition cache. The two caches key differently and must never mix: a
+definition-cache hit for an overlaid node silently shows one instance another
+instance's state. The occurrence cache keys on the full occurrence key
+(instance path + node), which is injective because ids cannot contain the
+packing character.
 
 ## Type-driven dynamic constructs
 
@@ -424,8 +340,9 @@ from regressing into the callback cascade.
 
 ### T1. Specialization is a stored choice, never a solved type
 
-The connect gesture writes the chosen variant into the node's stored values;
-elaboration reads only (schema, stored values, link existence), as always.
+The connect gesture writes the chosen variant of a type choice into the
+node's stored dynamic state; elaboration reads only (schema, stored values
+and dynamic state, link existence), as always.
 Two reads stay forbidden no matter how convenient: elaboration reading
 solved types, and elaboration reading another node's elaborated interface
 (declared-type dispatch was rejected - cross-node elaboration reads can
@@ -443,22 +360,23 @@ marks the mismatch. Only a user-visible command may rewrite the stored
 choice - no derive-time "helpful" rewriting, which would be document mutation
 from derived state and would break undo, replay, and exact reproduction.
 
-## Nested dynamics and member paths
+## Nested boxes and flattened ids
 
-Dynamic constructs nest arbitrarily inside Autogrow templates - including
-Autogrow-in-Autogrow - because custom packs invent their own dynamic schemes
-and the system must absorb them without hacks. The generalization is bought
-with exactly one identity change (member id -> member-id path) plus the
-invariants below; each one closes a treadmill the design review identified.
+Groups, choices and type choices nest inside one another in the node body
+because custom packs invent their own dynamic schemes and the system must
+absorb them without hacks. Every row is addressed by one flattened id
+([Node body](node-body.md)), and the invariants below keep that identity
+stable.
 
-### N1. Member identity is a path of stable ids; ordering lives in ONE place
+### N1. Identity is the flattened id; ordering lives in ONE place
 
-`PortRef.members` is one generated id per family crossed, outermost first.
-The family's `members` list is the sole ordering source; nested per-member
-state lives in member-ID-KEYED metadata (`memberState[id]`), never in
-array-indexed structures (an array-index patch changes meaning when an
-earlier member is removed). Ids are never recycled (`seq` is monotonic),
-never derived from ordinals, labels, or api names.
+A row's flattened id is its stored value key, link port and run input name;
+elaboration never sets `PortRef.members`. A group's stored `members` list is
+the sole ordering source, and the node's dynamic state is keyed by flattened
+id, never by array index (an array-index patch changes meaning when an
+earlier member is removed). A stored member key comes from the group's
+naming rule, is never recycled (`seq` is monotonic), and never changes when
+other members are added or removed.
 
 ### N2. One canonical state representation - no unions, ever
 
@@ -470,42 +388,38 @@ touched the state. Terse authoring belongs in test builders, not the format.
 
 ### N3. Materialization is atomic and command-side
 
-A gesture on any port in a ghost subtree (connect, assign, select) is ONE
-transaction: materialize implicit minimum ancestors, promote the single
-ghost ancestor, bump each affected family's `seq`, write the link/value/
-selection, one undo step. "Normalization catches up a frame later" is not a
-valid steady state: a committed document never references unmaterialized
-members, and a loaded violation is a diagnostic - elaboration NEVER mutates
-state to compensate. At most one ghost ancestor exists on any rendered
-address (no ghosts under ghosts), so promotion is never ambiguous.
+A gesture on any row of a member the node shows but does not store
+(connect, assign, select) is ONE transaction: store every offered member on
+its path (the row's `dynamic.materialize` frames, which also advance each
+group's `seq`), then write the link, value or selection - one undo step.
+"Normalization catches up a frame later" is not a valid steady state: a
+committed document never references a member it does not store, and a loaded
+violation is a diagnostic - elaboration NEVER mutates state to compensate.
+Inside an offered member, nested groups show their minimum and no spare.
 
-### N4. Handlers get a scope-local state cursor and compositional ancestry
+### N4. Elaboration is one walk with orthogonal ancestry
 
-Entering a member hands the child scope that member's nested state as its
-root; combo/slot scopes extend a local prefix. Handlers NEVER resolve state
-by walking or parsing paths outward - that couples the accessor to every
-dynamic kind. Elaborated ancestry (member path, ghost flag) is orthogonal
-to the leaf role (member/selector/branch/slot/dependent), and ghost-subtree
-compile exclusion is enforced centrally by scoped emission - a third-party
-handler must not be able to accidentally compile a ghost descendant.
+Elaboration reads state by flattened id; nothing resolves state by walking
+or parsing paths outward from a row. Elaborated ancestry (groups crossed,
+offered flag) is orthogonal to the row's role (member, selector, branch,
+slot, dependent), and the rule that offered members never compile is
+enforced centrally by scoped emission, not per row kind.
 
 ### N5. Hard budgets, not warnings
 
-Nested caps multiply (10^depth). Parser, validator, and elaborator enforce
-hard depth AND total-item/port budgets that fail deterministically (declared
-/member order) with ONE error - never exponential work followed by a warning,
-never a silently truncated prompt.
+Nested caps multiply. Parser, validator, and elaborator enforce hard budgets
+(16 nested boxes, 512 members per group, 1024 flattened rows) that fail
+deterministically, in declared and member order, with ONE error - never
+exponential work followed by a warning, never a silently truncated prompt.
 
-### N6. Packed keys are opaque and injective
+### N6. Ids keep flattened paths unambiguous
 
-`items.sub#m0#g0` is an address-derived key for value maps and elab keys.
-It is built from structured `PortAddress` only, via the canonical helpers
-(`portAddressKey`/`samePortAddress` and kin) - every endpoint comparison
-uses them, no ad hoc packing. Nothing ever splits a stored key to recover
-semantics, and reserved characters are strictly rejected in ids (injectivity
-is load-bearing). Safe because segments are stable ids, not ordinals; it
-becomes the positional bug again the moment a member id is recomputed from
-position.
+Row ids (`[A-Za-z_][A-Za-z0-9_]*`) and member keys (`[A-Za-z0-9_]+`) never
+contain '.', so a flattened id has exactly one reading. Endpoint keys are
+built from structured `PortAddress` only, via the canonical helpers
+(`portAddressKey`/`samePortAddress` and kin) - every endpoint comparison uses
+them, no ad hoc packing. A member key is stable; it becomes the positional
+bug again the moment a key is recomputed from a member's position.
 
 ## General watch-list (non-reroute)
 

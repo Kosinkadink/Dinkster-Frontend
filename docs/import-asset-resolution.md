@@ -175,44 +175,40 @@ their ordinary result list. Legacy schemas use structural region
 translation. Promoted widgets retain their authored instance values through
 generated loop definitions, including nested loops inside imported subgraphs.
 
-ComfyUI serializes widget values positionally. For a DynamicCombo it writes
-the selector first, then the selected branch's widget values in schema order,
-then resumes the containing branch or node. Dinkster's importer decodes that
-stream recursively and persists branch values with the same keys used by the
-normal elaboration path, such as `model.[wan2.7-r2v].prompt`. Controller
-companions such as `control_after_generate` consume their extra position and
-preserve their stored mode inside branches exactly as they do at node top
-level. Changing or advancing a nested controller remains deferred because the
-controller command and execution paths currently resolve top-level inputs.
+ComfyUI serializes widget values positionally. For a DynamicCombo, which is a
+choice in the Dinkster node body, it writes the selector first, then the
+chosen option's widget values in schema order, then resumes the containing
+option or node. Dinkster's importer decodes that stream recursively, stores
+the choice's key, and stores option values under their flattened ids, such as
+`model.prompt` (see [Node body](node-body.md)). Controller companions such as
+`control_after_generate` consume their extra position and preserve their
+stored mode inside options exactly as they do at node top level.
 
-If a selector is not a valid schema branch, import keeps the schema default,
-emits `import.dynamic.unknownSelector`, stops decoding that node, and stores
-the unaligned tail in `ext["importer.excessWidgetValues"]`. It never assigns
-later values after positional alignment is lost.
+If a selector is not an option of the choice, import emits
+`import.dynamic.unknownSelector`, stops decoding that node, and stores the
+unaligned tail in `ext["importer.excessWidgetValues"]`. A choice led by a
+formula emits `import.dynamic.ledChoice` and stops the same way. The importer
+never assigns later values after positional alignment is lost.
 
-Autogrow links are reconstructed from the current node schema. Prefix families
-accept their declared ordinal vocabulary and grouped forms; names families
-accept only declared member names. Recognized links create persisted members
-and member-qualified Dinkster endpoints instead of retaining ComfyUI wire names.
-Unlinked socket-only placeholders do not create members beyond the declared
-minimum. Widget-backed members retain their authored values and order.
-Prefix member IDs follow first linked input-slot appearance, not numeric or
-object-key sorting: sparse or out-of-order `image2`, `image0` becomes `m0`,
-`m1`. Names families retain the declared name as identity. A family-scoped
-wire name that matches no declared family emits
-`import.dynamic.autogrowWireUnknown` and remains unresolved rather than being
-guessed.
+Autogrow links are reconstructed as members of the matching group of the
+current node schema. A wire name `<group>.<key>` or `<group>.<key>.<row>`
+names a member key the group's naming rule can make, and the flat ComfyUI form
+`<row><N>` of a numbered group names the member at number N. Members are
+stored in the order the serialized inputs first name them, then each group is
+filled to its minimum. Recognized links become flattened-id Dinkster
+endpoints. Unlinked socket-only placeholders do not create members. A
+group-scoped wire name that matches no member, or more than one, emits
+`import.dynamic.autogrowWireUnknown` or `import.dynamic.autogrowWireAmbiguous`
+and remains unresolved rather than being guessed.
 
-Positional Autogrow widget values remain deferred. Encountering Autogrow at
-node top level or while traversing an active DynamicCombo branch emits
+Positional widget values of reconstructed members are decoded member by
+member. A member that holds a group, choice, type choice or described row,
+or a group whose members could not be reconstructed, emits
 `import.dynamic.autogrowUnsupported`, stops decoding that node, and preserves
-the remaining positional values in the same excess-value extension. Link
-cardinality alone does not establish an unambiguous foreign widget walk, so
-the importer does not guess-assign that tail. DynamicSlot is not traversed or
-treated as a stop boundary; if ComfyUI
-serializes connected slot dependents positionally, later values may still be
-misaligned. Its foreign positional/connectivity semantics and LiteGraph
-subgraph definitions are deferred; see `rework-queue.md`.
+the remaining positional values in the same excess-value extension. Rows
+under a type choice (ComfyUI DynamicSlot) take no positions; if ComfyUI
+serializes connected slot dependents positionally, later values may be
+misaligned.
 
 ## Backend compat-boundary porting (server-side, informational)
 

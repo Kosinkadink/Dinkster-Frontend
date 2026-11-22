@@ -60,8 +60,8 @@ For example, while regions reject cross and broadcast binding.
 Ordinary subgraphs keep the existing definition-scoped Boundary panel. Region
 controls appear only when the current definition was reached through an
 immediate region occurrence. A missing or stale occurrence path fails closed
-and hides those controls. See [Boundary editor](boundary-editor.md) for nested
-slot exposure, read-only, unavailable, and diagnostic states.
+and hides those controls. See [Boundary editor](boundary-editor.md) for
+forwarding, read-only, unavailable, and diagnostic states.
 
 ## Use the iteration index
 
