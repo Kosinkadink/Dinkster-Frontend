@@ -229,6 +229,8 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+  gap: 6px;
+  padding-right: 6px;
   overflow: hidden;
 }
 

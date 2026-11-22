@@ -150,6 +150,7 @@ body,
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: var(--dinkster-surface-frame);
 }
 
 .brand-wordmark { display: inline-flex; width: 110px; aspect-ratio: 1559.7712 / 472.60001; vertical-align: middle; }
