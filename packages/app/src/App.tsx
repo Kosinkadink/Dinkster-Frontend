@@ -1210,7 +1210,7 @@ export function App(props: {
       <div class="runs-row-heading">
         <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
           onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
-        <span>{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
+        <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
         <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
         <CancelExecutionButton app={app} execution={p.exec} />
       </div>

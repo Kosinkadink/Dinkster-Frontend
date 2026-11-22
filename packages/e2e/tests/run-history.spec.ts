@@ -18,7 +18,7 @@
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
-import { expect, nativeTest, productOption, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -125,14 +125,10 @@ async function durableRecords(): Promise<readonly {
   }[] }).records
 }
 
-/** Open the library overlay on the Runs source. */
+/** Open backend history in the right-side Runs panel. */
 async function openRuns(page: Page): Promise<void> {
-  await page.getByTestId('library-toggle').click()
-  const library = page.getByTestId('library-overlay')
-  await expect(library).toBeVisible()
-  const runsTab = library.locator('[data-testid=collection-source][data-source=runs]')
-  if (await runsTab.isVisible()) await runsTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'runs')
+  await openRailPanel(page, 'Runs')
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
 }
 
 /** The runs entry whose subtitle is the run's jobId prefix. */
@@ -169,8 +165,9 @@ test('a durable stamped record: click selects, the open action reopens the produ
   // Click selects and inspects - it must NOT open anything or close the
   // panel (that would make the delete affordance unreachable).
   await entry.click()
-  await expect(page.getByTestId('library-overlay')).toBeVisible()
-  await expect(entry.getByTestId('collection-details')).toContainText('source document')
+  await expect(page.getByTestId('runs-panel')).toBeVisible()
+  await entry.locator('.runs-details > summary').click()
+  await expect(entry.locator('.output-facts').first()).toContainText('source document')
 
   // Diverge the live document, then reopen the run: the open action must
   // restore the EXACT producing document. Tab identity is the document
@@ -183,7 +180,7 @@ test('a durable stamped record: click selects, the open action reopens the produ
   })
   const tabsBefore = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
   await entry.locator('[data-testid=collection-action][data-action=open]').click()
-  await expect(page.getByTestId('library-overlay')).not.toBeVisible()
+  await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['grad']!.values['width'],
   )).toBe(8)
@@ -245,7 +242,8 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
   await entry.click()
-  const sourceDoc = await entry.getByTestId('collection-details').locator('dd')
+  await entry.locator('.runs-details > summary').click()
+  const sourceDoc = await entry.locator('.output-facts').first().locator('dd')
     .filter({ hasText: /^blake3:/ }).first().textContent()
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
 
@@ -348,7 +346,7 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   await assets.getByTestId('collection-search').fill('run-history-clear-empty-state')
   await expect(assets.getByTestId('collection-empty')).toBeVisible()
   await openRuns(page)
-  await expect(assets).toBeHidden()
+  await expect(assets).toBeVisible()
   await expect(page.getByTestId('collection-entry').first()).toBeVisible()
 
   const clear = page.getByTestId('collection-source-action')
@@ -359,7 +357,7 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   await expect(page.getByTestId('collection-entry').first()).toBeVisible()
 
   await clear.click()
-  await expect(page.getByTestId('library-overlay').getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('runs-panel').getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }
   expect(listing.records).toHaveLength(0)
