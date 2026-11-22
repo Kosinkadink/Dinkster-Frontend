@@ -31,7 +31,8 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--dinkster-surface-inset);
+  /* The fill the canvas paints a field with, so opening the box keeps it. */
+  background: var(--dinkster-surface-field);
   border-radius: inherit;
 }
 /* The outline is drawn over the masks and the bar inside the box. */

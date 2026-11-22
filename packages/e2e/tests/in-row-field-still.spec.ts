@@ -184,6 +184,21 @@ async function textBoxStrips(page: Page, scale: number): Promise<Clip[]> {
   }, scale)
 }
 
+/** The clip's fill: the median of each color channel, so ink does not count. */
+async function fill(page: Page, clip: Clip): Promise<number[]> {
+  const png = await page.screenshot({ clip })
+  return page.evaluate(async (base64) => {
+    const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob())
+    const context = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d')!
+    context.drawImage(bitmap, 0, 0)
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height)
+    return [0, 1, 2].map((channel) => {
+      const values = data.filter((_, index) => index % 4 === channel).sort((a, b) => a - b)
+      return values[Math.floor(values.length / 2)]!
+    })
+  }, png.toString('base64'))
+}
+
 for (const scale of [1, 1.5, 2]) {
   test(`clicking into a text box moves nothing in it at ${scale * 100} percent`, async ({ page }) => {
     const boxes: [string, string, number | null][] = [
@@ -199,6 +214,7 @@ for (const scale of [1, 1.5, 2]) {
       }, [value, lines] as const)
       const strips = await textBoxStrips(page, scale)
       await page.mouse.move(1, 1)
+      const closedFill = await fill(page, strips[1]!)
       const closed = []
       for (const strip of strips) closed.push(await marks(page, strip))
       expect(closed[0]!.length, `${name}: the label is found`).toBeGreaterThanOrEqual(1)
@@ -211,6 +227,7 @@ for (const scale of [1, 1.5, 2]) {
       const area = page.getByTestId('widget-editor').locator('textarea')
       await expect(area).toBeFocused()
       await page.mouse.move(1, 1)
+      expect(await fill(page, strips[1]!), `${name}: the box keeps its fill`).toEqual(closedFill)
       for (const [index, strip] of strips.entries()) {
         const open = await marks(page, strip)
         expect(open.length, `${name}: strip ${index} has the same runs of ink`).toBe(closed[index]!.length)
