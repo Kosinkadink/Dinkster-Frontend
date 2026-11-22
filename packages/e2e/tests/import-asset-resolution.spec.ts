@@ -1,4 +1,4 @@
-import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const MOCK = 'http://asset-guesses.test'
@@ -72,7 +72,7 @@ async function setup(page: Page, guesses: Guesses): Promise<void> {
     await route.fulfill({ json: { matches: body.names.map((query) => ({ query, candidates: guesses[query] ?? [] })) } })
   })
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.getByTestId('backends-toggle').click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()

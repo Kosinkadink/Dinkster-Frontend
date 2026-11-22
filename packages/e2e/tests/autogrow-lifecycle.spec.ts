@@ -3,7 +3,7 @@
  * intentionally uses real CanvasHost pointer gestures for ghost promotion and
  * automatic disconnect compaction and one-step undo/redo restoration.
  */
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function pinPoint(
   page: Page,
@@ -100,7 +100,7 @@ async function openWorkflow(page: Page): Promise<void> {
 test('grouped forwarded disconnect compacts atomically and never recycles identity', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await openWorkflow(page)
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()

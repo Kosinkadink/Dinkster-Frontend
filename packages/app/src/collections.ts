@@ -158,7 +158,7 @@ export function packsSource(app: AppState): CollectionSource {
           ],
           ...(info.icon !== undefined && backend !== undefined
             ? { thumbRender: async (signal?: AbortSignal) => {
-                if (signal === undefined) throw new Error('Pack preview ownership unavailable')
+                if (signal === undefined) throw new Error('Pack preview request unavailable')
                 const blob = await backend.connection.fetchPackIcon(packId, signal)
                 signal.throwIfAborted()
                 const url = URL.createObjectURL(blob)
@@ -286,7 +286,7 @@ export function templatesSource(app: AppState): CollectionSource {
             ...(thumbUrl === undefined ? {} : { thumbUrl }),
             ...(remoteTemplate === undefined && template.thumbnail !== undefined ? {
               thumbRender: async (signal?: AbortSignal) => {
-                if (signal === undefined) throw new Error('Template preview ownership unavailable')
+                if (signal === undefined) throw new Error('Template preview request unavailable')
                 const blob = await backend.connection.fetchTemplateThumbnail(template.pack, template.id, signal)
                 signal.throwIfAborted()
                 const url = URL.createObjectURL(blob)

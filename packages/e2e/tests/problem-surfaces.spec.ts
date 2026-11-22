@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { expect, mockProjectPacks, nativeTest as base, waitForStartupOwnership } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as base, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const test = base.extend<{ proofDocument: boolean }>({ proofDocument: [true, { option: true }] })
@@ -61,7 +61,7 @@ test.beforeEach(async ({ page, proofDocument }) => {
   if (!proofDocument) return
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([
       {
@@ -112,7 +112,7 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
     await mockProjectPacks(page, ['models', 'modifier'])
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await page.evaluate(async () => {
       await window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'resident-process', root: 'g0',
@@ -124,7 +124,7 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
       }, 'Resident model')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await expect.poll(() => page.evaluate(() => {
       const app = window.__dinksterTest!.app
       return app.previewComparisonCompile(app.activeTab()!) !== undefined

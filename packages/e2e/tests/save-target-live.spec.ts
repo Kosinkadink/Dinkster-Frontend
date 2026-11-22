@@ -1,6 +1,5 @@
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 test('save destination writes the selected relative prefix through the real backend', async ({ page, request }, testInfo) => {
   const mountsResponse = await request.get(`${process.env['DINKSTER_NATIVE_BACKEND']}/api/mounts`)
@@ -11,7 +10,7 @@ test('save destination writes the selected relative prefix through the real back
   const chosenMount = writable[writable.length - 1]!.id
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target-live', root: 'g0',

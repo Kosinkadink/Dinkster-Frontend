@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 
@@ -22,8 +22,7 @@ const runtimeSettings = {
 }
 
 async function installRoutes(page: Page): Promise<void> {
-  await page.route('**/api/**', (route) => /\/api\/library\/retention(?:s\/|-clients(?:\?|$))/.test(route.request().url())
-    ? route.fallback() : route.fulfill({ json: {} }))
+  await page.route('**/api/**', (route) => route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ json: {
     protocol: 1,
     state: 'ready',
@@ -50,7 +49,7 @@ async function installRoutes(page: Page): Promise<void> {
 async function openFixture(page: Page): Promise<void> {
   await installRoutes(page)
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const local = app.backends.get()[0]!
