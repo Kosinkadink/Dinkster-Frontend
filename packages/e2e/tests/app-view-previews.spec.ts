@@ -154,9 +154,12 @@ test('a compact pre-execution surface promotes to App View', async ({ page }) =>
   }
   const compact = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'other')!
-    return { compact: node.layout.preview?.compact, height: node.layout.preview?.height }
+    // A compact preview takes exactly one row.
+    const renderer = window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { rowHeight: number } }
+    const rowHeight = renderer.getDesignTokens().rowHeight
+    return { compact: node.layout.preview?.compact, height: node.layout.preview?.height, rowHeight }
   })
-  expect(compact).toEqual({ compact: true, height: 24 })
+  expect(compact).toEqual({ compact: true, height: compact.rowHeight, rowHeight: compact.rowHeight })
   await screenshotGraph('00-pre-execution-compact.png')
 
   const widgetPoint = await canvasPoint(page, 'count', 'other')

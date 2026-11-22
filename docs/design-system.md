@@ -84,12 +84,15 @@ choose a light or dark foreground against their actual fill, including the
 hovered fill.
 
 - `ProductShell` owns the frame and responsive navigation. With site density,
-  its 1040px centered frame contains 220px navigation and a 32px content gap.
+  its 1040px centered frame contains 220px navigation and a 32px content gap,
+  while the top bar's wordmark, Account product label and 32px account circle
+  span the window 24px from its edges (8px on phones).
   With app density the sidebar spans the window's left edge. In both densities
   the content column is centered in the space beside the navigation (in the
   whole window without it); headings, text and content inside the column stay
-  left-aligned.
-  Its wordmark, Account product label and 32px account circle share that frame.
+  left-aligned. `contentDensity` sets a different density for the page area
+  than the root's, such as site-density components inside the app-density
+  frame; the page area then takes that density's body type.
   On phones the navigation is a 240px overlay aligned 8px from the window edge
   and 4px below its toggle button; it closes on an outside press, Escape or a
   choice without moving the page. A navigation item may carry headed groups
@@ -216,9 +219,12 @@ Gallery routes `#site-security` (alice and the reference Security rows),
 and `#site-card` (centered sign-in/providers) exercise the shared patterns.
 The Security route has computed-geometry and interaction checks at 1280,
 1440, 1920 and 390px; screenshots are captures, not an approved baseline.
-The canvas gallery uses app density and its full-width shell rather than the
-centered account frame; as on every shell page, its content column is
-centered beside the sidebar.
+The component gallery's own pages use the Canvas page's app-density frame
+(full-height side list, top bar across the window, content centered beside the
+list) while their content keeps site density, so the components show their
+site sizes. Below the 768px breakpoint the pages other than Canvas keep the
+site density's narrow frame: wordmark, no title, and the side list as a menu
+panel.
 
 ## Shared design build checks
 
@@ -387,7 +393,7 @@ stale entries and lower ceilings. Write mode never permits count increases.
 `packages/app/src/styles.css` is the ordered entrypoint for the surface files
 in `styles/`. Keep imports in cascade order: base and product controls, search
 and modals, canvas and widget surfaces, panels and library, shell and execution
-log, widget assets and App view, collaboration and boot, then image editor.
+log, widget assets and App view, then collaboration, boot and shared editors.
 Keep each surface's responsive and reduced-motion rules beside its rules;
 do not regroup selectors across files if that changes override order.
 The `cssLiteral` entry for `styles.css` aggregates the entrypoint and every
@@ -418,19 +424,6 @@ after dismissal; Escape, Tab and outside clicks dismiss without cancelling the
 submitted command. Synchronous select callers keep their immediate behavior.
 Option IDs preserve pointer targets across inventory refreshes and reordering;
 labels, values and disabled state follow the current inventory.
-
-The compositor editor uses the same buttons, number inputs, checkboxes,
-sliders, text input and select controls as the Image document workspace.
-Layer selection and flips expose pressed state with the primary variant.
-`ProductColorInput` keeps the native color picker and forwards native input
-props while using shared input styling; the compositor retains lowercase
-color storage. Recipe edits, preview geometry and apply/refusal rules remain
-owned by the editor, not by the controls.
-
-The compositor uses ProductEmptyState when no target is open or when the
-selected run has no compositor sources. The latter keeps the explanation that
-the layer stack stays in the graph; Cancel remains enabled and Apply stays
-disabled until runtime data supplies a configurable recipe.
 
 The GLSL editor uses ProductEmptyState for missing targets, absent runtime
 inputs and unavailable browser previews. Preview refusals stay neutral while
@@ -490,7 +483,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
-| Border      | subtle, strong, focus, selected                                                                 |
+| Border      | subtle, hover, strong, focus, selected                                                          |
 | Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
@@ -501,6 +494,16 @@ Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
+
+Every scrolling surface in the app, the gallery and the site uses one scrollbar
+from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
+the surface behind shows, and a fully rounded thumb 1 px clear of each side.
+The thumb is `border-subtle` at rest, `border-hover` under the pointer and
+`border-strong` while dragged. Firefox, which has no `::-webkit-scrollbar`,
+gets `scrollbar-width: thin` with the resting color on a transparent track.
+Chrome ignores the WebKit rules on an element that sets `scrollbar-width` or
+`scrollbar-color`, so a surface does not set either; it may reserve the space
+with `scrollbar-gutter: stable`.
 
 `pnpm check:raw-controls` also rejects undefined `--dinkster-*` references in
 app TypeScript and every app stylesheet. Use a name from the shared projection
@@ -946,9 +949,43 @@ screenshot baselines do not use fallback text.
 `ProductWindowChrome` reserves the native title-bar overlay area and the
 macOS traffic-light inset, uses the shared 56px bar and palette, and marks
 its empty background draggable while its contents remain non-draggable.
-The host supplies the exact title and platform. The gallery shows Windows,
-Linux and macOS geometry; native Electron control behavior is checked by
-the adopting Desktop application, not the browser gallery.
+The host supplies the exact title and platform. Optional `qa` and `development`
+flags add `ProductWindowIdentity` inside the bar. The visible Development label
+has the full unpublished-project explanation as its title. QA and development
+labels stack at narrow widths instead of occupying the bottom-right toast
+corner; the existing toast inset is unchanged. The gallery shows Windows,
+Linux and macOS geometry;
+native Electron control behavior is checked by the adopting Desktop application,
+not the browser gallery.
+
+The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
+`DinksterDesktopChrome.install({title, platform, theme, qa?, development?})`,
+and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
+scoped shared CSS with embedded Noto fonts plus token-derived native overlay
+colors/height and macOS traffic-light position. The installer reuses the first
+`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
+without one it prepends `ProductWindowChrome`. If the app later creates or
+replaces its bar, the installer moves its markings there and removes its own
+fallback; removing the app bar restores the fallback. Reinstallation disconnects
+the prior observer and replaces only its own markings/fallback. The host inserts
+the supplied CSS and runs the
+installer after document load, using its existing isolated renderer boundary.
+The bundle has an embedded symbol, no network imports, no Node/Electron API and
+no preload bridge. Content styles and the page's CSP remain host-owned. Both
+files are hashed by the site manifest and required by the wheel packager.
+
+`ProductWindowToolbar` composes the same native geometry with brand, search and
+actions slots, an optional service label and QA/development identity. It has a
+fixed 56px height. At the standard 768px available-content boundary, a container
+query compacts `ProductWindowAction` labels to icons and moves service/identity
+labels into a metadata row inside the bar. Native reservations therefore reduce
+available space before the breakpoint is evaluated. Actions retain their full
+accessible name and title; pending actions reuse the shared disabled/focus and
+spinner behavior. The gallery's Window toolbar page demonstrates production,
+QA/custom services, all three platforms, both app themes and idle/running/pending
+states. Supply a brand menu with an icon and the fixed QA/custom service labels;
+arbitrary environment names are outside this toolbar contract. These are shared
+patterns, not app adoption or OS-input acceptance.
 
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host

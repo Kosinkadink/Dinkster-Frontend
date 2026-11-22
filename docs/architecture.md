@@ -351,9 +351,8 @@ pending documents. Commit refuses a changed confirmed baseline, rebuilt store,
 history or connection status before optimistic publication and submission. The
 candidate's history record is installed before document observers run.
 
-Image apply and image-document export commands use an awaited retained
-dispatch path. Native commands through `AppState.dispatchTo` also use that path
-when the candidate introduces a known asset digest. Existing malformed identities
+Native commands through `AppState.dispatchTo` use an awaited retained
+dispatch path when the candidate introduces a known asset digest. Existing malformed identities
 and census uncertainty alone do not delay asset-neutral commands or migrations.
 The selection compares the captured current and candidate
 documents; admission includes their history and shared pending roots. Direct

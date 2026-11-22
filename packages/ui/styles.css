@@ -14,6 +14,17 @@
   outline-offset: var(--dinkster-focus-ring-width);
 }
 .dinkster-root [hidden] { display: none !important; }
+/* One quiet scrollbar for every surface: no track, a rounded thumb 1 px clear of each side that brightens under the pointer and while dragged. */
+*::-webkit-scrollbar { width: var(--dinkster-scrollbar-size); height: var(--dinkster-scrollbar-size); }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-thumb { min-width: var(--dinkster-space-24); min-height: var(--dinkster-space-24); border: var(--dinkster-border-width) solid transparent; border-radius: var(--dinkster-radius-card); background-color: var(--dinkster-border-subtle); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--dinkster-border-hover); }
+*::-webkit-scrollbar-thumb:active { background-color: var(--dinkster-border-strong); }
+*::-webkit-scrollbar-button { display: none; }
+/* Chrome ignores the rules above on an element that sets either standard property, so only browsers without them get the standard ones. */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--dinkster-border-subtle) transparent; }
+}
 :root:has(.dinkster-topbar) { scroll-padding-top: calc(var(--dinkster-top-bar-height) + var(--dinkster-space-16)); }
 .dinkster-shell { display: grid; min-height: 100dvh; grid-template: var(--dinkster-top-bar-height) 1fr / var(--dinkster-sidebar-width) minmax(0, 1fr); }
 .dinkster-shell[data-navigation='false'] { grid-template-columns: minmax(0, 1fr); }
@@ -33,6 +44,8 @@
 .dinkster-nav-page:hover { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
 .dinkster-nav-page[aria-current='page'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); }
 .dinkster-page { min-width: 0; padding: var(--dinkster-page-padding); }
+/* Content in another form than the shell's takes that form's body type, which it would otherwise inherit from the root. */
+.dinkster-page[data-density] { font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-root .dinkster-page:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 /* Centered in the space beside the sidebar; its contents stay left-aligned. */
 .dinkster-content { max-width: var(--dinkster-content-max-width); margin-inline: auto; }
@@ -112,9 +125,42 @@
 .dinkster-about > p { margin: 0; }
 .dinkster-about-window { display: grid; min-height: 100vh; }
 .dinkster-about-wordmark { display: block; width: 100%; max-width: var(--dinkster-about-wordmark-max-width); height: auto; }
-.dinkster-window-chrome { display: flex; align-items: center; gap: var(--dinkster-space-8); height: var(--dinkster-top-bar-height); padding-left: calc(env(titlebar-area-x, 0px) + var(--dinkster-space-12)); padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + var(--dinkster-space-12)); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); -webkit-app-region: drag; }
-.dinkster-window-chrome[data-platform='darwin'] { padding-left: calc(var(--dinkster-mac-window-controls-inset) + var(--dinkster-space-12)); }
-.dinkster-window-chrome > * { -webkit-app-region: no-drag; }
+.dinkster-window-chrome { height: var(--dinkster-top-bar-height); }
+:is(.dinkster-desktop-bar, [data-desktop-chrome])[data-platform] { box-sizing: border-box; display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; height: var(--dinkster-top-bar-height); min-height: var(--dinkster-top-bar-height); padding-block: 0; padding-left: calc(env(titlebar-area-x, 0px) + var(--dinkster-space-12)); padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + var(--dinkster-space-12)); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); -webkit-app-region: drag; }
+:is(.dinkster-desktop-bar, [data-desktop-chrome])[data-platform='darwin'] { padding-left: calc(var(--dinkster-mac-window-controls-inset) + var(--dinkster-space-12)); }
+:is(.dinkster-desktop-bar, [data-desktop-chrome]) > * { -webkit-app-region: no-drag; }
+:is(.dinkster-desktop-bar, [data-desktop-chrome]) .dinkster-brand-title { flex: 1; min-width: 0; }
+:is(.dinkster-desktop-bar, [data-desktop-chrome]) .dinkster-brand-mark { width: var(--dinkster-space-24); height: var(--dinkster-space-24); flex: none; }
+.dinkster-window-identity { display: flex; flex-direction: column; align-items: flex-end; flex: none; margin-left: auto; color: var(--dinkster-warning-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-bold); white-space: nowrap; }
+.dinkster-window-toolbar-host { container-type: inline-size; }
+.dinkster-window-toolbar-host > .dinkster-window-toolbar { -webkit-app-region: drag; }
+.dinkster-window-toolbar > * { -webkit-app-region: no-drag; }
+.dinkster-window-toolbar { display: grid; grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto; align-items: center; gap: var(--dinkster-space-4); width: 100%; min-width: 0; }
+.dinkster-window-toolbar-brand { grid-column: 1; grid-row: 1; }
+.dinkster-window-toolbar-search { grid-column: 2; grid-row: 1; justify-self: start; }
+.dinkster-window-toolbar-actions { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: var(--dinkster-space-4); }
+.dinkster-window-toolbar-service { grid-column: 4; grid-row: 1; justify-self: start; white-space: nowrap; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.dinkster-window-toolbar > .dinkster-window-identity { grid-column: 5; grid-row: 1; }
+.dinkster-window-action { display: inline-flex; }
+.dinkster-window-action-icon { display: none; }
+@container (max-width: DINKSTER_SIDEBAR_BREAKPOINT) {
+  .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto; column-gap: 0; }
+  .dinkster-window-toolbar:has(.dinkster-window-toolbar-service, .dinkster-window-identity) { grid-template-rows: var(--dinkster-type-metadata-line) var(--dinkster-control-compact-height); row-gap: 0; }
+  .dinkster-window-toolbar:has(.dinkster-window-toolbar-service, .dinkster-window-identity) > :is(.dinkster-window-toolbar-brand, .dinkster-window-toolbar-search, .dinkster-window-toolbar-actions) { grid-row: 2; }
+  .dinkster-window-toolbar-service { grid-column: 1 / -1; }
+  .dinkster-window-toolbar > .dinkster-window-identity { grid-column: 1 / -1; flex-direction: row; justify-self: end; gap: var(--dinkster-space-4); }
+  .dinkster-window-toolbar-actions { gap: 0; }
+  .dinkster-window-toolbar .dinkster-window-action > .dinkster-button { width: var(--dinkster-control-compact-height); height: var(--dinkster-control-compact-height); padding-inline: 0; }
+  .dinkster-window-toolbar .dinkster-window-action-label,
+  .dinkster-window-toolbar-brand .dinkster-menu-label { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
+  .dinkster-window-toolbar .dinkster-window-action-icon { display: inline-flex; }
+  .dinkster-window-toolbar .dinkster-window-action:has([aria-busy='true']) .dinkster-window-action-icon { display: none; }
+  .dinkster-window-toolbar-brand .dinkster-menu-trigger { width: var(--dinkster-control-compact-height); padding-inline: 0; }
+  .dinkster-window-toolbar-brand .dinkster-menu-trigger > .dinkster-icon:last-child { display: none; }
+}
+.dinkster-window-identity-host { display: contents; }
+.dinkster-window-fallback { position: sticky; top: 0; z-index: 1; }
+.dinkster-desktop-preview { contain: layout paint; min-width: 0; height: calc(var(--dinkster-top-bar-height) * 6); background: var(--dinkster-surface-canvas); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-about-preview { background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
 .dinkster-choice { display: flex; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-check { accent-color: var(--dinkster-accent-foreground); }
@@ -134,7 +180,8 @@
 .dinkster-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 [data-density='site'] .dinkster-shell { display: block; }
 [data-density='site'] .dinkster-topbar { height: var(--dinkster-top-bar-height); padding: 0; z-index: 2; }
-[data-density='site'] .dinkster-topbar-inner { display: flex; justify-content: space-between; align-items: center; width: calc(100% - var(--dinkster-site-tablet-page-margin) * 2); max-width: var(--dinkster-site-shell-max-width); margin-inline: auto; }
+/* The top bar's contents span the window at the page margin; the navigation and content below stay in the centered frame. */
+[data-density='site'] .dinkster-topbar-inner { display: flex; justify-content: space-between; align-items: center; width: calc(100% - var(--dinkster-site-tablet-page-margin) * 2); margin-inline: auto; }
 [data-density='site'] .dinkster-brand { gap: var(--dinkster-space-12); }
 [data-density='site'] .dinkster-brand > .dinkster-brand-mark { display: none; }
 [data-density='site'] .dinkster-brand > .dinkster-wordmark { display: block; width: var(--dinkster-site-wordmark-width); height: var(--dinkster-site-wordmark-height); }
@@ -254,6 +301,8 @@
 .dinkster-canvas-field-mark + .dinkster-canvas-field-input { margin-left: 0; }
 .dinkster-canvas-field-mark { position: relative; display: grid; place-items: center; flex: none; margin-left: auto; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2) 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-field-input { position: relative; flex: 0 1 auto; field-sizing: content; min-width: var(--dinkster-space-24); margin-left: auto; height: 100%; padding: 0 calc(var(--dinkster-space-4) / 2); border: 0; outline: 0; background: transparent; color: var(--dinkster-text-primary); font: inherit; text-align: right; }
+/* The open field's outline marks its focus; the input draws no ring of its own. */
+.dinkster-canvas-field .dinkster-canvas-field-input:focus-visible { outline: 0; }
 .dinkster-canvas-field-row[data-steppers='false'] .dinkster-canvas-field-input { padding-right: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-step { width: var(--dinkster-space-24); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-glyph { stroke-width: 2; }
@@ -272,6 +321,9 @@
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='right'] { border-left: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='left'] { border-right: var(--dinkster-border-width) solid var(--dinkster-border-divider); border-radius: calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
 .dinkster-canvas-field[data-look='flat-title'] .dinkster-canvas-field-side[data-place='below-field'] { border-top-color: var(--dinkster-border-divider); border-radius: 0 0 calc(var(--dinkster-radius-small) + var(--dinkster-border-width)) calc(var(--dinkster-radius-small) + var(--dinkster-border-width)); }
+/* A row the keyboard is on with nothing open: the canvas draws the row, so the frame is clear over it and leaves the pointer to the canvas. */
+.dinkster-canvas-field[data-focus='true'] { pointer-events: none; }
+.dinkster-canvas-field[data-focus='true'] .dinkster-canvas-field-row { background: transparent; }
 .dinkster-canvas-field-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-field-input::placeholder { color: var(--dinkster-text-muted); font-style: italic; opacity: 1; }
 .dinkster-canvas-field-side { position: absolute; top: 0; box-sizing: border-box; min-height: var(--dinkster-input-canvas-height); width: max-content; min-width: calc(var(--dinkster-space-32) * 5); max-width: calc(var(--dinkster-space-32) * 8); padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }
@@ -300,7 +352,9 @@
 .dinkster-canvas-side-mode:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
 .dinkster-canvas-side-mode-glyph { position: relative; width: var(--dinkster-space-12); height: var(--dinkster-space-12); stroke-width: 2.5; }
 .dinkster-canvas-side-mode-meaning { margin: 0; color: var(--dinkster-text-secondary); }
-.dinkster-canvas-side-link { padding: 0; border: 0; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); background: transparent; color: var(--dinkster-text-secondary); font: inherit; cursor: pointer; }
+/* At least 24px wide to click, however short the value; the dotted line stays under the text. */
+.dinkster-canvas-side-link { min-width: var(--dinkster-space-24); padding: 0; border: 0; background: transparent; color: var(--dinkster-text-secondary); font: inherit; text-align: left; cursor: pointer; }
+.dinkster-canvas-side-link > span { display: inline-block; vertical-align: top; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .dinkster-canvas-side-link:hover { color: var(--dinkster-text-primary); }
 .dinkster-canvas-steps { display: flex; justify-content: space-between; gap: var(--dinkster-space-16); padding-top: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-canvas-steps .dinkster-link { display: grid; gap: var(--dinkster-space-4); text-decoration: none; }

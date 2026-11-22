@@ -135,6 +135,10 @@ synthetic schema or opening its document. Catalog availability alone does not
 mean startup admission has finished; changing its captured registry or tabs
 can reject admission before shared workspace promotion starts.
 
+The live latent contract fixture also waits after creating its new workflow.
+The initial startup wait does not cover that tab's shared ownership; promotion
+during an upload invalidates the drop's captured owner before node insertion.
+
 The Activity, Extensions and Media locale proofs flush fixture persistence and
 wait for a committed version-1 snapshot with no pending workspace candidates
 before recording request baselines. Document recovery slots remain available
@@ -237,6 +241,9 @@ explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
 Product option fixtures resolve controls by option ID rather than global list
 position so collection updates cannot redirect a pending selection.
+Detached-window close actions require the page's close event and retain all
+rejoin and recovery assertions. Only a click's target-closed error on an
+already closed page is accepted; other action errors still fail the case.
 Palette surface fixtures await startup ownership before publishing schemas or
 opening their document so they do not invalidate the restored inventory's acknowledgment.
 Remote combo refresh proof waits for the previous option to detach and the

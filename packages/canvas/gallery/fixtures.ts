@@ -347,7 +347,7 @@ export function createCanvasGalleryFixture(
               [id]: {
                 position: { x, y },
                 size: { width: id === 'Narrow' ? 112 : 280, height: 0 },
-                ...(id === 'Minimized' || id === 'Long minimized'
+                ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
                   : {}),
               },
@@ -1002,6 +1002,9 @@ export function createCanvasGalleryFixture(
       'Video',
       'Audio',
       'Model',
+      'Minimized',
+      'Minimized loading',
+      'Minimized image',
     ])
       add(
         id,
@@ -1023,11 +1026,15 @@ export function createCanvasGalleryFixture(
       Video: { kind: 'video' },
       Audio: { kind: 'audio' },
       Model: { kind: 'model3d' },
+      'Minimized loading': { status: 'loading' },
     }
     fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
       ...node,
       y: 54 + Math.floor(fixture.scene.nodes.indexOf(node) / 3) * 360,
-      layout: withPreviewRegion(node.layout, tokens),
+      // The renderer gives a minimized node a strip only for a picture.
+      layout: node.layout.minimized
+        ? node.layout
+        : withPreviewRegion(node.layout, tokens),
       previewCapable: true,
     }))
     fixture.height = 1250
@@ -1191,6 +1198,42 @@ export function createRowEditingScene(
   return singleNodeScene(
     rowEditingSchema,
     { values: { seed: 123456789, denoise: 0.65 } },
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
+/** A node with a toggle and a choice beside a number, for the keyboard's focus on a row. */
+export const rowFocusSchema: NodeSchema = schema('Sample settings', [
+  {
+    ...widget('steps', 'INT', 20, { min: 1, max: 10000 }),
+    tooltip: 'Number of denoising steps.',
+  },
+  {
+    ...widget('enabled', 'BOOLEAN', true),
+    tooltip: 'Turn the pass on or off.',
+  },
+  {
+    ...widget('sampler_name', 'COMBO', 'euler', {
+      options: ['euler', 'euler_ancestral', 'dpmpp_2m'],
+    }),
+    tooltip: 'The sampling method.',
+  },
+])
+
+/** The node of the row-editing page's keyboard examples. */
+export function createRowFocusScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    rowFocusSchema,
+    {},
     { position, size: { width, height: 0 } },
     tokens,
     measure,

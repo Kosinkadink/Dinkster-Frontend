@@ -84,12 +84,9 @@
 .library-source-transition-description { width: min(100%, 440px); }
 
 :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-items {
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
   -webkit-user-select: text;
   user-select: text;
 }
-:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-items::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
-:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-items::-webkit-scrollbar-thumb { background: var(--dinkster-border-strong); border-color: var(--dinkster-surface-inset); }
 :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry {
   gap: var(--dinkster-space-8);
   padding: var(--dinkster-space-8) var(--dinkster-space-12);
@@ -193,7 +190,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--dinkster-space-8);
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
   -webkit-user-select: text;
   user-select: text;
 }
@@ -545,12 +541,7 @@
   padding-bottom: 4px;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-width: thin;
 }
-.collection-items::-webkit-scrollbar { width: 8px; }
-.collection-items::-webkit-scrollbar-track { background: var(--scrollbar-track); }
-.collection-items::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border: 1px solid var(--scrollbar-track); }
 
 .collection-items.list {
   display: flex;
