@@ -1752,6 +1752,19 @@ describe('node chrome paint on the live renderer', () => {
     renderer.dispose()
   })
 
+  it("counts a text result's own lines in its caption, not the rows it wraps to", () => {
+    const scene = fixtureScene('withMismatch')
+    const node = nodeOf(scene, 'img')
+    const long = 'a long first line that wraps over several rows in this node'
+    const caption = (text: string) => paintWith(scene, (renderer) => renderer.setNodeOutputTexts({ [node.id]: { text } }))
+      .filter((call) => call.method === 'fillText' && /^(\d+ lines?|empty)$/.test(String(call.args[0])))
+      .map((call) => call.args[0])
+    expect(caption(`${long}\n${long}\nend`)).toEqual(['3 lines'])
+    expect(caption('one\r\ntwo\n')).toEqual(['2 lines'])
+    expect(caption(long)).toEqual(['1 line'])
+    expect(caption('')).toEqual(['empty'])
+  })
+
   it('paints capped wrapped output text and a token-driven stale mark', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
