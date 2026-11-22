@@ -356,12 +356,6 @@ interface NormalizedRenditionOptions {
 
 type CachedRendition = Omit<Extract<RenditionResult, { available: true }>, 'available'>
 
-export interface ValueReadOwner {
-  read<T>(consume: () => Promise<T>): Promise<T>
-}
-
-export type ValuePeekAdmission = (query: ValueQuery, descriptor: ValueDescriptor, offer?: ResultAssetOffer) => Promise<ValueReadOwner>
-
 interface PeekIdentity {
   readonly identity: string
   readonly sequence: number
@@ -373,7 +367,6 @@ export class DinksterValuesClient {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly fetchFn: FetchLike
-  private readonly admitPeek: ValuePeekAdmission | undefined
   /** Normalized selectors plus ETag (or advertised/legacy fallback) -> bytes. */
   private readonly renditionCache = new Map<string, CachedRendition>()
   /** Query URL and announced identity -> cache key for no-network repeats. */
@@ -382,16 +375,14 @@ export class DinksterValuesClient {
   private readonly descriptorReaders = new WeakMap<ValueDescriptor, {
     readonly queryUrl: string
     readonly identity: PeekIdentity
-    readonly owner: ValueReadOwner | undefined
   }>()
   private peekSequence = 0
   private peekEpoch = 0
 
-  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike; admitPeek?: ValuePeekAdmission }) {
+  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike }) {
     this.baseUrl = opts.baseUrl
     this.clientId = opts.clientId
     this.fetchFn = opts.fetchFn ?? ((url, init) => fetch(url, init))
-    this.admitPeek = opts.admitPeek
   }
 
   private url(query: ValueQuery, rendition?: string, options?: NormalizedRenditionOptions): string {
@@ -523,15 +514,6 @@ export class DinksterValuesClient {
     const renditions = renditionsOf(b['renditions'])
     const result: ValuePeekResult = { available: true, descriptor, renditions,
       ...(resultOffer === undefined ? {} : { resultOffer }) }
-    let owner: ValueReadOwner | undefined
-    try {
-      owner = await this.admitPeek?.(query, descriptor, resultOffer)
-    } catch (error) {
-      if (error instanceof Error && error.name === 'QuotaExceededError') {
-        return localRefusal('storage-full', 'Browser storage is full. Free browser storage, then try again.')
-      }
-      return localRefusal('ownership-unconfirmed', 'Value asset ownership could not be confirmed')
-    }
     if (signalAborted(options.signal)) return aborted()
     const cacheKeys = new Map<string, string>()
     for (const rendition of renditions) {
@@ -547,7 +529,7 @@ export class DinksterValuesClient {
       cacheKeys,
       ...(defaultCacheKey !== undefined ? { defaultCacheKey } : {}),
     }
-    this.descriptorReaders.set(descriptor, { queryUrl, identity, owner })
+    this.descriptorReaders.set(descriptor, { queryUrl, identity })
     const announced = this.peekIdentity.get(queryUrl)
     if (sequence < (announced?.sequence ?? 0)) return result
     if (announced === undefined && peekEpoch !== this.peekEpoch) {
@@ -567,13 +549,11 @@ export class DinksterValuesClient {
     return result
   }
 
-  /** Keep the peek's admitted owner pending through consumer-side decode and publication. */
+  /** Keep value reads bound to their descriptor and query identity. */
   async read<T>(query: ValueQuery, descriptor: ValueDescriptor, consume: () => Promise<T>): Promise<T> {
     const reader = this.descriptorReaders.get(descriptor)
-    if (this.admitPeek !== undefined && (reader?.owner === undefined || reader.queryUrl !== this.url(query))) {
-      throw new Error('Read requires its admitted value descriptor')
-    }
-    return reader?.owner === undefined ? consume() : reader.owner.read(consume)
+    if (reader?.queryUrl !== this.url(query)) throw new Error('Read requires its value descriptor')
+    return consume()
   }
 
   /**
@@ -583,15 +563,8 @@ export class DinksterValuesClient {
   async rendition(query: ValueQuery, kind: string, options: RenditionOptions = {}): Promise<RenditionResult> {
     if (options.signal?.aborted === true) return aborted()
     const reader = options.descriptor === undefined ? undefined : this.descriptorReaders.get(options.descriptor)
-    if (this.admitPeek !== undefined && (reader?.owner === undefined || reader.queryUrl !== this.url(query))) {
-      return localRefusal('ownership-unconfirmed', 'Rendition requires its admitted value descriptor')
-    }
-    if (reader?.owner !== undefined) {
-      try {
-        return await reader.owner.read(() => this.readRendition(query, kind, options))
-      } catch {
-        return localRefusal('ownership-unconfirmed', 'Value reader is no longer available')
-      }
+    if (options.descriptor !== undefined && reader?.queryUrl !== this.url(query)) {
+      return localRefusal('invalid-descriptor', 'Rendition requires its value descriptor')
     }
     return this.readRendition(query, kind, options)
   }
