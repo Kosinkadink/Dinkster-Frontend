@@ -3,6 +3,14 @@ import type { NodeSchema, WorkflowDocument } from '@dinkster/core'
 import { AppState } from '../../src/app-state.js'
 import { scopedStorageKey } from '../../src/projects.js'
 
+vi.mock('../../src/canvas-measures.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/canvas-measures.js')>()
+  return { canvasMeasures: (...args: Parameters<typeof actual.canvasMeasures>) => ({
+    ...actual.canvasMeasures(...args),
+    measure: (text: string) => text.length * 6,
+  }) }
+})
+
 function workflowStorage(restored?: WorkflowDocument): Storage {
   const values = new Map<string, string>()
   if (restored !== undefined) values.set(scopedStorageKey('dinkster.openTabs'), JSON.stringify({

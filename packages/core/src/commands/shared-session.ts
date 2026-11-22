@@ -71,7 +71,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -153,6 +153,7 @@ export interface SharedSessionOptions {
   readonly onConflict?: (conflict: SessionConflict) => void
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  readonly boundaryPositionsFor?: BoundaryPositionResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
   /** Confirm ownership before adoption; the receipt callback runs after commit, before observers. */
@@ -241,6 +242,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly onErrorCb: ((message: string) => void) | undefined
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
+  private readonly boundaryPositionsFor: SharedSessionOptions['boundaryPositionsFor']
   private readonly validateCommit: SharedSessionOptions['validateCommit']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
@@ -317,6 +319,7 @@ class SharedDocumentSession implements DocumentSession {
     this.onErrorCb = options?.onError
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
+    this.boundaryPositionsFor = options?.boundaryPositionsFor
     this.validateCommit = options?.validateCommit
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
@@ -1185,6 +1188,8 @@ class SharedDocumentSession implements DocumentSession {
       this.rebasing
         ? ({ kind: 'shared-replay' })
         : ({ kind: 'initial', ...(this.schemaResolverFor ? { schemaResolverFor: this.schemaResolverFor } : {}) }),
+      undefined,
+      this.boundaryPositionsFor,
     )
   }
 

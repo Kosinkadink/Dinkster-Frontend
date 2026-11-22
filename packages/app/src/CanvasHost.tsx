@@ -55,6 +55,7 @@ import {
   type OccurrenceMutationPlanner,
   type BoundaryExposureSource,
 } from '@dinkster/canvas'
+import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
 import type { VideoPreferences } from './video-preview.js'
 import { AudioTransport } from './AudioTransport.js'
@@ -4160,22 +4161,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       hostFocused,
     )
 
-    const measureCtx = document.createElement('canvas').getContext('2d')!
-    const measure: TextMeasurer = (text, role) => {
-      measureCtx.font =
-        role === 'title' || role === 'renamedTitle'
-          ? `${role === 'renamedTitle' ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
-          : `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`
-      return measureCtx.measureText(text).width
-    }
-    const widgetMeasure: WidgetMeasure = (spec) => {
-      const kind = widgetRegistry().kind(spec.widgetType)
-      if (!kind) return undefined
-      const viewId = kind.defaultView(spec)
-      const view = widgetRegistry().viewsFor(spec.widgetType).find((v) => v.id === viewId)
-      if (!view) return undefined
-      return { viewId, rows: view.measure(spec).rows }
-    }
+    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry)
     const placementGeometryForEntry = (entry: PaletteEntry): PlacementGeometry => {
       if (entry.schema === undefined) {
         return { ...canvasPaintTokens.preview.unknownPlacement, headerHeight: defaultTokens.headerHeight }

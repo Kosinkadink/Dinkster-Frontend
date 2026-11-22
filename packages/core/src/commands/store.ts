@@ -15,7 +15,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { Json, WorkflowDocument } from '../format/document.js'
+import type { BoundarySide, BoundaryNodeViewState, Json, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import { isValidActorId, parseOccurrenceKey } from '../ids.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
@@ -31,6 +31,32 @@ import {
   type TransactionRecord,
 } from './contract.js'
 import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
+
+export type BoundaryPositionResolver = (
+  document: WorkflowDocument,
+  graphId: string,
+) => Readonly<Record<BoundarySide, BoundaryNodeViewState>>
+
+/** Materialize only missing geometry; layout stays owned by the renderer. */
+export function initializeBoundaryViews(
+  document: WorkflowDocument,
+  positionsFor: BoundaryPositionResolver,
+  graphIds: readonly string[] = Object.keys(document.graphs),
+): ReturnType<ReturnType<typeof createTransactionBuilder>['result']> {
+  const tx = createTransactionBuilder(document)
+  for (const graphId of graphIds) {
+    if (!document.graphs[graphId]?.boundary) continue
+    const boundary = document.view.graphs[graphId]?.boundary
+    if (boundary?.inputs && boundary.outputs) continue
+    const positions = positionsFor(document, graphId)
+    if (!tx.current.view.graphs[graphId]) tx.set(['view', 'graphs', graphId], { nodes: {} })
+    tx.set(['view', 'graphs', graphId, 'boundary'], {
+      inputs: boundary?.inputs ?? positions.inputs,
+      outputs: boundary?.outputs ?? positions.outputs,
+    } as unknown as Json)
+  }
+  return tx.result()
+}
 
 const hasErrors = (diags: readonly Diagnostic[]): boolean =>
   diags.some((d) => d.severity === 'error')
@@ -386,6 +412,7 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly onListenerError: ListenerErrorSink = defaultSink,
     private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
     private readonly validateCommit?: DocumentCommitPolicy,
+    private readonly boundaryPositionsFor?: BoundaryPositionResolver,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -518,6 +545,16 @@ export class DocumentStore implements DocumentStoreContract {
     let commandDiags: readonly Diagnostic[]
     try {
       commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, this.executionContext())
+      if (!hasErrors(commandDiags) && tx.forward.length > 0 && this.boundaryPositionsFor) {
+        const changedGraphs = Object.keys(tx.current.graphs).filter((id) =>
+          tx.current.graphs[id] !== this.doc.graphs[id] ||
+          tx.current.view.graphs[id] !== this.doc.view.graphs[id])
+        const initialized = initializeBoundaryViews(tx.current, (candidate, graphId) =>
+          this.boundaryPositionsFor!(this.doc.graphs[graphId]?.boundary ? this.doc : candidate, graphId), changedGraphs)
+        for (const op of initialized.forward) {
+          if (op.op !== 'remove') tx.set(op.path, op.value as Json)
+        }
+      }
     } catch (e) {
       return {
         ok: false,
