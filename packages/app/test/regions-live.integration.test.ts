@@ -3,6 +3,14 @@ import { Window } from 'happy-dom'
 import { DinksterConnection } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 
+vi.mock('../src/canvas-measures.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/canvas-measures.js')>()
+  return { canvasMeasures: (...args: Parameters<typeof actual.canvasMeasures>) => ({
+    ...actual.canvasMeasures(...args),
+    measure: (text: string) => text.length * 6,
+  }) }
+})
+
 const LIVE_URL = process.env['DINKSTER_LIVE_URL']
 
 beforeEach(() => {
