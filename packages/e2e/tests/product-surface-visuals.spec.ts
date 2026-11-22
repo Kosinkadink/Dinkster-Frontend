@@ -1142,21 +1142,26 @@ test('Asset selection instructions stay readable for the rail and single or mult
         const componentPath = '/src/editors/AssetWidgetEditor.tsx'
         const { AssetWidgetEditor } = await import(componentPath)
         const singleType = { kind: 'concrete', name: 'ASSET' }
+        const tab = { store: { doc: {}, revision: 0 } }
+        const backend = { id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
+          status: { subscribe: () => () => {} },
+          listMounts: async () => [],
+          listLocalAssets: async () => ({ assets: [] }),
+          checkAssetAvailability: async () => [],
+          onMountsChanged: () => () => {},
+          fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
+          fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
+        } }
         dispose = render(() => AssetWidgetEditor({
           app: {
-            backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
-              listMounts: async () => [],
-              listLocalAssets: async () => ({ assets: [] }),
-              checkAssetAvailability: async () => [],
-              onMountsChanged: () => () => {},
-              fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
-              fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
-            } }),
+            backendForTab: () => backend,
+            registryForTab: () => undefined,
+            tabs: { get: () => [tab] },
             dispatchTo: () => { host.dataset['committed'] = 'true' },
             widgetRegistry: { kind: () => undefined },
           },
           ed: {
-            tab: {}, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
+            tab, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
             label: 'Reference file', spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
             declaredType: mode === 'multiple' ? { kind: 'list', element: singleType } : singleType,
             multiline: false, rect: { x: 20, y: 20, width: 180, height: 24 }, initial: mode === 'multiple' ? [] : null,
