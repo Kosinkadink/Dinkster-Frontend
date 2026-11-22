@@ -3069,7 +3069,7 @@ describe('after-generate controller chip', () => {
 })
 
 describe('boundary row rename interaction', () => {
-  it('double-clicking a boundary slot label requests a rename', () => {
+  const boundaryScene = () => {
     const scene = interactionScene() as any
     scene.boundaryNodes = [{
       side: 'inputs', x: 10, y: 100,
@@ -3078,6 +3078,27 @@ describe('boundary row rename interaction', () => {
         rows: [{ kind: 'ports', y: 20, height: 24, input: { portId: 'exposed', type: { kind: 'wildcard' } } }],
       },
     }]
+    return scene
+  }
+
+  it('a click on a boundary row name selects that item, and a drag moves the panel instead', () => {
+    const select = vi.fn()
+    const harness = interactionHarness(boundaryScene(), { onBoundaryRowSelect: select })
+    harness.fire('pointerdown', 70, 132)
+    harness.fire('pointerup', 70, 132)
+    expect(select).toHaveBeenCalledWith('inputs', 'exposed')
+    expect(harness.dispatched).toEqual([])
+
+    select.mockClear()
+    harness.fire('pointerdown', 70, 132)
+    harness.fire('pointermove', 110, 160)
+    harness.fire('pointerup', 110, 160)
+    expect(select).not.toHaveBeenCalled()
+    expect(harness.dispatched.map((invocation) => invocation.command)).toEqual(['view.moveBoundaryNode'])
+  })
+
+  it('double-clicking a boundary slot label requests a rename', () => {
+    const scene = boundaryScene()
     const rename = vi.fn()
     const harness = interactionHarness(scene, { onBoundaryRenameRequest: rename })
     harness.fire('dblclick', 70, 132)

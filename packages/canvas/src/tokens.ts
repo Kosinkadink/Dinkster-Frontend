@@ -241,6 +241,9 @@ export const canvasPaintTokens = {
     dropOutset: 2,
     dropStroke: 2,
     labelPinGap: canvasSemanticTokens.space[4],
+    /** The row of the boundary item selected in the Boundary panel. */
+    focusInset: 2,
+    focusStroke: 1.5,
   },
   valueSource: {
     heightPadding: 8,

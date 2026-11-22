@@ -21,6 +21,13 @@ settings sit in a fixed area at the bottom of the panel, so the list never
 moves when another row is picked. The selection is session state
 (`AppState.boundaryFocus`) and is not saved.
 
+The panel and the canvas point at each other. While a row is selected, the
+canvas outlines its row on the Inputs or Outputs panel in the selection color
+and rings each inner pin it goes to, or outlines the inner field. A click on a
+row's name on the Inputs or Outputs panel, without dragging, selects that row
+in the Boundary panel; dragging the name still moves the panel, and a
+double-click still renames.
+
 ## Row settings
 
 Each setting is one command and one undo step, and is kept through save and
