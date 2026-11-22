@@ -36,7 +36,7 @@ async function installRoutes(page: Page): Promise<void> {
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
-  await page.route('/api/settings*', async (route) => {
+  await page.route('**/api/settings*', async (route) => {
     if (route.request().method() === 'PATCH') {
       const category = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!)
       const value = route.request().postDataJSON() as unknown
@@ -144,7 +144,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   expect(box!.height).toBeGreaterThanOrEqual(40)
   await page.keyboard.press('Tab')
   await expect(add).toBeFocused()
-  await panel.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
+  await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
 })
 
 test('mounted agent permission chrome relabels without refetching or changing authority', async ({ page, request }) => {
@@ -221,7 +221,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   await expect(execute).toBeFocused()
   expect(principalRequests).toBe(1)
   expect(permissionUpdates).toBe(0)
-  expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
+  expect(await auditLayout(page, '.settings-editor')).toEqual([])
 
   await execute.click()
   await expect.poll(() => permissionUpdates).toBe(1)

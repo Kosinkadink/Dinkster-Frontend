@@ -180,9 +180,9 @@ exact locations provide Copy server path, including when native reveal is
 unavailable or rejects the request. Errors remain visible. The output gallery
 does not offer native reveal. Mount roots alone never authorize an exact file.
 
-Open Assets -> Folders or the backend's Settings card to manage project folders.
-Top-to-bottom is preference order. Drag rows or use the keyboard-accessible Move
-up and Move down buttons. Stop using removes this project's association, never
+Open Storage from the left bar, Assets, Settings, search or a backend row to
+manage project folders. Top-to-bottom is preference order. Use Move up and Move
+down in each folder's action menu. Stop using removes this project's association, never
 files or another project's grant. A selected output requires a writable
 replacement before removal. Retry / rescan refreshes a reconnected drive.
 Order, membership and output selection persist on the server, independently for
@@ -197,8 +197,9 @@ are listed separately and remain live until restart. Saving configuration does
 not rebind live grants. Server policy can
 disable folder changes without hiding the configured folders.
 
-Assets -> Folders also contains Model management for machine-wide model locations,
-independent of each project's library. It lists full backend paths, read/write
+Storage -> Models -> Add opens model management for machine-wide model locations,
+independent of each project's library. Each existing root's action menu opens
+its targeted editor. It lists full backend paths, read/write
 access, shared visibility defaults and this project's folder switches. Always-on
 locations cannot be switched off by a project; default-on and opt-in locations
 can. Add an existing ComfyUI models root with an empty purpose, or an existing

@@ -581,7 +581,7 @@ test('Storage settings distinguish accounting policy and permission failures', a
   await boot(page)
   await closeGallery(page)
   await openModal(page, 'settings')
-  await page.getByRole('button', { name: 'Storage', exact: true }).click()
+  await page.getByTestId('modal-surface').getByRole('button', { name: 'Storage', exact: true }).click()
   const panel = page.getByTestId('library-storage-settings')
   await expect(panel.getByText('513 bytes', { exact: true })).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Clear eligible assets', exact: true })).toBeDisabled()

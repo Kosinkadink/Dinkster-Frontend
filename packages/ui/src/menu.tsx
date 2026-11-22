@@ -234,9 +234,9 @@ export function ProductMenu(props: {
       iconOnly={props.iconOnly}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
-      <span class={props.iconOnly ? 'dinkster-visually-hidden' : 'dinkster-menu-label'} data-compact={!!props.icon}>
+      <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>
         {props.label}
-      </span>
+      </span></Show>
     </Menu>
   )
 }
