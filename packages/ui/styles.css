@@ -47,6 +47,18 @@
 .dinkster-description { margin: 0; color: var(--dinkster-text-secondary); }
 .dinkster-metadata { font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); color: var(--dinkster-text-secondary); }
 .dinkster-mono { font-family: var(--dinkster-font-mono); }
+.dinkster-resources { display: grid; align-content: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-12); overflow: auto; min-height: 0; }
+.dinkster-resource-backend { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
+.dinkster-resource-backend + .dinkster-resource-backend { padding-top: var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-resource-backend-toggle > button { justify-content: space-between; width: 100%; border: 0; padding-inline: 0; }
+.dinkster-resource-card { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
+.dinkster-resource-card + .dinkster-resource-card { padding-top: var(--dinkster-space-12); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-resource-card-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-8); font-variant-numeric: tabular-nums; }
+.dinkster-resource-live { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
+.dinkster-resource-model { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--dinkster-space-8); font-variant-numeric: tabular-nums; }
+.dinkster-resource-model > span:first-child { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.dinkster-resource-peak { display: inline-flex; gap: var(--dinkster-space-8); align-items: center; }
+.dinkster-resource-limit-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(64px, 96px) auto; gap: var(--dinkster-space-8); align-items: center; }
 .dinkster-resource-usage { display: grid; gap: var(--dinkster-space-8); min-width: 0; font-variant-numeric: tabular-nums; }
 .dinkster-resource-bar { display: block; width: 100%; height: var(--dinkster-space-8); overflow: hidden; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); }
 .dinkster-resource-bar > rect[data-tone='models'] { fill: var(--dinkster-accent-border); }

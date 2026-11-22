@@ -1394,7 +1394,7 @@
   "shell.panel.library.title": "库",
   "shell.panel.memory.ariaLabel": "内存遥测",
   "shell.panel.memory.description": "设备的实时内存使用情况和Aimdo遥测数据",
-  "shell.panel.memory.title": "内存",
+  "shell.panel.memory.title": "资源",
   "shell.panel.outputs.title": "输出",
   "shell.panel.problems.title": "问题",
   "shell.panel.projects.description": "创建、重命名和切换项目",
