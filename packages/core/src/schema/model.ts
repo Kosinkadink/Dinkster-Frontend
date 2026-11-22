@@ -551,6 +551,11 @@ export interface InputSpec extends PortSpecBase {
   readonly hidden?: true
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
+  /**
+   * Set by elaboration, never declared: the flattened id of the field drawn
+   * before this one on a line of several fields.
+   */
+  readonly adjacentTo?: string
 }
 
 export interface SourceFilenameSpec {
