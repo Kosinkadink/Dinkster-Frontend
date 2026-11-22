@@ -4,6 +4,7 @@ import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/imp
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes, parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf } from '../src/schema/model.js'
+import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 const SELECTION_DEFAULTS: Record<string, string> = {
@@ -47,6 +48,20 @@ describe('Dinkster schema wire', () => {
     ] } as never)
     expect(unnamed.schema).toBeUndefined()
     expect(unnamed.diagnostics.map((d) => d.message).join()).toContain('must name at least one row')
+  })
+
+  it('places a shared row by Use inside a section under an option', () => {
+    const { schema, diagnostics } = parseDinksterSchema('SaveAdvanced', { body: [{
+      kind: 'choice', id: 'format', default: 'png', shared: [{ kind: 'input', id: 'quality', type: concrete('INT'), default: 90 }],
+      options: [
+        { key: 'png', rows: [] },
+        { key: 'webp', rows: [{ kind: 'section', id: 'advanced', rows: [{ kind: 'use', id: 'quality', default: 75 }] }] },
+      ],
+    }] } as never)
+    expect(diagnostics).toEqual([])
+    const elaborated = elaborateInterface(schema!, { values: {}, dynamic: { format: { selected: 'webp' } } })
+    expect(elabInputsOf(elaborated).filter((input) => input.origin.kind !== 'selector')
+      .map((input) => [input.spec.id, input.spec.widget?.default, input.spec.section])).toEqual([['format.quality', 75, 'format.advanced']])
   })
 
   it('preserves native asset-selection schemas and imported source names', () => {

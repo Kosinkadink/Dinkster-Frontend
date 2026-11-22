@@ -629,7 +629,8 @@ export interface SectionSpec {
   readonly displayName?: Formulated<string>
   readonly tooltip?: Formulated<string>
   readonly visible?: Formulated<boolean>
-  readonly rows: readonly BodyRow[]
+  /** A section under a choice's option may place the choice's shared rows by `Use`. */
+  readonly rows: readonly OptionRow[]
   readonly collapsedByDefault?: boolean
   /** False: the open box shows no name, only a small tab that closes it. */
   readonly openName?: false

@@ -1687,7 +1687,7 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
         kind: 'section',
         id: wireLayoutId(entry['id'], `${where}.id`),
         ...wireCommon(entry, where),
-        rows: decodeRows(nodeType, entry['rows'], `${where}.rows`, diags),
+        rows: decodeOptionRows(nodeType, entry['rows'], `${where}.rows`, diags),
         ...(wireBoolean(entry['collapsed'], `${where}.collapsed`, false) ? { collapsedByDefault: true } : {}),
         ...(!wireBoolean(entry['openName'], `${where}.openName`, true) ? { openName: false as const } : {}),
       }
