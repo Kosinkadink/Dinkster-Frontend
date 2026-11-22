@@ -2977,7 +2977,6 @@ export class AppState {
   private readonly workspaceSessions = new Map<string, { readonly tab: Tab; readonly session: SharedDocumentSession }>()
   private readonly workspacePromotions = new Map<string, { tab: Tab; promise: Promise<void>; controller: AbortController }>()
   private readonly workspaceReplacements = new WeakSet<Tab>()
-  private readonly startupRecoveryDocuments: readonly WorkflowDocument[]
   private readonly workspaceRecoveryDocuments = new Map<string, {
     readonly initial: WorkflowDocument
     readonly document: WorkflowDocument
@@ -3033,9 +3032,6 @@ export class AppState {
     this.retireUnusedResultOwners()
     if (event.key === scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY) && event.newValue !== null) {
       this.refreshPersistedExecutionResults()
-    }
-    if (event.key?.startsWith(scopedStorageKey('dinkster.workflow-retentions.'))) {
-      for (const refresh of this.workflowRetentionRefreshes.values()) refresh(event.key)
     }
     if (!this.disposed && ((event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) ||
       event.key?.startsWith(documentCandidatePrefix()))) {
@@ -3442,16 +3438,6 @@ export class AppState {
         this.workspaceRecoveryDocuments.set(entry.id, { initial: entry.document, document })
       }
     }
-    // Compaction may retire losing recovery sources before bootstrap can await ownership.
-    this.startupRecoveryDocuments = [...new Map([
-      ...recovery.states.flatMap((state) => state.tabs),
-      ...recovery.documentCandidates.map((candidate) => candidate.tab),
-      ...operations.flatMap((operation) => Array.isArray(operation.additions)
-        ? operation.additions.map((entry) => ({ doc: entry?.document })) : []),
-    ].flatMap((entry) => {
-      const document = loadDocument(entry.doc).document
-      return document === undefined ? [] : [[JSON.stringify(document), document] as const]
-    })).values()]
     this.workspacePersistedRevision = persisted?.workspaceRevision ?? 0
     this.workspaceCausalRevision = this.workspacePersistedRevision
     this.workspaceOperationWatermarks = persisted?.workspaceOperationWatermarks ?? {}
@@ -4416,7 +4402,6 @@ export class AppState {
   private readonly workflowRetentionRecoveries = new Map<DinksterConnection, AbortController>()
   private pendingRetentionRecoveries = 0
   private readonly workflowRetentionTimers = new Set<DinksterConnection>()
-  private readonly workflowRetentionRefreshes = new Map<DinksterConnection, (key: string) => void>()
   private readonly retirementObservers = new Map<DinksterConnection, () => void>()
   private workflowOpenIntent = 0
 
