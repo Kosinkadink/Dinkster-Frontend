@@ -9521,6 +9521,29 @@ export function documentHasLazySelector(
   return false
 }
 
+function workflowNodeTitlesOnlyChanged(current: WorkflowDocument, candidate: WorkflowDocument): boolean {
+  const sameExcept = (left: object, right: object, key: string): boolean => {
+    const before = Object.entries(left).filter(([name]) => name !== key)
+    const after = Object.entries(right).filter(([name]) => name !== key)
+    return before.length === after.length && after.every(([name, value]) =>
+      Object.hasOwn(left, name) && value === (left as Record<string, unknown>)[name])
+  }
+  if (!sameExcept(current, candidate, 'graphs')) return false
+  if (Object.keys(current.graphs).length !== Object.keys(candidate.graphs).length) return false
+  return Object.entries(candidate.graphs).every(([id, graph]) => {
+    const before = current.graphs[id]
+    if (before === graph) return true
+    if (!before || !sameExcept(before, graph, 'nodes') ||
+        Object.keys(before.nodes).length !== Object.keys(graph.nodes).length) return false
+    return Object.entries(graph.nodes).every(([nodeId, node]) => {
+      const previous = before.nodes[nodeId]
+      return previous === node || (previous !== undefined &&
+        (previous.title === undefined || typeof previous.title === 'string') &&
+        (node.title === undefined || typeof node.title === 'string') && sameExcept(previous, node, 'title'))
+    })
+  })
+}
+
 function sameExecutionDocument(left: WorkflowDocument, right: WorkflowDocument): boolean {
   return Object.keys(left).length === Object.keys(right).length &&
     Object.entries(right).every(([key, value]) => key === 'view' || value === left[key as keyof WorkflowDocument])

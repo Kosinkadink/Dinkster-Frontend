@@ -7,7 +7,7 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
