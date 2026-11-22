@@ -8,7 +8,6 @@ import { BrandMark } from './BrandMark.js'
 import { FrameRateStatus } from './FrameRateStatus.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
-import { executionAssetRoots, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retireAssetOwner } from './workflow-asset-retention.js'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -1385,17 +1384,15 @@ export function App(props: {
       : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
   }
   const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
-    const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient; reader: NonNullable<ReturnType<AppState['executionAssetReader']>> }>()
+    const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient }>()
     const [loadError, setLoadError] = createSolidSignal<string>()
     const [loading, setLoading] = createSolidSignal(false)
     let requested = false
     let alive = true
     let unsubscribe: (() => void) | undefined
-    const readers = new Set<RetainedAssetReader>()
     onCleanup(() => {
       alive = false
       unsubscribe?.()
-      for (const reader of readers) void reader.close().then(() => retireAssetOwner(reader.connection, reader.retained)).catch(() => undefined)
     })
     const load = async (): Promise<void> => {
       const entry = p.entry
@@ -1431,33 +1428,9 @@ export function App(props: {
           jobRef: runId, ...(run.sourceDocument === undefined ? {} : { sourceDocument: run.sourceDocument }),
           queuedAt: run.submittedAt * 1000, endedAt: run.finishedAt * 1000,
         }
-        const protect = async (roots: Parameters<typeof retainPreviewAssets>[1], offer = false): Promise<RetainedAssetReader> => {
-          if (!current()) throw new Error('Stored run owner changed')
-          const retained = offer ? await retainExecutionAssets(backend.connection, execution.ref, roots)
-            : await retainPreviewAssets(backend.connection, roots, [8])
-          const reader = new RetainedAssetReader(backend.connection, retained, current)
-          readers.add(reader)
-          if (!current()) {
-            await reader.close()
-            await retireAssetOwner(backend.connection, retained)
-            throw new Error('Stored run owner changed')
-          }
-          return reader
-        }
-        let admission: Promise<RetainedAssetReader> | undefined
-        const reader = {
-          key: execution.key,
-          current,
-          read: async <T,>(consume: () => Promise<T>): Promise<T> => {
-            admission ??= protect(executionAssetRoots(execution, () => undefined)).catch((error: unknown) => { admission = undefined; throw error })
-            return (await admission).read(consume)
-          },
-        }
-        const values = backend.connection.historyValues(run, async (query, descriptor, offer) => {
-          if (query.jobId !== run.jobId || (offer !== undefined && offer.jobRef !== runId)) throw new Error('Stored output identity mismatch')
-          return protect(offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined), offer !== undefined)
-        })
-        setLoaded({ execution, values, reader })
+        const values = backend.connection.historyValues(run)
+        if (!current()) return
+        setLoaded({ execution, values })
       } catch (error) {
         if (alive) setLoadError(error instanceof Error ? error.message : String(error))
       } finally {
@@ -3267,7 +3240,6 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
 
 function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
   values: DinksterValuesClient
-  reader: NonNullable<ReturnType<AppState['executionAssetReader']>>
 } }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
@@ -3315,9 +3287,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
     setLoaded(new Set<string>())
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
-    readAsset: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.source?.reader ?? props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const imageGroups = createMemo(() => {
