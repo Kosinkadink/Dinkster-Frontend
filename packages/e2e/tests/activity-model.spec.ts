@@ -143,7 +143,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await seedExecutions(page)
 
   await page.getByTestId('workflow-queue-toggle').click()
-  await expect(page.getByTestId('workflow-queue-summary')).toContainText('Running, 1 waiting')
+  await expect(page.getByTestId('workflow-queue-summary')).toContainText('1 running, 1 waiting')
   await expect(page.getByTestId('workflow-queue-entry')).toHaveCount(6)
   await expect(page.getByTestId('execution-row')).toHaveCount(6)
   await expect(page.getByTestId('backend-group').filter({ hasText: 'backend removed or disconnected' })).toContainText('/removed-activity-proof')
