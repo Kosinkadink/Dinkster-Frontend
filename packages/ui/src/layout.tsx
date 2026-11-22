@@ -45,14 +45,43 @@ export function ProductPanel(props: { children: JSX.Element }) {
   return <div class="dinkster-panel">{props.children}</div>
 }
 
+export function ProductWindowIdentity(props: {
+  qa?: boolean
+  development?: boolean
+}) {
+  return (
+    <Show when={props.qa || props.development}>
+      <span class="dinkster-window-identity">
+        <Show when={props.qa}>
+          <span>[QA]</span>
+        </Show>
+        <Show when={props.development}>
+          <span title="Development project - unpublished sources">
+            Development
+          </span>
+        </Show>
+      </span>
+    </Show>
+  )
+}
+
 export function ProductWindowChrome(props: {
   title: string
   platform: 'darwin' | 'win32' | 'linux'
+  qa?: boolean
+  development?: boolean
 }) {
   return (
-    <header class="dinkster-window-chrome" data-platform={props.platform}>
+    <header
+      class="dinkster-window-chrome dinkster-desktop-bar"
+      data-platform={props.platform}
+    >
       <ProductBrandMark />
       <span class="dinkster-brand-title">{props.title}</span>
+      <ProductWindowIdentity
+        qa={props.qa ?? false}
+        development={props.development ?? false}
+      />
     </header>
   )
 }
@@ -142,6 +171,9 @@ export function ProductShell(props: {
   currentHref: string
   onNavigate: (href: string) => void
   account?: JSX.Element
+  /** The form the page content uses when it differs from the shell's, such
+   * as site-form components shown inside an app-form frame. */
+  contentDensity?: 'app' | 'site' | undefined
   children: JSX.Element
 }) {
   const strings = useProductStrings()
@@ -276,7 +308,12 @@ export function ProductShell(props: {
             </nav>
           </aside>
         </Show>
-        <main class="dinkster-page" tabindex="-1" ref={main}>
+        <main
+          class="dinkster-page"
+          data-density={props.contentDensity}
+          tabindex="-1"
+          ref={main}
+        >
           {props.children}
         </main>
       </div>

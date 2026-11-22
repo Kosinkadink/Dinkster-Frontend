@@ -76,6 +76,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widget-driven',
         'widget-offered',
         'widget-companions',
+        'widget-taps',
         'widget-states',
       ],
     ],
@@ -165,6 +166,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':
     'A value passed down a wire shows in italics: grey when known, teal when unproven, green when estimated.',
+  'widget-taps':
+    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
   types: 'The color of each data type on its pins and wires.',
@@ -314,7 +317,7 @@ function ExampleCard(props: {
             nodes,
             links: fixture.scene.links.filter(
               (link) =>
-                link.from.kind === 'port' &&
+                (link.from.kind === 'port' || link.from.kind === 'widgetTap') &&
                 link.to.kind === 'port' &&
                 names.has(link.from.node) &&
                 names.has(link.to.node),
@@ -332,7 +335,7 @@ function ExampleCard(props: {
     renderer.setScene(scene)
     renderer.setNodeStates(fixture.states)
     renderer.setBadges(fixture.badges)
-    renderer.setOverlay(fixture.overlay)
+    renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(fixture.rowMarks)
     renderer.setCompanions(fixture.companions)
     renderer.setToolbox(fixture.toolbox)

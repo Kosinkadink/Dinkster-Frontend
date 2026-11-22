@@ -70,6 +70,8 @@ export interface SemanticDesignTokens {
   }
   readonly border: {
     readonly subtle: string
+    /** Between subtle and strong: a quiet line under the pointer, such as a scrollbar thumb. */
+    readonly hover: string
     readonly strong: string
     readonly focus: string
     readonly selected: string
@@ -149,6 +151,7 @@ export const semanticTokensForTheme = (
     },
     border: {
       subtle: colors.border.default,
+      hover: colors.border.hover,
       strong: colors.text.muted,
       focus: colors.status.info,
       selected: colors.text.primary,
@@ -295,6 +298,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-text-inverse': semanticDesignTokens.text.inverse,
     '--dinkster-text-on-selected': semanticDesignTokens.text.onSelected,
     '--dinkster-border-subtle': semanticDesignTokens.border.subtle,
+    '--dinkster-border-hover': semanticDesignTokens.border.hover,
     '--dinkster-border-strong': semanticDesignTokens.border.strong,
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,

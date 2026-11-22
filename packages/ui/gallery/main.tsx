@@ -10,6 +10,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
@@ -142,6 +143,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
+      contentDensity={route() === '#canvas' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -179,21 +181,44 @@ function Gallery() {
                 components="ProductWindowChrome"
               >
                 <For each={['win32', 'linux', 'darwin'] as const}>
-                  {(platform) => (
-                    <div class="dinkster-stack">
-                      <span class="dinkster-metadata">
-                        {platform === 'darwin'
-                          ? 'macOS'
-                          : platform === 'win32'
-                            ? 'Windows'
-                            : 'Linux'}
-                      </span>
-                      <ProductWindowChrome
-                        title="Dinkster Desktop [QA]"
-                        platform={platform}
-                      />
-                    </div>
-                  )}
+                  {(platform) => {
+                    const [error, setError] = createSignal(true)
+                    const [notification, setNotification] = createSignal<
+                      { message: string } | undefined
+                    >({ message: 'Project changes saved.' })
+                    return (
+                      <div class="dinkster-stack">
+                        <span class="dinkster-metadata">
+                          {platform === 'darwin'
+                            ? 'macOS'
+                            : platform === 'win32'
+                              ? 'Windows'
+                              : 'Linux'}
+                        </span>
+                        <div class="dinkster-desktop-preview">
+                          <ProductWindowChrome
+                            title="Dinkster Desktop"
+                            platform={platform}
+                            qa
+                            development
+                          />
+                          <div class="dinkster-page">
+                            <Show when={error()}>
+                              <ProductErrorBanner
+                                onDismiss={() => setError(false)}
+                              >
+                                Project changes could not be saved.
+                              </ProductErrorBanner>
+                            </Show>
+                          </div>
+                          <ProductToast
+                            notification={notification()}
+                            onDismiss={() => setNotification(undefined)}
+                          />
+                        </div>
+                      </div>
+                    )
+                  }}
                 </For>
               </Section>
               <Section title="Dark appearance" components="ProductAbout">
@@ -881,11 +906,28 @@ function Gallery() {
   )
 }
 
+// The same width at which the stylesheet switches to the narrow layout.
+const narrowQuery = matchMedia(
+  `(max-width: ${components.layout.sidebarBreakpoint}px)`,
+)
+
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
+  const [narrow, setNarrow] = createSignal(narrowQuery.matches)
+  // The site pages use the site form throughout. The gallery uses the Canvas
+  // page's frame, except that below the breakpoint its other pages keep the
+  // site form's narrow frame; their content always uses the site form.
   createEffect(() => {
-    document.documentElement.dataset.density =
-      route() === '#canvas' ? 'app' : 'site'
+    document.documentElement.dataset.density = route().startsWith('#site-')
+      ? 'site'
+      : route() !== '#canvas' && narrow()
+        ? 'site'
+        : 'app'
+  })
+  onMount(() => {
+    const change = () => setNarrow(narrowQuery.matches)
+    narrowQuery.addEventListener('change', change)
+    onCleanup(() => narrowQuery.removeEventListener('change', change))
   })
   onMount(() => {
     const update = () => setRoute(window.location.hash)

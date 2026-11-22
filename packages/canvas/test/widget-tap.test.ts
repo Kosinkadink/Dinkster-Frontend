@@ -107,7 +107,7 @@ function interactionHarness(scene: Scene) {
   const renderer = {
     getScene: () => scene, toWorld: (x: number, y: number) => ({ x, y }),
     getViewport: () => ({ x: 0, y: 0, scale: 1 }), getToolboxLayout: () => undefined,
-    getDetailLevel: () => 'controls',
+    getDetailLevel: () => 'controls', getDesignTokens: () => defaultTokens,
     cancelViewportAnimation: () => undefined,
     getBadges: () => ({}), setOverlay: (value: any) => overlays.push(value),
     onSceneReplaced: () => () => undefined,
@@ -151,6 +151,23 @@ describe('widget tap interaction', () => {
     }))
   })
 
+  it('steps a number row from its plus while the row\'s tap is revealed beside it', () => {
+    const scene = builtNumberScene()
+    const node = scene.nodes[0]!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget')!
+    const y = node.y + row.y + row.height / 2
+    const plus = node.x + node.layout.width - row.inset - defaultTokens.rowGeometry.stepperCenter
+    const h = interactionHarness(scene)
+    h.fire('pointermove', node.x + 40, y)
+    expect(h.overlays.at(-1)?.hoveredNode).toBe('source')
+    h.fire('pointerdown', plus, y)
+    h.fire('pointerup', plus, y)
+    expect(h.dispatched).toEqual([{
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'steps', value: 21 },
+    }])
+    expect(h.overlays.some((overlay) => overlay.ghostLink !== undefined)).toBe(false)
+  })
+
   it('does not include an incompatible widget tap in the target set', () => {
     const h = interactionHarness(tapScene({ targetType: 'IMAGE' }))
     h.fire('pointerdown', 200, 42)
@@ -184,6 +201,28 @@ const createListSchema: NodeSchema = {
     },
     { kind: 'output', id: 'list', type: { kind: 'list', element: matchType } },
   ],
+}
+
+function builtNumberScene(): Scene {
+  const numberSchema: NodeSchema = {
+    type: 'Number', displayName: 'Number', category: 'test', source: 'v3', isOutputNode: false,
+    items: [{
+      kind: 'input', id: 'steps', type: concrete('INT'), optional: false,
+      widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 20 },
+    }],
+  }
+  const document = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'g', nodes: {
+      source: { id: 'source', type: 'Number', values: { steps: 20 } },
+    }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+    view: { graphs: { g0: { nodes: { source: { position: { x: 40, y: 50 }, size: { width: 280, height: 0 } } } } } },
+  } as unknown as WorkflowDocument
+  return buildScene({
+    document, graphId: 'g0', resolve: (type) => type === 'Number' ? numberSchema : undefined,
+    tokens: defaultTokens, measure: (text) => text.length * 6,
+    widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }),
+  })
 }
 
 function builtTapScene(includeSource = true, rerouteCount: 0 | 1 | 2 = 0): Scene {

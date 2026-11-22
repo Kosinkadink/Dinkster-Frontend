@@ -45,6 +45,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
@@ -66,6 +67,7 @@ export const canvasGalleryPages = [
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
+  ['widget-taps', 'Widget output pins'],
   ['widget-states', 'Widget states'],
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
@@ -211,8 +213,12 @@ export interface CanvasGalleryFixture {
   companions: CompanionMap
   rowMarks: RowMarkMap
   labels: readonly { text: string; x: number; y: number }[]
-  /** Cards to draw: each lists its nodes' indexes in the scene, or covers the whole scene when it lists none. */
-  examples: readonly { caption: string; nodes?: readonly number[] }[]
+  /** Cards to draw: each lists its nodes' indexes in the scene, or covers the whole scene when it lists none, and may have its own overlay. */
+  examples: readonly {
+    caption: string
+    nodes?: readonly number[]
+    overlay?: OverlayState
+  }[]
 }
 
 /** Fixed public renderer inputs, also reusable for frame-equivalence checks. */
@@ -250,7 +256,7 @@ export function createCanvasGalleryFixture(
     labels: [],
     examples: [],
   }
-  const examples: { caption: string; nodes?: readonly number[] }[] = []
+  const examples: CanvasGalleryFixture['examples'][number][] = []
   const add = (
     id: string,
     definition = sample,
@@ -645,6 +651,12 @@ export function createCanvasGalleryFixture(
         }
       })
     }
+  } else if (page === 'widget-taps') {
+    const gallery = widgetTapGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...gallery.scene.nodes]
+    fixture.scene.links = [...gallery.scene.links]
+    fixture.companions = gallery.companions
+    examples.push(...gallery.examples)
   } else if (page === 'titles' || page === 'titles-content') {
     const long = {
       ...sample,
@@ -1262,6 +1274,42 @@ export function createRowEditingScene(
   return singleNodeScene(
     rowEditingSchema,
     { values: { seed: 123456789, denoise: 0.65 } },
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
+/** A node with a toggle and a choice beside a number, for the keyboard's focus on a row. */
+export const rowFocusSchema: NodeSchema = schema('Sample settings', [
+  {
+    ...widget('steps', 'INT', 20, { min: 1, max: 10000 }),
+    tooltip: 'Number of denoising steps.',
+  },
+  {
+    ...widget('enabled', 'BOOLEAN', true),
+    tooltip: 'Turn the pass on or off.',
+  },
+  {
+    ...widget('sampler_name', 'COMBO', 'euler', {
+      options: ['euler', 'euler_ancestral', 'dpmpp_2m'],
+    }),
+    tooltip: 'The sampling method.',
+  },
+])
+
+/** The node of the row-editing page's keyboard examples. */
+export function createRowFocusScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    rowFocusSchema,
+    {},
     { position, size: { width, height: 0 } },
     tokens,
     measure,

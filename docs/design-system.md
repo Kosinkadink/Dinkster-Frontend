@@ -84,12 +84,15 @@ choose a light or dark foreground against their actual fill, including the
 hovered fill.
 
 - `ProductShell` owns the frame and responsive navigation. With site density,
-  its 1040px centered frame contains 220px navigation and a 32px content gap.
+  its 1040px centered frame contains 220px navigation and a 32px content gap,
+  while the top bar's wordmark, Account product label and 32px account circle
+  span the window 24px from its edges (8px on phones).
   With app density the sidebar spans the window's left edge. In both densities
   the content column is centered in the space beside the navigation (in the
   whole window without it); headings, text and content inside the column stay
-  left-aligned.
-  Its wordmark, Account product label and 32px account circle share that frame.
+  left-aligned. `contentDensity` sets a different density for the page area
+  than the root's, such as site-density components inside the app-density
+  frame; the page area then takes that density's body type.
   On phones the navigation is a 240px overlay aligned 8px from the window edge
   and 4px below its toggle button; it closes on an outside press, Escape or a
   choice without moving the page. A navigation item may carry headed groups
@@ -216,9 +219,12 @@ Gallery routes `#site-security` (alice and the reference Security rows),
 and `#site-card` (centered sign-in/providers) exercise the shared patterns.
 The Security route has computed-geometry and interaction checks at 1280,
 1440, 1920 and 390px; screenshots are captures, not an approved baseline.
-The canvas gallery uses app density and its full-width shell rather than the
-centered account frame; as on every shell page, its content column is
-centered beside the sidebar.
+The component gallery's own pages use the Canvas page's app-density frame
+(full-height side list, top bar across the window, content centered beside the
+list) while their content keeps site density, so the components show their
+site sizes. Below the 768px breakpoint the pages other than Canvas keep the
+site density's narrow frame: wordmark, no title, and the side list as a menu
+panel.
 
 ## Shared design build checks
 
@@ -490,7 +496,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
-| Border      | subtle, strong, focus, selected                                                                 |
+| Border      | subtle, hover, strong, focus, selected                                                          |
 | Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
@@ -501,6 +507,16 @@ Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
+
+Every scrolling surface in the app, the gallery and the site uses one scrollbar
+from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
+the surface behind shows, and a fully rounded thumb 1 px clear of each side.
+The thumb is `border-subtle` at rest, `border-hover` under the pointer and
+`border-strong` while dragged. Firefox, which has no `::-webkit-scrollbar`,
+gets `scrollbar-width: thin` with the resting color on a transparent track.
+Chrome ignores the WebKit rules on an element that sets `scrollbar-width` or
+`scrollbar-color`, so a surface does not set either; it may reserve the space
+with `scrollbar-gutter: stable`.
 
 `pnpm check:raw-controls` also rejects undefined `--dinkster-*` references in
 app TypeScript and every app stylesheet. Use a name from the shared projection
@@ -760,6 +776,17 @@ Rows that open an editor, and the link-driven, offered, propagated and state
 pages) draw `widgetRowLook: 'inset-raised'` as Before, with views wrapped to
 draw their earlier text, and the default as After.
 
+Widget output pins shows a field's output pin (the widget tap of
+`docs/architecture.md` section 5c), painted from real documents: a number row
+at rest, pointed at, with a fitting wire dragged toward it from an input, and
+wired; the pin beside each kind of row with the node pointed at; a field driven
+by a wire passing its source on; a folded section whose wire leaves from its
+header; and a receiving row showing the value it will get. Two cards say what
+does not work today: a field in a group's member has no pin, and the wire from a
+field under a choice's option is lost on copy and paste and on replacing the
+node, and a subgraph's face cannot offer it. A card may carry its own pointer
+state, the same overlay the interaction controller sets for that gesture.
+
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and
 gallery default to the shared subtle idle border; Before overrides only that
@@ -940,9 +967,30 @@ screenshot baselines do not use fallback text.
 `ProductWindowChrome` reserves the native title-bar overlay area and the
 macOS traffic-light inset, uses the shared 56px bar and palette, and marks
 its empty background draggable while its contents remain non-draggable.
-The host supplies the exact title and platform. The gallery shows Windows,
-Linux and macOS geometry; native Electron control behavior is checked by
-the adopting Desktop application, not the browser gallery.
+The host supplies the exact title and platform. Optional `qa` and `development`
+flags add `ProductWindowIdentity` inside the bar. The visible Development label
+has the full unpublished-project explanation as its title. QA and development
+labels stack at narrow widths instead of occupying the bottom-right toast
+corner; the existing toast inset is unchanged. The gallery shows Windows,
+Linux and macOS geometry;
+native Electron control behavior is checked by the adopting Desktop application,
+not the browser gallery.
+
+The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
+`DinksterDesktopChrome.install({title, platform, theme, qa?, development?})`,
+and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
+scoped shared CSS with embedded Noto fonts plus token-derived native overlay
+colors/height and macOS traffic-light position. The installer reuses the first
+`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
+without one it prepends `ProductWindowChrome`. If the app later creates or
+replaces its bar, the installer moves its markings there and removes its own
+fallback; removing the app bar restores the fallback. Reinstallation disconnects
+the prior observer and replaces only its own markings/fallback. The host inserts
+the supplied CSS and runs the
+installer after document load, using its existing isolated renderer boundary.
+The bundle has an embedded symbol, no network imports, no Node/Electron API and
+no preload bridge. Content styles and the page's CSP remain host-owned. Both
+files are hashed by the site manifest and required by the wheel packager.
 
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host

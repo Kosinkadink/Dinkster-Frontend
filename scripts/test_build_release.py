@@ -17,7 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BuildReleaseTest(unittest.TestCase):
     def build(
-        self, *args: str, corrupt_callback: str | None = None
+        self,
+        *args: str,
+        corrupt_callback: str | None = None,
+        corrupt_chrome: str | None = None,
     ) -> tuple[str, bytes, dict[str, object]]:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
@@ -33,6 +36,8 @@ class BuildReleaseTest(unittest.TestCase):
                 "about.js",
                 "desktop-library.html",
                 "desktop-library.js",
+                "desktop-chrome.js",
+                "desktop-chrome.json",
                 "account-view.js",
                 "authorization.js",
             ):
@@ -88,6 +93,28 @@ class BuildReleaseTest(unittest.TestCase):
                 site_manifest["files"]["callback.html"] = hashlib.sha256(
                     callback
                 ).hexdigest()
+            chrome = json.dumps(
+                {
+                    "format": "dinkster.desktop-chrome/1",
+                    "installer": "desktop-chrome.js",
+                    "css": ".dinkster-desktop-bar {}",
+                    "native": {},
+                }
+            ).encode()
+            (site / "desktop-chrome.json").write_bytes(chrome)
+            for name in ("desktop-chrome.json", "desktop-chrome.js"):
+                site_manifest["files"][name] = hashlib.sha256(
+                    (site / name).read_bytes()
+                ).hexdigest()
+            if corrupt_chrome == "missing":
+                (site / "desktop-chrome.js").unlink()
+            elif corrupt_chrome == "digest":
+                (site / "desktop-chrome.js").write_text("changed")
+            elif corrupt_chrome == "contract":
+                (site / "desktop-chrome.json").write_text("{}")
+                site_manifest["files"]["desktop-chrome.json"] = hashlib.sha256(
+                    b"{}"
+                ).hexdigest()
             (site / "manifest.json").write_text(json.dumps(site_manifest))
             output = temporary_path / "dist"
             subprocess.run(
@@ -133,6 +160,7 @@ class BuildReleaseTest(unittest.TestCase):
                 "about.js",
                 "desktop-library.html",
                 "desktop-library.js",
+                "desktop-chrome.js",
                 "account-view.js",
                 "authorization.js",
             ):
@@ -141,6 +169,10 @@ class BuildReleaseTest(unittest.TestCase):
                     f"site fixture: {name}\n".encode(),
                 )
 
+            chrome = json.loads(
+                archive.read("dinkster_frontend/static/site/desktop-chrome.json")
+            )
+            self.assertEqual(chrome["format"], "dinkster.desktop-chrome/1")
             site_manifest = json.loads(
                 archive.read("dinkster_frontend/static/site/manifest.json")
             )
@@ -165,6 +197,13 @@ class BuildReleaseTest(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError) as failure:
                     self.build(corrupt_callback=corruption)
                 self.assertIn("callback", failure.exception.stderr)
+
+    def test_incomplete_desktop_chrome_cannot_produce_a_wheel(self) -> None:
+        for corruption in ("missing", "digest", "contract"):
+            with self.subTest(corruption=corruption):
+                with self.assertRaises(subprocess.CalledProcessError) as failure:
+                    self.build(corrupt_chrome=corruption)
+                self.assertIn("chrome", failure.exception.stderr)
 
     def test_dev_build_uses_next_patch_and_monotonic_history_count(self) -> None:
         base_version = json.loads((ROOT / "package.json").read_text())["version"]

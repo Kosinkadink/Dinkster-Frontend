@@ -1518,7 +1518,8 @@ export function ImageDocumentWorkspace(props: {
               classList={{ active: entry.draft.document.lineage === activeLineage() }}
               onClick={() => setActiveLineage(entry.draft.document.lineage)}
               onKeyDown={(event) => moveTabFocus(entry.draft.document.lineage, event)}
-            >{tabName(entry)}</ProductButton>
+              data-tooltip-label={tabName(entry)}
+            ><span class="image-document-tab-name">{tabName(entry)}</span></ProductButton>
           )}</For>
         </div>
         <ProductButton size="compact" type="button" onClick={() => importInput.click()} disabled={busy()}>{message('imageDocument.workspace.action.newFromImage')}</ProductButton>
