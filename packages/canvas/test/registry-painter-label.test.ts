@@ -315,7 +315,8 @@ describe('registry painter label/value split', () => {
       fill.fillStyle === defaultTokens.colors.widgetAffordance && fill.width === defaultTokens.multilineText.scrollbarWidth,
     )
 
-    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 6 })
+    // The text starts 2 left of the label over it, which is at 6.
+    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 4 })
     expect(idle.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
     expect(fits.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
     expect(scrollbar).toMatchObject({ x: 152, y: 19, width: 6, radius: 3 })
@@ -325,7 +326,7 @@ describe('registry painter label/value split', () => {
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
-    expect(placeholder).toMatchObject({ x: 6, y: 35, fill: defaultTokens.colors.label })
+    expect(placeholder).toMatchObject({ x: 4, y: 35, fill: defaultTokens.colors.label })
     expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 

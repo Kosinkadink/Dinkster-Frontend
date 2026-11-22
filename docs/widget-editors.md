@@ -839,6 +839,10 @@ grows while typing.
 
 ### Text box height
 
+A text box's text starts 2 units left of the label over it (the label at 6,
+the text at 4), so the box's text reads apart from the labels, which stay in
+one column down the node; the open editor uses the same inset.
+
 Each multiline text box has its own height, in whole lines, from 2 to 16. A
 new node starts at the height the widget declares. A short bar in the middle
 of the box's bottom edge sizes it: dragging the edge changes the height one

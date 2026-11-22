@@ -178,6 +178,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multilineTop = chrome.y + multilineLabelHeight
     const multilineBottom = chrome.y + chrome.height
     const multilinePadding = tokens.multilineText.padding
+    const multilineTextInset = tokens.multilineText.textInset
 
     let multilineExtraRows = 0
     let multilineVisualRows = 0
@@ -324,7 +325,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.fillStyle = tokens.colors.label
             ctx.font = `italic ${ctx.font}`
           }
-          const multilineAvailableWidth = Math.max(0, zoneWidth - multilinePadding * 2)
+          const multilineAvailableWidth = Math.max(0, zoneWidth - multilineTextInset - multilinePadding)
           // Native schemas carry the input label separately from WidgetSpec;
           // use it when the placeholder-marked view has no display_name.
           const texts = wrapText(ctx, placeholder && run === '' ? row.label : run, multilineAvailableWidth)
@@ -342,7 +343,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.beginPath()
             ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
             ctx.clip()
-            const textX = alignRight ? zoneRight - multilinePadding : px + reserveLeft + multilinePadding
+            const textX = alignRight ? zoneRight - multilinePadding : px + reserveLeft + multilineTextInset
             const textY = lineTop + multilineHeight / 2
             ctx.fillText(text, textX, textY)
             const role = style['role']

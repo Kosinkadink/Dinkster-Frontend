@@ -609,6 +609,11 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
+    /**
+     * Left inset of the text: 2 less than the label over it, so the text
+     * starts just left of its label and labels stay in one column.
+     */
+    readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
     readonly scrollbarWidth: number
@@ -773,6 +778,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
+    textInset: 4,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,

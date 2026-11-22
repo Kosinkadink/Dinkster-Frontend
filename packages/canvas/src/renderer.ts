@@ -1043,7 +1043,7 @@ export class CanvasRenderer {
     if (!ctx) return text.split('\n').length
     const t = this.tokens
     const width = (row.width ?? node.layout.width - row.inset * 2) -
-      t.multilineText.scrollbarWidth - t.multilineText.scrollbarInset - t.multilineText.padding * 2
+      t.multilineText.scrollbarWidth - t.multilineText.scrollbarInset - t.multilineText.textInset - t.multilineText.padding
     ctx.save()
     ctx.font = `${t.multilineText.fontSize}px ${t.fontFamily}`
     const lines = text.split('\n').reduce((count, line) => count + wrapText(ctx, line, width).length, 0)
