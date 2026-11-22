@@ -79,7 +79,6 @@ import {
   layoutBoundaryNode,
   REGION_INDEX_SLOT,
   layoutNode,
-  MINIMIZED_NODE_MIN_WIDTH,
   type BoundarySlotInfo,
   type LayoutRow,
   type NodeLayout,
@@ -2410,19 +2409,14 @@ function missingLayout(
   const stackInsets = insetRowStack(rows, pins, tokens)
   const minHeight = Math.max(tokens.headerHeight + tokens.rowHeight + tokens.padBottom, y + stackInsets.top + stackInsets.bottom)
   const naturalWidth = Math.min(tokens.nodeMaxAutoWidth, Math.max(tokens.nodeMinWidth, contentWidth))
+  const width = sizeOverride ? Math.max(tokens.nodeMinWidth, sizeOverride.width) : naturalWidth
   if (minimized) {
+    // Minimizing only hides the body: the node keeps its open width.
     const height = tokens.headerHeight + tokens.padBottom
-    const width = Math.min(
-      tokens.nodeMaxAutoWidth,
-      Math.max(
-        MINIMIZED_NODE_MIN_WIDTH,
-        measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding,
-      ),
-    )
     return {
       width,
       height,
-      minWidth: MINIMIZED_NODE_MIN_WIDTH,
+      minWidth: tokens.nodeMinWidth,
       minHeight: height,
       headerHeight: tokens.headerHeight,
       title,
@@ -2433,7 +2427,7 @@ function missingLayout(
     }
   }
   return {
-    width: sizeOverride ? Math.max(tokens.nodeMinWidth, sizeOverride.width) : naturalWidth,
+    width,
     height: sizeOverride ? Math.max(minHeight, sizeOverride.height) : minHeight,
     minWidth: tokens.nodeMinWidth,
     minHeight,
