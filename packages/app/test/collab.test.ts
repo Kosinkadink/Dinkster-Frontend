@@ -599,6 +599,45 @@ describe('share', () => {
     }
   })
 
+  it.each(['option', 'group', 'choice', 'slot'] as const)('shares removed %s data without stripping leftovers', async (part) => {
+    const server = new FakeCollabServer()
+    const app = makeApp(server)
+    const asset = { digest: `blake3:${'c'.repeat(64)}`, name: 'old.bin', size: 7,
+      mediaType: 'application/octet-stream', virtualPath: '' }
+    const candidate: NodeSchema = { type: 'Updated', displayName: 'Updated', category: 'test', source: 'v3',
+      isOutputNode: true, items: [{ kind: 'input', id: 'mode', optional: false,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: part === 'slot'
+          ? { kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' },
+            inputs: [], variants: [{ key: 'current', type: { kind: 'concrete', name: 'STRING' }, inputs: [] }] }
+          : { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'current', inputs: [] }] },
+      }] }
+    for (const target of app.backends.get()) target.registry.set({ connection: target.id, schemas: new Map([['Updated', candidate]]),
+      diagnostics: [], hash: 'updated-pack', resolve: (type) => type === 'Updated' ? candidate : undefined })
+    const before = activeTab(app).store.doc
+    const graph = before.graphs[before.root]!
+    const dynamic = part === 'group' ? { removed: { members: ['m0'], seq: 1 } }
+      : part === 'choice' ? { removed: { selected: 'old' } } : { mode: { selected: 'old' } }
+    const incoming: WorkflowDocument = { ...before, graphs: { [before.root]: { ...graph, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Updated', dynamic,
+        values: { 'removed.file': asset, 'removed.opaque': { ext: { future: 'unreadable' } } } },
+    } } } }
+    expect(await app.openDocument(incoming, 'Updated pack')).toEqual([])
+    const tab = activeTab(app)
+    await vi.waitFor(() => expect(app.problems.get().some((entry) => entry.code === 'upgrade.removedDynamicParts')).toBe(true))
+    const snapshot = structuredClone(tab.store.doc)
+    expect(await app.shareActiveTab()).toBeUndefined()
+    expect(app.collabFor(tab.id)).toBeDefined()
+    const published = [...server.sessions.values()][0]!.snapshot as WorkflowDocument
+    expect(published.graphs).toEqual(snapshot.graphs)
+    expect(published.graphs[before.root]!.nodes.n0!.values).toEqual(incoming.graphs[before.root]!.nodes.n0!.values)
+    if (part === 'slot') {
+      const compiled = app.compileTab(activeTab(app))
+      expect(compiled?.ok).toBe(false)
+      if (compiled === undefined || compiled.ok) throw new Error('required slot compiled without a variant')
+      expect(compiled.diagnostics.some((entry) => entry.code === 'prompt.missing_dynamic_choice')).toBe(true)
+    }
+  })
+
   it('T19 installs current-document schema authority for both AppState local and adopted shared tabs', async () => {
     const server = new FakeCollabServer()
     const run = async (shared: boolean): Promise<void> => {

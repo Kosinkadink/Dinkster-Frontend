@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '../visual.js'
-import { waitForStartupOwnership } from './fixtures.js'
+import { executionDetails, waitForStartupOwnership } from './fixtures.js'
 
 const backend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -54,8 +54,9 @@ async function run(page: Page): Promise<{ clientId: string; jobId: string }> {
   })
   const request = await submitted
   const { clientId, jobId } = request.postDataJSON() as { clientId: string; jobId: string }
-  const row = page.getByTestId('execution-row').filter({ has: page.locator('.execution-id', { hasText: jobId }) })
+  const row = page.getByTestId('execution-row').first()
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
+  await expect((await executionDetails(row)).locator('.execution-id')).toHaveText(jobId)
   return { clientId, jobId }
 }
 

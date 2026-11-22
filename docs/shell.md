@@ -150,7 +150,8 @@ outline the whole shell and fill only the active region; active switches
 use cyan without a button background. Opening a closed exclusive region selects its first
 registered panel (Library on the left, Log on the bottom). Existing
 panel-specific sidebar and status-bar toggles continue to select or close
-their named panel through the same `ShellLayout` signals.
+their named panel through the same `ShellLayout` signals. Closing the bottom
+panel from its header returns keyboard focus to the bottom-region toggle.
 All three are pointer- and keyboard-resizable and all layout state persists per-browser (see
 "Layout persistence"). The status bar is a separate thin strip - it is NOT
 the bottom panel and never toggles with it.

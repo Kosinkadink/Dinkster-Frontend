@@ -439,15 +439,15 @@ test('bottom panel and rail toggles are independent of the dock', async ({ page 
   await page.getByTestId('bottom-panel-toggle').click()
   await expect(page.getByTestId('dock-panel')).toBeVisible()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
-  await expect(page.getByTestId('queue-rail')).toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 
   // Closing the rail leaves dock and bottom open.
   await page.getByTestId('rail-toggle').click()
-  await expect(page.getByTestId('queue-rail')).not.toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).not.toBeVisible()
   await expect(page.getByTestId('dock-panel')).toBeVisible()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   await page.getByTestId('rail-toggle').click()
-  await expect(page.getByTestId('queue-rail')).toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 })
 
 test('open dock shrinks the canvas instead of covering it', async ({ page }) => {
@@ -535,7 +535,7 @@ test('dock is drag-resizable within bounds via the grab rail', async ({ page }) 
 
 test('rail and bottom panel are drag-resizable within bounds', async ({ page }) => {
   // Rail: drag its left-edge handle leftward to widen.
-  const rail = page.getByTestId('queue-rail')
+  const rail = page.getByTestId('dock-zone-right')
   const railBefore = (await rail.boundingBox())!
   const railHandle = (await page.getByTestId('rail-resize').boundingBox())!
   await page.mouse.move(railHandle.x + railHandle.width / 2, railHandle.y + 200)
@@ -583,13 +583,13 @@ test('layout persists across reload: open panels, rail state, and sizes', async 
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await expect(page.getByTestId('dock-panel')).toHaveAttribute('data-active-panel', 'library')
   await expect(page.getByTestId('bottom-panel')).toHaveAttribute('data-active-panel', 'logs')
-  await expect(page.getByTestId('queue-rail')).not.toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).not.toBeVisible()
   const restored = (await page.getByTestId('dock-panel').boundingBox())!.width
   expect(Math.abs(restored - dockWidth)).toBeLessThanOrEqual(2)
 
   // And the toggles restore the defaults for the next test's fresh context.
   await page.getByTestId('rail-toggle').click()
-  await expect(page.getByTestId('queue-rail')).toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 })
 
 test('Ctrl+O opens the library dock', async ({ page }) => {
@@ -645,7 +645,7 @@ test('Customize Layout toggles supported regions and persists status bar visibil
   await expect(page.locator('.left-sidebar')).toBeHidden()
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
-  await expect(page.getByTestId('queue-rail')).not.toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeHidden()
   await expect(page.getByTestId('status-bar')).toHaveAttribute('data-mounted-marker', 'same-status-bar')
   expect(await page.getByTestId('status-bar').textContent()).toBe(statusContent)
@@ -676,7 +676,17 @@ test('Customize Layout toggles supported regions and persists status bar visibil
 })
 
 test('right-zone tab strip shrinks tabs with ellipsis instead of a native scrollbar', async ({ page }) => {
-  // Drag the rail to its minimum width so the default tabs plus the zone
+  await page.evaluate(() => {
+    for (let index = 0; index < 3; index += 1) {
+      window.__dinksterTest!.app.panels.register({
+        id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
+        placement: 'rail', allowedPlacements: ['rail'], order: 100 + index,
+        when: () => true,
+        component: () => document.createElement('div'),
+      })
+    }
+  })
+  // Drag the rail to its minimum width so the tabs plus the zone
   // actions compete for horizontal space.
   const handle = (await page.getByTestId('rail-resize').boundingBox())!
   await page.mouse.move(handle.x + handle.width / 2, handle.y + 200)
