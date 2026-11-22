@@ -3,7 +3,7 @@ import type { ExecutionState } from '@dinkster/client'
 import type { ExecutionRef, LineageId } from '@dinkster/core'
 import Play from 'lucide-solid/icons/play'
 import List from 'lucide-solid/icons/list'
-import LoaderCircle from 'lucide-solid/icons/loader-circle'
+import { ProductRunActivity } from '@dinkster/ui'
 import { executionActivity } from './execution-activity.js'
 import { useAppMessage } from './locale.js'
 import { ExecutionActivityCard, executionProgress } from './ExecutionActivityCard.js'
@@ -114,11 +114,8 @@ export function WorkflowQueueControl(props: {
           }}
         >
           <span data-testid="workflow-queue-summary" class="dinkster-visually-hidden" aria-live="polite">{summary()}</span>
-          <Show when={activity().running} fallback={<Icon icon={List} />}>
-            <Icon icon={LoaderCircle} />
-          </Show>
-          <Show when={activity().waiting > 0}>
-            <span aria-hidden="true">{activity().waiting}</span>
+          <Show when={activity().running > 0 || activity().waiting > 0} fallback={<Icon icon={List} />}>
+            <ProductRunActivity running={activity().running} waiting={activity().waiting} label={summary()} />
           </Show>
         </button>
       </div>

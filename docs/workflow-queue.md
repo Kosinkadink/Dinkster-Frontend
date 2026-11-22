@@ -40,9 +40,11 @@ always validates the current workflow independently of the display's cached answ
 ## Run controls
 
 The canvas button reads Run. Its compact neighbor opens this workflow's runs:
-idle shows a list icon, running shows a cyan ring, and a number counts only
-waiting jobs. Completed runs never contribute to this indicator. Waiting jobs
-remain visible as a count beside the list icon when no job is running.
+idle shows a list icon. Active work uses `ProductRunActivity` from
+`@dinkster/ui`: a turning cyan ring with a number only when multiple jobs
+run, and a separate still grey clock with the waiting count whenever jobs
+wait. Reduced motion leaves the ring still. Completed runs never contribute
+to either count.
 The shared `executionActivity` selector in `packages/app/src/execution-activity.ts`
 accepts workflow-filtered executions or all executions for the top bar and
 returns separate numeric `running` and `waiting` counts. Multiple jobs can
