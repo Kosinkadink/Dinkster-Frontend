@@ -11066,10 +11066,13 @@ export class AppState {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
       const key = JSON.stringify(owner)
-      const dimensions = {
-        width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
-        height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
+      // The capture size comes from the rows the webcam widget reads; a part it does not name is absent.
+      const dimension = (part: 'width' | 'height'): number => {
+        const row = input.widget?.reads?.[part]
+        const value = row === undefined ? undefined : node.inputs[row]
+        return typeof value === 'number' ? value : 0
       }
+      const dimensions = { width: dimension('width'), height: dimension('height') }
       const previous = capturedOwners.get(key)
       if (previous !== undefined) {
         if (previous.width !== dimensions.width || (dimensions.width !== 0 && previous.height !== dimensions.height)) {

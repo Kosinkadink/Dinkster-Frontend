@@ -4969,7 +4969,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         target: {
           kind: 'input',
           nodeId,
-          valueKey: hit.row.valueKey,
+          // An editor row's value is the one row it writes, when it writes exactly one.
+          valueKey: hit.row.editor === true && hit.row.parts !== undefined && Object.keys(hit.row.parts.writes).length === 1
+            ? Object.values(hit.row.parts.writes)[0]!
+            : hit.row.valueKey,
+          ...(hit.row.parts !== undefined ? { parts: hit.row.parts } : {}),
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
           ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),

@@ -6,7 +6,7 @@ import { useAppMessage } from '../locale.js'
 import { captureWebcamFrame, webcamError } from '../webcam.js'
 import { activeProjectId } from '../projects.js'
 import type { PreviewSource } from '../node-previews.js'
-import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './webcam-widget-editor.css'
 
 const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props) => {
@@ -37,10 +37,12 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
       const values = target.kind === 'input'
         ? ed.tab.store.doc.graphs[owner?.graphId ?? ed.graphId]?.nodes[owner?.nodeId ?? target.nodeId]?.values
         : undefined
-      const file = await captureWebcamFrame({
-        width: typeof values?.['width'] === 'number' ? values['width'] : 0,
-        height: typeof values?.['height'] === 'number' ? values['height'] : 0,
-      }, abort.signal)
+      const dimension = (part: 'width' | 'height'): number => {
+        const row = partRow(target, part)
+        const value = row === undefined ? undefined : values?.[row]
+        return typeof value === 'number' ? value : 0
+      }
+      const file = await captureWebcamFrame({ width: dimension('width'), height: dimension('height') }, abort.signal)
       if (!current()) return
       const ref = await backend.connection.uploadMediaAsset(file, {
         scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal,

@@ -1265,7 +1265,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (!tab || !editable(row)) return
     setVideoEditor({
       tab, graphId: row.entry.graphId, label: row.label,
-      target: { kind: 'input', nodeId: row.entry.nodeId, valueKey: row.valueKey },
+      target: { kind: 'input', nodeId: row.entry.nodeId, valueKey: row.valueKey, ...(row.item.parts !== undefined ? { parts: row.item.parts } : {}) },
       spec: row.spec!, initial: row.value, multiline: false,
       rect: { x: 0, y: 0, width: 0, height: 0 },
     })

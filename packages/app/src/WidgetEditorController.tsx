@@ -20,6 +20,7 @@ import {
   type MaterializeFrame,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
@@ -62,8 +63,25 @@ export type EditorTarget =
       readonly selector?: {
         readonly construct: string
       }
+      /**
+       * The rows the widget's `writes` and `reads` name, as flattened value
+       * keys of `nodeId`. A part missing here is absent; no editor reads a
+       * row by a fixed name.
+       */
+      readonly parts?: WidgetParts
     }
   | { readonly kind: 'valueSource'; readonly valueSourceId: string }
+
+/**
+ * The node row a widget part names: the row the widget writes or reads under
+ * that part name. Undefined when the widget's mapping lacks the part, which
+ * the editor treats as absent.
+ */
+export function partRow(target: EditorTarget, part: string): string | undefined {
+  const parts = target.kind === 'input' ? target.parts : undefined
+  if (parts === undefined) return undefined
+  return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
+}
 
 export interface WidgetEditorState {
   /**

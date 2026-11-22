@@ -46,6 +46,7 @@ import type {
   BodyRow,
   ChoiceSpec,
   DescribedSpec,
+  Formulated,
   GroupSpec,
   InputSpec,
   NodeSchema,
@@ -212,6 +213,34 @@ export interface ElaboratedInput {
   readonly derivedValue?: Json
   /** Member state to persist before writing or wiring this row. */
   readonly materialize?: readonly MaterializeFrame[]
+  /** The rows its widget's `writes` and `reads` name, when it names any. */
+  readonly parts?: WidgetParts
+}
+
+/**
+ * The rows a custom widget names, by the widget's own part names, resolved to
+ * flattened ids with the names a formula at the widget's place can use. A
+ * name that resolves to no row, or to a row under an option that is not
+ * chosen, is left out: the widget treats that part as absent.
+ */
+export interface WidgetParts {
+  readonly writes: Readonly<Record<string, string>>
+  readonly reads: Readonly<Record<string, string>>
+}
+
+/** An editor row: a widget with no value of its own, drawn on its own line where it is written. */
+export interface ElaboratedEditor {
+  readonly kind: 'editor'
+  /** Flattened layout id. */
+  readonly id: string
+  readonly widget: WidgetSpec
+  readonly parts: WidgetParts
+  readonly visible?: Formulated<boolean>
+  readonly section?: string
+  readonly origin: ElaboratedOrigin
+  readonly ancestry?: readonly DynamicAncestor[]
+  /** Member state to persist before the editor writes a row of a member the document does not store. */
+  readonly materialize?: readonly MaterializeFrame[]
 }
 
 export interface ElaboratedOutput {
@@ -259,7 +288,7 @@ export interface ElaboratedGrowth {
   readonly section?: string
 }
 
-export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth
+export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth | ElaboratedEditor
 
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
@@ -547,10 +576,9 @@ export function elaborateInterface(
     return hidden
   }
 
-  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
-    const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
+  /** The flattened id of each name a formula in this scope can write, and the names under options not chosen. */
+  const namesAt = (scope: Scope): { readonly where: Map<string, string>; readonly unknown: Set<string> } => {
     const where = new Map<string, string>()
-    const defaults = new Map<string, unknown>()
     const unknown = new Set<string>()
     for (const frame of scope.formulaFrames) {
       const hidden = unchosen(frame.rows, frame.prefix)
@@ -560,6 +588,26 @@ export function elaborateInterface(
         if (hidden.has(name)) unknown.add(name)
         else unknown.delete(name)
       }
+    }
+    return { where, unknown }
+  }
+
+  const partsAt = (widget: WidgetSpec, scope: Scope): WidgetParts | undefined => {
+    if (widget.writes === undefined && widget.reads === undefined) return undefined
+    const { where, unknown } = namesAt(scope)
+    const resolve = (mapping: Readonly<Record<string, string>> | undefined): Record<string, string> =>
+      Object.fromEntries(Object.entries(mapping ?? {}).flatMap(([part, name]) => {
+        const path = where.get(name)
+        return path === undefined || unknown.has(name) ? [] : [[part, path]]
+      }))
+    return { writes: resolve(widget.writes), reads: resolve(widget.reads) }
+  }
+
+  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
+    const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
+    const { where, unknown } = namesAt(scope)
+    const defaults = new Map<string, unknown>()
+    for (const frame of scope.formulaFrames) {
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind === 'input') defaults.set(frame.prefix + row.id, defaultOf(row))
         else if (row.kind === 'state') defaults.set(frame.prefix + row.id, row.default)
@@ -642,12 +690,14 @@ export function elaborateInterface(
       const stored = stateOf(path)?.options
       if (stored !== undefined) spec = { ...spec, widget: { ...widget, options: { ...widget.options, options: stored } } }
     }
+    const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     push({
       kind: 'input',
       address: { port: path },
       ...(scope.ghost || scope.dormant ? {} : { apiName: path }),
       spec,
       ...common(scope),
+      ...(parts !== undefined ? { parts } : {}),
       ...extra,
     })
   }
@@ -738,8 +788,20 @@ export function elaborateInterface(
       case 'described':
         described(row, scope.prefix + row.id, scope)
         return
-      case 'note':
       case 'editor':
+        if (!scope.dormant && !scope.hidden) {
+          push({
+            kind: 'editor',
+            id: scope.prefix + row.id,
+            widget: row.widget,
+            parts: partsAt(row.widget, scope) ?? { writes: {}, reads: {} },
+            ...(row.visible !== undefined ? { visible: row.visible } : {}),
+            ...(scope.section !== undefined ? { section: scope.section } : {}),
+            ...common(scope),
+          })
+        }
+        return
+      case 'note':
       case 'button':
         return
     }

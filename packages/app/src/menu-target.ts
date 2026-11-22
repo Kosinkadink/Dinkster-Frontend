@@ -271,7 +271,8 @@ export function menuTargetOf(hit: Hit): MenuTarget {
           : {}),
       }
     case 'widget':
-      return widgetMenuTarget(hit.node.id, hit.row)
+      // An editor row stores nothing of its own: it opens the node's menu.
+      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
     case 'section':
       return {
         kind: 'section',

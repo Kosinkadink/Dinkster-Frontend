@@ -3,7 +3,7 @@ import { createSignal, For, onCleanup, Show, type Component } from 'solid-js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
-import { WidgetEditorController, withMaterializeFrames, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, withMaterializeFrames, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './camera-angle-widget-editor.css'
 
 const fields = ['horizontal_angle', 'vertical_angle', 'zoom'] as const
@@ -21,18 +21,22 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
   const index = graph && buildRerouteIndex(graph)
   const schema = node && resolve?.(node.type)
   const defaults = schema && defaultValuesOf(schema)
-  const values = Object.fromEntries(fields.map((field) => {
-    const key = node && portRefKey({ node: node.id, port: asPortId(field) })
-    const driven = key && (index?.inputDriverOf.has(key) || index?.netSourceOf.has(key))
-    return [field, driven ? undefined : node?.values[field] ?? defaults?.[field]]
-  }))
-  const available = fields.every((field) => typeof values[field] === 'number')
+  // Each angle is the row the widget writes under that part. A part the widget
+  // does not name, or whose row has a wire, is not editable and not written.
+  const rows = Object.fromEntries(fields.map((field) => [field, partRow(ed.target, field)])) as Record<typeof fields[number], string | undefined>
+  const wired = (field: typeof fields[number]): boolean => {
+    const key = node && rows[field] !== undefined ? portRefKey({ node: node.id, port: asPortId(rows[field]) }) : undefined
+    return key !== undefined && (index?.inputDriverOf.has(key) === true || index?.netSourceOf.has(key) === true)
+  }
+  const editable = fields.filter((field) => rows[field] !== undefined && !wired(field))
+  const values = Object.fromEntries(editable.map((field) => [field, node?.values[rows[field]!] ?? defaults?.[rows[field]!]]))
+  const available = editable.length > 0 && editable.every((field) => typeof values[field] === 'number')
   const [draft, setDraft] = createSignal<Record<typeof fields[number], string>>({
     horizontal_angle: String(values.horizontal_angle ?? ''),
     vertical_angle: String(values.vertical_angle ?? ''),
     zoom: String(values.zoom ?? ''),
   })
-  const valid = () => available && fields.every((field) => {
+  const valid = () => available && editable.every((field) => {
     const value = Number(draft()[field])
     return draft()[field].trim() !== '' && Number.isFinite(value)
       && value >= limits[field][0] && value <= limits[field][1]
@@ -47,7 +51,7 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
   const commit = () => {
     if (!valid() || !node || !target) return
     if (ed.tab.store.revision !== revision) { props.close(); return }
-    const invocations = fields.map((inputId) => ({ command: 'node.setValue', params: { graphId, nodeId: node.id, inputId, value: Number(draft()[inputId]) } }))
+    const invocations = editable.map((field) => ({ command: 'node.setValue', params: { graphId, nodeId: node.id, inputId: rows[field]!, value: Number(draft()[field]) } }))
     void props.commitCommand(withMaterializeFrames(graphId, node.id, target.materialize,
       { command: 'batch', params: { invocations } } as unknown as CommandInvocation))
   }
@@ -56,7 +60,7 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
 
   return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover" data-testid="camera-angle-editor" role="dialog" aria-label={message('cameraAngleWidget.title')}>
     <props.header type="CAMERA_ANGLE_VIEW" />
-    <Show when={valid()}>
+    <Show when={valid() && fields.every((field) => draft()[field].trim() !== '')}>
       <svg class="camera-angle-preview" viewBox="0 0 300 150" role="img" aria-label={message('cameraAngleWidget.preview')}>
         <ellipse cx="90" cy="76" rx="62" ry="50" fill="none" stroke="currentColor" />
         <path d="M78 68 L90 61 L102 68 L102 84 L90 91 L78 84 Z M78 68 L90 75 L102 68 M90 75 L90 91" fill="none" stroke="currentColor" />
@@ -72,11 +76,11 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
       </svg>
       <output class="camera-angle-position">{message('cameraAngleWidget.position', { x: position().x.toFixed(2), y: position().y.toFixed(2), z: position().z.toFixed(2) })}</output>
     </Show>
-    <Show when={!available}><ProductNotice tone="info">{message('cameraAngleWidget.connected')}</ProductNotice></Show>
+    <Show when={editable.length < fields.length}><ProductNotice tone="info">{message('cameraAngleWidget.connected')}</ProductNotice></Show>
     <For each={fields}>{(field) => {
       const id = `camera-angle-${field}`
       return <ProductField controlId={id} label={message(`cameraAngleWidget.${field}`)} layout="compact">
-        <ProductTextInput id={id} aria-labelledby={productFieldIds(id).label} value={draft()[field]} inputmode={field === 'zoom' ? 'decimal' : 'numeric'} disabled={!available || props.commitPending()}
+        <ProductTextInput id={id} aria-labelledby={productFieldIds(id).label} value={draft()[field]} inputmode={field === 'zoom' ? 'decimal' : 'numeric'} disabled={!editable.includes(field) || props.commitPending()}
           ref={(element) => { if (field === 'horizontal_angle') queueMicrotask(() => { if (element.isConnected) { element.focus(); element.select() } }) }}
           onInput={(event) => { const value = event.currentTarget.value; setDraft((previous) => ({ ...previous, [field]: value })) }} />
       </ProductField>
