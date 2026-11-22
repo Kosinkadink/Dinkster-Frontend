@@ -2839,7 +2839,7 @@ export class AppState {
     const existing = worlds?.get(pair.digest)
     if (existing) return this.extensionWorldLoads.get(existing)
     const world = new ExtensionWorld(connection, pair.digest, { ...this.extensionTargets, initialGates: loadGates() },
-      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]), this.retentionClientFor(backend.baseUrl).fetch)
+      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]), globalThis.fetch)
     if (worlds === undefined) {
       worlds = new Map()
       this.extensionWorlds.set(connection, worlds)
@@ -3146,7 +3146,7 @@ export class AppState {
     readonly deniedExtensionPrivileges?: readonly FrontendPrivilege[]
   }) {
     this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
-    this.collabTransport = options?.collabTransport ?? httpCollabTransport((baseUrl) => this.retentionClientFor(baseUrl))
+    this.collabTransport = options?.collabTransport ?? httpCollabTransport()
     this.collabActorId = stableActorId()
     this.workspaceEvents = options?.workspaceEvents ?? (
       typeof globalThis.SharedWorker === 'function' && typeof globalThis.BroadcastChannel === 'function'
@@ -5145,11 +5145,9 @@ export class AppState {
       : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseUrl}${wsPath}?clientId=${encodeURIComponent(clientId)}`
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
-    const retentionClient = this.retentionClientFor(baseUrl)
-    const scopedClient = createScopedClient({ baseUrl, fetchFn: retentionClient.fetch })
+    const scopedClient = createScopedClient({ baseUrl })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
-    const retentionProblemsOwner = Symbol(`workflow-retentions:${id}`)
     let refreshDiagnostics = (): void => {}
     let compositionRequest = 0
     let remoteChoiceSchemaGeneration = 0
@@ -5289,107 +5287,8 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
-      const valueAdmissions = new Map<string, { storage: Storage; promise: Promise<RetainedAssets> }>()
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(), retentionClient,
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
-        admitValuePeek: async (query, descriptor, offer) => {
-          const ref = { connection: id, prompt: asPromptId(query.jobId) }
-          const key = executionKey(ref)
-          const pending = this.pendingResultReads.get(key)
-          const observed = pending !== undefined || this.store.get(ref) !== undefined ||
-            persistedResultReferences()?.executions.has(key) === true
-          const project = activeProjectId()
-          const generation = this.assetConnectionGenerations.get(connection)
-          const storage = globalThis.localStorage
-          const current = (): boolean => !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
-            (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
-            generation === this.assetConnectionGenerations.get(connection) &&
-            (pending === undefined
-              ? offer === undefined || this.store.get(ref)?.jobRef === offer.jobRef
-              : pending.backend === nativeBackend && pending.jobRef === offer?.jobRef &&
-                pending.nodeId === query.nodeId && pending.outputId === query.outputId &&
-                this.pendingResultReads.get(key) === pending && pending.current())
-          if (!current()) throw new Error('Value owner is no longer available')
-          const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
-          const valueKey = canonicalJson({ execution: key, roots })
-          const localOwners = () => [...this.resultAssetOwners.values()].filter((owner) => {
-            if (owner.backend !== nativeBackend || owner.project !== project || owner.generation !== generation ||
-              owner.valueKey === undefined || owner.storage !== storage || owner.drained !== undefined) return false
-            const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${owner.retained.ownerId}`)) ?? 'null')
-            return intent?.acknowledgedRevision === owner.retained.revision && intent.releaseRevision === undefined &&
-              intent.connectionId === id && intent.assetBaseUrl === connection.assetUrl('') &&
-              intent.owner?.ownerId === owner.retained.ownerId && intent.owner?.ownerKind === 'shown-result' &&
-              intent.owner?.scope === owner.retained.scope && intent.complete === owner.retained.complete &&
-              intent.sourceToken === owner.retained.sourceToken && canonicalJson(intent.digests) === canonicalJson(owner.retained.digests) &&
-              canonicalJson(intent.owner?.holderClasses) === canonicalJson(owner.retained.holderClasses)
-          })
-          const reusable = localOwners().find((owner) => owner.valueKey === valueKey)
-          const admissionKey = canonicalJson({ project, generation, valueKey })
-          let admission = valueAdmissions.get(admissionKey)
-          if (reusable === undefined && admission?.storage !== storage) {
-            this.pendingValueAdmissions += 1
-            admission = { storage, promise: retainExecutionAssets(connection, ref, roots)
-              .finally(() => { this.pendingValueAdmissions -= 1; this.finishResultHolderDisposal() }) }
-            valueAdmissions.set(admissionKey, admission)
-          }
-          let retained: RetainedAssets
-          try { retained = reusable?.retained ?? await admission!.promise } finally {
-            if (valueAdmissions.get(admissionKey) === admission) valueAdmissions.delete(admissionKey)
-          }
-          if (!current() || !this.mayAdoptResult(retained)) throw new Error('Value owner changed during asset admission')
-          const owner = this.resultAssetOwners.get(retained.ownerId)
-          const valueSlot = canonicalJson({ execution: key, nodeId: query.nodeId, outputId: query.outputId })
-          const references = () => {
-            const persisted = persistedResultReferences()
-            return persisted === undefined ? undefined : new Set([...persisted.ownerIds,
-              ...[...this.store.executions.get().values()].flatMap((state) =>
-                (state.assetRetentions ?? []).map((receipt) => receipt.ownerId))])
-          }
-          const held = references()
-          // A fresh equal-inventory acknowledgment can replace a reader's
-          // protection even when the old journal no longer permits reuse.
-          const previous = owner === undefined && retained.complete && held !== undefined ? [...this.resultAssetOwners.values()].find((candidate) =>
-            candidate.backend === nativeBackend && candidate.project === project && candidate.generation === generation &&
-            candidate.storage === storage && candidate.drained === undefined &&
-            candidate.retained.ownerId !== retained.ownerId && candidate.valueSlot === valueSlot &&
-            !held.has(candidate.retained.ownerId) && candidate.reader?.retained === candidate.retained && candidate.retained.complete &&
-            canonicalJson(candidate.retained.digests) === canonicalJson(retained.digests)) : undefined
-          const reader = owner?.reader ?? previous?.reader ?? new RetainedAssetReader(connection, retained, () =>
-            !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
-            (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
-            generation === this.assetConnectionGenerations.get(connection))
-          this.resultAssetOwners.set(retained.ownerId, { backend: nativeBackend, retained, project, generation,
-            execution: key, reader, observed: owner?.observed === true || observed, valueKey, valueSlot, storage })
-          if (previous !== undefined) {
-            previous.drained = false
-            void reader.replaceProtection(retained).then(async (replaced) => {
-              previous.drained = true
-              const held = references()
-              if (!replaced || !current() || held === undefined || held.has(previous.retained.ownerId) ||
-                this.resultAssetOwners.get(previous.retained.ownerId) !== previous) return
-              this.resultAssetOwners.delete(previous.retained.ownerId)
-              await this.retireAssetOwner(connection, previous.retained)
-            })
-          }
-          this.retireUnusedResultOwners()
-          if (!current() || !this.mayAdoptResult(retained)) throw new Error('Value owner changed during asset admission')
-          return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
-            this.valueAssetReaders.set(reader, (this.valueAssetReaders.get(reader) ?? 0) + 1)
-            try {
-              return await reader.read(async () => {
-                if (!current() || !this.mayAdoptResult(reader.retained)) throw new Error('Value owner is no longer available')
-                const value = await consume()
-                if (!current() || !this.mayAdoptResult(reader.retained)) throw new Error('Value owner changed during read')
-                return value
-              })
-            } finally {
-              const remaining = this.valueAssetReaders.get(reader)! - 1
-              if (remaining === 0) this.valueAssetReaders.delete(reader)
-              else this.valueAssetReaders.set(reader, remaining)
-              this.finishResultHolderDisposal()
-            }
-          } }
-        },
       })
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -5581,75 +5480,11 @@ export class AppState {
         base.invalidateRemoteChoices()
         startRefresh('reconnect')
       }
-      let retentionRefreshTimer: ReturnType<typeof setTimeout> | undefined
-      let retentionRefreshRequested = false
-      let retentionFullScan = true
-      let unresolvedRetentions = new Set<string>()
-      const dirtyRetentions = new Set<string>()
-      const reconcileRetentions = (): void => {
-        if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend ||
-          this.workflowRetentionRecoveries.has(connection)) return
-        retentionRefreshRequested = false
-        this.workflowRetentionTimers.delete(connection)
-        const controller = new AbortController()
-        this.workflowRetentionRecoveries.set(connection, controller)
-        this.pendingRetentionRecoveries += 1
-        // Only connection startup needs a census. Journal notifications name
-        // the changed owners; earlier diagnostic failures remain represented.
-        const recovery = { keys: retentionFullScan ? undefined : new Set(dirtyRetentions),
-          unresolved: unresolvedRetentions, unreadable: false }
-        retentionFullScan = false
-        dirtyRetentions.clear()
-        void reconcileWorkflowRetentions(connection, controller.signal, undefined, recovery)
-          .then((resolved) => {
-            if (this.disposed || controller.signal.aborted || this.backendFor(id) !== nativeBackend) return
-            if (recovery.unreadable) retentionFullScan = true
-            if (retentionRefreshRequested) return
-            this.replaceProblems(retentionProblemsOwner, resolved ? [] : [diag(
-              'warning', 'validation', 'workflow.retention.unresolved',
-              `[${label}] Workflow ownership unconfirmed.`,
-            )])
-          }).finally(() => {
-            this.pendingRetentionRecoveries -= 1
-            if (this.workflowRetentionRecoveries.get(connection) === controller) {
-              this.workflowRetentionRecoveries.delete(connection)
-              if (retentionRefreshRequested && retentionRefreshTimer === undefined) reconcileRetentions()
-            }
-          })
-      }
-      const refreshRetentions = (key: string): void => {
-        if (this.disposed || connection.status.get() !== 'connected' || this.backendFor(id) !== nativeBackend) return
-        dirtyRetentions.add(key)
-        retentionRefreshRequested = true
-        if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
-        this.workflowRetentionTimers.add(connection)
-        retentionRefreshTimer = setTimeout(() => {
-          retentionRefreshTimer = undefined
-          reconcileRetentions()
-        }, 400)
-      }
-      this.workflowRetentionRefreshes.set(connection, refreshRetentions)
-      this.retirementObservers.set(connection, onAssetOwnerRetirement(connection, (key) => {
-        try {
-          if (globalThis.localStorage?.getItem(key) !== null || this.workflowRetentionRecoveries.has(connection) ||
-            unresolvedRetentions.has(key)) refreshRetentions(key)
-        } catch { refreshRetentions(key) }
-      }))
       const handleStatusChange = (status: ConnectionStatus): void => {
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         this.submissionAssetOwners = new WeakMap()
-        if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
-        retentionRefreshTimer = undefined
-        retentionRefreshRequested = false
-        retentionFullScan = true
-        unresolvedRetentions = new Set()
-        dirtyRetentions.clear()
-        this.workflowRetentionTimers.delete(connection)
-        this.workflowRetentionRecoveries.get(connection)?.abort()
-        this.workflowRetentionRecoveries.delete(connection)
         if (status === 'connected') {
           refreshOnConnect()
-          reconcileRetentions()
         } else {
           staleGen += 1
           base.templatesEnabled.set(false)
@@ -5699,14 +5534,6 @@ export class AppState {
           this.clearProblems(schemaProblemsOwner)
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
-          this.retirementObservers.get(connection)?.()
-          this.retirementObservers.delete(connection)
-          this.workflowRetentionRecoveries.get(connection)?.abort()
-          this.workflowRetentionRecoveries.delete(connection)
-          this.workflowRetentionRefreshes.delete(connection)
-          this.workflowRetentionTimers.delete(connection)
-          if (retentionRefreshTimer !== undefined) clearTimeout(retentionRefreshTimer)
-          this.clearProblems(retentionProblemsOwner)
           disposeCompletionHydration()
           disposeMountHealth()
           disposeConnection()
@@ -5767,9 +5594,7 @@ export class AppState {
     const trimmed = canonicalBackendUrl(baseUrl)
     let found: BackendDiscovery
     try {
-      found = await (options?.discover?.(trimmed) ?? discoverBackend(trimmed, {
-        fetchFn: this.retentionClientFor(trimmed).fetch,
-      }))
+      found = await (options?.discover?.(trimmed) ?? discoverBackend(trimmed))
     } catch (e) {
       // The live probe never throws, but an injected discovery can; keep
       // the named-problem contract instead of an unhandled rejection.
@@ -9826,7 +9651,7 @@ export class AppState {
   private superviseBackend(backend: Backend & { protocol: 'dinkster' }): void {
     this.supervisorPolls.get(backend.id)?.()
     const cancel = pollSupervisor({
-      probe: () => probeSupervisorStatus(backend.baseUrl, this.retentionClientFor(backend.baseUrl).fetch),
+      probe: () => probeSupervisorStatus(backend.baseUrl, globalThis.fetch),
       connected: () => backend.connection.status.get() === 'connected',
       get: () => backend.supervisor.get(),
       set: (status) => backend.supervisor.set(status),
@@ -9849,7 +9674,7 @@ export class AppState {
   async restartEngine(backend: Backend): Promise<void> {
     if (backend.protocol !== 'dinkster') return
     this.log('info', backend.label, 'requesting engine restart')
-    const result = await restartSupervisorEngine(backend.baseUrl, this.retentionClientFor(backend.baseUrl).fetch)
+    const result = await restartSupervisorEngine(backend.baseUrl, globalThis.fetch)
     // Removal and re-addition can reuse a ConnectionId. Exact object liveness
     // prevents the retired request from cancelling or polling the new backend.
     if (!this.backends.get().includes(backend)) return
