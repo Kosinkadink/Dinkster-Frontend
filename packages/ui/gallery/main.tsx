@@ -13,6 +13,7 @@ import { render } from 'solid-js/web'
 import {
   Bell,
   CircleAlert,
+  Ellipsis,
   LayoutList,
   MousePointer,
   Menu,
@@ -558,8 +559,8 @@ function Gallery() {
                   <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
                   <article class="storage-folder">
                     <div class="storage-folder-heading">
-                      <div class="storage-folder-copy"><strong>Models</strong><code>/home/name/Dinkster/Models</code></div>
-                      <ProductMenu label="Folder actions" items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
+                      <div class="storage-folder-copy"><strong>Studio models folder with a long descriptive name</strong><code>/home/name/Dinkster/Models</code></div>
+                      <ProductMenu label="Folder actions" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
                     </div>
                     <ProductDisclosure title="Model kinds"><ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: '12 files' }, { label: 'LoRAs', value: '48 files' }]} /></ProductDisclosure>
                     <span class="storage-folder-mark">Downloads land here</span>

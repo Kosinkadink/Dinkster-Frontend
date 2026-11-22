@@ -136,7 +136,8 @@ foreground against their actual fill, including the hovered fill.
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
   only while it is open. Item text follows its intent. Removal callbacks open a
-  confirmation. `ProductAccountMenu` shows the person's initial and name on a
+  confirmation. Use `iconOnly` with an icon for compact folder actions; the
+  label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
   and email with the menu, and invokes Sign out immediately.
 - `ProductNotice` is standing information without a dismiss button, including

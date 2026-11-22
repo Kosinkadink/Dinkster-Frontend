@@ -33,6 +33,7 @@ function Menu(props: {
   items: readonly ProductMenuItem[]
   identity: MenuIdentity | undefined
   account?: boolean
+  iconOnly?: boolean | undefined
   children: JSX.Element
 }) {
   const [open, setOpen] = createSignal(false)
@@ -122,6 +123,7 @@ function Menu(props: {
         ref={trigger}
         class="dinkster-button dinkster-menu-trigger"
         data-account={props.account ? '' : undefined}
+        data-icon-only={props.iconOnly ? '' : undefined}
         type="button"
         aria-haspopup="menu"
         aria-label={props.triggerName}
@@ -136,7 +138,7 @@ function Menu(props: {
         }}
       >
         {props.children}
-        <ProductIcon icon={ChevronDown} />
+        <Show when={!props.iconOnly}><ProductIcon icon={ChevronDown} /></Show>
       </button>
       <Show when={open()}>
         <div
@@ -221,6 +223,7 @@ export function ProductMenu(props: {
   items: readonly ProductMenuItem[]
   identity?: MenuIdentity
   icon?: LucideIcon
+  iconOnly?: boolean
 }) {
   return (
     <Menu
@@ -228,9 +231,10 @@ export function ProductMenu(props: {
       menuName={props.label}
       items={props.items}
       identity={props.identity}
+      iconOnly={props.iconOnly}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
-      <span class="dinkster-menu-label" data-compact={!!props.icon}>
+      <span class={props.iconOnly ? 'dinkster-visually-hidden' : 'dinkster-menu-label'} data-compact={!!props.icon}>
         {props.label}
       </span>
     </Menu>
