@@ -3384,10 +3384,11 @@ export class AppState {
     this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org/static' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     this.frontendDoors.nodeDecoration('core.node.mode', {
+      // The decoration contract has no title placement, so the mode tabs name their side.
       decorate: (node) => node.mode === 'muted'
-        ? { badges: [MUTED_BADGE] }
+        ? { badges: [{ ...MUTED_BADGE, placement: 'above' }] }
         : node.mode === 'bypassed'
-          ? { badges: [BYPASSED_BADGE] }
+          ? { badges: [{ ...BYPASSED_BADGE, placement: 'above' }] }
           : undefined,
     })
     registerCoreWidgets(this.frontendDoors)

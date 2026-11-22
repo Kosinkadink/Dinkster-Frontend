@@ -61,13 +61,6 @@ export async function compareCanvasFrames(
         : page === 'core-rows'
           ? ('inset-raised' as const)
           : defaultTokens.widgetRowLook,
-    badgeLayout:
-      page === 'tabs' ||
-      page === 'tabs-content' ||
-      page === 'run-editable' ||
-      page === 'run-frozen'
-        ? ('tabs' as const)
-        : defaultTokens.badgeLayout,
   }
   const measurement = document.createElement('canvas').getContext('2d')!
   const measure: TextMeasurer = (text, role) => {

@@ -16,6 +16,7 @@ export type CanvasIconName =
   | 'sliders-horizontal' | 'panel-top-close' | 'panel-top-open'
   | 'check' | 'clock' | 'database' | 'triangle-alert' | 'info'
   | 'image' | 'palette' | 'chevron-right' | 'list' | 'list-checks' | 'spline'
+  | 'circle-x' | 'list-tree' | 'scroll-text' | 'forward' | 'archive' | 'unplug' | 'repeat' | 'lock'
 
 export interface ToolboxButton {
   /** Stable namespaced id ('core.mode.muted', 'core.delete'). */

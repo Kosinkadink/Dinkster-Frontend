@@ -71,17 +71,13 @@ component gallery on loopback port 5276 after `pnpm build:ui`; production galler
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
-The Canvas pages include an Attached tabs proposal at controls and content
-zoom in both themes. Each example shows production chips (Before) beside the
-opt-in renderer layout: small header marks, bounded identity tabs above, run
-details below, crowded icon strips and an overflow count. Hover reveals a strip
-label; clicking a tab or overflow opens its full details. Tabs are 16px high
-with 11px text and a 12px side inset, from the typed canvas tokens. A tab is as
-wide as its padding, icon and measured text, the text capped at 120px; paint,
-pointer targets and bounds share that measured width. Production continues to
-use chips. Candidate tab icons and labels
-choose a light or dark foreground against their actual fill, including the
-hovered fill.
+The Canvas pages include Tabs at controls and content zoom in both themes:
+the subgraph mark in the title bar, tabs above and below the node, crowded
+icon strips and an overflow count, on open and minimized nodes. Hover reveals
+a strip's words; clicking a tab or overflow opens its full details. The tab
+look, its placement and the icon each tab uses are described in
+[canvas-rendering.md](canvas-rendering.md#badges); Badges and toolbar shows
+every core tab once.
 
 - `ProductShell` owns the frame and responsive navigation. With site density,
   its 1040px centered frame contains 220px navigation and a 32px content gap,
@@ -816,9 +812,8 @@ states and absent execution. Editable paint retains only running and failed
 nodes; frozen paint retains every recorded state and its bottom label. Collapsed
 instances aggregate occurrence severity and running progress before this
 visibility filter. These gallery-only pages use the shared canvas presentation
-API, not an adopted app-view policy. Each example shows chips (Before) beside
-16px attached tabs (After); attached tabs remain a proposal and production run
-paint and chip defaults are unchanged.
+API, not an adopted app-view policy, and draw the run state as the product's
+bottom tab.
 
 `packages/ui/test/canvas-gallery.spec.ts` compares each page in dark and light
 themes in the same Linux Chromium job as the shared component screenshots, and

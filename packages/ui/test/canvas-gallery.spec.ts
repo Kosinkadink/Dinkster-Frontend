@@ -321,23 +321,23 @@ for (const theme of ['dark', 'light'] as const) {
     )
   })
 
-  test(`Attached tab overflow and hover, ${theme}`, async ({ page }) => {
+  test(`Tab overflow and hover, ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await openPage(page, 'tabs', theme)
     await cardsReady(page, 'tabs', theme)
-    // The narrow example's first strip and its +6: measured text leaves room for three strips.
-    const canvas = page.getByTestId('canvas-tabs-15-tabs')
-    await canvas.hover({ position: { x: 25, y: 148 } })
+    // The narrow example's first strip and its +5: measured text leaves room for four strips.
+    const canvas = page.getByTestId('canvas-tabs-15')
+    await canvas.hover({ position: { x: 16, y: 152 } })
     await expect(canvas).toHaveAttribute('title', 'Detail 1')
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
-    await canvas.click({ position: { x: 82, y: 148 } })
+    await canvas.click({ position: { x: 88, y: 152 } })
     const dialog = page.getByRole('dialog', { name: 'Node details' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Detail 4', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Detail 5', { exact: true })).toBeVisible()
     await expect(dialog.getByText('Detail 9', { exact: true })).toBeVisible()
-    await expect(dialog.getByText('Detail 3', { exact: true })).toHaveCount(0)
+    await expect(dialog.getByText('Detail 4', { exact: true })).toHaveCount(0)
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
@@ -380,10 +380,6 @@ for (const theme of ['dark', 'light'] as const) {
             'boundary-names',
             'core-rows',
             'collection-rows',
-            'run-editable',
-            'run-frozen',
-            'tabs',
-            'tabs-content',
           ].includes(id)
         ) {
           await expect(cards).toHaveCount((await comparisons.count()) * 2)
@@ -398,8 +394,8 @@ for (const theme of ['dark', 'light'] as const) {
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )
         if (id === 'run-editable' || id === 'run-frozen') {
-          const running = page.getByTestId(`canvas-${id}-1-tabs`)
-          await running.hover({ position: { x: 60, y: 175 } })
+          const running = page.getByTestId(`canvas-${id}-1`)
+          await running.hover({ position: { x: 45, y: 185 } })
           await expect(running).toHaveAttribute('title', 'Running')
         }
         await page.setViewportSize({ width: 390, height: 1000 })

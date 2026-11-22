@@ -140,7 +140,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   previews:
     'Previews inside nodes: image, video, audio and model, the loading, unavailable, failed, cached and estimated states, and minimized nodes that show a strip only for a picture.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  tabs: 'Tabs above a node say what it is and tabs below say what happened, drawn at 75 percent zoom; a tab is as wide as its icon and its text.',
+  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
     'Every state a node can show: hover, selection, run states, problems, mode, color, a new title and a bad value.',
@@ -189,16 +189,6 @@ interface Variant {
 }
 
 const current: Variant = { id: 'current', caption: '', tokens: (t) => t }
-const chipsBefore: Variant = {
-  id: 'chips',
-  caption: 'Before',
-  tokens: (t) => ({ ...t, badgeLayout: 'chips' }),
-}
-const tabsAfter: Variant = {
-  id: 'tabs',
-  caption: 'After',
-  tokens: (t) => ({ ...t, badgeLayout: 'tabs' }),
-}
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
@@ -265,11 +255,6 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
           tokens: (t) => ({ ...t, widgetRowLook: 'inset-raised-collections' }),
         },
       ]
-    case 'tabs':
-    case 'tabs-content':
-    case 'run-editable':
-    case 'run-frozen':
-      return [chipsBefore, tabsAfter]
     default:
       return [current]
   }
@@ -362,7 +347,6 @@ function ExampleCard(props: {
             // The painted scene: preview regions grow nodes.
             { ...renderer.getScene(), links: [] },
             fixture.previews,
-            fixture.badges,
             (node) => renderer.getNodeBadgeBounds(node),
           )!
     const include = (x: number, y: number) => {
@@ -426,7 +410,7 @@ function ExampleCard(props: {
     }
     paintLabels()
     let removeListeners: (() => void) | undefined
-    if (tokens.badgeLayout === 'tabs') {
+    if (Object.keys(fixture.badges).length > 0) {
       const hit = (event: PointerEvent | MouseEvent) => {
         const rect = canvas.getBoundingClientRect()
         return hitTestBadge(

@@ -1,5 +1,6 @@
 /**
- * Node badges: small header chips (subgraph marker, execution error, ...)
+ * Node badges: tabs above and below a node (its run state, problems, mode,
+ * deprecation, what a pack adds) and the subgraph mark in the title bar,
  * drawn by the renderer and hit-tested BEFORE any other gesture so a badge
  * click never starts a drag. One typed layer for every badge kind - core and
  * extensions contribute the same plain data, the host decides what a click
@@ -14,29 +15,25 @@ import type { CanvasIconName } from './toolbox.js'
 export interface NodeBadge {
   /** Stable namespaced id ('core.subgraph', 'core.error', 'vhs.timeline'). */
   readonly id: string
-  /** Glyph or short status word drawn in the chip. */
+  /** The tab's words; a title mark shows only its icon and count. */
   readonly glyph: string
-  /** Glyph used when icon painting fails and the visible label has another meaning. */
-  readonly fallbackGlyph?: string
-  /** Label chips grow to fit status wording; compact is the default. */
-  readonly variant?: 'label'
-  /** Policy tabs use a quieter solid color than observed execution state. */
-  readonly appearance?: 'policy'
   /**
-   * Chips outside the node body: 'above' tabs sit flush on the top edge
-   * (right-aligned), 'below' tabs sit flush on the bottom edge
-   * (left-aligned). Omitted = header lane inside the title row.
+   * 'above' (the default): a tab over the node, the first one at its right
+   * end. 'below': a tab under the node, the first one at its left end.
+   * 'title': a mark at the right end of the title bar, which only core sets.
    */
-  readonly placement?: 'above' | 'below'
-  /** False for presentation-only chips that must not intercept node gestures. */
+  readonly placement?: 'above' | 'below' | 'title'
+  /** False for presentation-only tabs that must not intercept node gestures. */
   readonly interactive?: false
-  /** Chip fill color. */
+  /** The tab's color: its line, icon and words, and a tint of it as its fill. */
   readonly color: string
-  /** Core vector icon drawn instead of, or beside, the fallback glyph. */
+  /** Vector icon before the words. */
   readonly icon?: CanvasIconName
+  /** A number a title mark paints after its icon. */
+  readonly count?: number
 }
 
-/** node id -> badges; index 0 renders rightmost in the header. */
+/** node id -> badges; each lane lays out in list order from its start. */
 export type BadgeMap = Readonly<Record<string, readonly NodeBadge[]>>
 
 const executionStateLabels: Readonly<Record<NodeRunState, { glyph: string; icon: CanvasIconName }>> = {
@@ -45,7 +42,7 @@ const executionStateLabels: Readonly<Record<NodeRunState, { glyph: string; icon:
   done: { glyph: 'Finished', icon: 'check' },
   cached: { glyph: 'Cached', icon: 'database' },
   skipped: { glyph: 'Skipped', icon: 'ban' },
-  error: { glyph: 'Failed', icon: 'triangle-alert' },
+  error: { glyph: 'Failed', icon: 'circle-x' },
 }
 
 /** Apply view visibility after runtime occurrences have been projected and aggregated. */
@@ -62,7 +59,6 @@ export function executionNodePresentation(
     badges[id] = [{
       id: `core.execution.state.${progress.state}`,
       ...executionStateLabels[progress.state],
-      variant: 'label',
       placement: 'below',
       color: tokens.stateColors[progress.state],
     }]
@@ -74,17 +70,11 @@ export function executionNodePresentation(
 export type PortProblemKind = 'error' | 'blocking-warning' | 'warning'
 export type PortProblemMap = Readonly<Record<string, Readonly<Record<string, PortProblemKind>>>>
 
-export const BADGE_SIZE = canvasPaintTokens.badge.size
-/** Horizontal distance between badge origins. */
-export const BADGE_STRIDE = canvasPaintTokens.badge.stride
-const BADGE_GAP = BADGE_STRIDE - BADGE_SIZE
-/** Right inset of the FIRST badge from the node's right edge. */
-export const BADGE_RIGHT_INSET = canvasPaintTokens.badge.rightInset
-export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'S', icon: 'boxes', color: canvasPaintTokens.badge.colors.subgraph }
+export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'boxes', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2
-  ? { ...SUBGRAPH_BADGE, glyph: String(occurrences), fallbackGlyph: SUBGRAPH_BADGE.glyph, variant: 'label' }
+  ? { ...SUBGRAPH_BADGE, count: occurrences }
   : SUBGRAPH_BADGE
-export const ERROR_BADGE: NodeBadge = { id: 'core.error', glyph: 'Error', variant: 'label', color: canvasPaintTokens.badge.colors.executionError }
+export const ERROR_BADGE: NodeBadge = { id: 'core.error', glyph: 'Error', icon: 'circle-x', placement: 'below', color: canvasPaintTokens.badge.colors.executionError }
 /**
  * Runtime error tab on the node's bottom edge - the ONE visual for the job
  * error report (never a log level). Count > 1 surfaces multiple diagnostics
@@ -92,15 +82,13 @@ export const ERROR_BADGE: NodeBadge = { id: 'core.error', glyph: 'Error', varian
  */
 export const executionErrorBadge = (count: number): NodeBadge => ({
   ...ERROR_BADGE,
-  placement: 'below',
   glyph: count > 1 ? `Error ${count}` : 'Error',
-  fallbackGlyph: ERROR_BADGE.glyph,
 })
 /** One engine explanation for the root absence that blocked this node. */
 export const executionBlockedBadge = (message: string): NodeBadge => ({
   id: 'core.execution.blocked',
   glyph: `Blocked: ${message}`,
-  variant: 'label',
+  icon: 'lock',
   placement: 'below',
   interactive: false,
   color: canvasPaintTokens.badge.colors.warning,
@@ -109,7 +97,7 @@ export const executionBlockedBadge = (message: string): NodeBadge => ({
 export const executionExpandedBadge = (childCount: number): NodeBadge => ({
   id: 'core.execution.expanded',
   glyph: `${childCount} child${childCount === 1 ? '' : 'ren'}`,
-  variant: 'label',
+  icon: 'list-tree',
   placement: 'below',
   interactive: false,
   color: canvasPaintTokens.badge.colors.expanded,
@@ -118,29 +106,29 @@ export const executionExpandedBadge = (childCount: number): NodeBadge => ({
 export const logWarningBadge = (count: number): NodeBadge => ({
   id: 'core.log.warning',
   glyph: count > 1 ? `Warning ${count}` : 'Warning',
-  fallbackGlyph: 'Warning',
-  variant: 'label',
+  icon: 'triangle-alert',
   placement: 'below',
   color: canvasPaintTokens.badge.colors.warning,
 })
-/** Bottom dot marking that the node produced runtime messages this run. */
+/** Bottom tab marking that the node produced runtime messages this run. */
 export const LOG_INFO_BADGE: NodeBadge = {
   id: 'core.log.info',
-  glyph: 'i',
+  glyph: 'Log',
+  icon: 'scroll-text',
   placement: 'below',
   color: canvasPaintTokens.badge.colors.info,
 }
 export const MUTED_BADGE: NodeBadge = {
   id: 'core.mode.muted',
   glyph: 'Muted',
-  variant: 'label',
+  icon: 'volume-x',
   interactive: false,
   color: defaultTokens.colors.mutedBadge,
 }
 export const BYPASSED_BADGE: NodeBadge = {
   id: 'core.mode.bypassed',
   glyph: 'Bypassed',
-  variant: 'label',
+  icon: 'forward',
   interactive: false,
   color: defaultTokens.colors.bypassedBadge,
 }
@@ -148,17 +136,46 @@ export const BYPASSED_BADGE: NodeBadge = {
 export const PROBLEM_ERROR_BADGE: NodeBadge = {
   id: 'core.problem.error',
   glyph: 'Error',
-  variant: 'label',
+  icon: 'circle-x',
+  placement: 'below',
   color: canvasPaintTokens.badge.colors.documentError,
 }
+/** A document error whose node cannot run here. */
+export const UNAVAILABLE_BADGE: NodeBadge = { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable', icon: 'unplug' }
 export const PROBLEM_BLOCKING_WARNING_BADGE: NodeBadge = {
   id: 'core.problem.blocking-warning',
-  glyph: '!',
+  glyph: 'Warning',
+  icon: 'triangle-alert',
+  placement: 'below',
   color: defaultTokens.colors.blockingWarning,
 }
-export const PROBLEM_WARNING_BADGE: NodeBadge = { id: 'core.problem.warning', glyph: 'W', color: canvasPaintTokens.badge.colors.warning }
+export const PROBLEM_WARNING_BADGE: NodeBadge = {
+  id: 'core.problem.warning',
+  glyph: 'Warning',
+  icon: 'triangle-alert',
+  placement: 'below',
+  color: canvasPaintTokens.badge.colors.warning,
+}
+/** A media conversion that lost or reinterpreted data at one pin this run. */
+export const mediaDiagnosticBadge = (id: string, glyph: string): NodeBadge => ({
+  id,
+  glyph,
+  icon: 'triangle-alert',
+  placement: 'below',
+  interactive: false,
+  color: canvasPaintTokens.badge.colors.warning,
+})
+/** Which pass of a repeating region the node's shown result came from. */
+export const regionIterationBadge = (label: string): NodeBadge => ({
+  id: 'core.region.iteration',
+  glyph: label,
+  icon: 'repeat',
+  placement: 'below',
+  interactive: false,
+  color: canvasPaintTokens.badge.colors.expanded,
+})
 /** Deprecated node type; popover shows the successor + apply-replacement. */
-export const DEPRECATED_BADGE: NodeBadge = { id: 'core.deprecated', glyph: 'D', color: canvasPaintTokens.badge.colors.warning }
+export const DEPRECATED_BADGE: NodeBadge = { id: 'core.deprecated', glyph: 'Deprecated', icon: 'archive', color: canvasPaintTokens.badge.colors.warning }
 
 export interface BadgeRect {
   readonly x: number
@@ -167,41 +184,9 @@ export interface BadgeRect {
   readonly height: number
 }
 
-const badgeWidth = (badge: NodeBadge): number =>
-  badge.variant === 'label' ? Math.ceil(badge.glyph.length * canvasPaintTokens.badge.characterWidth) + canvasPaintTokens.badge.labelPadding + (badge.icon === undefined ? 0 : canvasPaintTokens.badge.iconWidth) : BADGE_SIZE
-
-/** World-space rect of the badge at `index` (0 = rightmost in its lane) on a node. */
-export function badgeRect(
-  node: SceneNode,
-  index: number,
-  badges?: readonly NodeBadge[],
-): BadgeRect {
-  const badge = badges?.[index]
-  const width = badge === undefined ? BADGE_SIZE : badgeWidth(badge)
-  const placement = badge?.placement
-  const precedingWidth = badges === undefined
-    ? index * BADGE_STRIDE
-    : badges.slice(0, index)
-        .filter((preceding) => preceding.placement === placement)
-        .reduce((total, preceding) => total + badgeWidth(preceding) + BADGE_GAP, 0)
-  return {
-    x: placement === 'above'
-      ? node.x + node.layout.width - width - precedingWidth
-      : placement === 'below'
-        ? node.x + precedingWidth
-        : node.x + node.layout.width - BADGE_RIGHT_INSET + BADGE_SIZE - width - precedingWidth,
-    y: placement === 'above'
-      ? node.y - BADGE_SIZE
-      : placement === 'below'
-        ? node.y + node.layout.height
-        : node.y + node.layout.headerHeight / 2 - BADGE_SIZE / 2,
-    width,
-    height: BADGE_SIZE,
-  }
-}
-
 export interface BadgePlacement extends BadgeRect {
   readonly badge: NodeBadge
+  /** A tab narrowed to its icon because its lane is full. */
   readonly compact: boolean
   /** Original badges behind an overflow tab, in priority order. */
   readonly overflow?: readonly NodeBadge[]
@@ -219,39 +204,40 @@ export interface BadgeLayoutOptions {
   readonly measureLabel?: (text: string) => number
 }
 
-/** Shared placement for paint, pointer targets and conservative visual bounds. */
+/** Shared placement for paint, pointer targets and visual bounds. */
 export function layoutNodeBadges(
   node: SceneNode,
   badges: readonly NodeBadge[],
   options: BadgeLayoutOptions,
 ): readonly BadgePlacement[] {
-  if (options.tokens.badgeLayout === 'chips') return badges.map((badge, index) => ({
-    ...badgeRect(node, index, badges), badge, compact: badge.variant !== 'label',
-  }))
   const paint = { ...canvasPaintTokens.badge.tab, ...options.tokens.badgeTab }
-  const inset = Math.min(paint.inset, node.layout.width / 2)
-  const available = Math.max(0, node.layout.width - inset * 2)
-  const strip = paint.padding * 2 + paint.iconSize
+  const mark = canvasPaintTokens.badge.mark
   const labelWidth = (text: string): number => Math.ceil(options.measureLabel?.(text) ?? text.length * paint.fontSize)
-  const fullWidth = (badge: NodeBadge): number => Math.min(available,
-    paint.padding * 2 + paint.iconSize + paint.iconGap + Math.min(paint.maxLabelWidth, labelWidth(badge.glyph)))
   const result: BadgePlacement[] = []
-  const header = badges.filter((badge) => badge.placement === undefined)
-  const headerCount = Math.min(header.length, Math.floor((available + BADGE_GAP) / BADGE_STRIDE))
-  const headerOverflow = header.length > headerCount ? header.slice(Math.max(0, headerCount - 1)) : []
-  for (let index = 0; index < headerCount; index++) {
-    const folded = headerOverflow.length > 0 && index === headerCount - 1
+
+  let markRight = node.x + node.layout.width - options.tokens.padX
+  for (const badge of badges) {
+    if (badge.placement !== 'title') continue
+    const width = badge.count === undefined
+      ? mark.size
+      : mark.padding * 2 + mark.iconSize + mark.gap + labelWidth(String(badge.count))
+    markRight -= width
     result.push({
-      ...badgeRect(node, index),
-      badge: folded ? {
-        id: 'core.badges.overflow.header', glyph: '+', color: options.tokens.colors.nodeBorder,
-      } : header[index]!,
-      compact: true,
-      ...(folded ? { overflow: headerOverflow } : {}),
+      x: markRight, y: node.y + node.layout.headerHeight / 2 - mark.size / 2,
+      width, height: mark.size, badge, compact: false,
     })
+    markRight -= paint.gap
   }
+
+  const inset = Math.min(paint.inset, node.layout.width / 2)
+  const left = node.x + inset
+  const right = node.x + node.layout.width - inset
+  const available = Math.max(0, right - left)
+  const strip = paint.padding * 2 + paint.iconSize
+  const fullWidth = (badge: NodeBadge): number => Math.min(available, paint.padding * 2 +
+    (badge.icon === undefined ? 0 : paint.iconSize + paint.iconGap) + Math.min(paint.maxLabelWidth, labelWidth(badge.glyph)))
   for (const placement of ['above', 'below'] as const) {
-    const lane = badges.filter((badge) => badge.placement === placement)
+    const lane = badges.filter((badge) => (badge.placement ?? 'above') === placement)
     if (lane.length === 0 || available <= 0) continue
     const total = (widths: readonly number[]) => widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * paint.gap
     let visible = lane
@@ -263,7 +249,7 @@ export function layoutNodeBadges(
         overflow = lane.slice(count - 1)
         visible = [...lane.slice(0, count - 1), {
           id: `core.badges.overflow.${placement}`, glyph: `+${overflow.length}`,
-          placement, variant: 'label', color: options.tokens.colors.nodeBorder,
+          placement, color: options.tokens.colors.nodeBorder,
         }]
       }
       widths = visible.map((badge, index) => Math.min(available,
@@ -284,26 +270,29 @@ export function layoutNodeBadges(
     }
     const outset = options.outset ?? 0
     const y = placement === 'above'
-      ? node.y - outset - paint.height + paint.overlap
-      : node.y + node.layout.height + outset - paint.overlap
-    let x = node.x + inset
+      ? node.y - outset - paint.offset - paint.height
+      : node.y + node.layout.height + outset + paint.offset
+    // Top tabs grow leftward from the right end, bottom tabs rightward from the left end.
+    let cursor = placement === 'above' ? right : left
     const entries = visible.map((badge, index): BadgePlacement => {
       const width = widths[index]!
       const folded = overflow.length > 0 && index === visible.length - 1
-      const entry = {
+      const x = placement === 'above' ? cursor - width : cursor
+      cursor = placement === 'above' ? x - paint.gap : x + width + paint.gap
+      return {
         x, y, width, height: paint.height, badge,
         compact: !folded && width < fullWidth(badge),
         ...(folded ? { overflow } : {}),
       }
-      x += width + paint.gap
-      return entry
     })
     const hovered = entries.find((entry) => entry.badge.id === options.hoveredId)
     if (hovered && !hovered.overflow) {
       const width = fullWidth(hovered.badge)
       result.push(...entries.filter((entry) => entry !== hovered), {
         ...hovered, width, compact: false,
-        x: Math.min(hovered.x, node.x + node.layout.width - inset - width),
+        x: placement === 'above'
+          ? Math.max(left, hovered.x + hovered.width - width)
+          : Math.min(hovered.x, right - width),
       })
     } else result.push(...entries)
   }
@@ -313,13 +302,12 @@ export function layoutNodeBadges(
 /** Includes hovered expansion; callers apply live resize/drag geometry first. */
 export function nodeBadgeBounds(node: SceneNode, badges: readonly NodeBadge[], options: BadgeLayoutOptions): BadgeRect {
   const entries = layoutNodeBadges(node, badges, options)
-  const bleed = options.tokens.badgeLayout === 'tabs' ? canvasPaintTokens.badge.tab.hoverStroke / 2 : 0
-  const left = Math.min(node.x, ...entries.map((entry) => entry.x - bleed))
-  const top = Math.min(node.y, ...entries.map((entry) => entry.y - bleed))
+  const left = Math.min(node.x, ...entries.map((entry) => entry.x))
+  const top = Math.min(node.y, ...entries.map((entry) => entry.y))
   return {
     x: left, y: top,
-    width: Math.max(node.x + node.layout.width, ...entries.map((entry) => entry.x + entry.width + bleed)) - left,
-    height: Math.max(node.y + node.layout.height, ...entries.map((entry) => entry.y + entry.height + bleed)) - top,
+    width: Math.max(node.x + node.layout.width, ...entries.map((entry) => entry.x + entry.width)) - left,
+    height: Math.max(node.y + node.layout.height, ...entries.map((entry) => entry.y + entry.height)) - top,
   }
 }
 
@@ -332,21 +320,19 @@ export interface BadgeHit {
 
 /** Topmost badge under a world point (nodes drawn later win, like hitTest). */
 export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: number,
-  layout?: (node: SceneNode, badges: readonly NodeBadge[]) => readonly BadgePlacement[],
+  layout: (node: SceneNode, badges: readonly NodeBadge[]) => readonly BadgePlacement[],
 ): BadgeHit | undefined {
   for (let i = scene.nodes.length - 1; i >= 0; i--) {
     const node = scene.nodes[i]!
     const list = badges[node.id]
     if (list) {
-      const entries = layout?.(node, list)
-      for (let index = 0; index < (entries?.length ?? list.length); index++) {
-        const entry = entries?.[entries.length - 1 - index]
-        const badge = entry?.badge ?? list[index]!
-        if (badge.interactive === false) continue
-        const rect = entry ? { x: entry.x, y: entry.y, width: entry.width, height: entry.height }
-          : badgeRect(node, index, list)
+      const entries = layout(node, list)
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const entry = entries[index]!
+        if (entry.badge.interactive === false) continue
+        const rect = { x: entry.x, y: entry.y, width: entry.width, height: entry.height }
         if (wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height) {
-          return { node, badge, rect, ...(entry?.overflow ? { overflow: entry.overflow } : {}) }
+          return { node, badge: entry.badge, rect, ...(entry.overflow ? { overflow: entry.overflow } : {}) }
         }
       }
     }

@@ -20,7 +20,8 @@ all of them. The toolbar's mode button opens the same **Active**, **Muted**, and
 ## Presentation and links
 
 A minimized node keeps the width it has when open and shows only its title
-bar; header badges stay inside that bar as they do on the open node. Its
+bar; a subgraph's mark stays in that bar and the tabs above and below stay
+outside it, as on the open node. Its
 stored size remains unchanged and the height returns exactly when restored.
 Below the title bar it shows a one-row strip only while it has real content
 to show: a picture the canvas paints, such as a decoded image output or a 3D

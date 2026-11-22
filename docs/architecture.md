@@ -1622,7 +1622,7 @@ The architecture's layering is what makes testing convenient: the further down t
 
 ### Diagnostics on the graph
 
-Document diagnostics are projected onto node header badges and exact input-pin
+Document diagnostics are projected onto tabs below the node and exact input-pin
 rings without changing their raw severity. One composition step retains the
 active tab's compile/submit-validation diagnostics, scene solver/widget
 diagnostics, frozen artifact diagnostics, and bound execution errors before one

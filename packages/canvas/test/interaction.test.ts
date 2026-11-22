@@ -8,7 +8,8 @@ import { InteractionController, connectivityRangeSelection, resizedNodeBounds, t
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene, type SceneNode } from '../src/scene.js'
+import { layoutNodeBadges } from '../src/badges.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -57,6 +58,7 @@ function interactionHarness(
     },
     getToolboxLayout: () => typeof toolbox === 'function' ? toolbox() : toolbox,
     getBadges: () => badges,
+    getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
     getOverlay: () => overlay,
@@ -728,10 +730,10 @@ describe('canvas hover targets', () => {
 
   it('emits a badge before the underlying node header', () => {
     const hover = vi.fn()
-    const badge = { id: 'core.error', glyph: '!', color: '#f00' }
+    const badge = { id: 'core.subgraph', glyph: 'Subgraph', placement: 'title' as const, color: '#f00' }
     const harness = interactionHarness(interactionScene(), { onHoverTarget: hover }, { n1: [badge] })
 
-    // n1 badge rect: x=88..102, y=13..27. This is also inside the header.
+    // n1 mark rect: x=84..100, y=12..28. This is also inside the header.
     harness.fire('pointermove', 95, 20)
 
     expect(hover).toHaveBeenCalledWith(expect.objectContaining({
