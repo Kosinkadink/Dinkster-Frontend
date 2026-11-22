@@ -44,8 +44,11 @@ idle shows a list icon, running shows a cyan ring, and a number counts only
 waiting jobs. Completed runs never contribute to this indicator. Waiting jobs
 remain visible as a count beside the list icon when no job is running.
 The shared `executionActivity` selector in `packages/app/src/execution-activity.ts`
-accepts workflow-filtered executions or all executions for the top bar; both
-surfaces derive their state from the execution store.
+accepts workflow-filtered executions or all executions for the top bar and
+returns separate numeric `running` and `waiting` counts. Multiple jobs can
+run concurrently, including jobs of the same workflow. Completed and failed
+jobs contribute to neither count. Both surfaces derive their state from the
+execution store.
 
 Queueing is a control of the workflow currently open in the graph editor,
 not a global shell action. Each live graph tab has a compact control on the

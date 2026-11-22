@@ -42,7 +42,7 @@ export function WorkflowQueueControl(props: {
   const summary = (): string => {
     const { running, waiting } = activity()
     return [
-      ...(running ? ['Running'] : []),
+      ...(running > 0 ? [`${running} running`] : []),
       ...(waiting > 0 ? [`${waiting} waiting`] : []),
     ].join(', ') || 'No active jobs'
   }
@@ -99,7 +99,7 @@ export function WorkflowQueueControl(props: {
           data-testid="workflow-queue-toggle"
           aria-label={`${summary()}: ${open() ? 'Hide' : 'Show'} runs for ${props.owner.title}`}
           data-tooltip-label={summary()}
-          data-running={activity().running}
+          data-running={activity().running > 0}
           aria-expanded={open()}
           aria-controls={popoverId}
           onClick={() => setOpen((value) => !value)}
