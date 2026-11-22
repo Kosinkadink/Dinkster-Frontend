@@ -48,6 +48,7 @@ export function RowFocusOverlay(props: {
         <CanvasRowFocus
           rowWidth={placement().rowWidth}
           look={props.focus.look}
+          zoomed={placement().scale > 1}
           place={placement().place}
           sideTop={placement().sideTop}
           onSideSize={(size) => setSideWidth(size.width)}

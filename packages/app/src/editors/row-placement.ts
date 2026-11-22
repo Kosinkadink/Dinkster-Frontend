@@ -50,9 +50,21 @@ export function rowPlacement(
   }
 }
 
-/** Puts an element at a placement's top left, scaled when zoomed in. */
+/**
+ * Puts an element at a placement's top left, scaled when zoomed in. The
+ * element sits on whole pixels and the fraction moves inside the scale: a
+ * scaled element at a fractional position is drawn snapped to a whole
+ * pixel, which would shift its text from where the canvas drew it.
+ */
 export function placeRow(element: HTMLElement, placement: RowPlacement): void {
-  element.style.left = `${placement.screen.x}px`
-  element.style.top = `${placement.screen.y}px`
-  element.style.transform = placement.scale > 1 ? `scale(${placement.scale})` : ''
+  const { scale } = placement
+  const parent = element.offsetParent?.getBoundingClientRect()
+  const fx = parent ? parent.left - Math.round(parent.left) : 0
+  const fy = parent ? parent.top - Math.round(parent.top) : 0
+  const screen = { x: placement.screen.x - fx, y: placement.screen.y - fy }
+  const x = scale > 1 ? Math.floor(screen.x) : screen.x
+  const y = scale > 1 ? Math.floor(screen.y) : screen.y
+  element.style.left = `${x}px`
+  element.style.top = `${y}px`
+  element.style.transform = scale > 1 ? `scale(${scale}) translate(${(screen.x - x) / scale}px, ${(screen.y - y) / scale}px)` : ''
 }
