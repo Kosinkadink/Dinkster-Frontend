@@ -946,6 +946,19 @@ The bundle has an embedded symbol, no network imports, no Node/Electron API and
 no preload bridge. Content styles and the page's CSP remain host-owned. Both
 files are hashed by the site manifest and required by the wheel packager.
 
+`ProductWindowToolbar` composes the same native geometry with brand, search and
+actions slots, an optional service label and QA/development identity. It has a
+fixed 56px height. At the standard 768px available-content boundary, a container
+query compacts `ProductWindowAction` labels to icons and moves service/identity
+labels into a metadata row inside the bar. Native reservations therefore reduce
+available space before the breakpoint is evaluated. Actions retain their full
+accessible name and title; pending actions reuse the shared disabled/focus and
+spinner behavior. The gallery's Window toolbar page demonstrates production,
+QA/custom services, all three platforms, both app themes and idle/running/pending
+states. Supply a brand menu with an icon and the fixed QA/custom service labels;
+arbitrary environment names are outside this toolbar contract. These are shared
+patterns, not app adoption or OS-input acceptance.
+
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host
 window's theme; `title` carries the host's identity, including QA markings.
