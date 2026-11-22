@@ -23,6 +23,7 @@ import {
   defaultTokens,
   hitTest,
   InteractionController,
+  boundaryFieldNode,
   nodesInGroup,
   partialExecutionButtons,
   scenesEqual,
@@ -4388,7 +4389,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // contract directly, so registry churn cannot invalidate it.
       const documentUnchanged = ed !== undefined && tabDocumentUnchanged(ed.tab, editorDocumentRevision, tab) &&
         editorExtensionsGeneration === extensionsGeneration
-      if (widgetEditorAnchorAlive(ed, scene.nodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged, scene.valueSources) &&
+      // A subgraph's Inputs panel carries field rows too, edited like a node's.
+      const fieldNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((bnode) => boundaryFieldNode(bnode) ?? [])]
+      if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged, scene.valueSources) &&
         inRowValueKept(ed, tab.store.doc)) {
         // A workspace promotion replaces the Tab wrapper. Rebind in place so
         // the keyed editor keeps its draft and commits to the live store.
@@ -4409,7 +4412,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // The focused row follows the rebuilt scene, and goes when its row does.
       const focus = untrack(rowFocus)
       if (focus !== undefined) {
-        const node = scene.nodes.find((item) => item.id === focus.nodeId)
+        const node = fieldNodes.find((item) => item.id === focus.nodeId)
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
           ? undefined
@@ -4433,7 +4436,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setLinkDoubleClickMenu(undefined) // its link id/endpoints are scene-owned too
       const openController = untrack(controllerMenu)
       if (openController !== undefined) {
-        const anchorAlive = openController.tab.id === tab.id && scene.nodes.some((node) =>
+        const anchorAlive = openController.tab.id === tab.id && fieldNodes.some((node) =>
           node.layout.rows.some((row) => row.kind === 'widget' && row.controllerMode !== undefined &&
             (row.familyOwner?.graphId ?? graphId) === openController.graphId &&
             (row.familyOwner?.nodeId ?? node.id) === openController.nodeId &&

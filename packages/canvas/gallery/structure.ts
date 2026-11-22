@@ -1,8 +1,10 @@
 import {
+  asNodeId,
   CORE_VIRTUAL_NODE_KINDS,
   coreVirtualNodeKind,
   documentResolver,
   loadDocument,
+  occurrenceDynamicView,
   type NodeSchema,
 } from '@dinkster/core'
 import {
@@ -213,14 +215,31 @@ export function structuralGalleryScene(
       (schema) => [schema.type, schema],
     ),
   )
+  if (!inside)
+    return buildScene({
+      document,
+      graphId: 'g0',
+      resolve: (type) => schemas.get(type),
+      tokens,
+      measure,
+      widgetMeasure,
+      renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
+    })
+  // Inside, the subgraph is entered through its node, as the app does: the
+  // Inputs panel carries that node's radius, which the inner Blur shows.
+  const resolve = documentResolver(document, (type) => schemas.get(type))
   return buildScene({
     document,
-    graphId: inside ? 'g1' : 'g0',
-    resolve: (type) => schemas.get(type),
+    graphId: 'g1',
+    resolve,
     tokens,
     measure,
     widgetMeasure,
-    renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
+    occurrence: {
+      owner: { instancePath: [], node: asNodeId('sub') },
+      plannerAvailable: false,
+    },
+    occurrenceView: occurrenceDynamicView(document, resolve, ['sub']),
   })
 }
 
