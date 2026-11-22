@@ -21,8 +21,9 @@ format; removing an editing surface does not change those contracts.
 
 ## Assets and execution
 
-Workflow asset retention still inventories referenced image documents and their
-resources. Layered assets and previews retain their normal rendering paths.
+Image documents and their resources load directly from the selected backend.
+Opening or editing them does not record cleanup file lists or wait for cleanup
+receipts. Layered assets and previews retain their normal rendering paths.
 [Compositor execution](compositor.md) applies a stored recipe to its authoritative
 runtime document without requiring an editor. Output policy continues to support
 PNG, JPEG and WebP.
