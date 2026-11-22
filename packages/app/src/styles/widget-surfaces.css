@@ -182,11 +182,6 @@
 
 .widget-editor.floating-surface { padding: var(--dinkster-space-12); }
 
-.redock-workflow {
-  margin-left: var(--dinkster-space-8);
-  white-space: nowrap;
-}
-
 .native-panel-window {
   box-sizing: border-box;
   display: grid;

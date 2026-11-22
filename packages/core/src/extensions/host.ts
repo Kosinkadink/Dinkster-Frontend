@@ -133,6 +133,7 @@ export interface CanvasLayerNode {
 
 export interface CanvasLayerContext {
   readonly context: CanvasRenderingContext2D
+  readonly colors?: Readonly<{ canvasBackground: string; gridDot: string }>
   readonly viewport: Readonly<{ x: number; y: number; width: number; height: number; scale: number }>
   readonly nodes: readonly CanvasLayerNode[]
 }
