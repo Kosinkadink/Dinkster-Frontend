@@ -59,6 +59,31 @@ an environment.
 +--------------------------------------------------------------+
 ```
 
+The window uses a dark frame behind the top bar, left bar and 22 px status
+bar. Filled dock sections and canvas editor groups have 8 px corners, with
+6 px frame gaps between them. There are no region outlines or divider lines.
+The gaps are pointer- and keyboard-operable splitters; their resize cursor
+and hover/focus highlight expose the handle. Closing a region removes its
+gap. Panels end directly at the status bar without a gap above it.
+
+Selected region and minimap switches use cyan icons without a box or fill.
+The selected left bar item uses the panel fill and a 3 px cyan outer mark;
+the bar is 76 px wide so every default label, including Resources, fits on
+one line. Longer pack-panel titles may use an ellipsis with a full-title
+tooltip. Dock tabs
+use primary text and a 2 px underline without a box. Each split editor group
+is rounded; its selected tab uses primary text only in the focused group,
+secondary text otherwise. An unfocused group's canvas controls and notices
+are dimmed to half strength, not its nodes or wires. Hover brightens the
+control under the pointer; clicking it focuses the group and acts in one
+click. Queue and jobs are hidden without moving the other controls until
+the group is focused. A single group's controls remain at full strength.
+Search keeps its outline with no fill. The workflow tab strip is frame-colored;
+the selected workflow tab joins the canvas-colored surface without a border.
+
+The minimap and its control bar share one width. The controls are minimap,
+view options, minus, zoom level, plus, and fit to view, in that order.
+
 The tab strip belongs to the center workspace column. It starts after both
 the icon sidebar and an open left dock, so those left-side regions own their
 full height and tabs never cover them.
@@ -123,8 +148,8 @@ tabbed panel host with a single open/closed switch. The top-right controls
 `left-panel-toggle`, `bottom-panel-toggle`, and `rail-toggle` explicitly
 toggle the three regions in that visual order after Customize Layout and
 expose their current state through `aria-pressed`. Their custom panel icons
-outline the whole shell and fill only the active region in white; active state
-does not use a blue button background. Opening a closed exclusive region selects its first
+outline the whole shell and fill only the active region; active switches
+use cyan without a button background. Opening a closed exclusive region selects its first
 registered panel (Library on the left, Activity on the bottom). Existing
 panel-specific sidebar and status-bar toggles continue to select or close
 their named panel through the same `ShellLayout` signals.
@@ -133,7 +158,9 @@ All three are pointer- and keyboard-resizable and all layout state persists per-
 the bottom panel and never toggles with it.
 
 Above the 520 px sheet breakpoint, side regions share space with a canvas
-budget of at least 320 px. When both saved side widths do not fit, opening
+budget of at least 320 px after subtracting the visible activity rail, frame
+padding, and each visible region's splitter gap. One open side needs one
+panel-to-canvas gap; two open sides need two. When both saved side widths do not fit, opening
 one side closes the other; narrowing the window closes the right rail first.
 A single side is temporarily capped to the available space without changing
 its saved width. Widening the window restores that width, not a closed side.
@@ -363,9 +390,15 @@ status bar even when the user's layout setting hides it.
 
 ## The left dock
 
-A tabbed dock zone between the icon sidebar and the canvas. Multiple panels
-remain available in its tab row while exactly one body per section is
-visible (see "Dock zone sections"). In wide
+A dock zone between the icon sidebar and the canvas. Each section shows
+its active panel's title and keeps inactive bodies mounted. The title is
+keyboard-focusable and supports the same drag and placement context menu as
+a panel tab. The first section keeps the zone close button. Panels are
+selected through the left bar, including pack panels and panels moved here;
+a panel without an icon gets a default panel icon. When the left bar is
+hidden, each section restores its tab row so every panel stays reachable.
+The bottom zone has no entries in the left bar; its top-bar switch opens it
+and its own tabs choose a panel. In wide
 mode, the dock shares the flex row with the canvas, so opening it shrinks the
 canvas rather than covering it. In narrow mode it uses the contained sheet
 behavior described above.
@@ -385,8 +418,8 @@ Panels:
   retaining its own live connection object for backends present in both tabs;
   event application does not write the list back to storage.
 
-`DockZoneHost` owns the tab row, active-panel actions, close button, and scroll
-body. A named separator on the right edge resizes the zone from 280-640 px.
+`DockZoneHost` owns the title or tab row, active-panel actions, close button,
+and scroll body. A named separator on the right edge resizes the zone from 280-640 px.
 Arrow Left/Right changes the size by 16 px, while Home/End selects the
 minimum/maximum. Pointer resizing previews continuously and commits once on
 release. Test IDs: `dock-panel` (`data-active-panel` names the visible body),
@@ -396,30 +429,26 @@ the `library-overlay` test ID even though it is not an overlay.
 The status-bar `Backends` button and the sidebar icon toggle the same dock
 panel; both reflect pressed state via `aria-pressed`.
 
-The 72 px activity rail stacks each centered label beneath its thin 20 px
-glyph in a full-width 72 px action. Labels may wrap to two lines without
-widening the rail, and every action
-participates in the rail's custom tooltip session so the full descriptor text
-remains available. Buttons retain normal document tab order, explicit
-accessible names, pressed state for panel toggles, hover feedback, and a
-visible keyboard focus ring. Its panel toggles occupy a scrolling
-placement-driven stack, while Settings is a separate labeled gear button
-pinned below that stack at the rail bottom and dispatches the existing
-`settings.open` command.
-Toggles whose descriptor's effective
-placement is `dock` stay at the top; toggles effectively placed in `bottom`
-anchor at the bottom. Runtime registrations and placement moves use the same
-registry queries, so their icons join the cluster for the region they open.
-Within either cluster there are no visual gaps or button boundaries between
-adjacent items. Once one delayed tooltip has appeared, pointer travel between
-targets in the same rail session replaces it immediately without a hidden
-frame. A visible tooltip may bridge empty rail space for 300 ms so crossing
-between clusters remains forgiving, then hides if no target is reached.
-Leaving the rail boundary hides immediately, so a later re-entry uses the
-configured delay again.
-Opening a dock panel dismisses its toggle's tooltip. While that panel is open,
-the pressed toggle suppresses its tooltip, including while keyboard focus
-remains there, so help does not obscure the panel toolbar.
+The 76 px activity rail stacks each centered label beneath its thin 20 px
+glyph in a 56 px tall action. Default labels stay whole on one line; longer
+pack-panel labels truncate with an ellipsis. Every action participates in the rail's custom tooltip
+session: an unselected item shows its description, or its title when it has no
+description, without a modifier key. Selected items suppress the tooltip on
+hover and keyboard focus. Buttons retain normal document tab order,
+explicit accessible names, pressed state for panel toggles, hover feedback,
+and a visible keyboard focus ring. Left-region panel toggles occupy a
+scrolling placement-driven stack. Settings is a separate labeled gear button
+pinned below that stack and dispatches `settings.open`. Bottom-region panels
+have no activity rail items; their region switch and tab row provide access.
+Runtime registrations and placement moves use the same registry query, so
+every left-region panel has an item.
+
+Once one delayed tooltip has appeared, pointer travel between targets in
+the same rail session replaces it immediately without a hidden frame. A
+visible tooltip may bridge empty rail space for 300 ms, then hides if no
+target is reached. Leaving the rail boundary hides immediately, so a later
+re-entry uses the configured delay again. Opening a dock panel dismisses
+the shown tooltip, including while keyboard focus remains on its selected toggle.
 
 ## The bottom panel
 

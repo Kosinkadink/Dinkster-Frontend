@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_EXECUTION_LOG_PROOF_DIR']
@@ -23,7 +23,7 @@ async function seedRun(page: Page): Promise<Seed> {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
@@ -100,7 +100,8 @@ test('execution log panel shows live records and changes mounted chrome locale',
   })
   await page.setViewportSize({ width: 1600, height: 1000 })
   const seed = await seedRun(page)
-  await page.getByTestId('execution-log-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('dock-zone-bottom').getByRole('tab', { name: 'Execution log', exact: true }).click()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
 
   const rows = page.getByTestId('execution-log-row')
@@ -193,7 +194,8 @@ test('execution log panel shows live records and changes mounted chrome locale',
 
 test('tail follow pauses on scroll-up and resumes from the jump button', async ({ page }) => {
   const seed = await seedRun(page)
-  await page.getByTestId('execution-log-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('dock-zone-bottom').getByRole('tab', { name: 'Execution log', exact: true }).click()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
 
   await page.evaluate(({ execution }) => {

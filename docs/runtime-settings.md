@@ -31,41 +31,20 @@ lost responses are not automatically replayed. Switching backend discards the
 old form and ignores its outstanding callbacks. Refresh reads status without
 enabling deletion. Clear is enabled only when the backend reports collection
 eligibility with no blocking reasons; saving a limit cannot enable cleanup.
-Blocked ownership is explained in plain words, and other backend reasons remain
-visible with their identifiers expanded into words. Clear sends one request,
+Backend blocking reasons are explained in plain words, with their identifiers
+expanded into words. Clear sends one request,
 shows indeterminate progress while it runs, and reports the backend's reclaimed
 byte and file totals, not an estimate. A refusal keeps Clear blocked until a
 successful explicit refresh reports eligibility. Errors remain visible and can
 be retried explicitly; a lost or failed response is never automatically replayed.
-Native discovery, HTTP, event streams and collaboration share a backend-scoped,
-server-issued retention generation. A saved generation is reopened from its
-current server revision; disconnect does not release retained owners. Browser
-pop-outs ignore a generation copied from their opener and enroll independently;
-reloading the child reopens its own generation without rotating the parent's.
-New owners record immutable holder membership with their durable intent: workflow
-literals, undo/compile history and restored/shared documents; typed editor resources;
-shown results and persisted history; live previews; or pending reads and caches.
-A shared receipt declares all lifetimes it protects. Exact releases carry that
-same set, while legacy owner journals never acquire membership retroactively.
-Startup and incoming-tab admissions that acknowledge ownership but cannot publish
-remain protected until admission settles and complete live and durable recovery
-inventories no longer name their roots. Disconnect or application disposal does
-not authorize releasing these receipts. Storage
-Refresh and Clear temporarily suspend event and collaboration reconnects, close
-those streams, settle reads and acknowledge the exact server census before
-requesting evaluated eligibility or cleanup. Streams resume afterward and
-invalidate that acknowledgment. This planned suspension preserves the logical
-connection and already admitted readers; an unexpected transport loss still
-invalidates them and reports reconnection. Other clients, incomplete or unclassified
-owners, and legacy observations still block collection; individual complete
-owner receipts and a saved size limit cannot enable vault cleanup. Installed
-immutable frontend modules keep their native HTTP import URLs: selected,
-digest-verified code GET/HEAD requests are outside retention admission. This
-exception does not cover executable pack routes, asset reads or value reads.
-Output-profile probes and asset previews use the owning backend's enrolled
-connection, including cancellation. Browser image, audio, video and model
-consumers receive owned blob URLs rather than making headerless vault requests;
-preview disposal revokes those URLs.
+The frontend does not record cleanup file lists, enroll windows in a cleanup
+census or suspend streams before Refresh or Clear. These actions call the
+backend directly and use its response. Workflow actions, previews, uploads and
+collaboration do not wait for cleanup checks.
+
+Output-profile probes and asset previews use the selected backend connection,
+including cancellation. Browser image, audio, video and model consumers use
+Blob URLs that are revoked when their preview is disposed.
 
 ## Runtime controls
 

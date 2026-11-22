@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page, type Locator } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page, type Locator } from './fixtures.js'
 
 const hash = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`
 const proofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
@@ -43,12 +43,6 @@ async function backend(page: Page, base: string, initial: string) {
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })
-    if (path.startsWith(`${base}/api/library/retentions/document/`)) {
-      expect(route.request().method()).toBe('PUT')
-      expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-      return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
-        ownerId: decodeURIComponent(path.split('/').at(-1)!), revision: 1, complete: false, digests: [] } })
-    }
     return route.fulfill({ status: 404 })
   })
   await page.evaluate(async (base) => {
@@ -152,7 +146,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'PaneProof', displayName: 'Snapshot widget', category: 'test', source: 'v3', isOutputNode: true,
     items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,

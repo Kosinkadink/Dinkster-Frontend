@@ -4,7 +4,7 @@
  * seeded editing documents.
  */
 import { expect, test as base, type Page } from '../visual.js'
-import { waitForStartupOwnership } from './fixtures.js'
+import { waitForWorkspaceReady } from './fixtures.js'
 import { widgetDiagnostics } from './widget-diagnostics.js'
 
 const test = base.extend(widgetDiagnostics)
@@ -52,7 +52,7 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   // Menus snapshot the worker catalog and close when its initial request completes.
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app

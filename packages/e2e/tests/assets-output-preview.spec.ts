@@ -230,7 +230,7 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   await page.screenshot({ path: `${proofDir}/07-canvas-last-unavailable-1920.png`, animations: 'disabled' })
   await pager.getByRole('button', { name: /Open image 3 of 3/ }).click()
   await expect(page.getByTestId('output-viewer-position')).toHaveText('3 / 3')
-  await expect(page.getByTestId('output-viewer').getByRole('alert')).toContainText('Image asset is unavailable')
+  await expect(page.getByTestId('output-viewer').getByRole('alert')).toContainText('Image unavailable')
   await page.screenshot({ path: `${proofDir}/08-viewer-unavailable-1920.png`, animations: 'disabled' })
   await page.getByTestId('output-viewer').getByRole('button', { name: /Close/ }).click()
 
@@ -400,7 +400,7 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
 
   await installState('disconnected-owner')
   await expect(page.getByTestId('outputs-panel')).toContainText('Configured disconnected owner')
-  await expect(page.getByTestId('outputs-panel')).toContainText('Output owner unavailable')
+  await expect(page.getByTestId('outputs-panel')).toContainText('Output backend unavailable')
   await expect(page.getByTestId('outputs-panel')).toContainText('removed or disconnected')
   await page.screenshot({ path: `${proofDir}/26-state-disconnected-owner.png`, animations: 'disabled' })
   await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/26a-state-disconnected-owner-panel.png`, animations: 'disabled' })
