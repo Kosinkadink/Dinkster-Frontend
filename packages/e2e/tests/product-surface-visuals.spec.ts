@@ -1036,7 +1036,7 @@ test('Region iteration states keep unavailable, loading and retained refusal exp
   for (const [state, text] of [
     ['empty', 'No retained iteration activity is available for this region.'],
     ['no-outputs', 'This body node has no inspectable outputs.'],
-    ['unavailable', 'The execution owner is unavailable.'],
+    ['unavailable', 'The execution backend is unavailable.'],
     ['loading', 'Loading retained value...'],
     ['refused', 'This intermediate is no longer retained.'],
   ] as const) {
