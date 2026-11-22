@@ -107,7 +107,9 @@ foreground against their actual fill, including the hovered fill.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
-  same attributes. `pending` shows the spinner and ignores presses under a
+  same attributes. It uses the label as a native title unless a nonempty
+  `data-tooltip-label` assigns hover/focus wording to the host tooltip.
+  `pending` shows the spinner and ignores presses under a
   stable name. A pending button, and a button that becomes disabled while it
   holds keyboard focus, stays focusable and is announced as unavailable, so
   focus is never dropped to the page. `ProductLink` is the text link.
@@ -152,6 +154,11 @@ foreground against their actual fill, including the hovered fill.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
   `ProductEmptyState` centers the approved D mark with a sentence and optional
   action in its column. `ProductLoading` is one status region with its label;
+  `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
+  breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
+  and cyan. Queued work stays cyan without motion. Its optional
+  `finished`/`failed` result adds a lower-right cyan or
+  coral dot, hidden while running. Tabs and the status bar use this same export.
   `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
   icon anatomy.
 - `ProductFacts` renders labeled account facts as a definition list; values may

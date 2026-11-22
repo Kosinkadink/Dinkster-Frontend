@@ -223,6 +223,32 @@ describe('saveWorkflow', () => {
     expect(create).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps a rename during Save dirty and writes it only on the next Save', async () => {
+    const { backend, tab } = await nativeSetup()
+    let release!: (digest: string) => void
+    const upload = vi.spyOn(backend.connection, 'uploadAsset')
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+      .mockResolvedValue(DIGEST2)
+    const create = vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
+    const patch = vi.spyOn(backend.connection, 'patchLibraryRecord')
+      .mockResolvedValue({ ok: true, record: record({ name: 'New name', revision: 2 }) })
+    const saving = app.saveWorkflow(tab.id)
+    await uploadStarted(upload)
+    app.renameTab(tab.id, '  New name  ')
+    expect(app.activeTab()?.title).toBe('New name')
+    expect(app.activeTab()?.store).toBe(tab.store)
+    expect(patch).not.toHaveBeenCalled()
+    release(DIGEST)
+    expect(await saving).toBe(true)
+    expect(app.isTabDirty(tab.id)).toBe(true)
+    expect(await app.saveWorkflow(tab.id)).toBe(true)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(patch).toHaveBeenCalledWith('r1', {
+      scope: LIBRARY_SCOPE, revision: 1, digest: DIGEST2, name: 'New name',
+    })
+    expect(app.isTabDirty(tab.id)).toBe(false)
+  })
+
   it('a stale-revision conflict re-reads and retries exactly once', async () => {
     const { backend, tab } = (await nativeSetup())
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
