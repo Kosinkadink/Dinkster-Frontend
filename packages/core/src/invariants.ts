@@ -38,7 +38,6 @@ import { diag, type Diagnostic } from './diagnostics.js'
 import {
   boundaryBindingKey,
   isNodeBoundaryBinding,
-  isSubtreeBinding,
   regionContractShapeProblems,
   resolveDynamicAddress,
   type BoundaryRouteLeg,
@@ -69,7 +68,7 @@ import {
   type OccurrenceRef,
   type PortRef,
 } from './ids.js'
-import { matchBoundaryItem, translateThroughCrossing } from './compile/crossing.js'
+import { matchBoundaryItem } from './compile/crossing.js'
 import { selectorCandidateKey } from './reroute.js'
 
 const SUBGRAPH_PREFIX = '#'
@@ -165,8 +164,7 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
       ? containsNul(leg.binding.tap)
       : containsNul(leg.binding.port) ||
         (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute)) ||
-        leg.binding.members?.some(containsNul) === true ||
-        leg.binding.slots?.some(containsNul) === true))))
+        leg.binding.members?.some(containsNul) === true))))
 }
 
 function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolean {
@@ -201,7 +199,7 @@ function topologyIdentityContainsNul(key: string, topology: OccurrenceTopology):
   })
 }
 
-/** Structural closure only; schema-backed crossings validate the family's address mode. */
+/** Structural closure only: each leg must be the one binding its owner hop's address selects. */
 export function routeMatchesOwnerChain(
   doc: Pick<WorkflowDocument, 'graphs'>,
   chain: readonly ResolvedOccurrenceHop[],
@@ -212,7 +210,6 @@ export function routeMatchesOwnerChain(
 ): boolean {
   if (route.length !== chain.length - startIndex) return false
   let address = initialAddress
-  let inheritedDottedMember = false
   for (let offset = 0; offset < route.length; offset++) {
     const ownerHop = chain[startIndex + offset]!
     const graph = doc.graphs[ownerHop.bodyGraphId]!
@@ -222,9 +219,6 @@ export function routeMatchesOwnerChain(
     const match = matchBoundaryItem(items ?? [], address)
     if (!match.ok || match.item.id !== leg.boundaryId) return false
     const item = match.item
-    if (item.binds.kind === 'family' &&
-        !inheritedDottedMember && resolveDynamicAddress(address, ownerHop.node.dynamic).kind !== 'resolved')
-      return false
     const bindings = [item.binds, ...(item.alsoBinds ?? [])]
     const bindingMatches = bindings.filter((binding) =>
       boundaryBindingKey(binding) === boundaryBindingKey(leg.binding))
@@ -247,22 +241,7 @@ export function routeMatchesOwnerChain(
     if (offset + 1 < route.length) {
       const nextHop = chain[startIndex + offset + 1]!
       if (binding.kind === 'widgetTap' || binding.node !== nextHop.ref.node) return false
-      if (isSubtreeBinding(binding)) {
-        const translated = translateThroughCrossing({
-          kind: 'subtree', boundaryId: item.id, side: 'input', targetNode: binding.node,
-          constructPath: binding.port, hopMembers: binding.members ?? [], hopPaths: [],
-        }, address)
-        if (!translated.ok) return false
-        address = translated.ref
-        inheritedDottedMember = false
-      } else if (binding.kind === 'family' && address.members === undefined && address.port.startsWith(`${item.id}.`)) {
-        // The ancestor owns this dotted suffix; intermediate instances need not persist it.
-        address = { port: `${binding.port}${address.port.slice(item.id.length)}` }
-        inheritedDottedMember = true
-      } else {
-        address = { port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
-        inheritedDottedMember = false
-      }
+      address = { port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
     }
   }
   return true

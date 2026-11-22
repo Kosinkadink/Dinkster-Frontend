@@ -427,9 +427,6 @@ export function BoundaryPanel(props: { app: AppState }) {
                             </span>
                           )}
                         </Show>
-                        <Show when={item.binds.kind === 'family'}>
-                          <span class="boundary-kind">Nested slots</span>
-                        </Show>
                         <Show when={item.binds.kind === 'widgetTap'}>
                           <span class="boundary-kind">Widget output</span>
                         </Show>

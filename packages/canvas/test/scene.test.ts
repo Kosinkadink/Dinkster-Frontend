@@ -1767,7 +1767,6 @@ describe('boundary pseudo-nodes', () => {
     expect(link.from).toEqual({ kind: 'widgetTap', node: 'n0', input: 'color' })
     expect(link.to).toEqual({ kind: 'boundary', side: 'outputs', item: 'color' })
     expect(link.typeName).toBe('INT')
-    expect(link.boundaryFamily).toBeUndefined()
     expect(link.x1).toBe(n0.x + n0.layout.width)
     expect(link.y1).toBe(n0.y + tap.y)
   })

@@ -6,8 +6,6 @@
  */
 
 import {
-  addressOfElabKey,
-  asDynamicMemberId,
   asNodeId,
   asPortId,
   boundaryBindingKey,
@@ -29,13 +27,9 @@ import {
   isSelectorRef,
   isValueSourceRef,
   isWidgetTapRef,
-  memberHopsOf,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
-  occurrenceFamilyEndpoint,
-  occurrenceFamilyMemberOwner,
-  occurrenceSubtreeKey,
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
@@ -65,7 +59,6 @@ import {
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
-  type PortAddress,
   type SchemaResolver,
   type SelectorData,
   type SolveResult,
@@ -379,13 +372,6 @@ export interface SceneLink {
    * commands, never link commands, so these are not link hit targets.
    */
   readonly boundary?: true
-  /**
-   * Boundary noodles only: the inner binding is a dynamic FAMILY, not one
-   * exact port, so its inner anchor may legally sit on the first
-   * family-member pin or the header center (see innerAnchor). Exact 'port'
-   * bindings never set this - their anchor must be the precise real pin.
-   */
-  readonly boundaryFamily?: true
   /** Effective owner identity used by drilled occurrence gestures. */
   readonly effectiveIdentity?: EffectiveLinkIdentity
   /** Every delivery represented by a coincident projected boundary alias. */
@@ -875,14 +861,11 @@ export interface BuildSceneInput {
     readonly dynamic: ReadonlyMap<string, Readonly<Record<string, DynamicPortState>>>
     readonly values?: ReadonlyMap<string, Readonly<Record<string, Json>>>
     readonly controllers?: import('@dinkster/core').OccurrenceDynamicView['controllers']
-    readonly subtreeOwners?: import('@dinkster/core').OccurrenceDynamicView['subtreeOwners']
     readonly valueOwners?: ReadonlyMap<string, ReadonlyMap<string, {
       readonly graphId: string
       readonly nodeId: string
       readonly valueKey: string
     }>>
-    readonly selectorOwners: ReadonlyMap<string, ReadonlyMap<string, { readonly graphId: string; readonly nodeId: string; readonly boundaryId: string }>>
-    readonly familyOwners?: import('@dinkster/core').OccurrenceDynamicView['familyOwners']
   }
 }
 
@@ -1289,8 +1272,6 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(sectionOverrides ? { sectionOverrides } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
-          // Subgraph instances resolve to boundary-derived schemas, so a
-          // forwarded family's suffix ghost elaborates here like any node's.
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
       : missingLayout(
@@ -1301,201 +1282,41 @@ export function buildScene(input: BuildSceneInput): Scene {
           view?.size,
           view?.collapsed === true,
         )
-    const subtreeTarget = (key: string) => {
-      const matches = (input.occurrenceView?.subtreeOwners?.get(node.id) ?? []).flatMap((owner) => {
-        const valueKey = occurrenceSubtreeKey(owner, key)
-        const address = valueKey === undefined ? undefined : addressOfElabKey(valueKey, true)
-        return address === undefined ? [] : [{ owner, valueKey: valueKey!, address }]
-      })
-      return matches.length === 1 ? matches[0] : undefined
-    }
-    const mapFrames = (owner: import('@dinkster/core').SubtreeOwner, frames: readonly import('@dinkster/core').MaterializeFrame[]) => frames.flatMap((frame, index) => {
-      const key = occurrenceSubtreeKey(owner, elabKeyOf({ port: frame.construct, members: frames.slice(0, index).map((ancestor) => asDynamicMemberId(ancestor.members.at(-1)!)) }))
-      const address = key === undefined ? undefined : addressOfElabKey(key, true)
-      return address === undefined ? [] : [{ ...frame, construct: address.port }]
-    })
-    const mapAncestors = (owner: import('@dinkster/core').SubtreeOwner, ancestors: readonly { readonly construct: string; readonly member: string }[]) => ancestors.flatMap((ancestor, index) => {
-      const key = occurrenceSubtreeKey(owner, elabKeyOf({ port: ancestor.construct, members: ancestors.slice(0, index).map((entry) => asDynamicMemberId(entry.member)) }))
-      const address = key === undefined ? undefined : addressOfElabKey(key, true)
-      return address === undefined ? [] : [{ construct: address.port, member: ancestor.member }]
-    })
-    const familyOwnerFor = (construct: string) => input.occurrenceView?.familyOwners?.get(node.id)?.get(construct)
-    const pinFamilyOwner = (pin: typeof baseLayout.pins[number]) => {
-      const construct = pin.materialize?.at(-1)?.construct
-      const growthOwner = construct === undefined ? undefined : familyOwnerFor(construct)
-      if (growthOwner !== undefined) return growthOwner
-      for (const owner of input.occurrenceView?.familyOwners?.get(node.id)?.values() ?? []) {
-        if (occurrenceFamilyMemberOwner(owner, pin.address.port, pin.address.members)) return owner
-      }
-      return undefined
-    }
-    const rowFamilyOwner = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
-      for (const [familyPath, owner] of input.occurrenceView?.familyOwners?.get(node.id) ?? []) {
-        if (owner.optionalAfterMinimum) {
-          const frame = row.materialize?.at(-1)
-          const predicted = frame?.construct === familyPath && row.address.port === `${familyPath}.${frame.members.at(-1)}`
-          const source = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? (predicted ? owner.ghostOwner : undefined)
-          if (!source) continue
-          return {
-            graphId: source.graphId, nodeId: source.nodeId, construct: source.boundaryId,
-            valueKey: `${source.boundaryId}${row.valueKey.slice(familyPath.length)}`,
-          }
-        }
-        const member = row.address.members?.[0]
-        const persisted = member === undefined ? undefined : owner.suffixMembers.get(member as string)
-        if (persisted === undefined || !row.address.port.startsWith(`${familyPath}.`)) continue
-        // The instance schema exposes the same member-relative suffix under
-        // its boundary construct. Member ids are identity, so only the
-        // crossing's rebased id is translated back to its persisted id.
-        const valueKey = row.valueKey
-          .replace(familyPath, owner.boundaryId)
-          .replace(`#${member as string}`, `#${persisted}`)
-        return { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId, valueKey }
-      }
-      return undefined
-    }
+    // A promoted boundary input owns the value and editable menu of the
+    // inner row it binds; edits on that row write to the owning instance.
     const optionsOwnerFor = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
       if (row.optionsTarget === undefined) return undefined
-      let source: { graphId: string; nodeId: string; address: PortAddress } | undefined
-      let materialize = row.materialize
-      for (const owner of input.occurrenceView?.familyOwners?.get(node.id)?.values() ?? []) {
-        const endpoint = occurrenceFamilyEndpoint(owner, row.address.port, row.address.members, row.materialize?.at(-1)?.members.at(-1))
-        if (endpoint === undefined || endpoint.kind !== 'boundary') continue
-        const member = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? owner.ghostOwner
-        source = { graphId: member.graphId, nodeId: member.nodeId, address: endpoint.address }
-        materialize = row.materialize?.flatMap((frame) => {
-          const canonical = owner.optionalAfterMinimum && frame.construct === owner.familyPath
-          const level = row.optionsTarget!.ancestors.findIndex((ancestor) => ancestor.construct === frame.construct)
-          const addresses = frame.members.flatMap((candidate) => {
-            const mapped = occurrenceFamilyEndpoint(owner, canonical ? `${frame.construct}.${candidate}` : frame.construct,
-              [...row.optionsTarget!.ancestors.slice(0, Math.max(0, level)).map((ancestor) => asDynamicMemberId(ancestor.member)), asDynamicMemberId(candidate)], candidate)
-            return mapped?.kind === 'boundary' ? [mapped.address] : []
-          })
-          return addresses.length === 0 ? [] : [{ construct: canonical ? member.boundaryId : addresses[0]!.port,
-            members: addresses.map((address, candidate) => address.members?.at(-1) ?? frame.members[candidate]!),
-          }]
-        })
-        break
-      }
-      if (source === undefined) {
-        const subtree = subtreeTarget(row.valueKey)
-        if (subtree !== undefined) {
-          source = { graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, address: subtree.address }
-          materialize = row.materialize === undefined ? undefined : mapFrames(subtree.owner, row.materialize)
-        }
-      }
-      if (source === undefined) {
-        const owner = input.occurrenceView?.valueOwners?.get(node.id)?.get(row.valueKey)
-        // Value owners project only static promoted ports, so this is the
-        // boundary's document id, not an elaborated member key.
-        if (owner !== undefined) source = { graphId: owner.graphId, nodeId: owner.nodeId, address: { port: asPortId(owner.valueKey) } }
-      }
-      if (source === undefined) return undefined
-      const target = input.document.graphs[source.graphId]?.nodes[source.nodeId]
-      const targetSchema = target && resolveNode(source.graphId, target)
+      const owner = input.occurrenceView?.valueOwners?.get(node.id)?.get(row.valueKey)
+      if (owner === undefined) return undefined
+      const target = input.document.graphs[owner.graphId]?.nodes[owner.nodeId]
+      const targetSchema = target && resolveNode(owner.graphId, target)
       if (!targetSchema) return undefined
-      const route = resolveBoundaryRoute(targetSchema, { kind: 'port', node: asNodeId(source.nodeId), ...source.address, port: asPortId(source.address.port) }, 'input')
+      // Value owners project only static promoted ports, so this is the
+      // boundary's document id, not an elaborated member key.
+      const route = resolveBoundaryRoute(targetSchema, { kind: 'port', node: asNodeId(owner.nodeId), port: asPortId(owner.valueKey) }, 'input')
       if (!route.ok) return undefined
-      return { owner: { graphId: source.graphId, nodeId: source.nodeId, construct: source.address.port,
-        ancestors: memberHopsOf(route.route.hops).map((hop) => ({ construct: hop.familyPath, member: hop.member as string })),
-      }, ...(materialize === undefined ? {} : { materialize }),
+      return {
+        owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.valueKey },
+        ...(row.materialize === undefined ? {} : { materialize: row.materialize }),
       }
     }
     const rawLayout = schema && input.occurrenceView
       ? {
           ...baseLayout,
-          rows: baseLayout.rows.map((baseRow) => {
-            const optionsOwner = baseRow.kind === 'widget' ? optionsOwnerFor(baseRow) : undefined
-            const menuRow = optionsOwner === undefined || baseRow.kind !== 'widget' ? baseRow : {
-              ...baseRow, optionsTarget: { ...baseRow.optionsTarget!, ...optionsOwner },
+          rows: baseLayout.rows.map((row) => {
+            if (row.kind !== 'widget') return row
+            const optionsOwner = optionsOwnerFor(row)
+            const menuRow = optionsOwner === undefined ? row : {
+              ...row, optionsTarget: { ...row.optionsTarget!, ...optionsOwner },
             }
-            const row = menuRow
-            const family = row.kind === 'widget' ? rowFamilyOwner(row) : row.kind === 'growth' ? familyOwnerFor(row.construct) : undefined
-            const subtree = family !== undefined ? undefined : row.kind === 'widget' ? subtreeTarget(row.valueKey) : row.kind === 'growth' ? subtreeTarget(row.construct) : undefined
-            if (subtree !== undefined && (row.kind === 'widget' || row.kind === 'growth')) {
-              const owner = { graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, construct: subtree.address.port, valueKey: subtree.valueKey }
-              if (row.kind === 'growth') return { ...row, frames: mapFrames(subtree.owner, row.frames), familyOwner: owner }
-              const ancestors = row.selector === undefined ? undefined : mapAncestors(subtree.owner, row.selector.ancestors)
-              return { ...row, familyOwner: owner,
-                ...(row.materialize !== undefined ? { materialize: mapFrames(subtree.owner, row.materialize) } : {}),
-                ...(row.selector !== undefined ? { selector: { ...row.selector, owner: { ...owner, ancestors: ancestors ?? [] } } } : {}),
-              }
-            }
-            if (row.kind === 'widget') {
-              const owner = rowFamilyOwner(row)
-              if (owner !== undefined) {
-                const construct = row.materialize?.at(-1)?.construct
-                const canonical = construct !== undefined && familyOwnerFor(construct)?.optionalAfterMinimum
-                return { ...row, familyOwner: owner,
-                  ...(canonical ? { materialize: row.materialize!.map((frame) => frame.construct === construct ? { ...frame, construct: owner.construct } : frame) } : {}),
-                }
-              }
-              const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
-              if (valueOwner !== undefined) {
-                return {
-                  ...row,
-                  familyOwner: {
-                    graphId: valueOwner.graphId,
-                    nodeId: valueOwner.nodeId,
-                    construct: row.valueKey,
-                    valueKey: valueOwner.valueKey,
-                  },
-                }
-              }
-            }
-            if (row.kind === 'growth') {
-              const owner = familyOwnerFor(row.construct)
-              return owner === undefined ? row : { ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId } }
-            }
-            if ((row.kind === 'widget' || row.kind === 'ports') && 'materialize' in row) {
-              const construct = row.materialize?.at(-1)?.construct
-              const owner = construct === undefined ? undefined : familyOwnerFor(construct)
-              if (owner !== undefined) return { ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId } }
-            }
-            if (row.kind !== 'widget' || row.selector === undefined || row.selector.ancestors.length > 0) return row
-            const owner = input.occurrenceView!.selectorOwners.get(node.id)?.get(row.selector.construct)
-            return owner === undefined ? row : {
-              ...row,
-              selector: { ...row.selector, owner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.boundaryId } },
-            }
-          }),
-          pins: baseLayout.pins.map((pin) => {
-            const owner = pinFamilyOwner(pin)
-            const subtree = owner === undefined ? subtreeTarget(elabKeyOf(pin.address)) : undefined
-            if (subtree !== undefined) return {
-              ...pin,
-              ...(pin.dynamicSlot !== undefined ? { dynamicSlot: { ...pin.dynamicSlot, owner: {
-                graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, construct: subtree.address.port,
-                ancestors: mapAncestors(subtree.owner, pin.dynamicSlot.ancestors),
-              } } } : {}),
+            const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
+            return valueOwner === undefined ? menuRow : {
+              ...menuRow,
               familyOwner: {
-                graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, construct: subtree.address.port,
-                occurrence: subtree.owner.occurrence, route: subtree.owner.route,
-                sourceEndpoint: { kind: 'boundary' as const, occurrence: subtree.owner.occurrence, address: { ...subtree.address, port: asPortId(subtree.address.port) }, route: subtree.owner.route },
-                ...(input.occurrence?.plannerAvailable === true ? { socketed: true as const } : {}),
-              },
-            }
-            if (owner === undefined) return pin
-            const memberOwner = occurrenceFamilyMemberOwner(owner, pin.address.port, pin.address.members)
-            const sourceOwner = memberOwner ?? (owner.optionalAfterMinimum && pin.ghost ? owner.ghostOwner : owner)
-            const sourceEndpoint = occurrenceFamilyEndpoint(
-              owner,
-              pin.address.port,
-              pin.address.members,
-              pin.materialize?.at(-1)?.members.at(-1),
-            )
-            return {
-              ...pin,
-              familyOwner: {
-                graphId: sourceOwner.graphId,
-                nodeId: sourceOwner.nodeId,
-                construct: sourceOwner.boundaryId,
-                occurrence: sourceOwner.occurrence,
-                familyPath: owner.familyPath,
-                ...(memberOwner !== undefined ? { sourceMember: memberOwner.sourceMember } : {}),
-                route: sourceOwner.route,
-                ...(sourceEndpoint !== undefined ? { sourceEndpoint } : {}),
-                ...(input.occurrence?.plannerAvailable === true && sourceEndpoint !== undefined ? { socketed: true as const } : {}),
+                graphId: valueOwner.graphId,
+                nodeId: valueOwner.nodeId,
+                construct: row.valueKey,
+                valueKey: valueOwner.valueKey,
               },
             }
           }),
@@ -2002,7 +1823,6 @@ export function buildScene(input: BuildSceneInput): Scene {
           id: item.id,
           label: boundaryLabel(item, spec?.displayName, defaults, roles),
           ...(spec !== undefined ? { type: spec.type } : {}),
-          ...(item.binds.kind === 'family' ? { family: true as const } : {}),
         }
       })
     }
@@ -2076,18 +1896,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
 
     // Junction attachments bind at the retained dot, not their schema authority.
-    // Other 'port' and 'widgetTap' bindings bind at the exact inner pin;
-    // 'family' binds anchor at the family's first pin (template-slot paths reserve
-    // dots, so prefix-matching binds.port here is grammar-safe - boundary
-    // item ids are never split). Fallback: the node's header edge.
-    const membersPrefixOk = (
-      pinMembers: readonly DynamicMemberId[] | undefined,
-      bindMembers: readonly DynamicMemberId[] | undefined,
-    ): boolean => {
-      const prefix = bindMembers ?? []
-      const full = pinMembers ?? []
-      return prefix.length <= full.length && prefix.every((m, i) => full[i] === m)
-    }
+    // Other 'port' and 'widgetTap' bindings bind at the exact inner pin.
     const innerAnchor = (
       binds: BoundaryItem['binds'],
       direction: 'in' | 'out',
@@ -2118,23 +1927,12 @@ export function buildScene(input: BuildSceneInput): Scene {
         port: binds.port,
         ...(binds.members !== undefined ? { members: binds.members } : {}),
       }
-      if (binds.kind === 'port') {
-        const key = portEndKey({ port: binds.port, ...(binds.members !== undefined ? { members: binds.members } : {}) })
-        // Real port only: excludes the same-id widget tap pin (see the
-        // endpoint resolver above).
-        const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
-        if (!pin) return undefined
-        return { x: edgeX, y: node.y + pin.y, end }
-      }
-      const familyPin = node.layout.pins.find(
-        (p) =>
-          p.direction === direction &&
-          p.widgetTap !== true &&
-          (p.address.port === binds.port || p.address.port.startsWith(`${binds.port}.`)) &&
-          membersPrefixOk(p.address.members, binds.members),
-      )
-      const y = familyPin ? node.y + familyPin.y : node.y + node.layout.headerHeight / 2
-      return { x: edgeX, y, end }
+      const key = portEndKey({ port: binds.port, ...(binds.members !== undefined ? { members: binds.members } : {}) })
+      // Real port only: excludes the same-id widget tap pin (see the
+      // endpoint resolver above).
+      const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
+      if (!pin) return undefined
+      return { x: edgeX, y: node.y + pin.y, end }
     }
 
     const boundaryPin = (bnode: SceneBoundaryNode, itemId: string): { x: number; y: number } | undefined => {
@@ -2197,7 +1995,6 @@ export function buildScene(input: BuildSceneInput): Scene {
             y2: to.y,
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
-            ...(b.kind === 'family' ? { boundaryFamily: true as const } : {}),
             ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
             ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
           })
@@ -2233,7 +2030,6 @@ export function buildScene(input: BuildSceneInput): Scene {
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
           boundary: true,
-          ...(item.binds.kind === 'family' ? { boundaryFamily: true as const } : {}),
           ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
           ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
         })

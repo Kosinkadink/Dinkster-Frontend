@@ -310,46 +310,6 @@ describe('occurrence topology semantic invariants fail closed', () => {
     expect(errorCodes(doc)).not.toContain('doc.occurrenceTopology.suppressionDangling')
   })
 
-  it('requires persisted family endpoint members to exist on the concrete occurrence', () => {
-    const familyBinding = binding('i', 'inner', { kind: 'family' })
-    const doc = structuredClone(baseDocument()) as unknown as Mutable
-    const root = (doc['graphs'] as Mutable)['root'] as Mutable
-    const rootNodes = root['nodes'] as Mutable
-    ;(rootNodes['s'] as Mutable)['dynamic'] = { in: { members: ['outerMember'], seq: 1 } }
-    const shell = (doc['graphs'] as Mutable)['shell'] as Mutable
-    const shellBoundary = shell['boundary'] as Mutable
-    const shellInput = (shellBoundary['inputs'] as Mutable[])[0]!
-    shellInput['binds'] = familyBinding
-    delete shellInput['alsoBinds']
-
-    const top = topology({
-      links: {
-        l0: {
-          id: asLinkId('l0'),
-          from: { kind: 'body', endpoint: { node: asNodeId('source'), port: asPortId('out') } },
-          to: {
-            kind: 'boundary',
-            occurrence: occurrence([], 's'),
-            address: {
-              port: asPortId('in.slot'),
-              members: [asDynamicMemberId('outerMember')],
-            },
-            route: [routeLeg('shell', 'in', familyBinding), ancestorInputRoute[1]!],
-          },
-        },
-      },
-      suppressedDeliveries: undefined,
-      nextOrdinal: 1,
-    })
-    const valid = withTopology(top, ownerKey, doc as unknown as WorkflowDocument)
-    expect(errors(valid)).toEqual([])
-
-    const stale = structuredClone(valid) as unknown as Mutable
-    const local = (((stale['occurrenceTopologies'] as Mutable)[ownerKey] as Mutable)['links'] as Mutable)['l0'] as Mutable
-    ;((local['to'] as Mutable)['address'] as Mutable)['members'] = ['removedMember']
-    expect(errorCodes(stale as unknown as WorkflowDocument)).toContain('doc.occurrenceTopology.routeInvalid')
-  })
-
   it.each([
     ['rebind', {
       command: 'boundary.setBinding',

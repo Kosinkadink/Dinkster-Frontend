@@ -1,6 +1,5 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
-  isForwardingBinding,
   isNodeBoundaryBinding,
   boundaryBindingKey,
   boundaryRouteKey,
@@ -32,11 +31,6 @@ import {
 import { checkGraphTopology, subgraphDefIdOf } from '../invariants.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elaborateInterface, elabInputsOf, elabOutputsOf, type Connectivity } from '../schema/elaborate.js'
-import {
-  buildBoundaryCrossings,
-  crossingTargets,
-  translateThroughCrossing,
-} from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
 
@@ -136,21 +130,13 @@ export function occurrenceBoundaryTargets(
   if (parent?.id === graphId && endpoint.occurrence.node === target.node &&
       portsOverlap(endpoint.address.port, target.port) &&
       memberPathsMayCollide(endpoint.address.members, target.members)) return true
-  // Route legs address a nested row: crossing translation composes the leg's
-  // binding member prefix with the occurrence suffix carried through the
-  // route ([...hopMembers, rebased suffix]). Mirror that composition here so
-  // a sibling definition row under the same prefix is not over-guarded.
-  // 'port' bindings discard the suffix, exactly as translation does.
-  let suffix: readonly (string | undefined)[] = endpoint.address.members ?? []
+  // Each route leg addresses the inner row its binding names; the
+  // occurrence address does not carry through a 'port' binding.
   for (const leg of endpoint.route) {
     if (leg.binding.kind === 'widgetTap') continue
-    const composed = isForwardingBinding(leg.binding)
-      ? [...(leg.binding.members ?? []), ...suffix]
-      : [...(leg.binding.members ?? [])]
     if (leg.graph === graphId && leg.binding.node === target.node &&
         portsOverlap(leg.binding.port, target.port) &&
-        memberPathsMayCollide(composed, target.members)) return true
-    suffix = composed
+        memberPathsMayCollide(leg.binding.members ?? [], target.members)) return true
   }
   return false
 }
@@ -210,7 +196,6 @@ function itemForRoute(
 /** Resolve one persisted occurrence endpoint to the concrete body coordinate. */
 function resolveOccurrenceEndpoint(
   document: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   bodyGraph: GraphDef,
   endpoint: OccurrenceLinkEndpoint,
@@ -235,7 +220,6 @@ function resolveOccurrenceEndpoint(
   }
 
   let occurrence = endpoint.occurrence
-  let address = endpoint.address
   let finalGraph: GraphDef | undefined
   let finalPath: readonly NodeId[] = []
   let finalEndpoint: LinkEndpoint | undefined
@@ -295,34 +279,11 @@ function resolveOccurrenceEndpoint(
       continue
     }
     if (!isNodeBoundaryBinding(match.binding)) return undefined
-    let ref: PortRef
-    if (isForwardingBinding(match.binding)) {
-      const view = occurrenceDynamicView(document, resolver, occurrence.instancePath)
-      const instanceDynamic = view.dynamic.get(occurrence.node) ?? at.node.dynamic
-      const instanceValues = view.values.get(occurrence.node) ?? at.node.values
-      const resolveNode = documentNodeResolver(document, resolver)
-      const instanceInputs = view.inputPorts.get(occurrence.node)
-      const built = buildBoundaryCrossings(at.bodyGraph, resolver, instanceDynamic, (node) => resolveNode(at.bodyGraph.id, node), instanceValues, instanceInputs)
-      const crossing = built.crossings.get(item.id)
-      const target = crossing && crossingTargets(crossing)[match.index]
-      if (!target || built.problems.length > 0) {
-        diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `route leg '${leg.boundaryId}' in graph '${leg.graph}' has no current family crossing`))
-        return undefined
-      }
-      const translated = translateThroughCrossing(target, address)
-      if (!translated.ok) {
-        diagnostics.push(diag('error', 'compile', translated.code, translated.message))
-        return undefined
-      }
-      ref = translated.ref
-    } else {
-      ref = match.binding
-    }
+    const ref: PortRef = match.binding
     finalGraph = at.bodyGraph
     finalPath = at.bodyPath
     finalEndpoint = ref
     occurrence = { instancePath: at.bodyPath, node: ref.node }
-    address = { port: ref.port, ...(ref.members ? { members: ref.members } : {}) }
   }
   if (!finalGraph || finalGraph.id !== bodyGraph.id || !finalEndpoint) {
     diagnostics.push(diag('error', 'compile', 'occurrence.topology.routeMissing', `route for occurrence '${occurrenceKey(owner)}' does not terminate in body graph '${bodyGraph.id}'`))
@@ -331,10 +292,9 @@ function resolveOccurrenceEndpoint(
   return resolved(finalGraph.id, finalPath, finalEndpoint, source)
 }
 
-/** Resolve an authored local-link endpoint through the same crossings as compile. */
+/** Resolve an authored local-link endpoint through the same boundary routes as compile. */
 export function resolveOccurrenceLinkEndpoint(
   document: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   endpoint: OccurrenceLinkEndpoint,
   side: 'from' | 'to',
@@ -345,13 +305,12 @@ export function resolveOccurrenceLinkEndpoint(
     diagnostics.push(diag('error', 'compile', 'occurrence.topology.ownerMissing', `occurrence '${occurrenceKey(owner)}' does not resolve to a subgraph instance`))
     return { diagnostics }
   }
-  const resolvedEndpoint = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, endpoint, side, diagnostics)
+  const resolvedEndpoint = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, endpoint, side, diagnostics)
   return { ...(resolvedEndpoint ? { endpoint: resolvedEndpoint } : {}), diagnostics }
 }
 
 function projectedEndpoints(
   document: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   at: ResolvedOwner,
   endpoint: PortRef,
@@ -359,11 +318,7 @@ function projectedEndpoints(
   diagnostics: Diagnostic[],
 ): { readonly endpoint: ResolvedOccurrenceEndpoint; readonly route: readonly BoundaryRouteLeg[] }[] {
   const items = side === 'from' ? at.bodyGraph.boundary?.outputs : at.bodyGraph.boundary?.inputs
-  const candidates = items?.filter((item) =>
-    isForwardingBinding(item.binds)
-      ? endpoint.port === item.id || endpoint.port.startsWith(`${item.id}.`)
-      : endpoint.port === item.id && endpoint.members === undefined,
-  ) ?? []
+  const candidates = items?.filter((item) => endpoint.port === item.id && endpoint.members === undefined) ?? []
   if (candidates.length !== 1) return []
   const item = candidates[0]!
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
@@ -377,7 +332,7 @@ function projectedEndpoints(
       address: { port: endpoint.port, ...(endpoint.members ? { members: endpoint.members } : {}) },
       route,
     }
-    const target = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
+    const target = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
     if (target) out.push({ endpoint: target, route })
   }
   return out
@@ -401,8 +356,7 @@ function buildEffectiveOccurrenceTopology(
     return { bodyGraph: at.bodyGraph, links: [], projectedParentLinks: [], diagnostics, projectable: [] }
   }
 
-  // Force dynamic projection through the same crossing/selector operation as
-  // the drilled view. Endpoint translation below uses the same crossings.
+  // Elaborate body nodes from the same occurrence-local state as the drilled view.
   const dynamicView = occurrenceDynamicView(document, resolver, at.bodyPath)
 
   const suppressions = new Set((topology?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
@@ -426,8 +380,8 @@ function buildEffectiveOccurrenceTopology(
     }
   }
   for (const link of Object.values(topology?.links ?? {})) {
-    const from = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, link.from, 'from', diagnostics)
-    const to = resolveOccurrenceEndpoint(document, resolver, owner, at.bodyGraph, link.to, 'to', diagnostics)
+    const from = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, link.from, 'from', diagnostics)
+    const to = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, link.to, 'to', diagnostics)
     if (!from || !to) continue
     links.push({ identity: { kind: 'occurrence', owner, linkId: link.id }, from, to })
   }
@@ -442,7 +396,7 @@ function buildEffectiveOccurrenceTopology(
     inheritedRoute: readonly BoundaryRouteLeg[],
   ): void => {
     if (isPortEndpoint(from.endpoint) && from.endpoint.node === owner.node) {
-      const targets = projectedEndpoints(document, resolver, owner, at, from.endpoint, 'from', diagnostics)
+      const targets = projectedEndpoints(document, owner, at, from.endpoint, 'from', diagnostics)
       for (const target of targets) {
         const route = [...inheritedRoute, ...target.route]
         if (delivery && suppressions.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery, route }))) continue
@@ -452,7 +406,7 @@ function buildEffectiveOccurrenceTopology(
       }
     }
     if (isPortEndpoint(to.endpoint) && to.endpoint.node === owner.node) {
-      const targets = projectedEndpoints(document, resolver, owner, at, to.endpoint, 'to', diagnostics)
+      const targets = projectedEndpoints(document, owner, at, to.endpoint, 'to', diagnostics)
       for (const target of targets) {
         const route = [...inheritedRoute, ...target.route]
         if (delivery && suppressions.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery, route }))) continue

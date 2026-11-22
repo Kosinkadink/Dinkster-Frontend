@@ -33,7 +33,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
-import { isNodeBoundaryBinding, isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
+import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
@@ -492,10 +492,6 @@ export function deriveBoundarySchema(
       fail('boundary.tapSide', `${describe} uses an output-only widget tap binding`)
       return undefined
     }
-    if (binds.kind === 'family' || isSubtreeBinding(binds)) {
-      fail('boundary.familyUnsupported', `${describe}: forwarding a whole group, choice or type choice to the subgraph's face is not available`)
-      return undefined
-    }
     const result = resolveBoundaryRoute(schema, binds, expectedSide, node.values, node.dynamic)
     if (!result.ok) {
       fail(result.code, `${describe}: ${result.message}`)
@@ -528,10 +524,6 @@ export function deriveBoundarySchema(
         fail('boundary.memberMissing', `${describe}: member '${hop.member}' of group '${hop.familyPath}' is not stored on the node`)
         return undefined
       }
-    }
-    if (binds.slots !== undefined) {
-      fail('boundary.slotsOnPort', `${describe}: 'slots' is invalid on a 'port' binding`)
-      return undefined
     }
     const resolved = { node, route }
     routeCache.set(binds, { ...routeCache.get(binds), [expectedSide]: resolved })

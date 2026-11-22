@@ -1843,7 +1843,7 @@ describe('node chrome paint on the live renderer', () => {
           ...node.layout,
           rows: node.layout.rows.map((candidate) => candidate === row ? {
             ...candidate,
-            selector: { construct: 'occurrence-selector', ancestors: [] },
+            selector: { construct: 'occurrence-selector' },
           } : candidate),
         },
       } : node),

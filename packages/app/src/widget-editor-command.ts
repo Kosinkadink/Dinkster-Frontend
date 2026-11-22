@@ -32,19 +32,6 @@ export function dynamicSelectorCommitCommand(
   value: Json,
 ): CommandInvocation | undefined {
   if (ed.target.kind !== 'input' || ed.target.selector === undefined) return undefined
-  const owner = ed.target.selector.owner
-  if (owner !== undefined) {
-    return withMaterializeFrames(owner.graphId, owner.nodeId, ed.target.materialize, {
-      command: 'dynamic.selectOption',
-      params: {
-        graphId: owner.graphId,
-        nodeId: owner.nodeId,
-        construct: owner.construct,
-        option: String(value),
-        ...(owner.ancestors === undefined ? {} : { ancestors: owner.ancestors }),
-      },
-    })
-  }
   return withMaterializeFrames(ed.graphId, ed.target.nodeId, ed.target.materialize, {
     command: 'dynamic.selectOption',
     params: {
@@ -52,12 +39,6 @@ export function dynamicSelectorCommitCommand(
       nodeId: ed.target.nodeId,
       construct: ed.target.selector.construct,
       option: String(value),
-      ...(ed.target.selector.ancestors.length === 0 ? {} : {
-        ancestors: ed.target.selector.ancestors.map((ancestor) => ({
-          construct: ancestor.construct,
-          member: ancestor.member,
-        })),
-      }),
     },
   })
 }

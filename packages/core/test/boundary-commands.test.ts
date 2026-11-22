@@ -1,14 +1,8 @@
 /**
- * Boundary-editing commands: `boundary.setSlots` / `boundary.clearSlots`
- * are the deterministic, undoable write path for slot-selective family
- * forwarding (`binds.slots`, hazard F10).
- *
- * The contract under test: commands are schema-blind (structural validation
- * only - grammar, prefix conflicts, binding kind; template-aware errors are
- * derivation's job), selections canonicalize (dedupe + lexicographic sort)
- * so click order never churns the document, identical selections are
- * no-ops, undo restores the exact previous selection, and selection edits
- * never touch node identity, values, or dynamic state.
+ * Boundary-editing commands: the deterministic, undoable write path for a
+ * subgraph definition's boundary items. Commands are schema-blind
+ * (structural validation only), identical edits are no-ops, and undo
+ * restores the exact previous boundary.
  */
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -64,100 +58,17 @@ function subDoc(inputs: BoundaryItem[], outputs: BoundaryItem[] = []): WorkflowD
   })
 }
 
-const familyItem = (id: string, slots?: readonly string[]): BoundaryItem => ({
-  id,
-  binds: {
-    kind: 'family',
-    node: asNodeId('n1'),
-    port: asPortId('items'),
-    ...(slots !== undefined ? { slots } : {}),
-  },
-})
-
-const portItem = (id: string, slots?: readonly string[]): BoundaryItem => ({
+const portItem = (id: string): BoundaryItem => ({
   id,
   binds: {
     kind: 'port',
     node: asNodeId('n1'),
     port: asPortId('items.tag'),
     members: [asNodeId('m0') as unknown as never],
-    ...(slots !== undefined ? { slots } : {}),
   },
 })
 
 const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegistry())
-
-const slotsOf = (store: DocumentStore, itemId: string, side: 'inputs' | 'outputs' = 'inputs') =>
-  store.doc.graphs.sub!.boundary![side].find((b) => b.id === itemId)!.binds.slots
-
-const setSlots = (store: DocumentStore, itemId: string, slots: Json, side = 'inputs') =>
-  store.dispatch({ command: 'boundary.setSlots', params: { graphId: 'sub', side, itemId, slots } })
-
-const clearSlots = (store: DocumentStore, itemId: string, side = 'inputs') =>
-  store.dispatch({ command: 'boundary.clearSlots', params: { graphId: 'sub', side, itemId } })
-
-// ---------------------------------------------------------------------------
-// boundary.setSlots
-// ---------------------------------------------------------------------------
-
-describe('boundary.setSlots', () => {
-  it('writes a canonical (deduped, sorted) selection', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    const out = setSlots(store, 'fwd', ['tag', 'sub.s', 'tag'])
-    expect(out.ok).toBe(true)
-    expect(slotsOf(store, 'fwd')).toEqual(['sub.s', 'tag'])
-  })
-
-  it('replaces an existing selection and undo restores it exactly', () => {
-    const store = makeStore(subDoc([familyItem('fwd', ['tag'])]))
-    expect(setSlots(store, 'fwd', ['sub.s']).ok).toBe(true)
-    expect(slotsOf(store, 'fwd')).toEqual(['sub.s'])
-    expect(store.undo()).toBe(true)
-    expect(slotsOf(store, 'fwd')).toEqual(['tag'])
-    expect(store.redo()).toBe(true)
-    expect(slotsOf(store, 'fwd')).toEqual(['sub.s'])
-  })
-
-  it('is a no-op for a semantically identical selection (no revision, nothing to undo)', () => {
-    const store = makeStore(subDoc([familyItem('fwd', ['a', 'b'])]))
-    const before = store.revision
-    const out = setSlots(store, 'fwd', ['b', 'a', 'b'])
-    expect(out.ok).toBe(true)
-    expect(store.revision).toBe(before)
-    expect(store.canUndo).toBe(false)
-  })
-
-  it('rejects a prefix conflict (whole subtree + narrowed descendant)', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    const out = setSlots(store, 'fwd', ['sub', 'sub.s'])
-    expect(out.ok).toBe(false)
-    expect(!out.ok && out.diagnostics[0]!.code).toBe('boundary.slotConflict')
-    expect(slotsOf(store, 'fwd')).toBeUndefined()
-  })
-
-  it("rejects a 'port' binding (selection applies to family forwarding only)", () => {
-    const store = makeStore(subDoc([portItem('p')]))
-    const out = setSlots(store, 'p', ['tag'])
-    expect(out.ok).toBe(false)
-    expect(!out.ok && out.diagnostics[0]!.code).toBe('boundary.bindKind')
-  })
-
-})
-
-// ---------------------------------------------------------------------------
-// boundary.clearSlots
-// ---------------------------------------------------------------------------
-
-describe('boundary.clearSlots', () => {
-  it('removes the selection and undo restores it', () => {
-    const store = makeStore(subDoc([familyItem('fwd', ['sub.s', 'tag'])]))
-    expect(clearSlots(store, 'fwd').ok).toBe(true)
-    expect(slotsOf(store, 'fwd')).toBeUndefined()
-    expect(store.undo()).toBe(true)
-    expect(slotsOf(store, 'fwd')).toEqual(['sub.s', 'tag'])
-  })
-
-})
 
 // ---------------------------------------------------------------------------
 // batch atomicity
@@ -165,24 +76,24 @@ describe('boundary.clearSlots', () => {
 
 describe('boundary commands in a batch', () => {
   it('a failing sub-command rolls back the whole batch', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
+    const store = makeStore(subDoc([portItem('p')]))
     const out = store.dispatch({
       command: 'batch',
       params: {
         invocations: [
           {
-            command: 'boundary.setSlots',
-            params: { graphId: 'sub', side: 'inputs', itemId: 'fwd', slots: ['tag'] },
+            command: 'boundary.renameItem',
+            params: { graphId: 'sub', side: 'inputs', itemId: 'p', displayName: 'Label' },
           },
           {
-            command: 'boundary.setSlots',
-            params: { graphId: 'sub', side: 'inputs', itemId: 'missing', slots: ['tag'] },
+            command: 'boundary.renameItem',
+            params: { graphId: 'sub', side: 'inputs', itemId: 'missing', displayName: 'Label' },
           },
         ],
       },
     })
     expect(out.ok).toBe(false)
-    expect(slotsOf(store, 'fwd')).toBeUndefined()
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined()
     expect(store.canUndo).toBe(false)
   })
 
@@ -237,8 +148,6 @@ describe('boundary item lifecycle commands', () => {
       { ...replacement, viaReroute: '' },
       { ...replacement, viaReroute: 7 },
       { ...replacement, side: 'outputs' },
-      { ...replacement, bindingKind: 'slot' },
-      { ...replacement, bindingKind: 'dynamicCombo' },
       { graphId: 'sub', side: 'outputs', itemId: 'junction', node: 'n1', tap: 'right', viaReroute: 'second' },
     ]) {
       const outcome = store.dispatch({ command: 'boundary.setBinding', params: invalid as unknown as Json })
@@ -368,31 +277,6 @@ describe('boundary item lifecycle commands', () => {
     expect(!duplicate.ok && duplicate.diagnostics[0]!.code).toBe('boundary.duplicateId')
   })
 
-  it('keeps port and family spellings of the same input address mutually exclusive', () => {
-    const family: BoundaryItem = {
-      id: 'family',
-      binds: {
-        kind: 'family', node: asNodeId('n1'), port: asPortId('items.tag'),
-        members: [asNodeId('m0') as unknown as never],
-      },
-    }
-    const addStore = makeStore(subDoc([family]))
-    const add = addStore.dispatch({
-      command: 'boundary.addItem',
-      params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'items.tag', members: ['m0'] },
-    })
-    expect(add.ok).toBe(false)
-    expect(!add.ok && add.diagnostics[0]!.code).toBe('boundary.duplicateBind')
-
-    const setStore = makeStore(subDoc([family, portItem('other')]))
-    const set = setStore.dispatch({
-      command: 'boundary.setBinding',
-      params: { graphId: 'sub', side: 'inputs', itemId: 'other', node: 'n1', port: 'items.tag', members: ['m0'] },
-    })
-    expect(set.ok).toBe(false)
-    expect(!set.ok && set.diagnostics[0]!.code).toBe('boundary.duplicateBind')
-  })
-
   it('renames, clears canonically, and does not churn identical values', () => {
     const store = makeStore(subDoc([portItem('p')]))
     const rename = (displayName: string) => store.dispatch({ command: 'boundary.renameItem', params: { graphId: 'sub', side: 'inputs', itemId: 'p', displayName } })
@@ -405,7 +289,7 @@ describe('boundary item lifecycle commands', () => {
   })
 
   it('re-points a primary, preserves fan-out, rejects duplicates, and no-ops', () => {
-    const item = { ...portItem('p', ['invalid']), alsoBinds: [{ kind: 'port' as const, node: asNodeId('n1'), port: asPortId('other') }] }
+    const item = { ...portItem('p'), alsoBinds: [{ kind: 'port' as const, node: asNodeId('n1'), port: asPortId('other') }] }
     const store = makeStore(subDoc([item]))
     const set = (port: string) => store.dispatch({ command: 'boundary.setBinding', params: { graphId: 'sub', side: 'inputs', itemId: 'p', node: 'n1', port } })
     expect(set('new').ok).toBe(true)
@@ -439,17 +323,5 @@ describe('boundary item lifecycle commands', () => {
     const missing = unbind('inputs', 'fan', 'missing')
     expect(missing.ok).toBe(false)
     expect(!missing.ok && missing.diagnostics[0]!.code).toBe('boundary.bindMissing')
-  })
-
-  it('keeps ordinary family bindings addressable by port-shaped unbind commands', () => {
-    const store = makeStore(subDoc([familyItem('family')]))
-    const outcome = store.dispatch({
-      command: 'boundary.unbind',
-      params: { graphId: 'sub', side: 'inputs', itemId: 'family', node: 'n1', port: 'items' },
-    })
-    expect(outcome.ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([])
-    expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([familyItem('family')])
   })
 })

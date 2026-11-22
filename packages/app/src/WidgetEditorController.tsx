@@ -55,15 +55,12 @@ export type EditorTarget =
       /** Structural authored-menu state coordinate, separate from value ownership. */
       readonly optionsTarget?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
         readonly owner?: DynamicEditOwner
         readonly materialize?: readonly MaterializeFrame[]
       }
       /** DynamicCombo selector row: commit via dynamic.selectOption instead. */
       readonly selector?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
-        readonly owner?: DynamicEditOwner
       }
     }
   | { readonly kind: 'valueSource'; readonly valueSourceId: string }

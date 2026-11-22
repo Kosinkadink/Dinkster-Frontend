@@ -91,22 +91,6 @@ describe('workflow document runtime validation', () => {
     expect(isValid(fixture)).toBe(false)
   })
 
-  it.each(['slot', 'dynamicCombo'])('accepts input-only %s boundaries and rejects incompatible decorations', (kind) => {
-    const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
-    const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!
-    const item = { id: 'full', binds: { kind, node: 'n0', port: 'mode' } }
-    boundary.inputs = [item]
-    boundary.outputs = []
-    expect(isValid(fixture)).toBe(true)
-    for (const decorated of [{ ...item, promoted: true }, { ...item, alsoBinds: [item.binds] }, { ...item, binds: { ...item.binds, slots: ['child'] } }]) {
-      boundary.inputs = [decorated]
-      expect(isValid(fixture)).toBe(false)
-    }
-    boundary.inputs = []
-    boundary.outputs = [item]
-    expect(isValid(fixture)).toBe(false)
-  })
-
   it('validates occurrence topology endpoint, route, suppression, and cursor shapes', () => {
     const base = () => {
       const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
@@ -202,15 +186,6 @@ describe('workflow document runtime validation', () => {
     }))).toBe(false)
   })
 
-  it('accepts slot-selective family forwarding', () => {
-    const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
-    const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-    const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-    boundary['inputs']![0]!['binds'] = { kind: 'family', node: 'n2', port: 'input', slots: ['image', 'mask.alpha'] }
-    delete boundary['inputs']![0]!['displayName']
-    expect(isValid(d)).toBe(true)
-  })
-
   it('accepts exact output-side widget tap bindings and rejects every mixed or input-side shape', () => {
     const withTap = (side: 'inputs' | 'outputs', binding: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
       const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
@@ -224,7 +199,6 @@ describe('workflow document runtime validation', () => {
       withTap('inputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }),
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed', port: 'seed' }),
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed', members: ['m0'] }),
-      withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed', slots: ['seed'] }),
       withTap('outputs', { kind: 'port', node: 'n0', port: 'seed', tap: 'seed' }),
       withTap('outputs', { kind: 'family', node: 'n0', port: 'seed', tap: 'seed' }),
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }, { promoted: true }),
@@ -232,28 +206,6 @@ describe('workflow document runtime validation', () => {
         alsoBinds: [{ kind: 'widgetTap', node: 'n0', tap: 'seed' }],
       }),
     ]) expect(isValid(malformed)).toBe(false)
-  })
-
-  it('validates homogeneous family fan-out and rejects mixed binding kinds', () => {
-    const familyFanout = () => {
-      const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
-      const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-      const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-      boundary['inputs']![0]!['binds'] = { kind: 'family', node: 'n2', port: 'input' }
-      boundary['inputs']![0]!['alsoBinds'] = [{ kind: 'family', node: 'n1', port: 'input' }]
-      return d
-    }
-    expect(isValid(familyFanout())).toBe(true)
-
-    const familyPort = familyFanout()
-    const familyPortBoundary = ((familyPort['graphs'] as Record<string, Record<string, unknown>>)['g1']!['boundary'] as Record<string, Record<string, unknown>[]>)
-    familyPortBoundary['inputs']![0]!['alsoBinds'] = [{ kind: 'port', node: 'n1', port: 'input' }]
-    expect(isValid(familyPort)).toBe(false)
-
-    const portFamily = familyFanout()
-    const portFamilyBoundary = ((portFamily['graphs'] as Record<string, Record<string, unknown>>)['g1']!['boundary'] as Record<string, Record<string, unknown>[]>)
-    portFamilyBoundary['inputs']![0]!['binds'] = { kind: 'port', node: 'n2', port: 'input' }
-    expect(isValid(portFamily)).toBe(false)
   })
 
   it('validates strict region blocks', () => {
@@ -347,64 +299,11 @@ describe('workflow document runtime validation', () => {
         }),
       ],
       [
-        "slots on a 'port' binding",
-        mutate((d) => {
-          const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-          const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-          const binds = boundary['inputs']![0]!['binds'] as Record<string, unknown>
-          binds['slots'] = ['image']
-        }),
-      ],
-      [
-        'empty slots array on a family binding',
-        mutate((d) => {
-          const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-          const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-          boundary['inputs']![0]!['binds'] = { kind: 'family', node: 'n2', port: 'input', slots: [] }
-        }),
-      ],
-      [
-        'duplicate slot ids on a family binding',
-        mutate((d) => {
-          const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-          const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-          boundary['inputs']![0]!['binds'] = { kind: 'family', node: 'n2', port: 'input', slots: ['a', 'a'] }
-        }),
-      ],
-      [
-        'slot path with an empty segment',
-        mutate((d) => {
-          const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
-          const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
-          boundary['inputs']![0]!['binds'] = { kind: 'family', node: 'n2', port: 'input', slots: ['sub..s'] }
-        }),
-      ],
-      [
         'net sinks not an array',
         mutate((d) => {
           const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
           const nets = g['nets'] as Record<string, Record<string, unknown>>
           nets['net4']!['sinks'] = { node: 'n2', port: 'input' }
-        }),
-      ],
-      [
-        'nested dynamic memberState value not an object',
-        mutate((d) => {
-          const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
-          const nodes = g['nodes'] as Record<string, Record<string, unknown>>
-          nodes['n0']!['dynamic'] = {
-            items: { members: ['m0'], memberState: { m0: { 'items.sub': 5 } } },
-          }
-        }),
-      ],
-      [
-        'nested dynamic member id empty at depth 2',
-        mutate((d) => {
-          const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
-          const nodes = g['nodes'] as Record<string, Record<string, unknown>>
-          nodes['n0']!['dynamic'] = {
-            items: { members: ['m0'], memberState: { m0: { 'items.sub': { members: [''] } } } },
-          }
         }),
       ],
       [
@@ -465,22 +364,6 @@ describe('workflow document runtime validation', () => {
     expect(g['actorCursors']).toBeUndefined() // golden fixtures predate the field
     expect(isValid(d)).toBe(true)
     g['actorCursors'] = { alice: 3, 'b0b-6f72-4c': 12 }
-    expect(isValid(d)).toBe(true)
-  })
-
-  it('accepts nested dynamic member state', () => {
-    const d = structuredClone(loadFixture('minimal')) as Record<string, unknown>
-    const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
-    const nodes = g['nodes'] as Record<string, Record<string, unknown>>
-    nodes['n0']!['dynamic'] = {
-      items: {
-        members: ['m0', 'm1'],
-        seq: 2,
-        memberState: {
-          m0: { 'items.sub': { members: ['m10'], memberState: { m10: { 'items.sub.mode': { selected: 'a' } } } } },
-        },
-      },
-    }
     expect(isValid(d)).toBe(true)
   })
 

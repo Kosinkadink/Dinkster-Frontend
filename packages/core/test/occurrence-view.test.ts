@@ -118,7 +118,6 @@ describe('occurrenceDynamicView', () => {
     expect(inherited.values.get('n')).toBeUndefined()
     expect(inherited.valueOwners.get('n')?.get('count')).toEqual({ graphId: 'g0', nodeId: 'inherited', valueKey: 'amount' })
     expect(inherited.dynamic.size).toBe(0)
-    expect(inherited.familyOwners.size).toBe(0)
   })
 
 })

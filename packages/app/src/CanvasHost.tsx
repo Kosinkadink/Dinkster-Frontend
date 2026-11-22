@@ -346,7 +346,7 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true && pin.staticWidgetTap === true && pin.familyOwner === undefined && (pin.address.members?.length ?? 0) === 0)
+        if (node.missingSchema !== true && pin.staticWidgetTap === true && (pin.address.members?.length ?? 0) === 0)
           result.set(clipboardEndpointKey('tap', node.id, pin.address.port, undefined), JSON.stringify(pin.type))
         continue
       }
@@ -2670,11 +2670,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const specialization = {
         command: 'dynamic.specializeSlot',
         params: {
-          graphId: slot.owner?.graphId ?? connectParams['graphId'],
-          nodeId: slot.owner?.nodeId ?? to['node'],
-          construct: slot.owner?.construct ?? slot.construct,
+          graphId: connectParams['graphId'],
+          nodeId: to['node'],
+          construct: slot.construct,
           variant,
-          ...((slot.owner?.ancestors ?? slot.ancestors).length > 0 ? { ancestors: slot.owner?.ancestors ?? slot.ancestors } : {}),
         },
       }
       // Rewires intentionally never enter this seam: removing their old edge
@@ -3433,11 +3432,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const specialize = (variant: string | null): CommandInvocation => ({
             command: 'dynamic.specializeSlot',
             params: {
-              graphId: slot.owner?.graphId ?? currentGraphId(tab),
-              nodeId: slot.owner?.nodeId ?? hit.node.id,
-              construct: slot.owner?.construct ?? slot.construct,
+              graphId: currentGraphId(tab),
+              nodeId: hit.node.id,
+              construct: slot.construct,
               variant,
-              ...((slot.owner?.ancestors ?? slot.ancestors).length > 0 ? { ancestors: slot.owner?.ancestors ?? slot.ancestors } : {}),
             },
           })
           additionalGroups.push({

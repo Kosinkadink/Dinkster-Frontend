@@ -4,7 +4,6 @@ import {
   EMPTY_CONNECTIVITY,
   EXPOSED_EXT_KEY,
   EXPOSED_PREVIEWS_EXT_KEY,
-  MAX_DYNAMIC_STATE_DEPTH,
   appLayout,
   appLayoutItemToJson,
   applyCompositorCommands,
@@ -116,8 +115,8 @@ function widgetBindingSupported(type: TypeExpr, widgetType: string): boolean {
     contract.asset === true && type.kind === 'asset'
 }
 
-function assetFreeDynamicState(value: unknown, depth = 0): boolean {
-  if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
+function assetFreeDynamicState(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   return Object.entries(value).every(([key, entry]) => {
     if (key === 'selected') return typeof entry === 'string'
     if (key === 'seq') return Number.isSafeInteger(entry) && entry >= 0
@@ -126,9 +125,6 @@ function assetFreeDynamicState(value: unknown, depth = 0): boolean {
       typeof option === 'string' || typeof option === 'boolean' || (typeof option === 'number' && Number.isFinite(option)))
     if (key === 'memberLabels') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
       Object.values(entry).every((label) => typeof label === 'string')
-    if (key === 'memberState') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
-      Object.values(entry).every((constructs) => typeof constructs === 'object' && constructs !== null && !Array.isArray(constructs) &&
-        Object.values(constructs).every((state) => assetFreeDynamicState(state, depth + 1)))
     return false
   })
 }

@@ -106,7 +106,7 @@ describe('combo search', () => {
     const open = () => {
       const spec = elabInputsOf(elaborateInterface(schema, store.doc.graphs.g0!.nodes.n0!))[0]!.spec.widget!
       return mountEditor({ ...editorState(spec, 'outside'), tab: { store } as unknown as Tab,
-        target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice', ancestors: [] } },
+        target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice' } },
       }, { dispatchTo: (_tab, command) => { const outcome = store.dispatch(command); expect(outcome.ok).toBe(true); return outcome } })
     }
     for (const dismissal of ['cancel', 'outside']) {
@@ -168,7 +168,7 @@ describe('combo search', () => {
     }
     const ed = editorState(spec, kind === 'multi' ? ['schema'] : 'schema')
     const mounted = mountEditor({ ...ed, target: { kind: 'input', nodeId: 'n0', valueKey: 'choice',
-      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice', ancestors: [] } }),
+      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice' } }),
     } }, { backendForTab: () => ({ scopedClient: { remoteChoiceAuthority: () => 0, remoteChoices: async () => ['schema'] } }) } as unknown as Partial<AppState>)
     await flushMicrotasks()
     expect(mounted.root.querySelector('[data-testid="combo-authoring"]')).toBeNull()
@@ -433,7 +433,7 @@ describe('combo search', () => {
         kind: 'input',
         nodeId: 'resize',
         valueKey: 'choice',
-        selector: { construct: 'choice', ancestors: [] },
+        selector: { construct: 'choice' },
       },
     })
     await flushMicrotasks()
@@ -443,42 +443,6 @@ describe('combo search', () => {
     expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'dynamic.selectOption',
       params: { graphId: 'g0', nodeId: 'resize', construct: 'choice', option: 'crop' },
-    })
-    mounted.unmount()
-  })
-
-  it('selects a DynamicCombo option on a forwarded ancestor occurrence', async () => {
-    const mounted = mountEditor({
-      ...editorState({ widgetType: 'COMBO', options: { options: ['fit', 'crop'] } }, 'fit'),
-      target: {
-        kind: 'input',
-        nodeId: 'derived-resize',
-        valueKey: 'choice',
-        selector: {
-          construct: 'derived-choice',
-          ancestors: [],
-          owner: {
-            graphId: 'root',
-            nodeId: 'wrapper',
-            construct: 'forwarded-choice',
-            ancestors: [{ construct: 'regions', member: 'left' }],
-          },
-        },
-      },
-    })
-    await flushMicrotasks()
-
-    mounted.root.querySelectorAll<HTMLButtonElement>('[data-testid="combo-option"]')[1]!.click()
-
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
-      command: 'dynamic.selectOption',
-      params: {
-        graphId: 'root',
-        nodeId: 'wrapper',
-        construct: 'forwarded-choice',
-        option: 'crop',
-        ancestors: [{ construct: 'regions', member: 'left' }],
-      },
     })
     mounted.unmount()
   })

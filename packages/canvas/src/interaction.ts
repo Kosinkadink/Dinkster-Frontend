@@ -1747,7 +1747,6 @@ export class InteractionController {
         this.gesture = { kind: 'growth', hit, moved: false }
         return
       case 'pin':
-        if (hit.pin.familyOwner !== undefined && hit.pin.familyOwner.socketed !== true) return
         {
           const gesture = this.beginLinkGesture(scene, hit, e.shiftKey, e.altKey)
           if (gesture === undefined) return
@@ -2378,7 +2377,7 @@ export class InteractionController {
     const keys = new Set<string>()
     for (const node of scene.nodes) {
       for (const pin of node.layout.pins) {
-        if (pin.direction !== direction || pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
+        if (pin.direction !== direction) continue
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true))
       }
@@ -2733,7 +2732,7 @@ export class InteractionController {
     for (const node of scene.nodes) {
       if (node.id === excludeNode) continue
       for (const pin of node.layout.pins) {
-        if (pin.direction !== direction || pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
+        if (pin.direction !== direction) continue
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, direction, pin.widgetTap === true))
       }
@@ -2790,8 +2789,7 @@ export class InteractionController {
     // ranked here would commit as a bogus PORT endpoint via pinEndpoint);
     // explicit tap-pin hits keep their own 'widgetTap' hit path.
     const pins = node.layout.pins.filter((pin) =>
-      pin.direction === g.seeking && pin.widgetTap !== true &&
-      (pin.familyOwner === undefined || pin.familyOwner.socketed === true),
+      pin.direction === g.seeking && pin.widgetTap !== true,
     )
     // Links hidden by the gesture (the grabbed rewire or net delivery) do
     // not occupy their sink: the drag is moving them off it.
@@ -2839,7 +2837,6 @@ export class InteractionController {
       for (const pin of node.layout.pins) {
         if (
           pin.direction === direction &&
-          (pin.familyOwner === undefined || pin.familyOwner.socketed === true) &&
           pin.widgetTap !== true &&
           pinRevealed(node, pin)
         ) {
@@ -3422,9 +3419,9 @@ export class InteractionController {
           this.host.dispatch({
             command: 'dynamic.materialize',
             params: {
-              graphId: g.hit.row.familyOwner?.graphId ?? scene.graphId,
-              nodeId: g.hit.row.familyOwner?.nodeId ?? g.hit.node.id,
-              frames: g.hit.row.frames.map((f, index) => ({ construct: index === g.hit.row.frames.length - 1 ? (g.hit.row.familyOwner?.construct ?? f.construct) : f.construct, members: [...f.members] })),
+              graphId: scene.graphId,
+              nodeId: g.hit.node.id,
+              frames: g.hit.row.frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
             },
           })
         }
@@ -3763,7 +3760,6 @@ export class InteractionController {
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&
-      (hit.pin.familyOwner === undefined || hit.pin.familyOwner.socketed === true) &&
       hit.direction === g.seeking &&
       g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
     const tapLegal = hit.kind === 'widgetTap' && g.seeking === 'out' &&
@@ -3829,7 +3825,7 @@ export class InteractionController {
             owner: scene.occurrence.owner,
             bodyGraph: scene.occurrence.bodyGraph,
             links: g.moveSource.effectiveLinks,
-            from: this.occurrenceEndpoint(scene, dropEnd, 'out'),
+            from: this.occurrenceEndpoint(dropEnd),
           })
           return
         }
@@ -4142,7 +4138,7 @@ export class InteractionController {
             owner: scene.occurrence.owner,
             bodyGraph: scene.occurrence.bodyGraph,
             link: oldLink.effectiveIdentity,
-            to: this.occurrenceEndpoint(scene, dropEnd, 'in'),
+            to: this.occurrenceEndpoint(dropEnd),
           })
           return
         }
@@ -4260,8 +4256,8 @@ export class InteractionController {
     if (!from || !to) return
     const occurrence = scene.occurrence
     if (occurrence !== undefined) {
-      const occurrenceFrom = this.occurrenceEndpoint(scene, from, 'out')
-      const occurrenceTo = this.occurrenceEndpoint(scene, to, 'in')
+      const occurrenceFrom = this.occurrenceEndpoint(from)
+      const occurrenceTo = this.occurrenceEndpoint(to)
       if (occurrenceFrom.kind === 'boundary' || occurrenceTo.kind === 'boundary' ||
           'node' in from && 'port' in from && from.node === '$region' && from.port === 'index') {
         this.host.dispatchOccurrenceMutation?.({
@@ -4284,19 +4280,7 @@ export class InteractionController {
     )
   }
 
-  private occurrenceEndpoint(scene: Scene, endpoint: JsonObject, direction: 'in' | 'out'): OccurrenceLinkEndpoint {
-    const nodeId = endpoint['node']
-    const port = endpoint['port']
-    if (typeof nodeId === 'string' && typeof port === 'string') {
-      const members = Array.isArray(endpoint['members']) ? endpoint['members'] : undefined
-      const pin = scene.nodes.find((node) => node.id === nodeId)?.layout.pins.find((candidate) =>
-        candidate.direction === direction && candidate.address.port === port &&
-        JSON.stringify(candidate.address.members ?? []) === JSON.stringify(members ?? []),
-      )
-      const familyOwner = pin?.familyOwner
-      if (pin !== undefined && familyOwner?.socketed === true && familyOwner.sourceEndpoint !== undefined)
-        return familyOwner.sourceEndpoint
-    }
+  private occurrenceEndpoint(endpoint: JsonObject): OccurrenceLinkEndpoint {
     return { kind: 'body', endpoint: endpoint as unknown as LinkEndpoint }
   }
 

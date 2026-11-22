@@ -1,28 +1,13 @@
 /**
  * Boundary-editing commands: the write path for a subgraph definition's
- * boundary items - slot-selective family forwarding (`binds.slots`, hazard
- * F10) and input fan-out (`alsoBinds`).
+ * boundary items - exposures, bindings and input fan-out (`alsoBinds`).
  *
  * Like every core command these are SCHEMA-BLIND and deterministic: they
- * validate structure (item exists, binding kind, selection grammar and
- * prefix-conflict rules) and write exactly what the params describe.
- * Template-aware validation (unknown paths, narrowing into non-autogrow
- * constructs, starvation) is derivation's job - deriveBoundarySchema reports
- * boundary.slotUnknown / boundary.slotNotNestable / boundary.slotStarved
- * against whatever the document says, so an editor surfaces those inline
- * without commands needing a schema resolver (which would break command
- * determinism/serializability).
- *
- * Selection is CANONICALIZED before writing: entries are deduplicated and
- * sorted lexicographically. The derived template is filtered in TEMPLATE
- * order regardless of listing order (see BoundaryBinding.slots), so listing
- * order carries no meaning - canonicalizing prevents semantically identical
- * selections (checkbox click order) from producing document churn, and makes
- * "same selection" checkable by deep equality.
- *
- * Selection never touches member identity, stored values, or capacity
- * arithmetic - these commands only rewrite `binds.slots`, so undo simply
- * restores the previous selection and hidden state returns untouched.
+ * validate structure (item exists, binding kind, unique targets) and write
+ * exactly what the params describe. Whether a bound port exists and accepts
+ * the boundary type is derivation's job (deriveBoundarySchema), so an editor
+ * surfaces those problems inline without commands needing a schema resolver
+ * (which would break command determinism/serializability).
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
@@ -58,166 +43,13 @@ function findItem(
   return index === -1 ? undefined : { item: items[index]!, index }
 }
 
-/**
- * A syntactically valid selection entry: nonempty dotted path with nonempty
- * segments. Splitting on '.' is the `slots` field's own grammar (template
- * slot ids never legally contain dots); no charset restriction beyond that,
- * since legacy-derived template ids may carry other characters (warn-only
- * at elaboration).
- */
-const isValidEntry = (v: Json): v is string =>
-  typeof v === 'string' && v.length > 0 && v.split('.').every((seg) => seg.length > 0)
-
-/**
- * Dedupe + lexicographic sort. Exact duplicates are set-semantics idempotent
- * downstream, so dropping them here loses nothing.
- */
-const canonicalize = (entries: readonly string[]): string[] =>
-  [...new Set(entries)].sort()
-
-/**
- * First prefix conflict in a CANONICAL (sorted) selection: an entry plus a
- * strict dotted extension of it ('sub' AND 'sub.s'). Whole-subtree and
- * narrowed selection of the same construct are mutually exclusive
- * (BoundaryBinding.slots). Sorting places a prefix immediately before its
- * extensions, so adjacent comparison suffices.
- */
-function findPrefixConflict(sorted: readonly string[]): { prefix: string; extension: string } | undefined {
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1]!
-    const cur = sorted[i]!
-    if (cur.startsWith(`${prev}.`)) return { prefix: prev, extension: cur }
-  }
-  return undefined
-}
-
-const sameSelection = (a: readonly string[] | undefined, b: readonly string[]): boolean =>
-  a !== undefined && a.length === b.length && a.every((v, i) => v === b[i])
-
-// ---------------------------------------------------------------------------
-// boundary.setSlots {graphId, side, itemId, slots: string[]}
-//
-// Pins the boundary item's exposure to the listed template slot paths.
-// Family bindings only; an empty list is rejected (boundary.clearSlots is
-// the one canonical spelling for "whole template", hazard N2).
-// ---------------------------------------------------------------------------
-
-const boundarySetSlots: CommandDefinition = {
-  id: 'boundary.setSlots',
-  run(doc, params, tx) {
-    if (
-      !isObj(params) ||
-      typeof params.itemId !== 'string' ||
-      !isSide(params.side) ||
-      !Array.isArray(params.slots)
-    )
-      return [
-        err(
-          'params.invalid',
-          "boundary.setSlots: params must be {graphId, side: 'inputs'|'outputs', itemId, slots: string[]}",
-        ),
-      ]
-    const def = graphOf(doc, params.graphId)
-    if (!def)
-      return [err('graph.missing', `boundary.setSlots: unknown graph '${String(params.graphId)}'`)]
-    if (params.slots.length === 0)
-      return [
-        err(
-          'params.invalid',
-          'boundary.setSlots: slots must be nonempty; use boundary.clearSlots to restore whole-template exposure',
-        ),
-      ]
-    const invalid = params.slots.find((s) => !isValidEntry(s))
-    if (invalid !== undefined)
-      return [
-        err(
-          'params.invalid',
-          `boundary.setSlots: '${String(invalid)}' is not a valid slot path (nonempty dotted segments)`,
-        ),
-      ]
-    const found = findItem(def, params.side, params.itemId)
-    if (!found)
-      return [
-        err(
-          'boundary.itemMissing',
-          `boundary.setSlots: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${String(params.graphId)}'`,
-        ),
-      ]
-    if (found.item.binds.kind !== 'family')
-      return [
-        err(
-          'boundary.bindKind',
-          `boundary.setSlots: boundary ${params.side.slice(0, -1)} '${params.itemId}' binds a '${found.item.binds.kind}'; slot selection applies to family forwarding only`,
-        ),
-      ]
-    const slots = canonicalize(params.slots as string[])
-    const conflict = findPrefixConflict(slots)
-    if (conflict)
-      return [
-        err(
-          'boundary.slotConflict',
-          `boundary.setSlots: '${conflict.prefix}' selects a whole subtree but '${conflict.extension}' narrows beneath it; list one or the other`,
-        ),
-      ]
-    if (sameSelection(found.item.binds.slots, slots)) return [] // no-op: identical selection
-    tx.set(
-      ['graphs', params.graphId as string, 'boundary', params.side, found.index, 'binds', 'slots'],
-      slots,
-    )
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// boundary.clearSlots {graphId, side, itemId}
-//
-// Removes the selection, restoring whole-template exposure so template slot
-// changes track automatically. Works on any binding kind so it can also
-// repair an invalid `slots` on a 'port' binding.
-// ---------------------------------------------------------------------------
-
-const boundaryClearSlots: CommandDefinition = {
-  id: 'boundary.clearSlots',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.itemId !== 'string' || !isSide(params.side))
-      return [
-        err(
-          'params.invalid',
-          "boundary.clearSlots: params must be {graphId, side: 'inputs'|'outputs', itemId}",
-        ),
-      ]
-    const def = graphOf(doc, params.graphId)
-    if (!def)
-      return [err('graph.missing', `boundary.clearSlots: unknown graph '${String(params.graphId)}'`)]
-    const found = findItem(def, params.side, params.itemId)
-    if (!found)
-      return [
-        err(
-          'boundary.itemMissing',
-          `boundary.clearSlots: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${String(params.graphId)}'`,
-        ),
-      ]
-    if (found.item.binds.kind === 'widgetTap' || found.item.binds.slots === undefined) return [] // no-op: already whole-template
-    tx.remove([
-      'graphs',
-      params.graphId as string,
-      'boundary',
-      params.side,
-      found.index,
-      'binds',
-      'slots',
-    ])
-    return []
-  },
-}
-
 // ---------------------------------------------------------------------------
 // boundary.addBinding {graphId, itemId, node, port, members?: string[]}
 //
 // Fan-out: appends an ADDITIONAL inner input target to a boundary INPUT
 // item (BoundaryItem.alsoBinds). Input-side only - an output has exactly
-// one source - and only on a 'port' primary (family forwarding cannot fan
-// out). The new entry is always kind 'port' (one canonical spelling).
+// one source - and only on a 'port' primary. The new entry is always kind
+// 'port' (one canonical spelling).
 // Whether the target port exists and accepts the boundary type is
 // derivation's job (boundary.unknownPort / boundary.fanoutTypeMismatch);
 // this command validates document structure only.
@@ -257,7 +89,7 @@ const boundaryAddBinding: CommandDefinition = {
       return [
         err(
           'boundary.bindKind',
-          `boundary.addBinding: boundary input '${params.itemId}' forwards a family; family forwarding cannot fan out`,
+          `boundary.addBinding: boundary input '${params.itemId}' binds a '${found.item.binds.kind}'; only a port binding can fan out`,
         ),
       ]
     if (!def.nodes[params.node])
@@ -367,14 +199,11 @@ const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding 
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
   }
   if (typeof params.port !== 'string' || params.tap !== undefined || !validMembers(params.members)) return undefined
-  const kind = params.bindingKind ?? 'port'
-  if (kind !== 'port' && kind !== 'slot' && kind !== 'dynamicCombo') return undefined
-  if (side !== 'inputs' && kind !== 'port') return undefined
   if (params.viaReroute !== undefined &&
-      (side !== 'inputs' || kind !== 'port' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
+      (side !== 'inputs' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
   const members = params.members as string[] | undefined
   return {
-    kind,
+    kind: 'port',
     node: asNodeId(params.node),
     port: asPortId(params.port),
     ...(members !== undefined ? { members: members.map(asDynamicMemberId) } : {}),
@@ -467,7 +296,7 @@ const boundaryRenameItem: CommandDefinition = {
 // ---------------------------------------------------------------------------
 // boundary.setBinding {graphId, side, itemId, node, port, members?}
 //
-// Re-points an item's primary binding to a concrete port, dropping slots.
+// Re-points an item's primary binding to a concrete port.
 // ---------------------------------------------------------------------------
 
 const boundarySetBinding: CommandDefinition = {
@@ -535,8 +364,6 @@ const boundaryUnbind: CommandDefinition = {
 }
 
 export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
-  boundarySetSlots,
-  boundaryClearSlots,
   boundaryAddBinding,
   boundaryRemoveBinding,
   boundaryAddItem,

@@ -163,7 +163,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     const options = parsedMenu()
     if (!editable || options === undefined || ed.target.kind !== 'input' || !ed.target.optionsTarget) return
     const target = ed.target.optionsTarget
-    const owner = target.owner ?? { graphId: ed.graphId, nodeId: ed.target.nodeId, construct: target.construct, ancestors: target.ancestors }
+    const owner = target.owner ?? { graphId: ed.graphId, nodeId: ed.target.nodeId, construct: target.construct }
     props.commitCommand(withMaterializeFrames(owner.graphId, owner.nodeId, target.materialize ?? ed.target.materialize, {
       command: 'dynamic.setOptions', params: { ...owner, options },
     } as CommandInvocation))

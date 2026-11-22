@@ -88,15 +88,6 @@ export const PREVIEW_MODES: readonly PreviewMode[] = ['off', 'cheap', 'quality',
 export type ControllerMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
 /**
- * Hard nesting budget for member-scoped dynamic state: one level per family
- * crossed. Matches the elaborator's depth budget - state nested deeper than
- * the elaborator would ever read is malformed. Both the runtime validator
- * (validate.ts) and the published JSON Schema (schema.ts, via bounded
- * unrolling) enforce the same cap so the two never disagree on validity.
- */
-export const MAX_DYNAMIC_STATE_DEPTH = 16
-
-/**
  * Dynamic-interface state a node needs to persist so its elaborated interface
  * is reproducible: which members exist in each autogrow family (ids stable
  * across regrowth), which schema-authored dynamic choice is selected, etc.
@@ -117,15 +108,6 @@ export interface DynamicPortState {
   readonly selected?: string
   /** Occurrence-authored editable COMBO choices; order and duplicate entries are significant. */
   readonly options?: readonly (string | number | boolean)[]
-  /**
-   * Nested dynamic state scoped to ONE family member (hazard N1/N4): keyed
-   * by member id, then by the nested construct's value key (the same key the
-   * construct would use at node top level, e.g. 'items.sub'). Member-ID
-   * keyed - never array-indexed - so reordering/removing members never moves
-   * another member's nested state. Ghost members have no entry by
-   * construction (nothing beneath a ghost is persisted, hazard N3).
-   */
-  readonly memberState?: Readonly<Record<string, Readonly<Record<string, DynamicPortState>>>>
 }
 
 export type DynamicAddressResolution =
@@ -137,7 +119,7 @@ export type DynamicAddressResolution =
     }
 
 const isFamilyState = (state: DynamicPortState): boolean =>
-  state.members !== undefined || state.seq !== undefined || state.memberState !== undefined
+  state.members !== undefined || state.seq !== undefined
 
 /**
  * Resolve both canonical member arrays and wire-15 path-encoded member ids
@@ -159,7 +141,7 @@ export function resolveDynamicAddress(
         .sort(([a], [b]) => b.length - a.length)[0]?.[1]
       if (state === undefined) return index === 0 ? { kind: 'opaque' } : { kind: 'missing' }
       if (!state.members?.includes(member)) return { kind: 'missing' }
-      scope = state.memberState?.[member]
+      scope = undefined
     }
     return { kind: 'resolved', references: [{ port: ref.port, members: ref.members }] }
   }
@@ -177,33 +159,7 @@ export function resolveDynamicAddress(
     flatReferences.push({ port: construct, members: [member] })
   }
 
-  // Canonical nested state uses memberState rather than flattened top-level
-  // keys. Walk that representation too and produce the one full address that
-  // compactScope expects for its ancestor path matching.
-  let structuralPort = ref.port
-  const members: string[] = []
-  scope = dynamic
-  while (true) {
-    const candidate = Object.entries(scope ?? {})
-      .filter(([construct, state]) => isFamilyState(state) && structuralPort.startsWith(`${construct}.`))
-      .map(([construct, state]) => {
-        const suffix = structuralPort.slice(construct.length + 1)
-        return { construct, state, member: suffix.split('.')[0] ?? '' }
-      })
-      .filter(({ member }) => member.length > 0)
-      .sort((a, b) => b.construct.length - a.construct.length)[0]
-    if (candidate === undefined) {
-      const references = [
-        ...flatReferences,
-        ...(members.length > 0 ? [{ port: structuralPort, members }] : []),
-      ]
-      return references.length === 0 ? { kind: 'opaque' } : { kind: 'resolved', references }
-    }
-    if (!candidate.state.members?.includes(candidate.member)) return { kind: 'missing' }
-    members.push(candidate.member)
-    structuralPort = `${candidate.construct}${structuralPort.slice(candidate.construct.length + candidate.member.length + 1)}`
-    scope = candidate.state.memberState?.[candidate.member]
-  }
+  return flatReferences.length === 0 ? { kind: 'opaque' } : { kind: 'resolved', references: flatReferences }
 }
 
 /** Occurrence-local repetition contract for a subgraph instance. */
@@ -482,48 +438,18 @@ export interface NamedNetData {
  *   path ('<family>.<slotId>', one segment chain per family crossed) and
  *   `members` carries one member id per family crossed (outermost first) -
  *   exactly PortRef semantics.
- * - 'family': whole-family forwarding. `port` is the dotted path OF an
- *   autogrow construct itself and `members` the concrete ancestor members
- *   crossed to REACH it (absent for a top-level family). The derived schema
- *   re-exposes the family: definition-local members form a fixed prefix and
- *   each instance appends its own member suffix (hazards F1-F5).
- * - 'slot' and 'dynamicCombo': forward one complete conditional subtree.
- *   Each occurrence owns its choices, dependent values and nested members.
  * - 'widgetTap': an output endpoint backed by one static inner widget input.
  *   `tap` is the input id. This remains distinct from a node output port so
  *   compilation can preserve linked-input and stored-value tap semantics.
  */
 export interface PortBoundaryBinding {
-  readonly kind: 'port' | 'family' | 'slot' | 'dynamicCombo'
+  readonly kind: 'port'
   readonly node: NodeId
   readonly port: PortId
   readonly tap?: never
   readonly members?: readonly DynamicMemberId[]
   /** Input-only junction attachment; node/port remains the schema authority. */
   readonly viaReroute?: RerouteId
-  /**
-   * Slot-selective forwarding ('family' bindings only, hazard F10): the
-   * template slot paths the derived family exposes. Absent = the whole
-   * template, tracking schema evolution; an explicit selection PINS
-   * exposure (template slots added later stay hidden until selected), so a
-   * full listing is NOT redundant with absence.
-   *
-   * Each entry is a dotted path over template slot ids. A bare id ('sub')
-   * exposes that slot - for a nested autogrow construct, its WHOLE subtree,
-   * tracking nested schema evolution. A dotted path ('sub.s') exposes the
-   * nested construct NARROWED to the listed descendants (nested template
-   * slots added later stay hidden); ancestor exposure is implied. Listing
-   * both an entry and a strict extension of it ('sub' AND 'sub.s') is a
-   * validation error - whole-subtree and narrowed selection are mutually
-   * exclusive per construct. Paths split on '.'; template slot ids must not
-   * contain dots (elaboration warns via elab.id.reserved).
-   *
-   * The derived template is filtered in TEMPLATE order regardless of
-   * listing order. Selection never touches member identity, stored values,
-   * or capacity arithmetic - adding, changing, or removing it only
-   * re-derives the boundary schema.
-   */
-  readonly slots?: readonly string[]
 }
 
 export interface WidgetTapBoundaryBinding {
@@ -532,7 +458,6 @@ export interface WidgetTapBoundaryBinding {
   readonly tap: PortId
   readonly port?: never
   readonly members?: never
-  readonly slots?: never
   readonly viaReroute?: never
 }
 
@@ -544,7 +469,6 @@ export interface UnboundBoundaryBinding {
   readonly port?: never
   readonly tap?: never
   readonly members?: never
-  readonly slots?: never
   readonly viaReroute?: never
 }
 
@@ -557,7 +481,6 @@ export interface ValueSourceBoundaryBinding {
   readonly port?: never
   readonly tap?: never
   readonly members?: never
-  readonly slots?: never
   readonly viaReroute?: never
 }
 
@@ -567,30 +490,23 @@ export type NodeBoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
 
 /** Whether a boundary endpoint is addressed by node identity. */
 export const isNodeBoundaryBinding = (binding: BoundaryBinding): binding is NodeBoundaryBinding =>
-  binding.kind === 'port' || binding.kind === 'family' || binding.kind === 'slot' || binding.kind === 'dynamicCombo' || binding.kind === 'widgetTap'
-
-export const isSubtreeBinding = (binding: BoundaryBinding): binding is PortBoundaryBinding & { readonly kind: 'slot' | 'dynamicCombo' } =>
-  binding.kind === 'slot' || binding.kind === 'dynamicCombo'
-
-export const isForwardingBinding = (binding: BoundaryBinding): binding is PortBoundaryBinding & { readonly kind: 'family' | 'slot' | 'dynamicCombo' } =>
-  binding.kind === 'family' || isSubtreeBinding(binding)
+  binding.kind === 'port' || binding.kind === 'widgetTap'
 
 /**
  * A subgraph definition's boundary: the ordered interface it exposes.
- * Boundary inputs bind to ports or whole dynamic families. Boundary outputs
- * may additionally bind to widget taps. This derives the instance NodeSchema.
+ * Boundary inputs bind to ports. Boundary outputs may additionally bind to
+ * widget taps. This derives the instance NodeSchema.
  */
 export interface BoundaryItem {
   /** Port id the instance exposes (unique within the boundary). */
   readonly id: string
   readonly displayName?: string
-  /** Inner port or family this boundary item binds to. */
+  /** Inner endpoint this boundary item binds to. */
   readonly binds: BoundaryBinding
   /**
    * Fan-out: ADDITIONAL inner inputs this boundary input also drives.
    * Input-side only, and only when the primary `binds` is a 'port' binding;
-   * every entry must itself be kind 'port' (family forwarding cannot split
-   * across members, so it never fans out). The PRIMARY binding stays
+   * every entry must itself be kind 'port'. The PRIMARY binding stays
    * authoritative for the derived type/widget; additional targets receive
    * the same connection or promoted value at compile. Canonical form: omit
    * when empty (never `[]`), and no target may repeat the primary or
@@ -600,9 +516,7 @@ export interface BoundaryItem {
   /**
    * For boundary inputs bound to widget-backed inner inputs: whether the
    * widget is promoted onto the instance (shown as the instance's own
-   * widget). Only meaningful for 'port' bindings - a forwarded family's
-   * template always carries its widgets (instance suffix members have no
-   * inner stored value to fall back on), so `promoted` is invalid there.
+   * widget). Only meaningful for 'port' bindings.
    */
   readonly promoted?: boolean
   readonly ext?: ExtData
@@ -687,13 +601,12 @@ const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
         binding.node,
         binding.port,
         binding.members ?? [],
-        binding.slots === undefined ? null : [...binding.slots].sort(),
         ...(binding.viaReroute !== undefined ? [binding.viaReroute] : []),
       ]
 
 /**
- * Canonical structural binding identity. Slot selections are sets; member
- * paths remain ordered. Every exposure-changing field participates.
+ * Canonical structural binding identity. Member paths remain ordered. Every
+ * exposure-changing field participates.
  */
 export const boundaryBindingKey = (binding: BoundaryBinding): string =>
   JSON.stringify(boundaryBindingIdentity(binding))

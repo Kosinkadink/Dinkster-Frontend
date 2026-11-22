@@ -163,6 +163,7 @@ A boundary forwards one inner input or output by its flattened id, such as
 (`boundary.memberMissing`), except in a group grown to a count; a row under a
 choice or type choice must belong to the chosen option or variant
 (`boundary.branchInactive`). Forwarding a whole group, choice or type choice
-is refused: the boundary schema reports `boundary.familyUnsupported` and
-compile reports `compile.boundary.forwardUnresolved`. See
+is refused: the boundary schema reports `boundary.familyBind` and compile
+reports the bound id as an unknown port (`compile.port.unknownInput` or
+`compile.port.unknownOutput`). See
 [Boundary editor](boundary-editor.md).

@@ -17,7 +17,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { isForwardingBinding, isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SelectorData, type SuppressedDelivery, type ValueSourceData, type WorkflowDocument } from '../format/document.js'
+import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SelectorData, type SuppressedDelivery, type ValueSourceData, type WorkflowDocument } from '../format/document.js'
 import { validateBoundaryBindingShape, validateGraphDefShape, validateGraphViewShape } from '../format/validate.js'
 import { actorCursorOf, asDynamicMemberId, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, asSelectorCandidateId, asSelectorId, asValueSourceId, formatAllocatedId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, occurrenceKey, portRefKey, sameEndpoint, type LinkEndpoint, type OccurrenceRef, type PortRef, type WidgetTapRef } from '../ids.js'
 import { EXPOSED_EXT_KEY, parseExposedEntry } from '../format/exposed.js'
@@ -309,14 +309,7 @@ function rewriteEnclosingInput(
   for (const binding of bindings) {
     if (moved.has(binding)) {
       if (!inserted) {
-        rewritten.push(isForwardingBinding(binding)
-          ? {
-              kind: binding.kind,
-              node: asNodeId(occurrenceId),
-              port: boundaryId as PortRef['port'],
-              ...(binding.slots !== undefined ? { slots: binding.slots } : {}),
-            }
-          : { kind: 'port', node: asNodeId(occurrenceId), port: boundaryId as PortRef['port'] })
+        rewritten.push({ kind: 'port', node: asNodeId(occurrenceId), port: boundaryId as PortRef['port'] })
         inserted = true
       }
     } else {
@@ -742,16 +735,12 @@ const subgraphExtract: CommandDefinition = {
 
     const candidates = planBoundaryNames(boundaryNameCandidates(audit))
     const enclosingInputs = audit.boundaries.filter((cut) => cut.kind === 'in-cut')
-    const enclosingFamilyOutputs = audit.boundaries.filter((cut) =>
-      cut.kind === 'out-cut' && cut.nestedItem?.binds.kind === 'family')
     const inputNames = candidates.slice(0, audit.inputs.length)
     const enclosingInputNames = candidates.slice(audit.inputs.length, audit.inputs.length + enclosingInputs.length)
     const outputStart = audit.inputs.length + enclosingInputs.length
     const outputNames = candidates.slice(outputStart, outputStart + audit.outputs.length)
-    const enclosingOutputNames = candidates.slice(outputStart + audit.outputs.length)
     const inputIdByBoundary = new Map(enclosingInputs.map((cut, index) => [cut.itemId, enclosingInputNames[index]!.id]))
     const outputIdBySource = new Map(audit.outputs.map((cut, index) => [endpointKey(cut.source), outputNames[index]!.id]))
-    const outputIdByBoundary = new Map(enclosingFamilyOutputs.map((cut, index) => [cut.itemId, enclosingOutputNames[index]!.id]))
 
     const innerBoundaryInputs: BoundaryItem[] = audit.inputs.map((cut, index) => ({
       id: inputNames[index]!.id,
@@ -782,9 +771,6 @@ const subgraphExtract: CommandDefinition = {
           ? { kind: 'widgetTap', node: asNodeId(nodeIds.get(cut.source.node)!), tap: cut.source.tap }
           : { kind: 'port', ...remapPort(cut.source, nodeIds) },
       })
-    }
-    for (const cut of enclosingFamilyOutputs) {
-      innerBoundaryOutputs.push(remapNestedItem(cut, idMaps, outputIdByBoundary.get(cut.itemId)!))
     }
 
     const parentLinks: Record<string, LinkData> = { ...parent.links }
@@ -874,17 +860,10 @@ const subgraphExtract: CommandDefinition = {
         } else if (cut.kind === 'out-cut') {
           const original = outputs[cut.itemIndex]!
           const source = cut.movedBindings[0]!
-          const id = source.kind === 'family'
-            ? outputIdByBoundary.get(cut.itemId)!
-            : outputIdBySource.get(endpointKey(bindingAsEndpoint(source)))!
+          const id = outputIdBySource.get(endpointKey(bindingAsEndpoint(source)))!
           outputs[cut.itemIndex] = {
             ...original,
-            binds: {
-              kind: source.kind === 'family' ? 'family' : 'port',
-              node: asNodeId(occurrenceId),
-              port: id as PortRef['port'],
-              ...(source.kind === 'family' && source.slots !== undefined ? { slots: source.slots } : {}),
-            },
+            binds: { kind: 'port', node: asNodeId(occurrenceId), port: id as PortRef['port'] },
           }
         }
       }
@@ -1075,8 +1054,7 @@ function flattenBoundaryTargets(
   valueSourceIds: ReadonlyMap<string, string>,
 ): readonly BoundaryBinding[] | undefined {
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
-  if (bindings.some((binding) => isForwardingBinding(binding) ||
-    binding.kind === 'port' && (binding.members?.length ?? 0) > 0)) return undefined
+  if (bindings.some((binding) => binding.kind === 'port' && (binding.members?.length ?? 0) > 0)) return undefined
   return bindings.map((binding) => remapBinding(binding, nodeIds, rerouteIds, valueSourceIds))
 }
 
@@ -1115,7 +1093,7 @@ function flattenRoutePlanFromJson(
         !Object.hasOwn(entry, 'id') || !Object.hasOwn(entry, 'route') ||
         entry.side !== address.side || entry.id !== address.id ||
         typeof entry.route !== 'string' ||
-        !['plain', 'plainWidget', 'widgetTap', 'combo', 'family', 'specialized', 'unresolved'].includes(entry.route) ||
+        !['plain', 'plainWidget', 'widgetTap', 'unresolved'].includes(entry.route) ||
         (entry.side === 'output' && entry.route === 'plainWidget')) return undefined
     const key = JSON.stringify([entry.side, entry.id])
     if (result.has(key)) return undefined
@@ -1133,9 +1111,8 @@ function flattenStatePlanFromJson(
     return required.every((key) => Object.hasOwn(record, key)) && Object.keys(record).every((key) => allowed.has(key))
   }
   const controllerModes = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
-  const dynamicState = (entry: Json | undefined, depth = 0): boolean => {
-    if (!isObj(entry) || depth > MAX_DYNAMIC_STATE_DEPTH ||
-        !exactKeys(entry, [], ['members', 'memberLabels', 'selected', 'options', 'seq', 'memberState'])) return false
+  const dynamicState = (entry: Json | undefined): boolean => {
+    if (!isObj(entry) || !exactKeys(entry, [], ['members', 'memberLabels', 'selected', 'options', 'seq'])) return false
     if (entry.options !== undefined && (!Array.isArray(entry.options) || !entry.options.every(isComboValue))) return false
     if (entry.members !== undefined && (!Array.isArray(entry.members) ||
         !entry.members.every((member) => typeof member === 'string' && member.length > 0) ||
@@ -1144,17 +1121,7 @@ function flattenStatePlanFromJson(
     if (entry.memberLabels !== undefined && (!isObj(entry.memberLabels) ||
         !Object.entries(entry.memberLabels).every(([member, label]) =>
           member.length > 0 && typeof label === 'string' && label.length > 0))) return false
-    if (entry.seq !== undefined && (typeof entry.seq !== 'number' || !Number.isSafeInteger(entry.seq) || entry.seq < 0)) return false
-    if (entry.memberState !== undefined) {
-      if (!isObj(entry.memberState)) return false
-      for (const [member, constructs] of Object.entries(entry.memberState)) {
-        if (member.length === 0 || !isObj(constructs)) return false
-        for (const nested of Object.values(constructs)) {
-          if (!dynamicState(nested, depth + 1)) return false
-        }
-      }
-    }
-    return true
+    return entry.seq === undefined || typeof entry.seq === 'number' && Number.isSafeInteger(entry.seq) && entry.seq >= 0
   }
   const dynamicScope = (entry: Json | undefined): boolean => isObj(entry) &&
     Object.values(entry).every((state) => dynamicState(state))
@@ -1177,8 +1144,6 @@ function flattenStatePlanFromJson(
   const refusalCodes = new Set([
     'subgraph.flatten.stateUnresolved',
     'subgraph.flatten.dormantStateUnsupported',
-    'subgraph.flatten.nativeFamilyUnsupported',
-    'subgraph.flatten.specializedSlotUnsupported',
     'subgraph.lifecycle.boundaryUnresolved',
     'subgraph.lifecycle.idExhausted',
   ])
@@ -1196,10 +1161,8 @@ function flattenStatePlanFromJson(
             !value.refusal.address.members.every((member) => typeof member === 'string' && member.length > 0)))))) return undefined
     return value as unknown as FlattenStatePlan
   }
-  if (!exactKeys(value, ['version', 'status', 'source', 'nodes', 'familyScopes', 'addresses', 'routes', 'enclosingRewrites']) ||
-      !Array.isArray(value.nodes) || !Array.isArray(value.familyScopes) ||
-      !Array.isArray(value.addresses) ||
-      !Array.isArray(value.routes) || !Array.isArray(value.enclosingRewrites) ||
+  if (!exactKeys(value, ['version', 'status', 'source', 'nodes', 'routes', 'enclosingRewrites']) ||
+      !Array.isArray(value.nodes) || !Array.isArray(value.routes) || !Array.isArray(value.enclosingRewrites) ||
       value.nodes.length !== nodeIds.length) return undefined
   for (const [index, entry] of value.nodes.entries()) {
     if (!snapshot(entry) || !isObj(entry) || entry.node !== nodeIds[index] || entry.type !== body.nodes[nodeIds[index]!]!.type) return undefined
@@ -1212,77 +1175,13 @@ function flattenStatePlanFromJson(
       : entry.kind === 'widgetTap'
       ? exactKeys(entry, ['kind', 'node', 'tap']) && typeof entry.node === 'string' &&
         typeof entry.tap === 'string' && entry.tap.length > 0
-      : exactKeys(entry, ['kind', 'node', 'port'], ['members', 'slots', 'viaReroute']) &&
-        (entry.kind === 'port' || entry.kind === 'family') && typeof entry.node === 'string' &&
+      : exactKeys(entry, ['kind', 'node', 'port'], ['members', 'viaReroute']) &&
+        entry.kind === 'port' && typeof entry.node === 'string' &&
         typeof entry.port === 'string' && entry.port.length > 0 &&
         (entry.members === undefined || strings(entry.members)) &&
-        (entry.slots === undefined || entry.kind === 'family' && strings(entry.slots)) &&
-        (entry.viaReroute === undefined || entry.kind === 'port' && entry.members === undefined &&
+        (entry.viaReroute === undefined || entry.members === undefined &&
           typeof entry.viaReroute === 'string' && entry.viaReroute.length > 0)
   )
-  const scopeStep = (entry: Json | undefined): boolean => isObj(entry) &&
-    exactKeys(entry, ['construct', 'member', 'storage']) && typeof entry.construct === 'string' && entry.construct.length > 0 &&
-    typeof entry.member === 'string' && entry.member.length > 0 &&
-    (entry.storage === 'memberState' || entry.storage === 'pathSegment')
-  const scopeRef = (entry: Json | undefined, target = false): boolean => isObj(entry) &&
-    exactKeys(entry, target ? ['construct', 'ancestors', 'node'] : ['construct', 'ancestors']) &&
-    typeof entry.construct === 'string' && entry.construct.length > 0 && Array.isArray(entry.ancestors) && entry.ancestors.every(scopeStep) &&
-    (!target || typeof entry.node === 'string' && Object.hasOwn(body.nodes, entry.node))
-  const beforeAfter = (entry: Json | undefined): boolean => isObj(entry) &&
-    exactKeys(entry, ['members', 'memberStateKeys'], ['seq']) && strings(entry.members) && strings(entry.memberStateKeys) &&
-    (entry.seq === undefined || typeof entry.seq === 'number' && Number.isSafeInteger(entry.seq) && entry.seq >= 0)
-  const scopeIds = new Set<string>()
-  for (const [index, scope] of value.familyScopes.entries()) {
-    if (!isObj(scope) || !exactKeys(scope, ['id', 'source', 'target', 'policy', 'sourceMembers', 'targetBefore', 'members', 'targetAfter'], ['parent']) ||
-        typeof scope.id !== 'string' || scope.id !== `family-${index}` || scopeIds.has(scope.id) ||
-        !scopeRef(scope.source) || !scopeRef(scope.target, true) || !isObj(scope.policy) ||
-        !strings(scope.sourceMembers) || !beforeAfter(scope.targetBefore) || !beforeAfter(scope.targetAfter) ||
-        !Array.isArray(scope.members) || !scope.members.every((member) => isObj(member) &&
-          exactKeys(member, ['before', 'after']) && typeof member.before === 'string' && member.before.length > 0 &&
-          typeof member.after === 'string' && member.after.length > 0) ||
-        scope.members.length !== scope.sourceMembers.length) return undefined
-    if (scope.policy.kind === 'ordinal') {
-      if (!exactKeys(scope.policy, ['kind', 'materialization', 'prefix', 'min', 'max']) ||
-          (scope.policy.materialization !== 'ordinary' && scope.policy.materialization !== 'wire15') ||
-          typeof scope.policy.prefix !== 'string') return undefined
-    } else if (scope.policy.kind === 'names') {
-      if (!exactKeys(scope.policy, ['kind', 'materialization', 'vocabulary', 'min', 'max']) ||
-          scope.policy.materialization !== 'wire15' || !strings(scope.policy.vocabulary)) return undefined
-    } else return undefined
-    if (typeof scope.policy.min !== 'number' || !Number.isSafeInteger(scope.policy.min) || scope.policy.min < 0 ||
-        typeof scope.policy.max !== 'number' || !Number.isSafeInteger(scope.policy.max) || scope.policy.max < scope.policy.min) return undefined
-    if (scope.parent !== undefined && (!isObj(scope.parent) || !exactKeys(scope.parent, ['scope', 'beforeMember', 'afterMember']) ||
-        typeof scope.parent.scope !== 'string' || !scopeIds.has(scope.parent.scope) ||
-        typeof scope.parent.beforeMember !== 'string' || typeof scope.parent.afterMember !== 'string')) return undefined
-    scopeIds.add(scope.id)
-  }
-  const portAddress = (entry: Json | undefined): boolean => isObj(entry) && exactKeys(entry, ['port'], ['members']) &&
-    typeof entry.port === 'string' && entry.port.length > 0 && (entry.members === undefined || strings(entry.members))
-  const inputIdentity = (entry: Json | undefined): boolean => isObj(entry) && exactKeys(entry, ['address', 'valueKey', 'origin']) &&
-    portAddress(entry.address) && typeof entry.valueKey === 'string' && entry.valueKey.length > 0 &&
-    ['static', 'member', 'selector', 'branch', 'slot', 'dependent'].includes(entry.origin as string)
-  const addressKeys = new Set<string>()
-  const serializedAddresses = value.addresses
-  for (const address of serializedAddresses) {
-    if (!isObj(address) || !exactKeys(address, ['side', 'boundaryId', 'before', 'uses', 'targets'], ['input']) ||
-        (address.side !== 'input' && address.side !== 'output') || typeof address.boundaryId !== 'string' ||
-        !portAddress(address.before) || !Array.isArray(address.uses) || address.uses.length === 0 ||
-        !address.uses.every((use) => ['endpoint', 'value', 'controller', 'dynamic'].includes(use as string)) ||
-        new Set(address.uses).size !== address.uses.length ||
-        (address.input !== undefined && !inputIdentity(address.input)) || !Array.isArray(address.targets) || address.targets.length === 0) return undefined
-    const key = JSON.stringify([address.side, address.boundaryId, address.before])
-    if (addressKeys.has(key)) return undefined
-    addressKeys.add(key)
-    const bindingIndexes = new Set<number>()
-    for (const target of address.targets) {
-      if (!isObj(target) || !exactKeys(target, ['bindingIndex', 'binding'], ['input']) ||
-          typeof target.bindingIndex !== 'number' || !Number.isSafeInteger(target.bindingIndex) || target.bindingIndex < 0 ||
-          !isObj(target.binding) || target.binding.kind !== 'port' || typeof target.binding.node !== 'string' ||
-          typeof target.binding.port !== 'string' || (target.binding.members !== undefined && !strings(target.binding.members)) ||
-          (target.input !== undefined && !inputIdentity(target.input)) || bindingIndexes.has(target.bindingIndex)) return undefined
-      bindingIndexes.add(target.bindingIndex)
-    }
-  }
   const expected = [
     ...(body.boundary?.inputs ?? []).map((item) => ({ side: 'input', item })),
     ...(body.boundary?.outputs ?? []).map((item) => ({ side: 'output', item })),
@@ -1290,14 +1189,9 @@ function flattenStatePlanFromJson(
   if (value.routes.length !== expected.length) return undefined
   for (const [index, route] of value.routes.entries()) {
     const address = expected[index]!
-    if (!isObj(route) || !exactKeys(route, ['side', 'id', 'bindingCount', 'familyScopeIds', 'addressIndexes']) ||
+    if (!isObj(route) || !exactKeys(route, ['side', 'id', 'bindingCount']) ||
         route.side !== address.side || route.id !== address.item.id ||
-        route.bindingCount !== 1 + (address.item.alsoBinds?.length ?? 0) ||
-        !Array.isArray(route.familyScopeIds) || !route.familyScopeIds.every((id) => typeof id === 'string' && scopeIds.has(id)) ||
-        !Array.isArray(route.addressIndexes) || !route.addressIndexes.every((entryIndex) => typeof entryIndex === 'number' &&
-          Number.isSafeInteger(entryIndex) && entryIndex >= 0 && entryIndex < serializedAddresses.length &&
-          isObj(serializedAddresses[entryIndex]) && serializedAddresses[entryIndex]!.side === route.side &&
-          serializedAddresses[entryIndex]!.boundaryId === route.id)) return undefined
+        route.bindingCount !== 1 + (address.item.alsoBinds?.length ?? 0)) return undefined
   }
   const rewriteKeys = new Set<string>()
   for (const rewrite of value.enclosingRewrites) {
@@ -1327,20 +1221,6 @@ function flattenBodySelection(body: GraphDef, view: GraphViewState | undefined):
 
 function flattenMaterializedIdentitiesContainNul(statePlan: Extract<FlattenStatePlan, { status: 'ready' }>): boolean {
   const hasNul = (value: string): boolean => value.includes(String.fromCharCode(0))
-  for (const scope of statePlan.familyScopes) {
-    if (scope.source.ancestors.some((step) => hasNul(step.member)) ||
-        scope.target.ancestors.some((step) => hasNul(step.member)) ||
-        scope.sourceMembers.some(hasNul) || scope.targetBefore.members.some(hasNul) ||
-        scope.targetBefore.memberStateKeys.some(hasNul) || scope.targetAfter.members.some(hasNul) ||
-        scope.targetAfter.memberStateKeys.some(hasNul) ||
-        scope.members.some((member) => hasNul(member.before) || hasNul(member.after))) return true
-  }
-  for (const address of statePlan.addresses) {
-    if (address.before.members?.some(hasNul) === true ||
-        address.input?.address.members?.some(hasNul) === true ||
-        address.targets.some((target) => target.binding.members?.some(hasNul) === true ||
-          target.input?.address.members?.some(hasNul) === true)) return true
-  }
   for (const rewrite of statePlan.enclosingRewrites) {
     if (rewrite.before.members?.some(hasNul) === true || rewrite.after.some((binding) => binding.members?.some(hasNul) === true)) return true
   }
@@ -1368,12 +1248,6 @@ function stagedFlattenIdentitiesContainNul(
       const afterMembers = new Set(afterState?.members ?? [])
       if ([...beforeMembers].some((member) => !afterMembers.has(member) && hasNul(member)) ||
           [...afterMembers].some((member) => !beforeMembers.has(member) && hasNul(member))) return true
-      const beforeNested = beforeState?.memberState
-      const afterNested = afterState?.memberState
-      for (const member of new Set([...Object.keys(beforeNested ?? {}), ...Object.keys(afterNested ?? {})])) {
-        if ((!Object.hasOwn(beforeNested ?? {}, member) || !Object.hasOwn(afterNested ?? {}, member)) && hasNul(member)) return true
-        if (changedDynamicHasNul(beforeNested?.[member], afterNested?.[member])) return true
-      }
     }
     return false
   }
@@ -1563,7 +1437,7 @@ function validateFlattenDispatch(
   ]
   for (const { side, item } of expected) {
     const route = routes.get(JSON.stringify([side, item.id]))
-    if (route === 'plain' || route === 'plainWidget' || route === 'combo' || route === 'specialized') {
+    if (route === 'plain' || route === 'plainWidget') {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (!isNodeBoundaryBinding(binding)) continue
         const authoredType = body.nodes[binding.node]?.type
@@ -1583,7 +1457,7 @@ function validateFlattenDispatch(
     return [err('params.invalid', 'subgraph.flatten: statePlan does not match semantic recomputation')]
   }
   const plannedRoutes = [...routes.entries()]
-  const unsupportedRoutes = plannedRoutes.filter(([, route]) => route === 'specialized' || route === 'unresolved')
+  const unsupportedRoutes = plannedRoutes.filter(([, route]) => route === 'unresolved')
   if (statePlan.status === 'ready' && unsupportedRoutes.length > 0) {
     return [err('params.invalid', 'subgraph.flatten: ready statePlan cannot bypass a remainder refusal')]
   }
@@ -1591,17 +1465,9 @@ function validateFlattenDispatch(
     const refusalRoute = statePlan.refusal.side !== undefined && statePlan.refusal.boundaryId !== undefined
       ? routes.get(JSON.stringify([statePlan.refusal.side, statePlan.refusal.boundaryId]))
       : unsupportedRoutes[0]?.[1]
-    const expectedRefusal = refusalRoute === 'specialized'
-      ? 'subgraph.flatten.specializedSlotUnsupported'
-      : refusalRoute === 'unresolved' ? 'subgraph.flatten.stateUnresolved' : undefined
+    const expectedRefusal = refusalRoute === 'unresolved' ? 'subgraph.flatten.stateUnresolved' : undefined
     if (statePlan.refusal.boundaryId !== undefined && refusalRoute === undefined) {
       return [err('params.invalid', 'subgraph.flatten: planner refusal names no verified boundary route')]
-    }
-    const routeOnlyCode = statePlan.refusal.code === 'subgraph.flatten.nativeFamilyUnsupported' ||
-      statePlan.refusal.code === 'subgraph.flatten.specializedSlotUnsupported'
-    if (routeOnlyCode && expectedRefusal !== statePlan.refusal.code &&
-        !(refusalRoute === 'family' && routeOnlyCode)) {
-      return [err('params.invalid', 'subgraph.flatten: planner refusal code is incompatible with its verified boundary route')]
     }
     if (expectedRefusal !== undefined && statePlan.refusal.code !== expectedRefusal) {
       return [err('params.invalid', 'subgraph.flatten: planner refusal does not match the verified boundary routes')]
@@ -1882,26 +1748,8 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     const ids: ExtractIdMaps = { nodes: nodeIds, reroutes: rerouteIds, valueSources: valueSourceIds, selectors: selectorIds, candidates: candidateIds }
-    const materializedAddresses = new Map(statePlan.addresses.map((entry) => [
-      JSON.stringify([entry.side, entry.boundaryId, { port: entry.before.port, ...(entry.before.members !== undefined ? { members: entry.before.members } : {}) }]),
-      entry,
-    ]))
-    const targetsFor = (
-      side: 'input' | 'output',
-      item: BoundaryItem,
-      address: { readonly port: string; readonly members?: readonly string[] },
-    ): readonly BoundaryBinding[] | undefined => {
-      const route = routePlan.get(JSON.stringify([side, item.id]))
-      if (route !== 'family') return flattenBoundaryTargets(item, nodeIds, rerouteIds, valueSourceIds)
-      const mapped = materializedAddresses.get(JSON.stringify([side, item.id, {
-        port: address.port,
-        ...(address.members !== undefined ? { members: address.members } : {}),
-      }]))
-      if (mapped === undefined || !mapped.uses.includes('endpoint')) return undefined
-      const targets = [...mapped.targets].sort((a, b) => a.bindingIndex - b.bindingIndex)
-      if (targets.length !== 1 + (item.alsoBinds?.length ?? 0)) return undefined
-      return targets.map((target) => remapBinding(target.binding, nodeIds))
-    }
+    const targetsFor = (item: BoundaryItem): readonly BoundaryBinding[] | undefined =>
+      flattenBoundaryTargets(item, nodeIds, rerouteIds, valueSourceIds)
 
     const literalDrivers = new Map<string, LinkEndpoint>()
     for (const item of body.boundary.inputs) {
@@ -1921,7 +1769,7 @@ const subgraphFlatten: CommandDefinition = {
       }
       if (isPortEndpoint(endpoint) && endpoint.node === nodeId) {
         const match = matchBoundaryItem(body.boundary!.outputs, endpoint)
-        const targets = match.ok ? targetsFor('output', match.item, endpoint) : undefined
+        const targets = match.ok ? targetsFor(match.item) : undefined
         return targets?.length === 1 ? redirectFrom(endpointFromBinding(targets[0]!), seen) : undefined
       }
       return endpoint
@@ -2003,7 +1851,7 @@ const subgraphFlatten: CommandDefinition = {
       let from = link.from
       if (isPortEndpoint(from) && from.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.outputs, from)
-        const targets = match.ok ? targetsFor('output', match.item, from) : undefined
+        const targets = match.ok ? targetsFor(match.item) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: output '${from.port}' has an unmapped materialized route`, graphId, instancePath, nodeId, from)]
         }
@@ -2012,7 +1860,7 @@ const subgraphFlatten: CommandDefinition = {
         }
         from = endpointFromBinding(targets[0]!)
       } else if (isWidgetTapRef(from) && from.node === nodeId) {
-        const target = targetsFor('input', boundaryInputs.get(from.tap)!, { port: from.tap })?.[0]
+        const target = targetsFor(boundaryInputs.get(from.tap)!)?.[0]
         if (target === undefined || !isNodeBoundaryBinding(target) || target.kind === 'widgetTap') {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: tap '${from.tap}' has no materialized target`, graphId, instancePath, nodeId)]
         }
@@ -2020,7 +1868,7 @@ const subgraphFlatten: CommandDefinition = {
       }
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.inputs, link.to)
-        const targets = match.ok ? targetsFor('input', match.item, link.to)?.filter((target) => target.kind !== 'valueSource') : undefined
+        const targets = match.ok ? targetsFor(match.item)?.filter((target) => target.kind !== 'valueSource') : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
         }
@@ -2081,7 +1929,7 @@ const subgraphFlatten: CommandDefinition = {
       let source = net.source
       if (source.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.outputs, source)
-        const targets = match.ok ? targetsFor('output', match.item, source) : undefined
+        const targets = match.ok ? targetsFor(match.item) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net source '${source.port}' has no materialized target`, graphId, instancePath, nodeId, source)]
         }
@@ -2101,7 +1949,7 @@ const subgraphFlatten: CommandDefinition = {
         else if (occurrencePlan !== undefined) continue
         else {
           const match = matchBoundaryItem(body.boundary.inputs, sink)
-          const targets = match.ok ? targetsFor('input', match.item, sink) : undefined
+          const targets = match.ok ? targetsFor(match.item) : undefined
           if (targets === undefined) {
             return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net sink '${sink.port}' has no materialized target`, graphId, instancePath, nodeId, sink)]
           }

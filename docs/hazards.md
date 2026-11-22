@@ -278,8 +278,8 @@ are what keep it that way.
 
 A boundary item binds one inner input or output by its flattened id
 ([Node body](node-body.md)). Forwarding a whole group, choice or type choice
-is refused (`boundary.familyUnsupported` at derive time,
-`compile.boundary.forwardUnresolved` at compile time), and a binding that
+is refused (`boundary.familyBind` at derive time, `compile.port.unknownInput`
+or `compile.port.unknownOutput` at compile time), and a binding that
 carries member ids is refused (`boundary.memberPath`). Member and choice state
 therefore lives only on the inner node inside the definition, shared by all
 instances like every other definition edit.

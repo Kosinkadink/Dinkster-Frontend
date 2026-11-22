@@ -4,7 +4,7 @@
  * The contract under test: elaboration offers a group's unstored members up
  * to its minimum and one spare as view affordances; `dynamic.materialize`
  * persists them append-only and idempotently; `dynamic.selectOption`
- * switches choices only beneath persisted ancestors; `batch` makes
+ * writes a choice at its flattened id; `batch` makes
  * "materialize + the action that caused it" one atomic transaction and one
  * undo step; `materializeFramesOf` derives the frames param from an
  * elaborated target, including offered siblings and nested groups.
@@ -129,22 +129,21 @@ describe('dynamic.setOptions', () => {
     expect(store.doc.graphs.g0!.nodes.n1!.values.choice).toBe('outside')
   })
 
-  it('requires persisted ancestors and batches nested menu materialization as one undo step', () => {
+  it('batches nested menu materialization as one undo step', () => {
     const initial = doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) })
     const store = makeStore(initial)
     const edit = { command: 'dynamic.setOptions', params: {
-      graphId: 'g0', nodeId: 'n1', ancestors: [{ construct: 'items', member: 'm0' }], construct: 'choice', options: ['a', 'a'],
+      graphId: 'g0', nodeId: 'n1', construct: 'items.m0.choice', options: ['a', 'a'],
     } }
-    expect(store.dispatch(edit).ok).toBe(false)
-    expect(store.doc).toEqual(initial)
     expect(store.dispatch({ command: 'batch', params: { invocations: [
       { command: 'dynamic.materialize', params: { graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'items', members: ['m0'], seq: 1 }] } },
       edit,
     ] } }).ok).toBe(true)
-    expect(dynOf(store, 'n1')!.items!.memberState!.m0!.choice!.options).toEqual(['a', 'a'])
+    expect(dynOf(store, 'n1')!['items.m0.choice']!.options).toEqual(['a', 'a'])
+    expect(dynOf(store, 'n1')!.items!.members).toEqual(['m0'])
     store.undo()
     expect(dynOf(store, 'n1')!.items!.members).toBeUndefined()
-    expect(dynOf(store, 'n1')!.items!.memberState).toBeUndefined()
+    expect(dynOf(store, 'n1')!['items.m0.choice']).toBeUndefined()
     for (const options of [[null], [{}], [['a']]]) {
       expect(store.dispatch({ command: 'dynamic.setOptions', params: { graphId: 'g0', nodeId: 'n1', construct: 'choice', options } }).ok).toBe(false)
     }
@@ -341,7 +340,7 @@ describe('dynamic.selectOption', () => {
     expect(store.canUndo).toBe(false)
   })
 
-  it('switches a combo nested under a PERSISTED member, creating containers', () => {
+  it('switches a combo nested under a member at its flattened id', () => {
     const store = makeStore(
       doc({
         g0: graph({
@@ -355,18 +354,14 @@ describe('dynamic.selectOption', () => {
       params: {
         graphId: 'g0',
         nodeId: 'n1',
-        ancestors: [{ construct: 'items', member: 'm0' }],
-        construct: 'items.mode',
+        construct: 'items.m0.mode',
         option: 'blur',
       },
     })
     expect(out.ok).toBe(true)
     expect(dynOf(store, 'n1')).toEqual({
-      items: {
-        members: ['m0'],
-        seq: 1,
-        memberState: { m0: { 'items.mode': { selected: 'blur' } } },
-      },
+      items: { members: ['m0'], seq: 1 },
+      'items.m0.mode': { selected: 'blur' },
     })
   })
 
@@ -393,13 +388,13 @@ describe('dynamic.specializeSlot', () => {
     expect(store.canUndo).toBe(false)
   })
 
-  it('writes specialization in persisted ancestor member scope', () => {
+  it('writes the specialization of a type choice under a member at its flattened id', () => {
     const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: { items: { members: ['m0'], seq: 1 } } }) } }) }))
     const out = store.dispatch({ command: 'dynamic.specializeSlot', params: {
-      graphId: 'g0', nodeId: 'n1', ancestors: [{ construct: 'items', member: 'm0' }], construct: 'items.model', variant: 'lora',
+      graphId: 'g0', nodeId: 'n1', construct: 'items.m0.model', variant: 'lora',
     } })
     expect(out.ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({ items: { members: ['m0'], seq: 1, memberState: { m0: { 'items.model': { selected: 'lora' } } } } })
+    expect(dynOf(store, 'n1')).toEqual({ items: { members: ['m0'], seq: 1 }, 'items.m0.model': { selected: 'lora' } })
   })
 })
 
@@ -456,26 +451,22 @@ describe('dynamic.labelMember', () => {
     })
   })
 
-  it('writes labels in a persisted ancestor member scope', () => {
+  it('writes labels of a group nested under a member at its flattened id', () => {
     const store = makeStore(doc({
       g0: graph({ id: 'g0', nodes: {
         n1: node('n1', { dynamic: {
-          groups: {
-            members: ['outer'],
-            memberState: { outer: { 'groups.values': { members: ['m0'] } } },
-          },
+          groups: { members: ['outer'] },
+          'groups.outer.values': { members: ['m0'] },
         } }),
       } }),
     }))
     expect(store.dispatch({ command: 'dynamic.labelMember', params: {
       graphId: 'g0', nodeId: 'n1',
-      ancestors: [{ construct: 'groups', member: 'outer' }],
-      construct: 'groups.values', member: 'm0', label: 'Primary',
+      construct: 'groups.outer.values', member: 'm0', label: 'Primary',
     } }).ok).toBe(true)
-    expect(dynOf(store, 'n1')).toMatchObject({
-      groups: { memberState: { outer: {
-        'groups.values': { members: ['m0'], memberLabels: { m0: 'Primary' } },
-      } } },
+    expect(dynOf(store, 'n1')).toEqual({
+      groups: { members: ['outer'] },
+      'groups.outer.values': { members: ['m0'], memberLabels: { m0: 'Primary' } },
     })
   })
 })
@@ -486,13 +477,6 @@ describe('dynamic.labelMember', () => {
 
 describe('dynamic.compact', () => {
   const state = { images: { members: ['m0', 'm1', 'm2'], seq: 3 } }
-
-  it.each([{ options: [] }, { options: ['duplicate', 'duplicate', false, 0] }])('retains a parent with only an authored nested menu $options', ({ options }) => {
-    const initial = { items: { members: ['m0'], seq: 1, memberState: { m0: { choice: { options } } } } }
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: initial }) } }) }))
-    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual(initial)
-  })
 
   it('removes unreferenced rows while preserving linked member identity and order', () => {
     const g = graph({
@@ -508,6 +492,16 @@ describe('dynamic.compact', () => {
     const revision = store.revision
     expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
     expect(store.revision).toBe(revision)
+  })
+
+  it('retains a member whose only state is a chosen key or an authored menu at a flattened id', () => {
+    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: {
+      items: { members: ['m0', 'm1', 'm2'], seq: 3 },
+      'items.m1.choice': { options: ['a', 'b'] },
+      'items.m2.mode': { selected: 'x' },
+    } }) } }) }))
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')!.items).toEqual({ members: ['m1', 'm2'], seq: 3 })
   })
 
   it('retains labels only for members retained by semantic references', () => {
@@ -671,27 +665,6 @@ describe('dynamic.compact', () => {
     const store = makeStore(doc({ g0: g }))
     store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m1'], seq: 3 } })
-  })
-
-  it('compacts nested families bottom-up and keeps a referenced child and its parent', () => {
-    const dynamic = {
-      items: {
-        members: ['m0', 'm1'], seq: 2,
-        memberState: {
-          m0: { 'items.sub': { members: ['m0'], seq: 1 } },
-          m1: { 'items.sub': { members: ['m0'], seq: 1 } },
-        },
-      },
-    }
-    const g = graph({
-      id: 'g0', nodes: { src: node('src'), n1: node('n1', { dynamic }) },
-      links: { l1: { id: asLinkId('l1'), from: port('src', 'out'), to: { ...port('n1', 'items.sub.item'), members: [asDynamicMemberId('m1'), asDynamicMemberId('m0')] } } },
-    })
-    const store = makeStore(doc({ g0: g }))
-    store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })
-    expect(dynOf(store, 'n1')).toEqual({
-      items: { members: ['m1'], seq: 2, memberState: { m1: { 'items.sub': { members: ['m0'], seq: 1 } } } },
-    })
   })
 
 })

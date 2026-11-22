@@ -1122,7 +1122,7 @@ describe('subgraph.extract L4 structural and view completion', () => {
           type: 'A',
           mode: 'muted',
           values: { dormant: 7 },
-          dynamic: { family: { members: ['m9'], memberState: { m9: { nested: { members: ['name-a'] } } } } },
+          dynamic: { family: { members: ['m9'] }, 'family.m9.nested': { members: ['name-a'] } },
         },
         b: { id: 'b' as never, type: 'B', mode: 'bypassed', values: {} },
         nested: { id: 'nested' as never, type: '#child', values: { promoted: 3 } },

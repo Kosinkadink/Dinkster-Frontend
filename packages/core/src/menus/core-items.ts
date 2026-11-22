@@ -354,8 +354,7 @@ const nodeCompactDynamic: MenuContribution = {
     if (!def) return []
     const nodeIds = targetNodeIds(ctx, ctx.target.nodeId).filter((nodeId) => {
       const dynamic = def.nodes[nodeId]?.dynamic
-      return Object.values(dynamic ?? {}).some((state) =>
-        (state.members?.length ?? 0) > 0 || Object.keys(state.memberState ?? {}).length > 0)
+      return Object.values(dynamic ?? {}).some((state) => (state.members?.length ?? 0) > 0)
     })
     if (nodeIds.length === 0) return []
     const invocations = nodeIds.map((nodeId) => ({

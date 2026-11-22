@@ -63,7 +63,7 @@ describe('checkDocument', () => {
     expect(checkDocument(d).map((x) => x.code)).toContain('doc.input.multiDriver')
   })
 
-  it('rejects stale canonical, nested, and wire-15 member endpoints while preserving opaque paths', () => {
+  it('rejects stale canonical and wire-15 member endpoints while preserving opaque paths', () => {
     const diagnostics = (dynamic: Record<string, DynamicPortState>, endpoint: PortRef, asNet = false) => {
       const target = { ...node('n2'), dynamic }
       const g = graph({
@@ -83,14 +83,6 @@ describe('checkDocument', () => {
       { items: { members: ['m0'], seq: 1 } },
       { ...port('n2', 'items.sub.item'), members: [asDynamicMemberId('m0'), asDynamicMemberId('m1')] },
     )).toContain('doc.dynamic.memberMissing')
-    const nested = {
-      items: {
-        members: ['m0'], seq: 1,
-        memberState: { m0: { 'items.sub': { members: ['m1'], seq: 2 } } },
-      },
-    }
-    expect(diagnostics(nested, port('n2', 'items.m0.sub.m1.item'))).not.toContain('doc.dynamic.memberMissing')
-    expect(diagnostics(nested, port('n2', 'items.m0.sub.m0.item'))).toContain('doc.dynamic.memberMissing')
     const flattened = {
       outer: { members: ['root'], seq: 1 },
       'outer.root.inner': { members: ['child'], seq: 1 },

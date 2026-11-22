@@ -529,8 +529,8 @@ describe('dynamic layout on plain nodes', () => {
     const owner = target.owner ?? { graphId: 'sub', nodeId: 'n', ...target }
     // A group member's state lives under its flattened id, with no member nesting.
     expect(owner).toEqual(mode.startsWith('promoted')
-      ? { graphId: 'g0', nodeId: 'instance', construct: 'menu', ancestors: [] }
-      : { graphId: 'sub', nodeId: 'n', construct: 'items.item0.choice', ancestors: [] })
+      ? { graphId: 'g0', nodeId: 'instance', construct: 'menu' }
+      : { graphId: 'sub', nodeId: 'n', construct: 'items.item0.choice' })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve))
     const result = store.dispatch({ command: 'dynamic.setOptions', params: { ...owner, options: [false, 0, 'duplicate', 'duplicate'] } })
     expect(result.ok).toBe(true)

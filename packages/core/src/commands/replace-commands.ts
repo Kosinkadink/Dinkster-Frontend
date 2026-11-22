@@ -22,7 +22,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import { isComboValue } from '../schema/combo-options.js'
-import { boundaryBindingKey, isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
+import { isNodeBoundaryBinding, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition } from './contract.js'
@@ -39,14 +39,8 @@ const err = (code: string, message: string): Diagnostic => diag('error', 'comman
 const isObj = (v: Json | undefined): v is JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
-const dynamicPortHasSelection = (value: Json): boolean => {
-  if (!isObj(value)) return false
-  if (typeof value.selected === 'string') return true
-  if (!isObj(value.memberState)) return false
-  return Object.values(value.memberState).some((constructs) =>
-    isObj(constructs) && Object.values(constructs).some(dynamicPortHasSelection),
-  )
-}
+const dynamicPortHasSelection = (value: Json): boolean =>
+  isObj(value) && typeof value.selected === 'string'
 
 const dynamicStateHasSelection = (value: Json | undefined): boolean =>
   isObj(value) && Object.values(value).some(dynamicPortHasSelection)
@@ -126,7 +120,6 @@ const isBoundaryRewire = (v: Json): v is JsonObject & { item: string; side: 'inp
   isObj(v) &&
   typeof v.item === 'string' &&
   (v.side === 'input' || v.side === 'output') &&
-  (v.kind === undefined || (v.kind === 'family' && v.side === 'input' && v.alsoIndex === undefined)) &&
   typeof v.fromPort === 'string' &&
   typeof v.port === 'string' &&
   (v.fromMembers === undefined || isMemberPath(v.fromMembers)) &&
@@ -138,16 +131,12 @@ const isBoundaryGuard = (v: Json): v is JsonObject & { item: string; side: 'inpu
   (v.side === 'input' || v.side === 'output') &&
   typeof v.port === 'string' &&
   (v.members === undefined || isMemberPath(v.members)) &&
-  (v.binding === undefined || (isObj(v.binding) && v.binding.kind === 'family' &&
-    v.side === 'input' && v.alsoIndex === undefined && typeof v.binding.node === 'string' &&
-    v.binding.port === v.port && (v.binding.members === undefined || isMemberPath(v.binding.members)) &&
-    (v.binding.slots === undefined || isStringArray(v.binding.slots)))) &&
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number') &&
   (v.promoted === undefined || typeof v.promoted === 'boolean')
 const CONTROLLER_MODES = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
-const DYNAMIC_STATE_KEYS = new Set(['members', 'memberLabels', 'seq', 'selected', 'options', 'memberState'])
-const isDynamicPortState = (v: Json, depth = 0): boolean => {
-  if (!isObj(v) || depth > MAX_DYNAMIC_STATE_DEPTH || Object.keys(v).some((key) => !DYNAMIC_STATE_KEYS.has(key)))
+const DYNAMIC_STATE_KEYS = new Set(['members', 'memberLabels', 'seq', 'selected', 'options'])
+const isDynamicPortState = (v: Json): boolean => {
+  if (!isObj(v) || Object.keys(v).some((key) => !DYNAMIC_STATE_KEYS.has(key)))
     return false
   if (v.options !== undefined && (!Array.isArray(v.options) || !v.options.every(isComboValue))) return false
   if (v.members !== undefined && (
@@ -160,12 +149,7 @@ const isDynamicPortState = (v: Json, depth = 0): boolean => {
   if (v.memberLabels !== undefined && (!isObj(v.memberLabels) ||
       !Object.entries(v.memberLabels).every(([member, label]) =>
         member.length > 0 && typeof label === 'string' && label.length > 0))) return false
-  if (v.memberState === undefined) return true
-  return isObj(v.memberState) && Object.entries(v.memberState).every(([member, scope]) =>
-    member.length > 0 && isObj(scope) && Object.entries(scope).every(([construct, state]) =>
-      construct.length > 0 && isDynamicPortState(state, depth + 1),
-    ),
-  )
+  return true
 }
 const isDynamicScope = (v: Json): v is JsonObject =>
   isObj(v) && Object.entries(v).every(([construct, state]) =>
@@ -525,7 +509,7 @@ const nodeReplace: CommandDefinition = {
       const items = r.side === 'input' ? def.boundary?.inputs : def.boundary?.outputs
       const item = items?.find((i) => i.id === r.item)
       const b = r.alsoIndex === undefined ? item?.binds : item?.alsoBinds?.[r.alsoIndex]
-      if (!b || b.kind !== (r.kind ?? 'port') || b.node !== p.nodeId ||
+      if (!b || b.kind !== 'port' || b.node !== p.nodeId ||
           (r.fromMembers === undefined ? b.members !== undefined : !sameMembers(b.members, r.fromMembers)))
         return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' no longer binds the planned port of '${p.nodeId}'`)]
       if (b.port !== r.fromPort)
@@ -541,21 +525,15 @@ const nodeReplace: CommandDefinition = {
       // JSON tuple encoding: injective for ANY component strings (raw
       // separator chars in an id/port can never collide two entries).
       const guardKey = (g: NonNullable<NodeReplacePlan['boundaryGuard']>[number]): string =>
-        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true, g.members ?? null,
-          g.binding === undefined ? null : boundaryBindingKey(g.binding)])
+        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true, g.members ?? null])
       const stale = err('replace.stale', `node.replace: the subgraph boundary bindings of '${p.nodeId}' changed since planning`)
       const current: string[] = []
       for (const item of def.boundary?.inputs ?? []) {
         if (item.binds.node === p.nodeId) {
-          if (item.binds.kind === 'family') {
-            current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port, binding: item.binds,
-              ...(item.promoted === true ? { promoted: true } : {}) }))
-          } else {
-            if (item.binds.kind !== 'port') return [stale]
-            current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
-              ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
-              ...(item.promoted === true ? { promoted: true } : {}) }))
-          }
+          if (item.binds.kind !== 'port') return [stale]
+          current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
+            ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
+            ...(item.promoted === true ? { promoted: true } : {}) }))
         }
         for (const [i, a] of (item.alsoBinds ?? []).entries()) {
           if (a.node !== p.nodeId) continue

@@ -15,9 +15,8 @@
  *
  * Dynamics: rows/pins come from `elaborateInterface`, so autogrow
  * members, min-fill, trailing ghosts, combo selectors/branches, and slot
- * dependents all render through ONE path - and because subgraph instances
- * resolve to boundary-derived schemas (documentResolver), a forwarded
- * family's suffix ghost appears on the instance with zero special-casing.
+ * dependents all render through ONE path, subgraph instances included
+ * (they resolve to boundary-derived schemas through documentResolver).
  * Row/pin ids are ELAB KEYS (elabKeyOf packing, unique per node); document
  * identity travels separately as `address` so gestures never parse keys.
  * Ghost rows carry `materialize` frames: the UI batches dynamic.materialize
@@ -61,7 +60,6 @@ export interface DynamicEditOwner {
   readonly graphId: string
   readonly nodeId: string
   readonly construct: string
-  readonly ancestors?: readonly { readonly construct: string; readonly member: string }[]
 }
 
 /**
@@ -82,27 +80,11 @@ export interface DynamicAnnotations {
    * landing here must batch `dynamic.materialize` with these frames first.
    */
   readonly materialize?: readonly MaterializeFrame[]
-  /** Occurrence-local instance that owns this derived row or pin. */
-  readonly familyOwner?: {
-    readonly graphId: string
-    readonly nodeId: string
-    readonly construct: string
-    readonly valueKey?: string
-    readonly occurrence?: OccurrenceRef
-    readonly familyPath?: string
-    readonly sourceMember?: string
-    readonly route?: readonly BoundaryRouteLeg[]
-    readonly sourceEndpoint?: import('@dinkster/core').OccurrenceLinkEndpoint
-    /** Present only when an occurrence mutation planner can consume this route. */
-    readonly socketed?: true
-  }
   /** DynamicSlot choice metadata used by connect gestures and pin menus. */
   readonly dynamicSlot?: {
     readonly construct: string
     readonly variants: readonly { readonly key: string; readonly type: TypeExpr }[]
     readonly selected?: string
-    readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
-    readonly owner?: DynamicEditOwner
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
@@ -166,7 +148,6 @@ export type LayoutRow =
       /** Structural menu state coordinate, independent of the selected value. */
       readonly optionsTarget?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
         readonly owner?: DynamicEditOwner
         readonly materialize?: readonly MaterializeFrame[]
       }
@@ -176,8 +157,13 @@ export type LayoutRow =
        */
       readonly selector?: {
         readonly construct: string
-        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
-        readonly owner?: DynamicEditOwner
+      }
+      /** Instance whose promoted boundary input owns this row's stored value. */
+      readonly familyOwner?: {
+        readonly graphId: string
+        readonly nodeId: string
+        readonly construct: string
+        readonly valueKey: string
       }
     } & DynamicAnnotations)
   | {
@@ -193,7 +179,6 @@ export type LayoutRow =
       readonly construct: string
       readonly label: string
       readonly frames: readonly MaterializeFrame[]
-      readonly familyOwner?: { readonly graphId: string; readonly nodeId: string; readonly construct: string; readonly valueKey?: string }
     }
   | {
       /**
@@ -716,7 +701,6 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.ghost ? { ghost: true } : {}),
   ...(a.familyMember ? { familyMember: true } : {}),
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
-  ...(a.familyOwner !== undefined ? { familyOwner: a.familyOwner } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
 })
@@ -799,7 +783,6 @@ export function layoutNode(
           construct: item.origin.construct,
           variants: item.origin.variants,
           ...(item.origin.selected !== undefined ? { selected: item.origin.selected } : {}),
-          ancestors: (item.ancestry ?? []).map((a) => ({ construct: a.construct, member: a.member as string })),
         }
       : undefined
     return {
@@ -917,13 +900,7 @@ export function layoutNode(
       ...measured,
       rows: Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
     }
-    const selector =
-      item.origin.kind === 'selector'
-        ? {
-            construct: item.origin.construct,
-            ancestors: (item.ancestry ?? []).map((a) => ({ construct: a.construct, member: a.member as string })),
-          }
-        : undefined
+    const selector = item.origin.kind === 'selector' ? { construct: item.origin.construct } : undefined
     pending.push({
       kind: 'widget',
       ...(section !== undefined ? { sectionId: section } : {}),
@@ -944,10 +921,7 @@ export function layoutNode(
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
         // A menu's state lives under its flattened id, members included.
-        ...(representation.spec.editableOptions === true ? { optionsTarget: {
-          construct: item.address.port,
-          ancestors: [],
-        } } : {}),
+        ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector } : {}),
         ...annotate(item),
       },
@@ -1255,8 +1229,6 @@ export interface BoundarySlotInfo {
   readonly label: string
   /** Derived instance-facing type, when the boundary schema derives cleanly. */
   readonly type?: TypeExpr
-  /** Whole-family forwarding: rendered with a family marker. */
-  readonly family?: true
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
 }
@@ -1294,7 +1266,7 @@ export function layoutBoundaryNode(
   let y = tokens.headerHeight
   for (const slot of slots) {
     const height = tokens.rowHeight
-    const label = slot.family ? `${slot.label} []` : slot.label
+    const label = slot.label
     const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
     const portSlot: PortSlot = { portId: slot.id, label, type, address: { port: slot.id }, ...(slot.regionIndex ? { regionIndex: true } : {}) }
     rows.push({

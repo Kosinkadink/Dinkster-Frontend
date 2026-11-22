@@ -16,7 +16,6 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { isValidActorId } from '../ids.js'
 import {
   FORMAT_VERSION,
-  MAX_DYNAMIC_STATE_DEPTH,
   regionContractShapeProblems,
   suppressedDeliveryKey,
   type SuppressedDelivery,
@@ -138,7 +137,7 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   if (kind === 'unbound' || kind === 'valueSource') {
     if (kind === 'valueSource') c.str(binding['valueSource'], `${path}.valueSource`, { nonEmpty: true })
     checkTypeExpr(c, binding['type'], `${path}.type`)
-    for (const field of ['node', 'port', 'tap', 'members', 'slots', 'viaReroute']) {
+    for (const field of ['node', 'port', 'tap', 'members', 'viaReroute']) {
       if (binding[field] !== undefined) c.fail(`${path}.${field}`, `invalid on kind '${kind}'`)
     }
     return
@@ -152,48 +151,12 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
     c.str(binding['tap'], `${path}.tap`, { nonEmpty: true })
     if (binding['port'] !== undefined) c.fail(`${path}.port`, "invalid on kind 'widgetTap'")
     if (binding['members'] !== undefined) c.fail(`${path}.members`, "invalid on kind 'widgetTap'")
-    if (binding['slots'] !== undefined) c.fail(`${path}.slots`, "invalid on kind 'widgetTap'")
     return
   }
   checkPortRef(c, v, path)
-  if (binding['tap'] !== undefined) c.fail(`${path}.tap`, "invalid on kind 'port' or 'family'")
-  if (kind !== 'port' && kind !== 'family' && kind !== 'slot' && kind !== 'dynamicCombo') {
-    c.fail(`${path}.kind`, "must be 'port', 'family', 'slot', 'dynamicCombo', or 'widgetTap'")
-  }
-  // Slot-selective forwarding (hazard F10): family bindings only, non-empty,
-  // duplicate-free. Entries are dotted paths over template slot ids ('sub'
-  // = whole subtree, 'sub.s' = narrowed); segments must be non-empty, and
-  // an entry must not be a strict path-prefix of another (whole-subtree and
-  // narrowed selection of the same construct are mutually exclusive). Order
-  // is irrelevant (derived template keeps template order) but duplicates
-  // would suggest a meaning that does not exist.
-  const slots = (v as Record<string, unknown>)['slots']
-  if (slots !== undefined) {
-    if (kind !== 'family') {
-      c.fail(`${path}.slots`, "invalid on kind 'port' (slot selection applies to family forwarding only)")
-    }
-    if (c.arr(slots, `${path}.slots`)) {
-      if (slots.length === 0) c.fail(`${path}.slots`, 'must be non-empty when present (omit to expose the whole template)')
-      const seen = new Set<string>()
-      slots.forEach((s, i) => {
-        if (!c.str(s, `${path}.slots[${i}]`, { nonEmpty: true })) return
-        if (s.split('.').some((seg) => seg === '')) {
-          c.fail(`${path}.slots[${i}]`, `slot path '${s}' has an empty segment`)
-          return
-        }
-        if (seen.has(s)) c.fail(`${path}.slots[${i}]`, `duplicate slot path '${s}'`)
-        seen.add(s)
-      })
-      slots.forEach((s, i) => {
-        if (typeof s !== 'string' || !seen.has(s)) return
-        for (const other of seen) {
-          if (other.startsWith(`${s}.`)) {
-            c.fail(`${path}.slots[${i}]`, `slot path '${s}' (whole subtree) conflicts with narrower '${other}'; list one or the other`)
-            break
-          }
-        }
-      })
-    }
+  if (binding['tap'] !== undefined) c.fail(`${path}.tap`, "invalid on kind 'port'")
+  if (kind !== 'port') {
+    c.fail(`${path}.kind`, "must be 'port', 'widgetTap', 'unbound', or 'valueSource'")
   }
 }
 
@@ -218,10 +181,6 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   }
   if (primaryBinding?.['viaReroute'] !== undefined) {
     if (side !== 'inputs') c.fail(`${path}.binds.viaReroute`, 'junction attachments are input-side only')
-  }
-  if (primaryBinding?.['kind'] === 'slot' || primaryBinding?.['kind'] === 'dynamicCombo') {
-    if (side === 'outputs') c.fail(`${path}.binds.kind`, 'conditional constructs are input-side only')
-    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'conditional constructs cannot fan out')
   }
   // Fan-out (alsoBinds): input-side only, entries match the primary binding
   // kind, are non-empty when present (canonical form omits an empty list),
@@ -260,8 +219,6 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     }
   }
   c.optBool(v['promoted'], `${path}.promoted`)
-  // A forwarded family's template always carries its widgets; 'promoted'
-  // has no meaning there and canonical form allows only ONE spelling.
   const binds = v['binds']
   if (
     v['promoted'] !== undefined &&
@@ -275,17 +232,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-/**
- * Hard nesting budget for dynamic state (hazard N5): one level per family
- * crossed, shared with the JSON Schema's bounded unrolling (schema.ts).
- * State deeper than the elaborator would ever read is malformed, and the
- * validator fails it deterministically instead of recursing without bound.
- */
-function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string, depth: number): void {
-  if (depth > MAX_DYNAMIC_STATE_DEPTH) {
-    c.fail(p, `dynamic state nested deeper than ${MAX_DYNAMIC_STATE_DEPTH} levels`)
-    return
-  }
+function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string): void {
   if (!c.obj(st, p)) return
   if (st['members'] !== undefined && c.arr(st['members'], `${p}.members`)) {
     st['members'].forEach((m, i) => c.str(m, `${p}.members[${i}]`, { nonEmpty: true }))
@@ -314,15 +261,6 @@ function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string, depth: n
     }
   }
   if (st['seq'] !== undefined) c.int(st['seq'], `${p}.seq`, 0)
-  if (st['memberState'] !== undefined && c.obj(st['memberState'], `${p}.memberState`)) {
-    for (const [member, constructs] of Object.entries(st['memberState'])) {
-      const mp = `${p}.memberState.${member}`
-      if (!c.obj(constructs, mp)) continue
-      for (const [construct, nested] of Object.entries(constructs)) {
-        checkDynamicPortState(c, nested, `${mp}.${construct}`, depth + 1)
-      }
-    }
-  }
 }
 
 function checkRegion(c: ShapeChecker, v: unknown, path: string): void {
@@ -356,7 +294,7 @@ function checkNode(c: ShapeChecker, v: unknown, path: string): void {
   }
   if (v['dynamic'] !== undefined && c.obj(v['dynamic'], `${path}.dynamic`)) {
     for (const [k, st] of Object.entries(v['dynamic'])) {
-      checkDynamicPortState(c, st, `${path}.dynamic.${k}`, 0)
+      checkDynamicPortState(c, st, `${path}.dynamic.${k}`)
     }
   }
   if (v['region'] !== undefined) checkRegion(c, v['region'], `${path}.region`)

@@ -875,7 +875,7 @@ describe('context menus', () => {
   })
 })
 
-describe('occurrence-owned family pins', () => {
+describe('occurrence region index pins', () => {
   it('connects the derived region index through the occurrence planner in either drag direction', () => {
     const regionScene = (): Scene => {
       const scene = interactionScene() as any
@@ -933,66 +933,6 @@ describe('occurrence-owned family pins', () => {
     readonly.fire('dblclick', -100, 42)
     expect(rename).not.toHaveBeenCalled()
     readonly.controller.dispose()
-  })
-
-  it('are legal drag origins and drop targets at the command-dispatch seam', () => {
-    const scene = interactionScene() as any
-    scene.occurrence = { owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0' }
-    scene.valueSources = []
-    scene.selectors = []
-    scene.reroutes = []
-    scene.nodes[0].layout.pins = [{
-      portId: 'out', address: { port: 'out' }, direction: 'out', x: 100, y: 22,
-      type: { kind: 'concrete', name: 'FLOAT' },
-    }]
-    scene.nodes[1].layout.pins = [{
-      portId: 'owned', address: { port: 'weights.w', members: ['s0'] }, direction: 'in', x: 0, y: 22,
-      type: { kind: 'concrete', name: 'FLOAT' },
-      familyOwner: {
-        graphId: 'root', nodeId: 'instance', construct: 'forwarded', socketed: true,
-        occurrence: { instancePath: [], node: 'instance' }, familyPath: 'weights', sourceMember: 's0',
-        route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        sourceEndpoint: {
-          kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-          address: { port: 'forwarded.w', members: ['s0'] },
-          route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        },
-      },
-    }]
-    scene.nodes.slice(2).forEach((node: any) => { node.layout.pins = [] })
-    const intentions: any[] = []
-    const harness = interactionHarness(scene, {
-      dispatchOccurrenceMutation: (intention) => { intentions.push(intention); return { ok: true } },
-    })
-
-    harness.fire('pointerdown', 200, 32)
-    harness.fire('pointermove', 110, 32)
-    harness.fire('pointerup', 110, 32)
-    harness.fire('pointerdown', 110, 32)
-    harness.fire('pointermove', 200, 32)
-    harness.fire('pointerup', 200, 32)
-
-    expect(intentions).toEqual([
-      {
-        kind: 'connect', owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0',
-        from: { kind: 'body', endpoint: { node: 'n1', port: 'out' } },
-        to: {
-          kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-          address: { port: 'forwarded.w', members: ['s0'] },
-          route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        },
-      },
-      {
-        kind: 'connect', owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0',
-        from: { kind: 'body', endpoint: { node: 'n1', port: 'out' } },
-        to: {
-          kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-          address: { port: 'forwarded.w', members: ['s0'] },
-          route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        },
-      },
-    ])
-    expect(harness.dispatched).toEqual([])
   })
 })
 
@@ -2478,14 +2418,20 @@ describe('gesture ownership and cancellation', () => {
   it('a captured press that starts no gesture releases ownership immediately', () => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.pins = [{
-      portId: 'out', address: { port: 'out' }, direction: 'out', y: 22,
+      portId: 'in', address: { port: 'in' }, direction: 'in', y: 22,
       type: { kind: 'concrete', name: 'FLOAT' },
-      familyOwner: { socketed: false },
     }]
-    const harness = interactionHarness(scene)
-    // Press on the inert family-owned pin: the pointer is captured but no
-    // gesture starts, and the release is then dropped.
-    harness.fire('pointerdown', 110, 32, { buttons: 1, pointerType: 'mouse' })
+    scene.links = [{
+      id: 'projected', from: { kind: 'port', node: 'n2', port: 'out' }, to: { kind: 'port', node: 'n1', port: 'in' },
+      typeName: 'FLOAT', effectiveIdentities: [{ id: 'a' }, { id: 'b' }],
+    }]
+    const refused = vi.fn()
+    const harness = interactionHarness(scene, { onOccurrenceMutationRefused: refused })
+    // Press on an input fed by a projected fan-out: the grab is refused, so
+    // the pointer is captured but no gesture starts, and the release is then
+    // dropped.
+    harness.fire('pointerdown', 10, 32, { buttons: 1, pointerType: 'mouse' })
+    expect(refused).toHaveBeenCalledWith('occurrence.link.multipleDeliveriesUnsupported', expect.any(String))
     // The next press must start a fresh gesture instead of being swallowed
     // by stale ownership.
     harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })

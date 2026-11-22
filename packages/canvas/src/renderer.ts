@@ -1332,7 +1332,6 @@ export class CanvasRenderer {
       end: SceneLinkEnd,
       direction: 'in' | 'out',
       fallback: { x: number; y: number },
-      familyBind: boolean,
     ): { x: number; y: number } => {
       if (end.kind !== 'port' && end.kind !== 'widgetTap') return fallback
       const node = byId.get(end.node)
@@ -1341,26 +1340,12 @@ export class CanvasRenderer {
         : node?.layout.pins.find((candidate) =>
             candidate.direction === direction && candidate.portId === portEndKey(end) && candidate.widgetTap !== true,
           )
-      if (node === undefined) return fallback
-      if (pin === undefined && familyBind && end.kind === 'port') {
-        const prefix = end.members ?? []
-        const familyPin = node.layout.pins.find((candidate) =>
-          candidate.direction === direction && candidate.widgetTap !== true &&
-          (candidate.address.port === end.port || candidate.address.port.startsWith(`${end.port}.`)) &&
-          prefix.length <= (candidate.address.members?.length ?? 0) &&
-          prefix.every((member, index) => candidate.address.members?.[index] === member),
-        )
-        return {
-          x: direction === 'out' ? node.x + node.layout.width : node.x,
-          y: node.y + (familyPin?.y ?? node.layout.headerHeight / 2),
-        }
-      }
-      if (pin === undefined) return fallback
+      if (node === undefined || pin === undefined) return fallback
       return { x: direction === 'out' ? node.x + node.layout.width : node.x, y: node.y + pin.y }
     }
     const links = scene.links.map((link) => {
-      const from = anchor(link.from, 'out', { x: link.x1, y: link.y1 }, link.boundaryFamily === true)
-      const to = anchor(link.to, 'in', { x: link.x2, y: link.y2 }, link.boundaryFamily === true)
+      const from = anchor(link.from, 'out', { x: link.x1, y: link.y1 })
+      const to = anchor(link.to, 'in', { x: link.x2, y: link.y2 })
       return { ...link, x1: from.x, y1: from.y, x2: to.x, y2: to.y }
     })
     const netStubs = scene.netStubs.map((stub) => {
@@ -3895,7 +3880,6 @@ export class CanvasRenderer {
         continue
       if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
         continue
-      if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (isTarget) {
         ctx.beginPath()
         ctx.arc(px, py, statusRingRadius, 0, Math.PI * 2)

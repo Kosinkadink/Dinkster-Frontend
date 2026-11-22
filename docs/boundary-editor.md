@@ -51,8 +51,9 @@ clear a newer draft or report a refusal in another view.
 A boundary item forwards one inner input or output by its flattened id, such
 as `loras.lora0.strength` (see [Node body](node-body.md)). Forwarding a whole
 group, choice or type choice is refused: the item shows the
-`boundary.familyUnsupported` diagnostic inline, and compilation reports
-`compile.boundary.forwardUnresolved`. Other boundary diagnostics, such as a
+`boundary.familyBind` diagnostic inline, and compilation reports the bound id
+as an unknown port (`compile.port.unknownInput` or
+`compile.port.unknownOutput`). Other boundary diagnostics, such as a
 row of an option that is not chosen, also appear inline on their item.
 
 ## Regions and frozen views

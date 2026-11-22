@@ -196,16 +196,6 @@ describe('format validation of alsoBinds', () => {
   it('accepts a valid input-side fan-out', () => {
     expect(errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] }))).toEqual([])
   })
-
-  it('accepts family-kind alsoBinds when the primary forwards a family', () => {
-    const errs = errorsOf(docWith({
-      id: 'in',
-      binds: { kind: 'family', node: 's1', port: 'in' },
-      alsoBinds: [{ kind: 'family', node: 's2', port: 'in' }],
-    }))
-    expect(errs).toEqual([])
-  })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -456,8 +446,8 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     }
   })
 
-  it('addBinding rejects a family-forwarding item (boundary.bindKind)', () => {
-    const store = makeStore({ id: 'in', binds: { kind: 'family', node: 'b1', port: 'images' } })
+  it('addBinding rejects an item whose primary is not a port (boundary.bindKind)', () => {
+    const store = makeStore({ id: 'in', binds: { kind: 'unbound', type: { kind: 'wildcard' } } })
     const out = store.dispatch({ command: 'boundary.addBinding', params: params('s2') })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.diagnostics.some((e) => e.code === 'boundary.bindKind')).toBe(true)

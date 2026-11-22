@@ -176,7 +176,6 @@ export interface NodeReplacePlan {
   readonly boundaryRewires?: ReadonlyArray<{
     readonly item: string
     readonly side: 'input' | 'output'
-    readonly kind?: 'family'
     /** The port the binding held when the plan was computed (stale check). */
     readonly fromPort: string
     readonly fromMembers?: readonly string[]
@@ -197,8 +196,6 @@ export interface NodeReplacePlan {
     readonly item: string
     readonly side: 'input' | 'output'
     readonly port: string
-    /** Complete identity for a forwarded historical family. */
-    readonly binding?: BoundaryBinding
     readonly members?: readonly string[]
     readonly alsoIndex?: number
     readonly promoted?: boolean
@@ -1029,16 +1026,6 @@ function planReplacementForCase(
         continue
       }
       sourceFamilyState = node.dynamic?.[mapping.sourceFamily]
-      if (sourceFamilyState?.memberState !== undefined) {
-        errors.push(
-          diag(
-            'error',
-            'replace.source.familyNested',
-            `replace: source family '${mapping.sourceFamily}' carries nested member state`,
-          ),
-        )
-        continue
-      }
       members = historicalFamilyMembers.get(mapping) ?? sourceFamilyState?.members ?? []
     } else {
       members = mapping.members.map((member) => member.suffix)
@@ -1795,35 +1782,12 @@ function planReplacementForCase(
 
   // -- Boundary bindings: follow the mapping exactly like link endpoints -----
   // The node id survives replacement, so a binding whose port is preserved
-  // under the same id needs nothing. Historical family forwarding follows
-  // the prepared family mapping, and fixed members follow its endpoints. An
+  // under the same id needs nothing. Fixed members follow their endpoints. An
   // unmapped binding is an error, never a silent external interface change.
   const boundaryRewires: NonNullable<NodeReplacePlan['boundaryRewires']>[number][] = []
   const migrateBinding = (side: 'input' | 'output', itemId: string, b: BoundaryBinding, alsoIndex?: number): void => {
     if (b.node !== nodeId) return
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
-    if (side === 'input' && b.kind === 'family' && alsoIndex === undefined &&
-        rule.migration !== undefined && matched.to === node.type && (b.members?.length ?? 0) === 0) {
-      const families = [...preparedInputFamilies.entries()].filter(([id, prepared]) => {
-        const mapping = matched.inputFamilies?.[id]
-        return mapping?.kind === 'copy' && mapping.memberIds === 'targetPositions' &&
-          mapping.sourceTemplate !== undefined && prepared.sourceFamily?.id === b.port &&
-          prepared.targetAddress.nodeId === nodeId &&
-          prepared.targetFamily.template.length === prepared.sourceFamily.inputs.length &&
-          prepared.targetFamily.template.every((input) => {
-            const source = mapping.inputs[input.id]
-            return source?.kind === 'copy' && source.input === input.id && prepared.sourceFamily!.inputs.includes(input.id)
-          }) && (b.slots ?? []).every((slot) => prepared.sourceFamily!.inputs.includes(slot))
-      })
-      if (families.length === 1) {
-        const targetPort = families[0]![1].targetAddress.port
-        if (targetPort !== b.port) boundaryRewires.push({
-          item: itemId, side, kind: 'family', fromPort: b.port, port: targetPort,
-          ...(b.members === undefined ? {} : { fromMembers: b.members, members: b.members }),
-        })
-        return
-      }
-    }
     const memberMove = side === 'input' && b.kind === 'port'
       ? inputEndpointMoves.find((move) => samePortRef(move.from, b)) : undefined
     if (b.kind !== 'port' || (b.members !== undefined && memberMove === undefined)) {
@@ -1882,13 +1846,8 @@ function planReplacementForCase(
   }
   for (const item of def.boundary?.outputs ?? []) migrateBinding('output', item.id, item.binds)
 
-  // Family identity includes selected slots as well as member ancestry.
   const boundaryGuard: NonNullable<NodeReplacePlan['boundaryGuard']>[number][] = []
   for (const item of def.boundary?.inputs ?? []) {
-    if (item.binds.node === nodeId && item.binds.kind === 'family') {
-      boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port, binding: item.binds,
-        ...(item.promoted === true ? { promoted: true } : {}) })
-    }
     if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port,
         ...(item.binds.members === undefined ? {} : { members: item.binds.members }),

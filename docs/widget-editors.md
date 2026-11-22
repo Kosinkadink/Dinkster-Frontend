@@ -196,12 +196,13 @@ ancestor members; batch materialization with the edit for one undo step.
 The command stores authoring state only: schemas without `editableOptions`
 continue to use their declared menus.
 Promoted editable menus follow their instance through chained subgraphs and
-fan-out without changing the definition. Member-scoped menus stay on their
-own persisted ancestor path; an explicit empty list overrides inherited choices.
+fan-out without changing the definition. A menu inside a group member is
+stored at its flattened id (`items.item1.mode`); an explicit empty list
+overrides inherited choices.
 An instance without a menu override inherits its definition's authored choices.
-Canvas menu targets carry their structural construct and member ancestors
-separately from the selected value's storage key.
-Promoting a menu from a persisted family member keeps both menu and selected
+Canvas menu targets carry the menu's flattened construct path separately from
+the selected value's storage key.
+Promoting a menu from a persisted group member keeps both menu and selected
 value edits on the instance, not the shared definition.
 The editable COMBO popover exposes the selected scalar and ordered menu as
 separate JSON drafts. Apply menu preserves the selected value, index and extra

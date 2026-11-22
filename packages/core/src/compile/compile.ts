@@ -17,13 +17,11 @@
  *   boundary input overrides the inner node's stored value; an OUTER
  *   instance's override beats an inner instance's (first-write-wins while
  *   walking outside-in).
- * - Whole-family forwarding lowers per occurrence: compilation
- *   is phased - (1) discover every graph occurrence and its family crossings
- *   outside-in, deriving occurrence-local dynamic-state overlays and
- *   projected connectivity for forwarded targets; (2) resolve promoted
- *   values (including suffix-member values held by instances); (3) lower
- *   values/links/nets. All boundary address interpretation goes through the
- *   ONE crossing abstraction (crossing.ts); nothing re-parses paths.
+ * - Compilation is phased: (1) discover every graph occurrence outside-in,
+ *   deriving occurrence-local editable-menu overlays and input connectivity
+ *   projected through boundary inputs; (2) resolve promoted values; (3)
+ *   lower values/links/nets. Boundary item selection goes through the ONE
+ *   matcher (crossing.ts); nothing re-parses paths.
  * - Named nets expand to direct links.
  * - Muted nodes and links touching them are omitted (warning when that leaves
  *   a required input dangling). Bypassed nodes lower to a type-matched
@@ -41,9 +39,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
-  isForwardingBinding,
   suppressedDeliveryKey,
-  type BoundaryItem,
   type BoundaryRouteLeg,
   type DynamicPortState,
   type GraphDef,
@@ -90,18 +86,7 @@ import {
   type PortAddress,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
-import {
-  buildBoundaryCrossings,
-  crossingTargets,
-  isSubtreeCrossing,
-  projectCrossingValues,
-  matchBoundaryItem,
-  overlayNodeDynamic,
-  projectEditableOptions,
-  translateThroughCrossing,
-  type BoundaryCrossing,
-} from './crossing.js'
-import { boundaryStateResolver } from './boundary-state.js'
+import { boundaryOutputFanOutProblems, matchBoundaryItem, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
@@ -601,26 +586,21 @@ function compileImpl(
   if (!queryingSources && diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
-  // -- Occurrence contexts and forwarding state
+  // -- Occurrence contexts
   //
-  // One context per GRAPH OCCURRENCE. Family forwarding makes a node's
-  // effective interface occurrence-dependent: an inner node targeted by a
-  // forwarded family gains that occurrence's instance-appended suffix
-  // members. The merged member list exists only here - derived
+  // One context per GRAPH OCCURRENCE. A promoted editable menu and input
+  // connectivity projected through a boundary make an inner node's
+  // interface occurrence-dependent; that state exists only here - derived
   // per compile, never persisted, never shared between occurrences.
 
   interface OccCtx {
     readonly defId: GraphDefId
     readonly path: readonly NodeId[]
-    /** nodeId -> occurrence-local merged dynamic state (forwarded targets only). */
+    /** nodeId -> occurrence-local dynamic state (promoted editable menus). */
     readonly overlays: Map<NodeId, Readonly<Record<string, DynamicPortState>>>
-    /** nodeId -> values that determine an occurrence-local elaborated interface. */
-    readonly values: Map<NodeId, Readonly<Record<string, Json>>>
-    readonly controllers: Map<NodeId, NonNullable<NodeData['controllers']>>
     readonly sourceValues: Map<string, Json>
-    /** nodeId -> input/output addresses projected through crossings from outer graphs. */
+    /** nodeId -> input addresses projected through boundaries from outer graphs. */
     readonly extraIn: Map<NodeId, ProjectedAddress[]>
-    readonly extraOut: Map<NodeId, ProjectedAddress[]>
   }
   // Node ids may contain every separator character, including NUL. Encode the
   // segment array itself so distinct occurrence paths cannot share a cache
@@ -629,12 +609,10 @@ function compileImpl(
   const topologyKey = (path: readonly NodeId[], defId: string): string => JSON.stringify([defId, path])
   const occCtxByPath = new Map<string, OccCtx>()
   const newOccCtx = (defId: GraphDefId, path: readonly NodeId[]): OccCtx => {
-    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), controllers: new Map(), sourceValues: new Map(), extraIn: new Map(), extraOut: new Map() }
+    const ctx: OccCtx = { defId, path, overlays: new Map(), sourceValues: new Map(), extraIn: new Map() }
     occCtxByPath.set(pathKey(path), ctx)
     return ctx
   }
-  /** Instance occurrence key -> boundaryId -> crossing. */
-  const crossingsByInstance = new Map<string, ReadonlyMap<string, BoundaryCrossing>>()
   const projectedLegSuppressions = new Set(
     Object.values(doc.occurrenceTopologies ?? {}).flatMap((topology) =>
       (topology.suppressedDeliveries ?? [])
@@ -758,17 +736,15 @@ function compileImpl(
   const withExtraConnectivity = (
     base: Connectivity,
     ins: readonly ProjectedAddress[] | undefined,
-    outs: readonly ProjectedAddress[] | undefined,
   ): Connectivity => {
-    if (!ins?.length && !outs?.length) return base
-    const inKeys = new Set((ins ?? []).map(({ address }) => portAddressKey(address.port, address.members)))
-    const outKeys = new Set((outs ?? []).map(({ address }) => portAddressKey(address.port, address.members)))
+    if (!ins?.length) return base
+    const inKeys = new Set(ins.map(({ address }) => portAddressKey(address.port, address.members)))
     return {
       isInputConnected: (p, m) => inKeys.has(portAddressKey(p, m)) || base.isInputConnected(p, m),
-      isOutputConnected: (p, m) => outKeys.has(portAddressKey(p, m)) || base.isOutputConnected(p, m),
+      isOutputConnected: base.isOutputConnected,
       inputPorts: () => [
         ...(base.inputPorts?.() ?? []),
-        ...(ins ?? []).map(({ address }) => address).filter((address) => address.members === undefined || address.members.length === 0).map((address) => address.port),
+        ...ins.map(({ address }) => address).filter((address) => address.members === undefined || address.members.length === 0).map((address) => address.port),
       ],
     }
   }
@@ -777,23 +753,21 @@ function compileImpl(
   const occElabCache = new Map<string, NodeElab>()
   const elabAt = (ctx: OccCtx, node: NodeData, schema: NodeSchema): NodeElab => {
     const overlay = ctx.overlays.get(node.id)
-    const values = ctx.values.get(node.id)
     const extraIn = ctx.extraIn.get(node.id)
-    const extraOut = ctx.extraOut.get(node.id)
     const runtimeId = occurrenceKey({ instancePath: ctx.path, node: node.id })
-    if (doc.occurrenceTopologies === undefined && overlay === undefined && values === undefined && extraIn === undefined && extraOut === undefined) {
+    if (doc.occurrenceTopologies === undefined && overlay === undefined && extraIn === undefined) {
       return elabOf(ctx.defId, node, schema)
     }
     const hit = occElabCache.get(runtimeId)
     if (hit) return hit
-    const state = overlay === undefined && values === undefined
+    const state = overlay === undefined
       ? node
       : {
-          values: values ?? node.values,
+          values: node.values,
           ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}),
           ...(overlay !== undefined ? { dynamic: overlay } : node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
         }
-    const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn, extraOut)
+    const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn)
     const elab = buildElab(
       `${ctx.defId}/${node.id} @ ${runtimeId}`,
       node.id,
@@ -953,10 +927,7 @@ function compileImpl(
         return [{ runtimeId: regionRuntimeId, elabKey: input.spec.id, input }]
       }
       const child = graphOf(childId)
-      // Boundary item selection goes through the ONE matcher (crossing.ts):
-      // ids may legally contain '.', so a forwarded family's stamped
-      // addresses ('pics', 'pics.slot') are matched by enumeration, never by
-      // first-segment shortcuts.
+      // Boundary item selection goes through the ONE matcher (crossing.ts).
       const match = matchBoundaryItem(child?.boundary?.inputs ?? [], ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
@@ -972,39 +943,6 @@ function compileImpl(
         return undefined
       }
       const item = match.item
-      if (isForwardingBinding(item.binds)) {
-        // Whole-family forwarding: translate the instance address to the
-        // inner endpoint through the crossing (the one address interpreter
-        // in crossing.ts), then resolve recursively
-        // (chained forwarding re-enters this branch on the inner instance).
-        const crossing = crossingsByInstance.get(occurrenceKey({ instancePath: path, node: node.id }))?.get(item.id)
-        if (!crossing) {
-          sink.push(diag('error', 'compile', 'compile.boundary.forwardUnresolved', `subgraph '${childId}' boundary input '${item.id}' forwards a family but its crossing did not resolve`, { anchor: anchorOf(path, node.id) }))
-          return undefined
-        }
-        const targets: ResolvedInput[] = []
-        let sawMuted = false
-        let sawBypassed = false
-        for (const targetCrossing of crossingTargets(crossing)) {
-          const t = translateThroughCrossing(targetCrossing, ref)
-          if (!t.ok) {
-            sink.push(diag('error', 'compile', t.code, `subgraph '${childId}' boundary input '${item.id}': ${t.message}`, { anchor: anchorOf(path, node.id) }))
-            return undefined
-          }
-          const bindingIndex = crossingTargets(crossing).indexOf(targetCrossing)
-          const binding = [item.binds, ...(item.alsoBinds ?? [])][bindingIndex]!
-          const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding }]
-          if (routeIsSuppressed([...path, node.id], delivery, route)) continue
-          const resolved = resolveInputPort([...path, node.id], childId, t.ref, sink, delivery, route, openRegion)
-          if (resolved === 'muted') sawMuted = true
-          else if (resolved === 'bypassed') sawBypassed = true
-          else if (resolved !== undefined) targets.push(...resolved)
-        }
-        if (targets.length > 0) return targets
-        if (sawMuted) return 'muted'
-        if (sawBypassed) return 'bypassed'
-        return undefined
-      }
       // Fan-out (alsoBinds): one boundary input drives EVERY bound inner
       // input. Each binding resolves independently; muted/bypassed targets
       // drop out (their local edge is dead) while the edge stays alive for
@@ -1165,22 +1103,6 @@ function compileImpl(
             endpoint: { node: item.binds.node, tap: item.binds.tap },
           },
         }
-      }
-      if (item.binds.kind === 'family') {
-        // Symmetric with the input side: one crossing, one translator.
-        const crossing = crossingsByInstance.get(occurrenceKey({ instancePath: path, node: node.id }))?.get(item.id)
-        if (!crossing) {
-          sink.push(diag('error', 'compile', 'compile.boundary.forwardUnresolved', `subgraph '${childId}' boundary output '${item.id}' forwards a family but its crossing did not resolve`, { anchor: anchorOf(path, node.id) }))
-          return undefined
-        }
-        const t = translateThroughCrossing(crossing, ref)
-        if (!t.ok) {
-          sink.push(diag('error', 'compile', t.code, `subgraph '${childId}' boundary output '${item.id}': ${t.message}`, { anchor: anchorOf(path, node.id) }))
-          return undefined
-        }
-        const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
-        if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
-        return resolveOutputPort([...path, node.id], childId, t.ref, sink, delivery, route, openRegion)
       }
       const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
       if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
@@ -1381,9 +1303,6 @@ function compileImpl(
    * bound by one of this definition's boundary INPUT items ('port' kind),
    * climb to the parent occurrence and look for a driver of the instance's
    * corresponding port - repeatedly, so chained boundary bindings resolve.
-   * Family-bound (forwarded) member inputs do not climb in v1: their parent
-   * addresses need crossing translation, and an unrouted WARNING is strictly
-   * safer than a misrouted passthrough.
    */
   function driverOfInput(
     path: readonly NodeId[],
@@ -1627,43 +1546,38 @@ function compileImpl(
     return result.terminals
   }
 
-  // -- Pass 1: discover occurrences + crossings, derive overlays, collect ----
+  // -- Pass 1: discover occurrences, derive overlays, collect ---------------
   //
   // Outside-in, so an instance's OWN occurrence-local state (overlay from
-  // ITS parent, for chained forwarding) exists before its crossings are
-  // built. Promoted values are NOT resolved here: value resolution needs the
-  // complete crossing/occurrence index (a chained value can cross several
-  // boundaries), so it runs as a separate pass over `pendingPromotions`.
+  // ITS parent) exists before its child context is built. Promoted values
+  // are NOT resolved here: value resolution needs the complete occurrence
+  // index (a chained value can cross several boundaries), so it runs as a
+  // separate pass over `pendingPromotions`.
   // Promoted output counts are the exception: they determine interface
   // shape and must enter the child context before its nodes elaborate.
 
-  /** Per-definition index of link/net endpoint addresses by node (for projection). */
-  const addrIndexCache = new Map<string, Map<NodeId, { ins: ProjectedAddress[]; outs: ProjectedAddress[] }>>()
-  const addrIndexFor = (path: readonly NodeId[], defId: GraphDefId): Map<NodeId, { ins: ProjectedAddress[]; outs: ProjectedAddress[] }> => {
+  /** Per-definition index of link/net input endpoint addresses by node (for projection). */
+  const addrIndexCache = new Map<string, Map<NodeId, ProjectedAddress[]>>()
+  const addrIndexFor = (path: readonly NodeId[], defId: GraphDefId): Map<NodeId, ProjectedAddress[]> => {
     const key = topologyKey(path, defId)
     let idx = addrIndexCache.get(key)
     if (idx) return idx
-    const built = new Map<NodeId, { ins: ProjectedAddress[]; outs: ProjectedAddress[] }>()
-    const at = (node: NodeId): { ins: ProjectedAddress[]; outs: ProjectedAddress[] } => {
-      let e = built.get(node)
-      if (!e) built.set(node, (e = { ins: [], outs: [] }))
-      return e
-    }
-    const asAddr = (p: PortRef, connection: TopologyConnection): ProjectedAddress => ({
-      address: { port: p.port, ...(p.members ? { members: p.members } : {}) },
-      ...(connection.delivery ? { delivery: connection.delivery } : {}),
-      route: [],
-    })
+    const built = new Map<NodeId, ProjectedAddress[]>()
     for (const connection of topologyFor(path, defId)) {
-      if (isPortEndpoint(connection.from)) at(connection.from.node).outs.push(asAddr(connection.from, connection))
-      if (isPortEndpoint(connection.to)) at(connection.to.node).ins.push(asAddr(connection.to, connection))
+      if (!isPortEndpoint(connection.to)) continue
+      let ins = built.get(connection.to.node)
+      if (!ins) built.set(connection.to.node, (ins = []))
+      ins.push({
+        address: { port: connection.to.port, ...(connection.to.members ? { members: connection.to.members } : {}) },
+        ...(connection.delivery ? { delivery: connection.delivery } : {}),
+        route: [],
+      })
     }
     addrIndexCache.set(key, built)
     return built
   }
 
   const pendingPromotions: { parentCtx: OccCtx; node: NodeData; childId: GraphDefId }[] = []
-  const effectiveBoundaryState = boundaryStateResolver(doc, resolveNode)
 
   function collectNodes(defId: GraphDefId, path: readonly NodeId[], ctx: OccCtx): void {
     const def = graphOf(defId)
@@ -1674,20 +1588,7 @@ function compileImpl(
     graphOccurrences.push({ defId, path })
     for (const authored of Object.values(def.nodes)) {
       const overlay = ctx.overlays.get(authored.id)
-      const values = ctx.values.get(authored.id)
-      const controllers = ctx.controllers.get(authored.id)
-      const state = effectiveBoundaryState(defId, authored, overlay === undefined && values === undefined && controllers === undefined ? authored : {
-        ...authored,
-        ...(values !== undefined ? { values } : {}),
-        ...(overlay !== undefined ? { dynamic: overlay } : {}),
-        ...(controllers !== undefined ? { controllers } : {}),
-      })
-      const node = state === authored ? authored : { ...authored, ...state }
-      if (state !== authored) {
-        ctx.values.set(node.id, node.values)
-        if (node.dynamic !== undefined) ctx.overlays.set(node.id, node.dynamic)
-        if (node.controllers !== undefined) ctx.controllers.set(node.id, node.controllers)
-      }
+      const node = overlay === undefined ? authored : { ...authored, dynamic: overlay }
       if (isVirtualNode(defId, node)) continue
       const mode = node.mode ?? 'active'
       // Muted and bypassed nodes never enter the prompt. A bypassed subgraph
@@ -1732,15 +1633,9 @@ function compileImpl(
               role.kind === 'state' ? [[outputId, role.statePort] as const] : [])),
           })
         }
-        // The instance's OWN occurrence-local state: its parent's overlay
-        // when this instance is itself a forwarded target (chained
-        // forwarding), otherwise its persisted state. Every member in it is
-        // a suffix member relative to the child definition.
         const instanceDynamic = ctx.overlays.get(node.id) ?? node.dynamic
-        const instanceValues = ctx.values.get(node.id) ?? node.values
         const resolveChildNode = (inner: NodeData): NodeSchema | undefined => resolveNode(child.id, inner)
-        const instanceInputs = withExtraConnectivity(connectivityFor(path, defId)(node.id), ctx.extraIn.get(node.id), undefined)
-        const { crossings, problems } = buildBoundaryCrossings(child, resolve, instanceDynamic, resolveChildNode, instanceValues, instanceInputs.inputPorts?.())
+        const problems = boundaryOutputFanOutProblems(child)
         if (problems.length > 0) {
           for (const p of problems) {
             diags.push(diag('error', 'compile', p.code, `${p.message} (node '${node.id}')`, { anchor: anchorOf(path, node.id) }))
@@ -1751,68 +1646,10 @@ function compileImpl(
         for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
           childCtx.overlays.set(target, dynamic)
         }
-        if (crossings.size > 0) {
-          crossingsByInstance.set(occurrenceKey({ instancePath: path, node: node.id }), crossings)
-          // Occurrence-local dynamic-state overlays: definition
-          // prefix + instance suffix merge into DERIVED state on the target
-          // node, at the exact scope the crossing's route names. Cumulative:
-          // two forwarded families on one inner node overlay in sequence.
-          for (const crossing of crossings.values()) {
-            for (const targetCrossing of crossingTargets(crossing)) {
-              if (!isSubtreeCrossing(targetCrossing) && targetCrossing.countBound) continue
-              const target = child.nodes[targetCrossing.targetNode]!
-              childCtx.values.set(target.id, { ...(childCtx.values.get(target.id) ?? target.values), ...projectCrossingValues(instanceValues, targetCrossing) })
-              childCtx.controllers.set(target.id, { ...(childCtx.controllers.get(target.id) ?? target.controllers), ...projectCrossingValues(node.controllers, targetCrossing) })
-              const base = childCtx.overlays.get(targetCrossing.targetNode) ?? child.nodes[targetCrossing.targetNode]?.dynamic
-              childCtx.overlays.set(
-                targetCrossing.targetNode,
-                overlayNodeDynamic(base, targetCrossing, instanceDynamic),
-              )
-            }
-          }
-          // Connectivity projection: edges attached to the instance's
-          // forwarded-family addresses exist, structurally, on the inner
-          // target too - DynamicSlot dependents inside a forwarded template
-          // elaborate from link EXISTENCE, which must not stop at the
-          // boundary. Only family addresses project: concrete bindings
-          // cannot target dynamic constructs (derive rejects them), so no
-          // compile-relevant elaboration reads their connectivity.
-          // Untranslatable addresses are skipped silently here: the link
-          // pass diagnoses each endpoint it RESOLVES with full context. An
-          // edge whose lowering never resolves this endpoint (orphan/undriven
-          // reroute chain, muted far side) stays undiagnosed by design - the
-          // dead-edge policy; a skipped projection then cannot alter any
-          // compiled elaboration either.
-          const idx = addrIndexFor(path, defId).get(node.id)
-          const project = (addrs: readonly ProjectedAddress[], side: 'input' | 'output', into: Map<NodeId, ProjectedAddress[]>, boundaryItems: readonly BoundaryItem[]): void => {
-            for (const projected of addrs) {
-              const m = matchBoundaryItem(boundaryItems, projected.address)
-              if (!m.ok || !isForwardingBinding(m.item.binds)) continue
-              const crossing = crossings.get(m.item.id)
-              if (!crossing || crossing.side !== side) continue
-              for (const [index, targetCrossing] of crossingTargets(crossing).entries()) {
-                const binding = [m.item.binds, ...(m.item.alsoBinds ?? [])][index]!
-                const route = [...projected.route, { graph: child.id, boundaryId: m.item.id, binding }]
-                if (routeIsSuppressed(childPath, projected.delivery, route)) continue
-                const t = translateThroughCrossing(targetCrossing, projected.address)
-                if (!t.ok) continue
-                let list = into.get(t.ref.node)
-                if (!list) into.set(t.ref.node, (list = []))
-                list.push({
-                  address: { port: t.ref.port, ...(t.ref.members ? { members: t.ref.members } : {}) },
-                  ...(projected.delivery ? { delivery: projected.delivery } : {}),
-                  route,
-                })
-              }
-            }
-          }
-          project([...(idx?.ins ?? []), ...(ctx.extraIn.get(node.id) ?? [])], 'input', childCtx.extraIn, child.boundary.inputs)
-          project([...(idx?.outs ?? []), ...(ctx.extraOut.get(node.id) ?? [])], 'output', childCtx.extraOut, child.boundary.outputs)
-        }
         // Concrete input connectivity also crosses the boundary. DynamicSlot
         // reads link existence during elaboration, before ordinary endpoint
         // lowering, so project every primary and fan-out target now.
-        const connected = [...(addrIndexFor(path, defId).get(node.id)?.ins ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
+        const connected = [...(addrIndexFor(path, defId).get(node.id) ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
         for (const projected of connected) {
           const match = matchBoundaryItem(child.boundary.inputs, projected.address)
           if (!match.ok || match.item.binds.kind !== 'port') continue
@@ -1877,10 +1714,9 @@ function compileImpl(
 
   // -- Pass 1.5: promoted-value overrides (outside-in; first write wins) -----
   //
-  // Runs only after EVERY occurrence and crossing exists: a value held by an
-  // outer instance for a chained-forwarded member resolves through several
-  // crossings, all of which must already be indexed. Both binding kinds use
-  // the same resolver links use - one address interpreter, no special path.
+  // Runs only after EVERY occurrence exists: a value held by an outer
+  // instance resolves through every nested boundary it is promoted across.
+  // Values use the same resolver links use - one address interpreter.
 
   for (const { parentCtx, node, childId } of pendingPromotions) {
     const child = graphOf(childId)
@@ -1899,7 +1735,6 @@ function compileImpl(
       if (!byInput) overrides.set(target.runtimeId, (byInput = new Map()))
       if (!byInput.has(target.elabKey)) byInput.set(target.elabKey, v)
     }
-    let hasFamilyItem = false
     for (const item of child.boundary.inputs) {
       if (item.binds.kind === 'valueSource') {
         const value = node.values[item.id]
@@ -1909,10 +1744,7 @@ function compileImpl(
         if (value !== undefined) record(target, value)
         continue
       }
-      if (item.binds.kind !== 'port') {
-        hasFamilyItem = true
-        continue
-      }
+      if (item.binds.kind !== 'port') continue
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
       if (v === undefined && ownerInput === undefined) continue
@@ -1936,37 +1768,6 @@ function compileImpl(
           if (v !== undefined) record(target, v)
           ownerPriority += 1
         }
-      }
-    }
-    if (!hasFamilyItem) continue
-    // Whole-family forwarding: suffix members live on the INSTANCE, so their
-    // widget values (and dependent/branch values beneath them) are stored
-    // there under the instance's elaborated keys. ONE pass over the stored
-    // values, ONE matcher call per address (F7): a value whose address is
-    // ambiguous must fail loudly - silently dropping it would compile the
-    // inner default in place of a persisted value.
-    if (!parentElab) continue // already diagnosed at collection
-    const elab = parentElab
-    for (const [key, input] of elab.inputsByValueKey) {
-      if (input.apiName === undefined || hasSyntheticAncestor(input.ancestry)) continue
-      const v = node.values[key]
-      if (v === undefined && input.spec.widget?.controller !== 'after_generate') continue
-      const m = matchBoundaryItem(child.boundary.inputs, input.address)
-      if (!m.ok) {
-        if (v !== undefined && m.code === 'ambiguous') {
-          diags.push(diag('error', 'compile', 'compile.boundary.ambiguousAddress', `subgraph '${childId}' value '${key}': ${m.message}`, { anchor: anchorOf(parentCtx.path, node.id) }))
-        }
-        continue
-      }
-      // Concrete items were handled above (their values live under the item
-      // id itself); only family-owned addresses lower through the resolver.
-      if (!isForwardingBinding(m.item.binds)) continue
-      const ref: PortRef = { node: node.id, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef
-      const targets = resolveInputPort(parentCtx.path, parentCtx.defId, ref)
-      if (!targets || targets === 'muted' || targets === 'bypassed') continue
-      for (const [ownerPriority, target] of targets.entries()) {
-        recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
-        if (v !== undefined) record(target, v)
       }
     }
   }
@@ -2418,7 +2219,7 @@ function compileImpl(
   }
 
   // Region boundary inputs are body-local reads from the reserved pseudo
-  // node. Resolve each boundary item through the same crossing and fan-out
+  // node. Resolve each boundary item through the same matcher and fan-out
   // machinery as ordinary parent deliveries, but open only this region so a
   // nested region remains an opaque entry in its enclosing body.
   for (const region of regions.values()) {

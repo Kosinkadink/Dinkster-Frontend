@@ -163,17 +163,15 @@ describe('menuTargetOf', () => {
     })
   })
 
-  it('flags unpersisted widget rows and taps synthetic (ghost, materialize, ownerless forwarding)', () => {
+  it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
     const flagged = (row: unknown) =>
       (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
-    expect(flagged({ inputId: 'x', familyOwner: { graphId: 'g', nodeId: 'n', construct: 'c' } })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
     const tapFlagged = (pin: unknown) =>
       (menuTargetOf(hit({ kind: 'widgetTap', node: { id: 'n1' }, input: 'x', pin })) as { synthetic?: true }).synthetic
     expect(tapFlagged({ ghost: true })).toBe(true)
-    expect(tapFlagged({ familyOwner: { graphId: 'g', nodeId: 'n', construct: 'c' } })).toBe(true)
     expect(tapFlagged({})).toBeUndefined()
   })
 

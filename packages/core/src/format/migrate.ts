@@ -152,7 +152,7 @@ const isJsonObj = (v: unknown): v is Record<string, unknown> =>
  *   position: link `from`/`to` (port endpoints), net `source`/`sinks`, and
  *   boundary `binds`.
  * - Boundary bindings: a `binds` lacking the explicit `kind` discriminant
- *   (retired - saved before whole-family forwarding existed) becomes
+ *   (retired) becomes
  *   `kind: 'port'`. Every pre-`kind` binding WAS a concrete port binding,
  *   so this is a translation, not a guess. Nothing downstream accepts an
  *   untagged binding.
