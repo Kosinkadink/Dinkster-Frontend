@@ -1,3 +1,10 @@
+.problems-selection-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dinkster-space-4);
+  white-space: nowrap;
+}
+
 .execution-activity-card {
   display: grid;
   gap: var(--dinkster-space-8);

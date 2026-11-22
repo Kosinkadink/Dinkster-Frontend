@@ -1,4 +1,8 @@
 {
+  "problems.selection.only": "Selection only",
+  "problems.selection.none": "Nothing selected",
+  "problems.selection.nodes": "{count, plural, one {# node} other {# nodes}}",
+  "problems.selection.links": "{count, plural, one {# link} other {# links}}",
   "shell.panel.log.title": "Log",
   "shell.panel.log.description": "Run records and app activity",
   "log.field.scope": "Log scope",

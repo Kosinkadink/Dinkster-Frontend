@@ -6,7 +6,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
 import { FrameRateStatus } from './FrameRateStatus.js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
+import { activeLocale, asNodeId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
@@ -57,7 +57,9 @@ import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
 import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
-import { ContextPanel } from './ContextPanel.js'
+import { useSelectionContext } from './selection-context.js'
+import { RegionIterationInspector } from './RegionIterationInspector.js'
+import { regionIterationInventory } from './region-iteration.js'
 import { ProductSelect } from './ProductSelect.js'
 import { BackendsPanel } from './BackendsPanel.js'
 import { ProjectsDialog } from './ProjectsDialog.js'
@@ -1329,6 +1331,26 @@ export function App(props: {
       onFilterApplied={(token) => app.consumeExecutionLogFocus(token)}
     />
   )
+  const selectionContext = useSelectionContext(app)
+  const RunIterations = () => {
+    const inspection = createMemo(() => {
+      const view = selectionContext()
+      const execution = activeExecution()
+      if (view === undefined || execution === undefined || view.context.kind !== 'node' ||
+          view.context.nodeIds.length !== 1 || view.instancePath === undefined) return undefined
+      const node = view.doc.graphs[view.graphId]?.nodes[view.context.nodeIds[0]!]
+      if (node?.region === undefined) return undefined
+      const occurrence = { node: node.id, instancePath: view.instancePath.map(asNodeId) }
+      const registry = app.registryForTab(view.tab)
+      if (registry === undefined || regionIterationInventory(execution, occurrence) === undefined) return undefined
+      return { view, execution, occurrence, registry }
+    })
+    return <Show when={inspection()}>{(current) => <RegionIterationInspector
+      execution={current().execution} regionOccurrence={current().occurrence}
+      document={current().view.doc} resolveSchema={current().registry.resolve}
+      values={(() => { backendsTick(); return app.valuesForExecution(current().execution.ref) })()}
+    />}</Show>
+  }
   const QueuePanel = () => (
     <div class="rail-panel-body" data-testid="queue-rail">
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title="Nothing queued for this workflow." />}>
@@ -1350,6 +1372,7 @@ export function App(props: {
             </div>
           )}
         </For>
+        <RunIterations />
       </Show>
     </div>
   )
@@ -1366,9 +1389,7 @@ export function App(props: {
       </BackendMetadataState>
     </div>
   )
-  // One composed problem list feeds every problem surface: the
-  // whole-document Problems tab, the Focused tab, and the Problems
-  // indicator, so their counts can never disagree.
+  // The indicator always counts the full list, regardless of the selection filter.
   const problemDiagnostics = (): readonly Diagnostic[] => {
     const execution = activeExecution()
     return [
@@ -1399,13 +1420,6 @@ export function App(props: {
       severity,
       label: message('shell.status.problems', { count, severity }),
     }
-  }
-  // Whole-document -> focused navigation: focus the owner on canvas (no
-  // document mutation) and bring the Focused tab forward so it shows that
-  // owner's problems.
-  const showProblemInContext = (diagnostic: Diagnostic): void => {
-    activateProblem(app, diagnostic)
-    setPanelOpen(app.panels, app.dock, 'context', 'right', true)
   }
   const learnBackend = createMemo<Backend | undefined>(() => {
     backendsTick()
@@ -1493,23 +1507,6 @@ export function App(props: {
       },
       component: () => <BoundaryPanel app={app} />,
     }),
-    // The Focused tab shows the focused entity and only its problems
-    // (docs/problem-surfaces.md); the Problems tab remains the whole-document
-    // list. Both read the same composed diagnostics.
-    registerBuiltinPanel({
-      id: 'context', get title() { return message('shell.panel.focused.title') },
-      get description() { return message('shell.panel.focused.description') }, get ariaLabel() { return message('shell.panel.focused.ariaLabel') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 55,
-      component: () => <ContextPanel
-        app={app}
-        diagnostics={problemDiagnostics}
-        execution={activeExecution}
-        values={(execution) => {
-          backendsTick()
-          return app.valuesForExecution(execution.ref)
-        }}
-      />,
-    }),
     registerBuiltinPanel({
       id: 'node-help', get title() { locale(); return t('nodeHelp.panel.title') },
       get description() { locale(); return t('nodeHelp.panel.description') },
@@ -1526,7 +1523,7 @@ export function App(props: {
         migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
-        onShowInContext={showProblemInContext} />,
+        selection={selectionContext} />,
     }),
     // Settings is the modal host's proving resident: the body is
     // placement-agnostic (SettingsDialog owns content, the host owns

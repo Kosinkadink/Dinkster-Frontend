@@ -1,4 +1,8 @@
 {
+  "problems.selection.only": "仅显示所选项",
+  "problems.selection.none": "未选择任何内容",
+  "problems.selection.nodes": "{count} 个节点",
+  "problems.selection.links": "{count} 条连线",
   "shell.panel.log.title": "日志",
   "shell.panel.log.description": "运行记录和应用活动",
   "log.field.scope": "日志范围",
