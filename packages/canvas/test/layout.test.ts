@@ -529,7 +529,7 @@ describe('sizing', () => {
     expect(armedLayout.width).toBe(ordinaryLayout.width)
   })
 
-  it('minimizes to title width with an 80px floor while retaining every endpoint', () => {
+  it('minimizes at its open width while retaining every endpoint', () => {
     const schema = schemaOf([
       input('required', { type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } }),
       widget('value'),
@@ -542,8 +542,9 @@ describe('sizing', () => {
     })
     expect(layout).toMatchObject({
       minimized: true,
-      width: 80,
-      minWidth: 80,
+      width: 400,
+      minWidth: defaultTokens.nodeMinWidth,
+      height: defaultTokens.headerHeight + defaultTokens.padBottom,
       rows: [],
     })
     expect(layout.pins.map((pin) => `${pin.direction}:${pin.portId}`).sort()).toEqual([
@@ -563,10 +564,18 @@ describe('sizing', () => {
       height: defaultTokens.rowHeight,
     })
     expect(withPreviewRegion(compact, defaultTokens)).toEqual(compact)
-    expect(withTextOutputRegion(compact, defaultTokens, 6).textOutput).toMatchObject({
-      y: defaultTokens.headerHeight + defaultTokens.previewGap,
-      height: defaultTokens.rowHeight,
-    })
+
+    // Rows the open node hides are laid out while minimized only for their
+    // pins; a long label in the collapsed Advanced section must not widen it.
+    const hiddenWide = schemaOf([
+      output('result'),
+      widget('a deliberately long advanced setting label', { advanced: true }),
+    ], 'A')
+    const open = layoutNode(hiddenWide, nodeData, defaultTokens, measure, widgetMeasure)
+    expect(open.rows.some((row) => row.kind === 'widget')).toBe(false)
+    expect(open.width).toBe(defaultTokens.nodeMinWidth)
+    expect(layoutNode(hiddenWide, nodeData, defaultTokens, measure, widgetMeasure, { minimized: true }).width)
+      .toBe(defaultTokens.nodeMinWidth)
 
     const family = input('images', {
       dynamic: {
@@ -605,7 +614,7 @@ describe('sizing', () => {
       widgetMeasure,
       { minimized: true },
     )
-    expect(zeroPortLayout).toMatchObject({ minimized: true, rows: [], pins: [], minWidth: 80 })
+    expect(zeroPortLayout).toMatchObject({ minimized: true, rows: [], pins: [], width: defaultTokens.nodeMinWidth })
   })
 })
 

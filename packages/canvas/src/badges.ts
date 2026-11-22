@@ -170,13 +170,6 @@ export interface BadgeRect {
 const badgeWidth = (badge: NodeBadge): number =>
   badge.variant === 'label' ? Math.ceil(badge.glyph.length * canvasPaintTokens.badge.characterWidth) + canvasPaintTokens.badge.labelPadding + (badge.icon === undefined ? 0 : canvasPaintTokens.badge.iconWidth) : BADGE_SIZE
 
-/** Width reserved beside a minimized title for badges inside the header. */
-export const headerBadgeLaneWidth = (badges: readonly NodeBadge[], tokens: DesignTokens = defaultTokens): number => {
-  const headerBadges = badges.filter((badge) => badge.placement === undefined)
-  return headerBadges.reduce((total, badge) => total + (tokens.badgeLayout === 'tabs' ? BADGE_SIZE : badgeWidth(badge)), 0) +
-    Math.max(0, headerBadges.length - 1) * BADGE_GAP
-}
-
 /** World-space rect of the badge at `index` (0 = rightmost in its lane) on a node. */
 export function badgeRect(
   node: SceneNode,
