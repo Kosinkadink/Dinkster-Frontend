@@ -55,21 +55,24 @@ export function rowPlacement(
 }
 
 /**
- * The part of a canvas element the user can see, in its own coordinates,
- * kept current as it resizes: whatever the window's visible area, such as
- * an on-screen keyboard, cuts off is left out.
+ * The part of a canvas element the user can see, kept current as it
+ * resizes: whatever the window's visible area, such as an on-screen
+ * keyboard, cuts off is left out. Coordinates are from the element's
+ * rounded page position, where the canvas draws and `placeRow` places.
  */
 export function visibleCanvas(element: HTMLElement | undefined): Accessor<CanvasBox> {
   const measure = (): CanvasBox => {
     if (element === undefined) return { x: 0, y: 0, width: Infinity, height: Infinity }
     const box = element.getBoundingClientRect()
     const view = window.visualViewport
+    const dx = box.left - Math.round(box.left)
+    const dy = box.top - Math.round(box.top)
     const top = Math.max(0, (view?.offsetTop ?? 0) - box.top)
     const bottom = Math.min(box.height, (view ? view.offsetTop + view.height : window.innerHeight) - box.top)
-    return { x: 0, y: top, width: box.width, height: Math.max(0, bottom - top) }
+    return { x: dx, y: top + dy, width: box.width, height: Math.max(0, bottom - top) }
   }
   const [bounds, setBounds] = createSignal(measure(), {
-    equals: (a, b) => a.y === b.y && a.width === b.width && a.height === b.height,
+    equals: (a, b) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height,
   })
   if (element !== undefined) {
     const update = (): void => { setBounds(measure()) }
