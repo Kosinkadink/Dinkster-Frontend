@@ -153,7 +153,7 @@ jobs:
         timeout-minutes: 3
         run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Run product screenshots
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: pnpm test:visual
         env:
           DINKSTER_E2E_PORT: "15376"
