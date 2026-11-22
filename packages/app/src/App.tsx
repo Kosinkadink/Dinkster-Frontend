@@ -1218,9 +1218,13 @@ export function App(props: {
     return tab ? app.backendForTab(tab) : backends()[0]!
   }
 
-  const servicesLabel = (): string | undefined => {
+  const servicesKind = (): 'qa' | 'custom' | undefined => {
     backendsTick()
     const name = activeBackend().registry.get()?.server?.services?.name
+    return name === 'qa' || name === 'custom' ? name : undefined
+  }
+  const servicesLabel = (): string | undefined => {
+    const name = servicesKind()
     return name === 'qa' ? message('shell.services.qa')
       : name === 'custom' ? message('shell.services.custom') : undefined
   }
@@ -2686,6 +2690,7 @@ export function App(props: {
       )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
+        serviceKind={servicesKind()}
         brand={
           <DinksterAppMenu
             theme={(settingsTick(), app.settings.get<'dark' | 'light'>('dinkster.theme'))}
