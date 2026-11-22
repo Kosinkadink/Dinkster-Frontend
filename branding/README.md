@@ -242,6 +242,17 @@ dark-theme values coincide. No light-mode cyan substitution is made.
 `@dinkster/branding/palette` by this private workspace package. Core declares
 that dependency and projects it into both injected CSS custom properties
 and typed canvas tokens. There is no separate hand-maintained theme CSS.
+The dark frame is `#090D0D`; the light frame uses the existing raised shade,
+`#EDEFF2`. Node value fields have their own `bg.field` role, dark `#0B1111`
+and light `#F7F8FA`. Queued and skipped node outlines have dedicated
+`border.pending` and `border.skipped` entries; their light values remain
+`#5C5C5C` and `#7D8792`.
+
+The `sources/compare_*.py` scripts read their backgrounds and text from the
+palette; their fixed artwork colors do not change. Stored comparison sheets
+remain records of the approved artwork. The opaque Apple touch icon and
+`sources/export_favicons.py` retain their existing `#111316` background;
+that artwork is separate from the product's theme surfaces.
 
 Run `python sources/check_tokens.py` to recompute WCAG 2 sRGB
 relative-luminance contrast ratios directly from the JSON:

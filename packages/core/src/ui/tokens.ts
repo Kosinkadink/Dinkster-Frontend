@@ -64,6 +64,8 @@ export interface SemanticDesignTokens {
     readonly onSelected: string
   }
   readonly border: {
+    readonly pending: string
+    readonly skipped: string
     readonly subtle: string
     /** Between subtle and strong: a quiet line under the pointer, such as a scrollbar thumb. */
     readonly hover: string
@@ -141,6 +143,8 @@ export const semanticTokensForTheme = (
       onSelected: colors.text.primary,
     },
     border: {
+      pending: colors.border.pending,
+      skipped: colors.border.skipped,
       subtle: colors.border.default,
       hover: colors.border.hover,
       strong: colors.text.muted,

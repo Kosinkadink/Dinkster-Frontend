@@ -53,6 +53,11 @@ export async function compareCanvasFrames(
   registerCoreWidgets(widgetRegistrationDoors(registry))
   const tokens = {
     ...defaultTokens,
+    stateColors: {
+      ...defaultTokens.stateColors,
+      pending: canvasColorsForTheme(theme).pendingOutline,
+      skipped: canvasColorsForTheme(theme).skippedOutline,
+    },
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
     widgetRowLook:

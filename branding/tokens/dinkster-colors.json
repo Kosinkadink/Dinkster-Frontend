@@ -32,7 +32,9 @@
     },
     "border": {
       "default": "#324143",
-      "hover": "#4F6265"
+      "hover": "#4F6265",
+      "pending": "#4F6265",
+      "skipped": "#74888B"
     },
     "text": {
       "primary": "#F0F5F5",
@@ -52,7 +54,7 @@
   },
   "light": {
     "bg": {
-      "frame": "#F7F8FA",
+      "frame": "#EDEFF2",
       "field": "#F7F8FA",
       "canvas": "#F7F8FA",
       "surface": "#FFFFFF",
@@ -61,7 +63,9 @@
     },
     "border": {
       "default": "#D3D9DE",
-      "hover": "#9EA6AE"
+      "hover": "#9EA6AE",
+      "pending": "#5C5C5C",
+      "skipped": "#7D8792"
     },
     "text": {
       "primary": "#20252A",
