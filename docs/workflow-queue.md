@@ -37,12 +37,20 @@ while the check is pending. Moving or restyling a node reuses its execution
 availability; changing the workflow's execution data checks it again. Queueing
 always validates the current workflow independently of the display's cached answer.
 
-## Queue controls
+## Run controls
+
+The canvas button reads Run. Its compact neighbor opens this workflow's runs:
+idle shows a list icon, running shows a cyan ring, and a number counts only
+waiting jobs. Completed runs never contribute to this indicator. Waiting jobs
+remain visible as a count beside the list icon when no job is running.
+The shared `executionActivity` selector in `packages/app/src/execution-activity.ts`
+accepts workflow-filtered executions or all executions for the top bar; both
+surfaces derive their state from the execution store.
 
 Queueing is a control of the workflow currently open in the graph editor,
 not a global shell action. Each live graph tab has a compact control on the
 center region's top toolbar row, right-aligned beside the view and lens
-controls. App View retains its form-header Queue button when its document has
+controls. App View retains its form-header Run button when its document has
 no authored queue placement. Authored layouts can instead place multiple
 partial-run buttons as described in `docs/app-view.md`. The graph control's primary button
 submits that tab through the existing `AppState.queue` path. The adjacent
@@ -114,7 +122,7 @@ by backend inside the rail when multiple backends are configured, but the
 groups contain only the active workflow's jobs. Backend-wide queue depth is
 not presented as workflow-local state.
 
-The Queue button retains `Ctrl+Enter` through the command registry. The
+The Run button retains `Ctrl+Enter` through the command registry. The
 disclosure is a separately named button, opens with click or ArrowDown,
 closes on an outside press or Escape, and restores focus to its trigger after
 keyboard dismissal. Home, End, and arrow keys move between available Open
@@ -122,7 +130,7 @@ snapshot actions. Each activity card uses text labels in addition to status
 styling, retains the complete prompt identity, and exposes an explicit Open
 snapshot action when local provenance allows the exact frozen view.
 
-The control is ordinary Dinkster chrome: styled buttons, a custom caret, and the
+The control is ordinary Dinkster chrome: styled buttons, a list or ring icon, and the
 shared quiet scrollbar. It adds no native select or browser scrollbar chrome.
 It shares one wrapping flex row with the view and lens controls, so the
 controls cannot overlap each other at any width, and it stays clear of the

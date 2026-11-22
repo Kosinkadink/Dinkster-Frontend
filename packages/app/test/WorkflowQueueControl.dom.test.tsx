@@ -100,10 +100,10 @@ describe('WorkflowQueueControl', () => {
 
     root.querySelector<HTMLButtonElement>('[data-testid="queue-button"]')!.click()
     expect(queue).toHaveBeenCalledOnce()
-    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('No jobs')
+    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('No active jobs')
 
     setEntries([execution(alpha, 'accepted-run', 'queued', 1)])
-    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('1 queued')
+    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('1 waiting')
     root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!.click()
     const entry = root.querySelector<HTMLElement>('[data-testid="workflow-queue-entry"]')!
     expect(entry.tagName).toBe('ARTICLE')
@@ -112,9 +112,26 @@ describe('WorkflowQueueControl', () => {
     expect(entry.textContent).toContain('accepted-run')
 
     setEntries([execution(alpha, 'accepted-run', 'running', 1)])
-    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('1 running')
+    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('Running')
     expect(root.querySelector('[data-testid="workflow-queue-entry"]')?.getAttribute('data-status')).toBe('running')
     expect(root.textContent).toContain('Running')
+
+    setEntries([
+      execution(alpha, 'accepted-run', 'running', 1),
+      execution(alpha, 'waiting-one', 'queued', 2),
+      execution(alpha, 'waiting-two', 'queued', 3),
+      execution(alpha, 'finished', 'completed', 4),
+      execution(alpha, 'failed', 'error', 5),
+    ])
+    const toggle = root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!
+    expect(toggle.getAttribute('aria-label')).toBe('Running, 2 waiting: Hide runs for Alpha workflow')
+    expect(toggle.getAttribute('data-running')).toBe('true')
+    expect(toggle.querySelector('span[aria-hidden]')?.textContent).toBe('2')
+
+    setEntries([execution(alpha, 'finished', 'completed', 4)])
+    expect(toggle.getAttribute('data-running')).toBe('false')
+    expect(toggle.querySelector('span[aria-hidden]')).toBeNull()
+    expect(toggle.getAttribute('aria-label')).toBe('No active jobs: Hide runs for Alpha workflow')
     unmount()
   })
 
@@ -173,8 +190,8 @@ describe('WorkflowQueueControl', () => {
     ), root)
     const queue = root.querySelector<HTMLButtonElement>('[data-testid="queue-button"]')!
     const toggle = root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!
-    expect(queue.getAttribute('aria-label')).toBe('Queue Alpha workflow')
-    expect(toggle.getAttribute('aria-label')).toBe('1 recent: Show queue for Alpha workflow')
+    expect(queue.getAttribute('aria-label')).toBe('Run Alpha workflow')
+    expect(toggle.getAttribute('aria-label')).toBe('No active jobs: Show runs for Alpha workflow')
     toggle.focus()
     toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
