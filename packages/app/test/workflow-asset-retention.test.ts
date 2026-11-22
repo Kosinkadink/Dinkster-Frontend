@@ -9,7 +9,7 @@ import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAs
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, readAssetPreview, reconcileWorkflowRetentions, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsUnchanged } from '../src/workflow-asset-retention.js'
-import { imageDocumentDigest } from '../src/image-document-local.js'
+import { imageDocumentDigest } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
