@@ -177,6 +177,7 @@ export function ProductIconButton(
     label: string
     icon: LucideIcon
     intent?: ProductRole
+    'data-tooltip-label'?: string
   },
 ) {
   const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
@@ -187,7 +188,7 @@ export function ProductIconButton(
       fill="quiet"
       iconOnly
       aria-label={local.label}
-      title={local.label}
+      title={button['data-tooltip-label'] ? undefined : local.label}
     >
       <ProductIcon icon={local.icon} />
     </Button>
