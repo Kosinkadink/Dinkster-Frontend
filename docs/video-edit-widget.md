@@ -44,9 +44,10 @@ message and blocks Apply until corrected; it never becomes a zero sentinel.
 
 Empty and partial edit objects are valid. Applying an edit preserves
 unknown top-level and section fields exactly so imported and newer documents
-round-trip without data loss. The editor starts from its own stored value;
-an absent value opens as an empty edit and never reads other rows of the node
-as a starting point. Cancel and unchanged Apply do not write values.
+round-trip without data loss. The editor starts from the value stored on its
+own input; an absent value opens at that input's declared default, or as an
+empty edit when it declares none, and never reads other rows of the node as a
+starting point. Cancel and unchanged Apply do not write values.
 
 The editor resolves one linked VIDEO producer in a completed native execution,
 checking occurrence identity and current upstream provenance. It reads
