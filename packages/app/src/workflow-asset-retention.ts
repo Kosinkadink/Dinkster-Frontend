@@ -807,31 +807,43 @@ export async function readAssetPreview<T>(
   let connectionChanged = false
   const unsubscribe = connection.status.subscribe(() => { connectionChanged = true })
   const current = () => !connectionChanged && activeProjectId() === project && stillCurrent()
-  let reader: RetainedAssetReader | undefined
-  try {
-    if (!current()) throw new Error('Asset preview changed before admission')
+  if (!current()) {
+    unsubscribe()
+    throw new Error('Asset preview changed before reading')
+  }
+  const consuming = Promise.resolve().then(consume)
+  const recording = Promise.resolve().then(async () => {
     const retained = await retainAssetRoots(connection, 'preview', { preview: true }, typeof inventory === 'string'
       ? { complete: false, digests: [inventory] } : inventory, globalThis.localStorage, [8])
-    reader = new RetainedAssetReader(connection, retained, current)
+    const reader = new RetainedAssetReader(connection, retained, current)
+    // Group retirement must still drain a body already being read.
+    void reader.read(() => consuming).catch(() => undefined)
     replacementReaders?.add(reader)
-    const value = await reader.read(consume)
-    // Publishing a replacement can invalidate the open intent itself. Only the
-    // successful handoff, not reader closure or cancellation, authorizes release.
-    if (handoff !== undefined && await handoff(value)) {
-      const replaced = [...(replacementReaders ?? [reader])]
+    return reader
+  }).catch((error: unknown) => {
+    console.warn('Preview file-list recording failed', error)
+    return undefined
+  })
+  let handedOff = false
+  try {
+    const value = await consuming
+    if (!current()) throw new Error('Asset preview changed during read')
+    handedOff = handoff !== undefined && await handoff(value)
+    return value
+  } finally {
+    // A pending record or retirement never holds up reading or publication.
+    void recording.then(async (reader) => {
+      if (reader === undefined) return
+      const replaced = handedOff ? [...(replacementReaders ?? [reader])] : [reader]
       await Promise.all(replaced.map((previous) => previous.close()))
+      if (!handedOff) return
       for (const previous of replaced) {
         if (connectionChanged || activeProjectId() !== project || (replacementReaders !== undefined && !current())) break
         if (previous.connection !== connection) continue
         await retireAssetOwner(connection, previous.retained)
         replacementReaders?.delete(previous)
       }
-    }
-    return value
-  } finally {
-    // Cancellation closes publication, not a shared renderer's pending work.
-    await reader?.close()
-    unsubscribe()
+    }).catch((error: unknown) => { console.warn('Preview file-list retirement failed', error) }).finally(unsubscribe)
   }
 }
 
@@ -967,7 +979,6 @@ async function retainAssetRoots(
   resolveCompositors = true,
 ): Promise<RetainedAssets> {
   const census = resolveCompositors ? compositorCensuses.get(roots) : undefined
-  if (requireComplete && !roots.complete && !census) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
   if (census && !('refusal' in roots && roots.refusal !== undefined)) {
     const inventories = new Map<string, CompositorInventory>()
     let retained: RetainedAssets | undefined
@@ -1019,12 +1030,11 @@ async function retainAssetRoots(
       }
       return census.resolve(inventories)
     }, () => true, async (resolved) => {
-      if (requireComplete && !resolved.complete) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
       retained = await retainAssetRoots(connection, ownerKind, context, resolved, storage, holderClasses, requireComplete, false)
       return true
     }).then(() => retained!)
   }
-  if ('refusal' in roots && roots.refusal !== undefined) throw new Error(roots.refusal)
+  if ('refusal' in roots && roots.refusal !== undefined) roots = { ...roots, complete: false }
   const sourceToken = 'token' in roots ? roots.token : undefined
   if ('scope' in roots && (roots.scope !== 'local' || ownerKind !== 'shown-result')) throw new Error('Result offer owner scope differs')
   const digests = roots.digests
@@ -1039,7 +1049,9 @@ async function retainAssetRoots(
     ...('incompleteDiagnostics' in roots && roots.incompleteDiagnostics !== undefined ? { incompleteDiagnostics: roots.incompleteDiagnostics } : {}),
     ...context,
   }
-  storage.setItem(key, JSON.stringify(intent))
+  try { storage.setItem(key, JSON.stringify(intent)) } catch (error) {
+    console.warn('File-list recovery record could not be saved', error)
+  }
   const matches = (value: RetainedAssets | undefined): value is RetainedAssets =>
     retentionMatches(value, owner, digests, roots.complete, sourceToken)
   let acknowledged: RetainedAssets
@@ -1057,11 +1069,13 @@ async function retainAssetRoots(
     if (!matches(observed)) throw error
     acknowledged = observed
   }
-  storage.setItem(key, JSON.stringify({ ...intent, acknowledgedRevision: acknowledged.revision }))
+  try { storage.setItem(key, JSON.stringify({ ...intent, acknowledgedRevision: acknowledged.revision })) } catch (error) {
+    console.warn('File-list acknowledgment could not be saved', error)
+  }
   return acknowledged
 }
 
-/** Durable candidate ownership precedes commit; successful owners are not released on unmount. */
+/** Commands commit independently of the background list used by cleanup. */
 export async function admitWorkflowDispatch(
   connection: DinksterConnection,
   prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
@@ -1072,13 +1086,16 @@ export async function admitWorkflowDispatch(
   onCommitted?: (retained: RetainedAssets) => void,
   onRetained?: (retained: RetainedAssets) => void,
 ): Promise<CommandOutcome> {
-  // Proposed history adds only the captured current state and trims existing records.
-  const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
-    [prepared.document, ...(prepared.retainedDocuments ?? [])], purpose)
-  const retained = await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
-  onRetained?.(retained)
-  if (!stillCurrent()) throw new Error('Workflow destination changed during asset admission')
+  if (!stillCurrent()) throw new Error('Workflow destination changed before editing')
   const outcome = prepared.commit()
-  if (outcome.ok) onCommitted?.(retained)
+  if (outcome.ok) {
+    void Promise.resolve().then(async () => {
+      const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
+        [prepared.document, ...(prepared.retainedDocuments ?? [])], purpose)
+      const retained = await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
+      onRetained?.(retained)
+      if (stillCurrent()) onCommitted?.(retained)
+    }).catch((error: unknown) => { console.warn('Edited workflow file-list recording failed', error) })
+  }
   return outcome
 }

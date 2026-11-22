@@ -43,6 +43,83 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+describe('nonblocking file lists', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it.each(['pending', 'failed'] as const)('copies and picks files while recording is %s', async (scenario) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const app = createWorkflowApp([schema])
+    try {
+      await app.openDocument(session().doc, 'File source')
+      const tab = app.activeTab()!
+      vi.spyOn(app.connection, 'retainAssets').mockImplementation(() => scenario === 'failed'
+        ? Promise.reject(new Error('Recording unavailable')) : new Promise(() => {}))
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const copied = serializeSelection(tab.store.doc, 'g0', { nodes: ['n0'], reroutes: [] }, 'copy-source')
+      expect(await app.retainClipboardAssets(tab, JSON.stringify(copied))).toBe(true)
+      const reader = await app.retainPickerAssets(tab, app.backendForTab(tab), asset('b'))
+      expect(await reader.read(async () => 'picked image')).toBe('picked image')
+      expect(app.problems.get().some((problem) => /ownership/i.test(problem.message))).toBe(false)
+      if (scenario === 'failed') await vi.waitFor(() => expect(console.warn).toHaveBeenCalled())
+    } finally { app.dispose() }
+  })
+
+  it.each(['pending', 'failed'] as const)('commits an edit while recording is %s', async (scenario) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const local = session()
+    const prepared = local.prepareDispatch!(replace('b'))
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const declarations: RetainedAssetDeclaration[] = []
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: (_owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        declarations.push(declaration)
+        return scenario === 'failed' ? Promise.reject(new Error('Recording unavailable')) : new Promise(() => {})
+      },
+      fetchRetainedAssets: async () => undefined,
+    } as unknown as DinksterConnection
+    const outcome = await admitWorkflowDispatch(connection, prepared, () => undefined, () => true, { setItem: () => {} })
+    expect(outcome.ok).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+    expect(local.undo()).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+    expect(declarations).toEqual([{ revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest] }])
+    if (scenario === 'failed') await vi.waitFor(() => expect(console.warn).toHaveBeenCalled())
+  })
+
+  it.each(['pending', 'failed', 'storage-failed'] as const)(
+    'reads and publishes an incomplete preview while recording is %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const app = createWorkflowApp()
+      const pending = deferred<RetainedAssets>()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const declarations: RetainedAssetDeclaration[] = []
+      vi.spyOn(app.connection, 'retainAssets').mockImplementation((_owner, declaration) => {
+        declarations.push(declaration)
+        return scenario === 'failed' ? Promise.reject(new Error('Recording unavailable')) : pending.promise
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      if (scenario === 'storage-failed') vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+        throw new DOMException('Storage full', 'QuotaExceededError')
+      })
+      let published: string | undefined
+      try {
+        const read = readAssetPreview(app.connection, { complete: false, digests: [asset('b').digest] },
+          async () => 'decoded preview', () => true, async (value) => { published = value; return true })
+        expect(await read).toBe('decoded preview')
+        expect(published).toBe('decoded preview')
+        expect(declarations).toEqual([
+          { revision: 0, complete: false, digests: [asset('b').digest] },
+        ])
+        if (scenario !== 'pending') await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+      } finally {
+        app.dispose()
+      }
+    },
+  )
+})
+
 describe('workflow retention recovery', () => {
   it.each(['acknowledged', 'lost', 'refused', 'cleanup-refused'] as const)(
     'retires an admitted owner at full storage without removing another holder: %s', async (scenario) => {

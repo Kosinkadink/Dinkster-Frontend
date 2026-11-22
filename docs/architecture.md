@@ -32,11 +32,12 @@ Selecting an explicit save target does not require a configured default.
 `document`, `history`, `shown-result` and `preview`; independent retained
 generations use distinct IDs. PUT sends `{revision, digests, complete}` with
 canonical, sorted, deduplicated `blake3:` identities (at most 4096). Unknown or
-opaque typed values require incomplete ownership, not an empty complete set.
+opaque typed values require incomplete file lists, not an empty complete set.
 The transport rejects oversized declarations rather than truncating them.
-Ownership admission refuses error-severity elaboration diagnostics. Warning
-and info diagnostics remain visible without making known roots incomplete;
-generated boundary IDs containing reserved characters are one such warning.
+An incomplete census is recorded with `complete: false`, including any known
+digests and diagnostics. Failure to write the browser journal is logged and does
+not prevent the backend recording attempt. Only real backend acknowledgments enter
+receipt bookkeeping; a successful user action is never an acknowledgment.
 
 An acknowledgment must match the exact scope, owner kind and ID. Mutations
 also require the requested canonical set, completeness and next revision.
@@ -95,8 +96,9 @@ External registry template thumbnails keep their registry transport and never
 receive a backend retention generation. Immutable installed module imports retain
 their native HTTP URLs under the backend's exact-module exemption.
 
-Shared asset-browser model thumbnails acknowledge independent incomplete
-`preview` ownership before entering the poster queue/cache. The project,
+Shared asset-browser model thumbnails record independent incomplete
+`preview` file lists in the background while entering the poster queue/cache.
+Recording errors are logged and never delay or refuse the read. The project,
 connection and browser/picker lifetime must still match before publication.
 Cancellation does not settle pending native rendering or encoding; the read
 spans actual poster completion. Preview intents use the same durable journal
@@ -112,10 +114,10 @@ loader and revokes its local URL. A cancellation-ignoring body remains owned
 until settlement and cannot create or publish a late URL. The detail rail
 uses the same loader as cards, without an unadmitted digest-URL fallback.
 
-Library workflows and recorded-run workflows admit their source-document
-digest through independent preview ownership before fetching or parsing the
-payload. The captured backend and open intent must remain current through
-body settlement. Parsed local data then enters workflow-root admission;
+Library workflows and recorded-run workflows record their source-document
+digest through independent preview file lists while fetching or parsing the
+payload. Neither a pending request nor a recording failure delays the read.
+The captured backend and open intent must remain current through body settlement. Parsed local data then enters workflow-root admission;
 publishing the new tab is separate from the payload read it supersedes.
 Only a successfully admitted destination workflow authorizes retiring that
 source-read owner, at its captured revision. Failed or superseded opens keep
@@ -630,8 +632,8 @@ Startup ownership captures its snapshot after an opening native transport and
 its connected catalog publication settle. Connected refreshes remain loading
 until their coalesced catalog work finishes; synchronous connection observers
 settle before admission checks readiness. No failed admission is retried.
-Refused, unavailable or stale startup acknowledgments leave ownership unconfirmed
-in Problems and prevent shared promotion without discarding saved documents.
+Startup file-list recording and shared promotion start independently. Recording
+failures are logged, never shown in Problems, and never prevent shared editing.
 Pack locale labels may arrive during confirmation without invalidating its schema
 snapshot. Real registry replacements still invalidate it, even with the same hash;
 startup does not wait for locale downloads.

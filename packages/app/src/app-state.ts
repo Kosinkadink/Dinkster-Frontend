@@ -5942,10 +5942,7 @@ export class AppState {
     const cacheKey = JSON.stringify(['workflow', tab.id, backend.id, digests])
     const held = this.cachedAssetReaders.get(holder)?.get(cacheKey)
     if (held?.current()) return held
-    const history = session.historySnapshot()
-    const inventory = workflowAssetRoots(document, history, this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-    if (inventory.refusal !== undefined || !digests.every((value) => inventory.digests.includes(value))) return undefined
-    // This reader owns only the selected bytes, not the opaque workflow that names them.
+    // The selected files are known even when the rest of the workflow is opaque.
     const roots = { complete: true, digests }
     const current = (): boolean => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id && candidate.store === session) ?? this.liveTabContinuing(session)
@@ -5955,31 +5952,10 @@ export class AppState {
         this.backendForTab(live) === backend && this.registryForTab(live) === registry &&
         generation === this.assetConnectionGenerations.get(backend.connection)
     }
-    let admission: Promise<RetainedAssetReader> | undefined
     const reader = {
       key: `workflow:${++this.workflowAssetReaderSequence}`,
       current,
-      read: async <T>(consume: () => Promise<T>): Promise<T> => {
-        if (!current()) throw new Error('Workflow asset reader is no longer current')
-        admission ??= retainPreviewAssets(backend.connection, roots, [8])
-          .then((retained) => {
-            if (!current()) throw new Error('Workflow changed during asset admission')
-            return new RetainedAssetReader(backend.connection, retained, current)
-          }).catch((error: unknown) => {
-            admission = undefined
-            throw Object.assign(new Error(error instanceof Error ? error.message : 'Workflow ownership unconfirmed'), { transient: true })
-          })
-        const owned = await admission
-        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
-        try {
-          return await owned.read(consume)
-        } finally {
-          const remaining = this.valueAssetReaders.get(owned)! - 1
-          if (remaining === 0) this.valueAssetReaders.delete(owned)
-          else this.valueAssetReaders.set(owned, remaining)
-          this.finishResultHolderDisposal()
-        }
-      },
+      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
     }
     return this.cacheAssetReader(holder, cacheKey, reader)
   }
@@ -5998,38 +5974,15 @@ export class AppState {
       candidate.key === state.key && candidate.queuedAt === state.queuedAt && candidate.jobRef === state.jobRef &&
       candidate.sourceDocument === state.sourceDocument && candidate.artifact === state.artifact &&
       candidate.outputs === state.outputs && candidate.artifacts === state.artifacts
-    const inventory = executionAssetRoots(state, this.registryForExecution(state.ref)?.resolve ?? (() => undefined))
-    const known = new Set(inventory.digests)
-    if (!digests.every((digest) => known.has(digest))) return undefined
     const current = (): boolean => {
       return !this.disposed && activeProjectId() === project && sameResult(this.store.get(state.ref)) &&
         (this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)) === backend &&
         generation === this.assetConnectionGenerations.get(backend.connection)
     }
-    let admission: Promise<RetainedAssetReader> | undefined
     const reader = {
       key: `execution:${++this.workflowAssetReaderSequence}`,
       current,
-      read: async <T>(consume: () => Promise<T>): Promise<T> => {
-        if (!current()) throw new Error('Execution asset reader is no longer current')
-        admission ??= retainPreviewAssets(backend.connection, roots, [8]).then((retained) => {
-          if (!current()) throw new Error('Execution changed during asset admission')
-          return new RetainedAssetReader(backend.connection, retained, current)
-        }).catch((error: unknown) => {
-          admission = undefined
-          throw Object.assign(new Error(error instanceof Error ? error.message : 'Execution ownership unconfirmed'), { transient: true })
-        })
-        const owned = await admission
-        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
-        try {
-          return await owned.read(consume)
-        } finally {
-          const remaining = this.valueAssetReaders.get(owned)! - 1
-          if (remaining === 0) this.valueAssetReaders.delete(owned)
-          else this.valueAssetReaders.set(owned, remaining)
-          this.finishResultHolderDisposal()
-        }
-      },
+      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
     }
     return this.cacheAssetReader(holder, cacheKey, reader)
   }
@@ -6055,26 +6008,10 @@ export class AppState {
       (validFile3dAsset(asset) || (Object.keys(asset).length === 1 && typeof asset.digest === 'string' &&
         /^blake3:[0-9a-f]{64}$/.test(asset.digest))))) return undefined
     const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest as string))].sort() }
-    let admission: Promise<RetainedAssetReader> | undefined
     return {
       key: `model:${++this.workflowAssetReaderSequence}`,
       current,
-      read: async <T>(consume: () => Promise<T>): Promise<T> => {
-        if (!current()) throw new Error('Original model owner is unavailable')
-        admission ??= retainPreviewAssets(backend.connection, roots, [8])
-          .then((retained) => new RetainedAssetReader(backend.connection, retained, current))
-          .catch((error: unknown) => { admission = undefined; throw error })
-        const owned = await admission
-        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
-        try {
-          return await owned.read(consume)
-        } finally {
-          const remaining = this.valueAssetReaders.get(owned)! - 1
-          if (remaining === 0) this.valueAssetReaders.delete(owned)
-          else this.valueAssetReaders.set(owned, remaining)
-          this.finishResultHolderDisposal()
-        }
-      },
+      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
     }
   }
 
@@ -6524,28 +6461,17 @@ export class AppState {
       : this.backendForTab(tab)
     if (backend === undefined) return false
     if (backend.protocol !== 'dinkster') return true
+    if (this.disposed || !this.tabs.get().includes(tab)) return false
     const document = tab.store.doc
     const revision = tab.store.revision
     const registry = this.registryForTab(tab)
-    let connectionChanged = false
-    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-    try {
-      if (this.disposed || !this.tabs.get().includes(tab)) throw new Error('Clipboard source is unavailable')
-      // The full captured source covers connected-paste references outside the envelope.
+    void Promise.resolve().then(async () => {
+      // Connected paste can reference nodes outside the copied selection.
       const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
         this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
       await retainWorkflowAssets(backend.connection, document.lineage, revision, { ...roots, complete: false }, undefined, text)
-      const currentRegistry = tab.execution ? this.registryForExecution(tab.execution) : backend.registry.get()
-      if (this.disposed || connectionChanged ||
-        (!this.backends.get().includes(backend) && this.retiredBackends.get(backend.id) !== backend) || currentRegistry !== registry) {
-        throw new Error('Clipboard source connection changed during asset admission')
-      }
-      return true
-    } catch {
-      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'command', 'clipboard.retention.refused',
-        'Clipboard ownership could not be confirmed; the system clipboard was not changed.')])
-      return false
-    } finally { unsubscribe() }
+    }).catch((error: unknown) => { console.warn('Clipboard file-list recording failed', error) })
+    return true
   }
 
   private readonly pickerAssetOwners = new WeakMap<NonNullable<ReturnType<AppState['workflowAssetReader']>>, {
@@ -6554,7 +6480,7 @@ export class AppState {
     readonly registry: ReturnType<Backend['registry']['get']>
     readonly project: string
     readonly generation: number | undefined
-    readonly owned: RetainedAssetReader
+    owned?: RetainedAssetReader
     readonly current: () => boolean
     readonly invalidate: () => void
   }>()
@@ -6578,27 +6504,18 @@ export class AppState {
     const assets = value === null ? [] : Array.isArray(value) ? value : [value]
     if (!assets.every(isAssetRef)) throw new Error('Picker asset inventory is invalid')
     const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest))].sort() }
-    const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision,
-      roots, undefined, undefined, false, [4, 8])
-    if (!current()) throw new Error('Picker destination changed during asset admission')
-    const owned = new RetainedAssetReader(backend.connection, retained, current)
     const reader = {
       key: `picker:${++this.workflowAssetReaderSequence}`,
       current,
-      read: async <T>(consume: () => Promise<T>): Promise<T> => {
-        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
-        try {
-          return await owned.read(() => this.readAssetPreview(backend.connection, roots, consume, current))
-        } finally {
-          const remaining = this.valueAssetReaders.get(owned)! - 1
-          if (remaining === 0) this.valueAssetReaders.delete(owned)
-          else this.valueAssetReaders.set(owned, remaining)
-          this.finishResultHolderDisposal()
-        }
-      },
+      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
     }
-    this.pickerAssetOwners.set(reader, { session, backend, registry, project, generation, owned,
+    this.pickerAssetOwners.set(reader, { session, backend, registry, project, generation,
       current: destinationCurrent, invalidate: () => { active = false } })
+    void retainWorkflowAssets(backend.connection, document.lineage, revision, roots, undefined, undefined, false, [4, 8])
+      .then((retained) => {
+        const held = this.pickerAssetOwners.get(reader)
+        if (held && current()) held.owned = new RetainedAssetReader(backend.connection, retained, current)
+      }).catch((error: unknown) => { console.warn('Picked file-list recording failed', error) })
     return reader
   }
 
@@ -6617,8 +6534,9 @@ export class AppState {
     this.pickerAssetOwners.delete(previous)
     // Publication transfers the staged selection, not an unfinished body read.
     // Closing admission waits for every reader before retiring its exact receipt.
-    await before.owned.close()
-    if (before.current() && after.current()) await this.retireAssetOwner(before.backend.connection, before.owned.retained)
+    if (before.owned) void before.owned.close().then(async () => {
+      if (before.current() && after.current()) await this.retireAssetOwner(before.backend.connection, before.owned!.retained)
+    }).catch((error: unknown) => { console.warn('Picked file-list retirement failed', error) })
     return true
   }
 
@@ -6860,40 +6778,32 @@ export class AppState {
     })
   }
 
-  private requireCompleteWorkflow(tab: Tab, history: HistorySnapshot): void | Promise<void> {
+  private recordWorkflowFileList(tab: Tab, history: HistorySnapshot): void {
     const registry = this.registryForTab(tab)
     const backend = this.backendForTab(tab)
+    if (backend.protocol !== 'dinkster') return
     const document = tab.store.doc
     const revision = tab.store.revision
     const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(backend.connection)
-    const roots = workflowAssetRoots(document, history,
-      this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-    if (roots.complete) return
-    if (roots.refusal !== undefined || backend.protocol !== 'dinkster') {
-      throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
-    }
-    return retainWorkflowAssets(backend.connection, document.lineage, revision, roots, undefined, undefined, true).then((retained) => {
-      if (!retained.complete) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+    void Promise.resolve().then(async () => {
+      const roots = workflowAssetRoots(document, history,
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+      const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
       if (this.disposed || !this.tabs.get().includes(tab) || tab.store.doc !== document || tab.store.revision !== revision ||
         this.backendForTab(tab) !== backend || this.registryForTab(tab) !== registry || activeProjectId() !== project ||
-        this.assetConnectionGenerations.get(backend.connection) !== generation) throw new Error('Workflow changed during publication admission')
-      // A snapshot-only publication owner must not replace protection for live undo history.
+        this.assetConnectionGenerations.get(backend.connection) !== generation) return
+      // A snapshot-only list must not replace protection for live undo history.
       if (history.undo.length > 0 || history.redo.length > 0 ||
         (tab.store.historySnapshot().undo.length === 0 && tab.store.historySnapshot().redo.length === 0)) {
         this.replaceWorkflowAssetOwner(tab.store, backend, retained, project, generation)
       }
-    })
+    }).catch((error: unknown) => { console.warn('Workflow file-list recording failed', error) })
   }
 
   private reportIncompleteOwnership(owner: ProblemOwner, roots: ReturnType<typeof workflowAssetRoots>, retained?: RetainedAssets): void {
     if (retained?.complete || roots.incompleteDiagnostics === undefined) return
-    this.reportProblems(owner, [diag(
-      'warning', 'validation', 'workflow.execution.ownershipUnconfirmed',
-      'Workflow ownership unconfirmed.',
-      { data: { reason: roots.incompleteDiagnostics.map((diagnostic) => diagnostic.message).join('; '),
-        effect: 'Execution retains known active assets. Publication and sharing remain unavailable.' } },
-    )])
+    console.warn('Workflow file list is incomplete', owner, roots.incompleteDiagnostics)
   }
 
   /**
@@ -7533,8 +7443,7 @@ export class AppState {
       // silently overwritten by the stale snapshot.
       const expect = { store: tab.store, revision: tab.store.revision }
       const snapshot = tab.store.doc
-      const admission = this.requireCompleteWorkflow(tab, tab.store.historySnapshot())
-      if (admission) await admission
+      this.recordWorkflowFileList(tab, tab.store.historySnapshot())
       if (!this.tabs.get().includes(tab) || tab.store !== expect.store || tab.store.revision !== expect.revision ||
         tab.store.doc !== snapshot || this.collabBackend() !== backend) throw new Error('Workflow changed during publication admission')
       const descriptor = await this.collabTransport.create(backend.baseUrl, {
@@ -9132,19 +9041,7 @@ export class AppState {
     const revision = tab.store.revision
     const link = this.libraryLinks.get(tab.id)
     try {
-      const registry = this.registryForTab(tab)
-      const document = tab.store.doc
-      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-      if (!roots.complete && roots.refusal === undefined) {
-        await this.requireCompleteWorkflow(tab, { revision, undo: [], redo: [] })
-        if (tab.store.doc !== document || tab.store.revision !== revision || this.backendForTab(tab) !== backend) {
-          throw new Error('Workflow changed during publication admission')
-        }
-      }
-      if (roots.refusal !== undefined) {
-        throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
-      }
+      this.recordWorkflowFileList(tab, { revision, undo: [], redo: [] })
       const payload = JSON.stringify(await this.documentWithAssetLocations(tab))
       const digest = await backend.connection.uploadAsset(payload)
       let record: LibraryRecord | undefined
