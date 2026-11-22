@@ -3575,7 +3575,6 @@ export class AppState {
     if (this.selectionScopesFrame !== undefined) cancelAnimationFrame(this.selectionScopesFrame)
     if (this.selectionScopesTimer !== undefined) clearTimeout(this.selectionScopesTimer)
     this.pendingSelectionScopes.clear()
-    for (const reader of this.valueAssetReaders.keys()) void reader.close()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
@@ -3613,16 +3612,6 @@ export class AppState {
         this.log('warn', 'Storage', `Client disconnect unconfirmed: ${error instanceof Error ? error.message : String(error)}`)
       })
     }
-    this.finishResultHolderDisposal()
-  }
-
-  private finishResultHolderDisposal(): void {
-    // Closing refuses census replies until cancellation-ignoring bodies and
-    // delayed admissions finish; publication disposal alone is not departure.
-    if (this.disposed && this.valueAssetReaders.size === 0 && this.pendingResultRestorations === 0 &&
-      this.pendingValueAdmissions === 0 && this.pendingExecutionHydrations === 0 &&
-      this.pendingAssetRetirements === 0 && this.pendingAssetPreviews === 0 &&
-      this.pendingResultReads.size === 0) this.resultHolderCensus.dispose()
   }
 
   private async waitForOwnershipCatalogs(backends: readonly Backend[]): Promise<void> {
@@ -5047,7 +5036,6 @@ export class AppState {
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
-        this.submissionAssetOwners = new WeakMap()
         if (status === 'connected') {
           refreshOnConnect()
         } else {
@@ -7544,200 +7532,7 @@ export class AppState {
     { connection: DinksterConnection; revision: number; schemaHash: string; digest: string;
       document: WorkflowDocument; project: string; generation: number | undefined }
   >()
-  private pendingAssetRetirements = 0
-  private pendingValueAdmissions = 0
-  private pendingAssetPreviews = 0
-
-  private async readAssetPreview<T>(...args: Parameters<typeof readAssetPreview<T>>): Promise<T> {
-    this.pendingAssetPreviews += 1
-    try { return await readAssetPreview(...args) } finally {
-      this.pendingAssetPreviews -= 1
-      this.finishResultHolderDisposal()
-    }
-  }
-
-  /** Pending ownership work, including work not covered by a persistence flush. */
-  retentionActivity() {
-    return {
-      valueAdmissions: this.pendingValueAdmissions,
-      restorations: this.pendingResultRestorations,
-      retirements: this.pendingAssetRetirements,
-      drainingReaders: [...this.resultAssetOwners.values()].filter((owner) => owner.drained === false).length,
-      valueReads: [...this.valueAssetReaders.values()].reduce((sum, count) => sum + count, 0),
-      previewReads: this.pendingAssetPreviews,
-      resultReads: this.pendingResultReads.size,
-      recoveries: this.pendingRetentionRecoveries,
-      hydrations: this.pendingExecutionHydrations,
-      recoveryTimers: this.workflowRetentionTimers.size,
-      promotions: this.workspacePromotions.size,
-      workspaceOperations: this.workspaceTabPending,
-      persistenceTimer: this.persistTimer !== undefined,
-      queuedCommit: this.queuedPersistedTabsCommit !== undefined,
-      preparations: this.pendingPersistencePreparations,
-      commits: this.pendingPersistedTabsCommits,
-    }
-  }
-
-  private async retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
-    this.pendingAssetRetirements += 1
-    try { await retireAssetOwner(connection, retained) } finally {
-      this.pendingAssetRetirements -= 1
-      this.finishResultHolderDisposal()
-    }
-  }
-
-  private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
-  private readonly workflowAssetOwners = new WeakMap<DocumentSession, {
-    readonly backend: Backend
-    readonly retained: RetainedAssets
-    readonly project: string
-    readonly generation: number | undefined
-  }>()
-  private readonly unpublishedWorkflowOwners = new Map<RetainedAssets, {
-    readonly backend: Backend
-    readonly registry: SchemaRegistry | undefined
-    readonly project: string
-    readonly storage: Storage
-    readonly generation: number | undefined
-    readonly lineage: string
-    readonly admission: { pending: boolean }
-  }>()
-
-  private persistedWorkflowRoots(backend: Backend, project: string, generation: number | undefined): ReadonlySet<string> | undefined {
-    return persistedWorkflowAssetRoots(
-      this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined)), () => undefined)
-  }
-
-  private retireUnpublishedWorkflowOwners(): void {
-    for (const [retained, owner] of this.unpublishedWorkflowOwners) {
-      const { backend, project, generation } = owner
-      if (owner.admission.pending || this.disposed || activeProjectId() !== project ||
-        globalThis.localStorage !== owner.storage || !this.backends.get().includes(backend) ||
-        this.assetConnectionGenerations.get(backend.connection) !== generation ||
-        (!retained.complete && backend.registry.get() !== owner.registry) ||
-        this.tabs.get().some((tab) => !tab.execution && tab.id === owner.lineage)) continue
-      const resolve = this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined))
-      const live = this.tabs.get().filter((tab) => !tab.execution && this.backendForTab(tab) === backend)
-        .map((tab) => workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), resolve, [], 'admission'))
-      if (live.some((roots) => !roots.complete || roots.refusal !== undefined)) continue
-      const persisted = this.persistedWorkflowRoots(backend, project, generation)
-      if (persisted === undefined || retained.digests.some((digest) => persisted.has(digest) ||
-        live.some((roots) => roots.digests.includes(digest)))) continue
-      // A rejected admission is not a published document lifetime. Its exact
-      // receipt ends only after all live and durable recovery roots are known.
-      this.unpublishedWorkflowOwners.delete(retained)
-      void this.retireAssetOwner(backend.connection, retained)
-    }
-  }
-
-  private readonly supersededWorkflowOwners = new Map<RetainedAssets, {
-    session: DocumentSession
-    awaitingRemoteCommit?: boolean
-    readonly backend: Backend
-    readonly project: string
-    readonly generation: number | undefined
-  }>()
-
-  private continueWorkflowAssetOwner(previous: DocumentSession, session: DocumentSession): void {
-    const owner = this.workflowAssetOwners.get(previous)
-    if (owner === undefined || this.workflowAssetOwners.has(session) || this.disposed ||
-      activeProjectId() !== owner.project || !this.backends.get().includes(owner.backend) ||
-      this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
-      this.tabs.get().some((tab) => !tab.execution && tab.store === previous) ||
-      !this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === owner.backend)) return
-    // A synchronous fallback keeps the same document under its existing receipt.
-    // Only a later acknowledged complete replacement can release that receipt.
-    this.workflowAssetOwners.set(session, owner)
-    this.workflowAssetOwners.delete(previous)
-    for (const pending of this.supersededWorkflowOwners.values()) {
-      if (pending.session === previous) pending.session = session
-    }
-  }
-
-  private replaceWorkflowAssetOwner(
-    session: DocumentSession, backend: Backend, retained: RetainedAssets,
-    project: string, generation: number | undefined,
-    previousSession: DocumentSession = session,
-  ): void {
-    const current = (): boolean => !this.disposed && activeProjectId() === project &&
-      this.backends.get().includes(backend) && this.assetConnectionGenerations.get(backend.connection) === generation &&
-      this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === backend)
-    if (!current()) return
-    const previous = this.workflowAssetOwners.get(previousSession)
-    const owner = { backend, retained, project, generation }
-    this.workflowAssetOwners.set(session, owner)
-    this.unpublishedWorkflowOwners.delete(retained)
-    // The acknowledged replacement covers the committed document and its history.
-    // Unknown inventories and disconnected lifetimes are not release authority.
-    if (!previous || previous.backend !== backend || previous.project !== project || previous.generation !== generation ||
-      !previous.retained.complete || !retained.complete) return
-    if (previousSession !== session) {
-      if (this.tabs.get().some((tab) => !tab.execution && tab.store === previousSession)) return
-      this.workflowAssetOwners.delete(previousSession)
-      for (const pending of this.supersededWorkflowOwners.values()) {
-        if (pending.session === previousSession && pending.backend === backend && pending.project === project &&
-          pending.generation === generation) pending.session = session
-      }
-    }
-    this.supersededWorkflowOwners.set(previous.retained, { session, backend, project, generation })
-    queueMicrotask(() => {
-      if (current() && this.workflowAssetOwners.get(session) === owner) {
-        this.retireSupersededWorkflowOwners()
-      }
-    })
-  }
-
-  private retireSupersededWorkflowOwners(): void {
-    if (this.disposed) return
-    this.retireUnpublishedWorkflowOwners()
-    const durableRoots = new Map<Backend, ReadonlySet<string> | undefined>()
-    for (const [retained, pending] of this.supersededWorkflowOwners) {
-      const { session, backend, project, generation } = pending
-      const current = this.workflowAssetOwners.get(session)
-      if (pending.awaitingRemoteCommit || !current?.retained.complete || current.backend !== backend || current.project !== project ||
-        current.generation !== generation || activeProjectId() !== project || !this.backends.get().includes(backend) ||
-        this.assetConnectionGenerations.get(backend.connection) !== generation ||
-        !this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === backend)) continue
-      const covered = new Set(current.retained.digests)
-      const removed = retained.digests.filter((digest) => !covered.has(digest))
-      if (removed.length > 0) {
-        if (!durableRoots.has(backend)) durableRoots.set(backend, this.persistedWorkflowRoots(backend, project, generation))
-        const persisted = durableRoots.get(backend)
-        if (persisted === undefined || removed.some((digest) => persisted.has(digest))) continue
-      }
-      // A complete replacement protects live consumers; durable sources must
-      // independently stop naming every root that replacement no longer holds.
-      this.supersededWorkflowOwners.delete(retained)
-      void this.retireAssetOwner(backend.connection, retained)
-    }
-  }
-
-  private readonly frozenAssetOwners = new WeakMap<Tab, {
-    readonly backend: Backend
-    readonly retained: RetainedAssets
-    readonly project: string
-    readonly generation: number | undefined
-  }>()
-  private workflowAssetReaderSequence = 0
-  private readonly cachedAssetReaders = new WeakMap<object, Map<string, NonNullable<ReturnType<AppState['workflowAssetReader']>>>>()
-
-  private cacheAssetReader(
-    holder: object, key: string, reader: NonNullable<ReturnType<AppState['workflowAssetReader']>>,
-  ): NonNullable<ReturnType<AppState['workflowAssetReader']>> {
-    let readers = this.cachedAssetReaders.get(holder)
-    if (readers === undefined) { readers = new Map(); this.cachedAssetReaders.set(holder, readers) }
-    if (readers.size >= 160) readers.delete(readers.keys().next().value!)
-    readers.set(key, reader)
-    return reader
-  }
-
-  private submissionAssetOwners = new WeakMap<Tab, {
-    readonly connection: DinksterConnection
-    readonly document: WorkflowDocument
-    readonly registry: SchemaRegistry
-    readonly retained: RetainedAssets
-  }>()
 
   /**
    * The backend library operations target: the ACTIVE tab's backend (same
@@ -8389,9 +8184,25 @@ export class AppState {
       const progress = jobNodes[nodeId]
       if (progress?.state !== 'done' && progress?.state !== 'cached') continue
       for (const outputId of outputIds) {
+<<<<<<< HEAD
         if (!stillCurrent() || !this.store.canRestoreCompleted(result.ref)) return null
         const peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
         if (!stillCurrent() || !this.store.canRestoreCompleted(result.ref)) return null
+=======
+        // This proof-validated read precedes publication of the restored entry.
+        const pending = { backend, jobRef: result.jobRef, nodeId, outputId, current: () => stillCurrent() &&
+          activeProjectId() === project && this.store.canRestoreCompleted(result.ref) }
+        if (!pending.current()) return null
+        const key = executionKey(result.ref)
+        this.pendingResultReads.set(key, pending)
+        let peek: ValuePeekResult
+        try {
+          peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
+          if (this.pendingResultReads.get(key) !== pending || !pending.current()) return null
+        } finally {
+          if (this.pendingResultReads.get(key) === pending) this.pendingResultReads.delete(key)
+        }
+>>>>>>> 71dc7bd8 (Remove central cleanup owner state)
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
             peek.status >= 500 || peek.reason === 'malformed-response') return null
@@ -9862,7 +9673,7 @@ export class AppState {
           if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
         .catch(() => this.hydrated.delete(state.key))
-        .finally(() => { this.pendingExecutionHydrations -= 1; this.finishResultHolderDisposal() })
+        .finally(() => { this.pendingExecutionHydrations -= 1 })
     }
   }
 
