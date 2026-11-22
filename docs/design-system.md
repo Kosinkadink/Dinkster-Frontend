@@ -752,7 +752,9 @@ compositor's layers) opens nothing, so it is drawn inset with its summary as
 plain text and no hover wash; its icon stays listed for when an editor
 returns. A color's 10 px square sits directly before its code, over a
 checker pattern when the color has opacity. A list shows as many values as fit,
-separated by a comma, then `+N`; colors show as many squares as fit, then `+N`.
+separated by a comma, then `+N`, each number written as stored in the shortest
+text that reads back as the same number, never rounded to the element's step;
+colors show as many squares as fit, then `+N`.
 A curve is drawn on its row's second line from the row's start, clear of the
 row's edges. An empty row says what it asks for ("Choose image", "Choose
 model", "Record audio", "Capture frame", "No edits", "Default output", "Empty",
