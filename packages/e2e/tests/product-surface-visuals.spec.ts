@@ -446,20 +446,16 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('app-tooltip')).toBeHidden()
     await screenshot(page, `metadata-error-backends-${width}`)
-    await openRail(page, 'Outputs')
-    const outputs = page.getByTestId('outputs-panel')
-    await expect(outputs.getByRole('alert')).toContainText('GET /api/nodes failed: 503')
-    await expect(outputs.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
-    await screenshot(page, `metadata-error-outputs-${width}`)
   }
   recover = true
-  await page.getByTestId('outputs-panel').getByRole('button', { name: 'Retry', exact: true }).click()
-  await expect(page.getByTestId('outputs-panel').getByRole('alert')).toHaveCount(0)
+  await openDock(page, 'library-toggle')
+  await page.getByTestId('dock-zone-left').getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByTestId('dock-zone-left').getByRole('alert')).toHaveCount(0)
   await expect(page.getByTestId('status-bar')).not.toContainText('disconnected')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
 })
 
-test('Library Assets and Outputs use shared empty and loading states', async ({ page }) => {
+test('Library Assets and Runs use shared empty and loading states', async ({ page }) => {
   let mode: 'empty' | 'loading' | 'error' = 'empty'
   let release: (() => void) | undefined
   await page.route('**/collection-visual/api/**', async (route) => {
@@ -491,7 +487,7 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
   for (const state of ['empty', 'loading', 'error'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 })
     await library.getByTestId('library-source-select').click()
-    await page.getByRole('option', { name: 'History', exact: true }).click()
+    await page.getByRole('option', { name: 'Packs', exact: true }).click()
     mode = state
     await library.getByTestId('library-source-select').click()
     await page.getByRole('option', { name: 'Workflows', exact: true }).click()
@@ -515,8 +511,8 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
   await expect(library.getByTestId('collection-retry')).toHaveCount(0)
   await openDock(page, 'assets-toggle')
   await expect(page.getByTestId('assets-overlay')).toContainText('No assets')
-  await openRail(page, 'Outputs')
-  await expect(page.getByTestId('outputs-panel')).toContainText('No execution selected')
+  await openRail(page, 'Runs')
+  await expect(page.getByTestId('runs-panel')).toContainText('No runs for this workflow')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.mouse.move(width / 2, height / 2)
@@ -773,31 +769,32 @@ test('Template gallery presents loading error retry and empty search states', as
   await capture('folder-form')
 })
 
-test('Focused panel explains an empty context and absent document', async ({ page }) => {
+test('Problems Selection only explains an empty selection and absent document', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'focused-empty', root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'selection-empty', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: {} },
     }, 'Empty workflow')
   })
-  await openRail(page, 'Focused')
-  const panel = page.getByTestId('context-panel')
-  await expect(panel.getByTestId('context-no-problems')).toHaveText('None in this context.')
+  await openRail(page, 'Problems')
+  const panel = page.getByTestId('problems-panel')
+  await panel.getByRole('checkbox', { name: 'Selection only' }).check()
+  await expect(panel.getByTestId('problems-selection')).toHaveText('Nothing selected')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
-    await screenshot(page, `focused-empty-${width}`)
+    await screenshot(page, `problems-selection-empty-${width}`)
   }
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { tabs: { set(value: readonly unknown[]): void } }
     app.tabs.set([])
   })
-  await expect(panel.getByText('No document is open.', { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('problems-selection')).toHaveText('Nothing selected')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
-    await screenshot(page, `focused-no-document-${width}`)
+    await screenshot(page, `problems-selection-no-document-${width}`)
   }
 })
 

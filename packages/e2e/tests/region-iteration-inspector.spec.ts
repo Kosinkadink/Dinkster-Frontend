@@ -116,7 +116,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
       runtimeNodeId: 'outer', iterations: 2 } as never)
   })
 
-  await openRailPanel(page, 'Focused')
+  await openRailPanel(page, 'Runs')
   const regionPoint = await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((entry) => entry.id === 'outer')!
