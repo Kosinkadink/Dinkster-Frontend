@@ -2841,6 +2841,7 @@ export class AppState {
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
+  readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -5854,14 +5855,34 @@ export class AppState {
       : { command: 'batch', params: { invocations: normalized } as unknown as Json }
   }
 
-  /**
-   * Dispatch a document command to a tab's store. Rejections land in
-   * Problems (append; they do not clobber compile/submit diagnostics).
-   * Frozen tabs reject everything silently: read-only is a mode the UI
-   * communicates with a banner, not a per-gesture error.
-   */
+  refuseFrozenEdit(tab: Tab): CommandOutcome {
+    this.frozenEditRefusal.set({ tabId: tab.id })
+    return { ok: false, diagnostics: [] }
+  }
+
+  /** Frozen layout changes stay in the tab's local session, never its run artifact or persistence. */
+  private frozenPresentationCommand(invocation: CommandInvocation): boolean {
+    if (invocation.command === 'batch') {
+      const params = invocation.params
+      if (!params || typeof params !== 'object' || Array.isArray(params)) return false
+      const invocations = (params as JsonObject).invocations
+      if (!Array.isArray(invocations)) return false
+      return invocations.every((item: Json) => item !== null && typeof item === 'object' && !Array.isArray(item) &&
+        typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
+    }
+    return [
+      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
+      'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
+      'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
+      'view.setBookmark', 'view.clearBookmark',
+    ].includes(invocation.command)
+  }
+
+  /** Dispatch to the tab's session; ordinary command failures append to Problems. */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
-    if (tab.execution) return { ok: false, diagnostics: [] }
+    if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
     const effective = this.countAwareValueInvocation(tab, invocation)
     const outcome = tab.store.dispatch(effective)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)

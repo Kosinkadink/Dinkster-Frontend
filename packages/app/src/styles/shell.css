@@ -97,7 +97,7 @@
   content: '';
 }
 
-.tab.frozen { border-style: dashed; border-color: var(--dinkster-info-border); }
+.tab.frozen { border-color: var(--dinkster-border-subtle); }
 
 .tab-select {
   display: flex;

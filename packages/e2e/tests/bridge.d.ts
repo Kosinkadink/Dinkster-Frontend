@@ -521,6 +521,7 @@ interface DinksterTestBridge {
     setViewport(viewport: { x: number; y: number; scale: number }): void
     /** Grid preference as the renderer holds it (canvas.grid.visible). */
     getGridVisible(): boolean
+    getInactiveNodes(): ReadonlySet<string> | undefined
     /** Ephemeral overlay state; specs assert ghost-noodle persistence. */
     getOverlay(): {
       /** Selected ordinary and boundary-node scene ids. */

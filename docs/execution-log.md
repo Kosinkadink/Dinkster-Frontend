@@ -1,5 +1,31 @@
 # Execution log
 
+## Frozen run view
+
+The snowflake on a run row opens its queued snapshot, including for queued
+and running jobs. The tab uses a snowflake too. The quiet canvas line reports
+the job state, live-workflow divergence, and progress while running.
+
+A frozen tab allows moving and resizing nodes, collapsing nodes or their
+sections, moving groups and reroutes, and navigating, selecting or copying.
+These presentation changes last only until the tab closes: they never change
+the run snapshot, the live workflow, or a saved file. Reopening the run restores
+its original arrangement. Nodes outside the submitted run are dimmed with the
+same strength as the live canvas's inactive nodes; scheduled nodes that have
+not started yet remain at full strength. Run marks and outlines remain visible.
+
+Values, wires, adding or deleting nodes, bypassing and renaming are refused.
+An attempt shows one neutral pointer toast: "Frozen. Open as copy to edit."
+Fields and pins do not show edit hover highlights in a frozen tab.
+
+**Open as copy** opens the current arrangement as an editable workflow named
+"<workflow> copy", then "<workflow> copy 2" if that name is already open.
+**Go to live** returns to the source workflow when its tab is still open.
+A job submitted by another browser without a retained snapshot cannot be
+opened frozen; its snowflake is disabled with an explanatory tooltip.
+
+## Log records
+
 The Execution log is the per-run structured feed of what a workflow execution
 reported while it ran. It is a bottom-zone registered panel, separate from the
 app Activity panel: Activity records frontend and connection events, while the

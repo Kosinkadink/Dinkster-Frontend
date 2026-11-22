@@ -1,4 +1,9 @@
 {
+  "frozen.label": "Frozen",
+  "frozen.editHint": "Open as copy to edit.",
+  "frozen.refusal": "Frozen. {hint}",
+  "frozen.openCopy": "Open as copy",
+  "frozen.goLive": "Go to live",
   "projectsDialog.description": "Projects are saved in this engine's library. Tabs, backend connections, and layout stay on this device.",
   "projectsDialog.loading": "Loading projects",
   "projectNeeds.title": "Project needs",
