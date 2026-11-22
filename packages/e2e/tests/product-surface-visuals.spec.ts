@@ -427,18 +427,16 @@ test('runtime panel headers and backend add error at desktop and compact widths'
   }
 })
 
-test('Boundary prompt and definition empty states at desktop and compact widths', async ({ page }) => {
+test('Boundary is hidden at root and shows definition empty states at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await openRail(page, 'Boundary')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
       createWorkflow(): void
     }).createWorkflow())
-    await expect(page.getByTestId('boundary-prompt')).toContainText('Open a subgraph definition')
-    await expect(page.getByTestId('boundary-prompt').getByRole('button')).toHaveCount(0)
-    await screenshot(page, `boundary-prompt-${width}`)
+    await expect(page.getByTestId('boundary-panel')).toHaveCount(0)
+    await expect(page.getByTestId('dock-tab-boundary')).toHaveCount(0)
     expect(await page.evaluate(async () => {
       const app = window.__dinksterTest!.app
       // Blank workflow creation starts promotion without waiting for it.
@@ -462,10 +460,17 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
       } },
       }, 'Boundary visual')
     })).toEqual([])
-    const open = page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Nested workflow', exact: true })
-    await expect(open).toBeEnabled()
-    await screenshot(page, `boundary-open-definition-${width}`)
-    await open.click()
+    await expect(page.getByTestId('boundary-panel')).toHaveCount(0)
+    const header = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'occurrence')!
+      const point = { x: node.x + node.layout.width / 2, y: node.y + node.layout.headerHeight / 2 }
+      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: rect.left + point.x, y: rect.top + point.y }
+    })
+    await page.mouse.dblclick(header.x, header.y)
+    await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
     await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
     await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
