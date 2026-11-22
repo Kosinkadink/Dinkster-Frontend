@@ -943,8 +943,12 @@ fixed 56px height. At the standard 768px available-content boundary, a container
 query compacts `ProductWindowAction` labels to icons and moves service/identity
 labels into a metadata row inside the bar. Native reservations therefore reduce
 available space before the breakpoint is evaluated. Actions retain their full
-accessible name and title; pending actions reuse the shared disabled/focus and
-spinner behavior. The gallery's Window toolbar page demonstrates production,
+accessible name and title. An optional `shortcut` shows a keyboard hint beside
+the expanded action label; compact mode hides the hint but retains it in the
+button's title and accessible description without changing its action name.
+Changing or removing the shortcut updates both presentations. The hint is
+informational: the caller still owns shortcut registration and activation.
+Pending actions reuse the shared disabled/focus and spinner behavior. The gallery's Window toolbar page demonstrates production,
 QA/custom services, all three platforms, both app themes and idle/running/pending
 states. Supply a brand menu with an icon and the fixed QA/custom service labels;
 arbitrary environment names are outside this toolbar contract. These are shared
