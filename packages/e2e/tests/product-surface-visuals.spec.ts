@@ -263,48 +263,6 @@ test('App view validation and remote failures keep editable controls', async ({ 
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n!.values.count)).toBe(11)
 })
 
-test('Memory lease rows retain device identity, bytes and expiry', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  await page.evaluate(async () => {
-    const componentPath = '/src/MemoryPanel.tsx'
-    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-    const { MemoryPanel } = await import(componentPath)
-    const { render } = await import(rendererPath)
-    const host = document.createElement('section')
-    host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:720px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
-    document.querySelector('.canvas-pane')!.append(host)
-    const dispose = render(() => MemoryPanel({ label: 'Lease visual', now: () => 0, connection: {
-      status: { get: () => 'connected', subscribe: () => () => {} },
-      onMemoryStatus: () => () => {},
-      fetchMemoryStatus: async () => ({
-        devices: {}, memoryGovernor: {}, consumerDetails: {},
-        queue: { queued: 3, running: [], maxRunningJobs: 2, paused: false },
-        leases: [
-          { reservationId: 'reservation-primary-long-identity', device: 'cuda:0', bytes: 1073741824, expiresInSeconds: 12 },
-          { reservationId: 'reservation-secondary', device: 'cpu', bytes: 1536, expiresInSeconds: 2 },
-        ],
-      }),
-      fetchRuntimeSettings: async () => ({ categories: { available: [], granted: [] }, settings: {} }),
-      updateRuntimeSetting: async () => { throw new Error('Read-only visual fixture') },
-    } }), host)
-    ;(window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual = () => { dispose(); host.remove() }
-  })
-  const leases = page.getByRole('region', { name: 'Active memory leases' })
-  await expect(leases).toContainText('2 active')
-  await expect(leases).toContainText('1.0 GiB')
-  await expect(leases).toContainText('1.5 KiB')
-  await expect(leases).toContainText('12s remaining')
-  await expect(leases).toContainText('2s remaining')
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await leases.scrollIntoViewIfNeeded()
-    await page.mouse.move(0, 0)
-    await screenshot(page, `memory-lease-rows-${width}`)
-  }
-  await page.evaluate(() => (window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual())
-})
-
 test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

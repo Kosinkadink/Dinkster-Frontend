@@ -1,8 +1,8 @@
 # Resources
 
-Open **Resources** from the left bar to inspect the connected backends. The stored panel identifier remains `memory`, so existing layouts and backend links still open the same panel. The open workflow's backend starts expanded. Other backends are compact rows with their total card usage; disconnected backends remain listed without numbers or controls.
+Open **Resources** from the left bar to inspect the connected backends. The stored panel identifier remains `memory`, so existing layouts and backend links still open the same panel. The open workflow's backend starts expanded. Other backends are compact rows with their total card usage; disconnected backends remain listed without numbers or controls. Backend-targeted navigation supplies a fresh `focusBackend: { id }` request to Resources; it expands that row without closing other rows, including repeated jumps to the same backend.
 
-Each graphics card has its own memory bar, two-minute usage graph and loaded-model list. The list uses the bytes resident on that card, not a model's combined host and device footprint. When model details or allocator measurements are absent, the bar shows measured usage only. Missing figures are omitted rather than displayed as zero.
+Each graphics card has its own memory bar, two-minute usage graph and loaded-model list. The list uses the bytes resident on that card, not a model's combined host and device footprint. Allocator-held-unused memory is reserved minus allocated, not reserved minus model residency. The residual is labeled Other memory because it also includes backend non-model allocations and driver overhead. When model details or allocator measurements are absent or inconsistent, the bar shows measured usage only. Missing figures are omitted rather than displayed as zero.
 
 Graphs use elapsed timestamps in a bounded two-minute, 120-sample in-memory window. They do not invent history before the panel was opened. Closing the panel or reloading clears the local history. A dashed line shows the card's memory limit when reported.
 
