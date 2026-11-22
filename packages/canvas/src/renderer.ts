@@ -39,6 +39,7 @@ import {
   selectorCandidatePinPosition,
   selectorOutPinPosition,
   valueSourceBadgeRect,
+  valueSourceMarkRect,
   type Scene,
   type SceneBoundaryNode,
   type SceneGroup,
@@ -4547,7 +4548,12 @@ export class CanvasRenderer {
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      const titleX = x + t.padX
+      let titleX = x + t.padX
+      if (vs.subgraphMark !== undefined) {
+        const mark = valueSourceMarkRect(vs, t.padX)
+        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
+        titleX += mark.size + canvasPaintTokens.widget.subgraphMark.gap
+      }
       const alpha = ctx.globalAlpha
       // A value the entered subgraph node sends reads like any arriving
       // value: a dimmed label and the value in the companion style.

@@ -13,7 +13,7 @@ import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT, layoutNode, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
+import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, scenesEqual, valueSourceMarkRect, type Scene, type SceneNode } from '../src/scene.js'
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
@@ -4426,6 +4426,70 @@ describe('Inputs panel fields', () => {
     expect(source()).toBe(4)
     expect(store.undo()).toBe(true)
     expect(source()).toBe(3)
+  })
+
+  it('marks a value source shown as a field: a pinless panel row, and its pill while a node is entered', () => {
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-source-mark', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: { set: { id: 'set', type: '#g1', values: { strength: 6 } } } },
+        g1: {
+          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
+          nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+          valueSources: { s0: { id: 's0', value: 3 } },
+          links: { l0: { id: 'l0', from: { valueSource: 's0' }, to: { node: 'inner', port: 'radius' } } },
+          boundary: {
+            inputs: [{ id: 'strength', promoted: true, binds: { kind: 'valueSource', valueSource: 's0', type: { kind: 'concrete', name: 'INT' } } }],
+            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+          },
+        },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } } } },
+    }).document as WorkflowDocument
+    const resolve = documentResolver(doc, (type) => type === 'Blur' ? blur : undefined)
+    const sceneOf = (entered: boolean) => buildScene({
+      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      ...(entered ? {
+        occurrence: { owner: { instancePath: [], node: asNodeId('set') }, plannerAvailable: false },
+        occurrenceView: occurrenceDynamicView(doc, resolve, ['set']),
+      } : {}),
+    })
+    for (const entered of [true, false]) {
+      const scene = sceneOf(entered)
+      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength') as Extract<LayoutRow, { kind: 'widget' }>
+      // The row's pin could start no wire, so the row has none either way.
+      expect(row.subgraphMark?.item).toBe('strength')
+      expect(panel.layout.pins.some((pin) => pin.portId === 'strength')).toBe(false)
+      expect(scene.valueSources.find((vs) => vs.id === 's0')!.subgraphMark).toEqual(entered ? row.subgraphMark : undefined)
+    }
+
+    const scene = sceneOf(true)
+    const pill = scene.valueSources.find((vs) => vs.id === 's0')!
+    const mark = valueSourceMarkRect(pill, defaultTokens.padX)
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const opened: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+      onValueSourceActivate: (vs) => opened.push(vs.id),
+    })
+    const click = (x: number, y: number) => {
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+    }
+    harness.fire('pointermove', mark.x + mark.size / 2, mark.y + mark.size / 2)
+    expect(hovers.at(-1)).toMatchObject({ kind: 'subgraphMark', mark: { item: 'strength' } })
+    click(mark.x + mark.size / 2, mark.y + mark.size / 2)
+    expect(activated).toEqual(['strength'])
+    expect(opened).toEqual([])
+    // Off the mark the pill still opens as before.
+    click(pill.x + pill.width - 24, pill.y + pill.height / 2)
+    expect(activated).toEqual(['strength'])
+    expect(opened).toEqual(['s0'])
   })
 
   it('rebuilds to an equal scene, so an unrelated document change keeps a drag in progress', () => {
