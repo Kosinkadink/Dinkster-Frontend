@@ -84,7 +84,7 @@ test('semantic rows and guarded Clear preserve exact activity facts', async ({ p
   await page.goto('/')
   const seeded = entries(3)
   await setEntries(page, seeded)
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
 
   const log = page.getByRole('log', { name: 'Activity events' })
   const rows = log.locator('.activity-log-row')
@@ -130,7 +130,7 @@ test('overflow, reader position, long content, narrow layout, and zoom remain co
   await page.goto('/')
   const seeded = entries(45)
   await setEntries(page, seeded)
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
 
   const log = page.getByRole('log', { name: 'Activity events' })
   const rows = log.locator('.activity-log-row')

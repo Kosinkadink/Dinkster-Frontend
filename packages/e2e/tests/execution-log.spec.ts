@@ -100,7 +100,8 @@ test('execution log panel shows live records and changes mounted chrome locale',
   })
   await page.setViewportSize({ width: 1600, height: 1000 })
   const seed = await seedRun(page)
-  await page.getByTestId('execution-log-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('dock-zone-bottom').getByRole('tab', { name: 'Execution log', exact: true }).click()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
 
   const rows = page.getByTestId('execution-log-row')
@@ -193,7 +194,8 @@ test('execution log panel shows live records and changes mounted chrome locale',
 
 test('tail follow pauses on scroll-up and resumes from the jump button', async ({ page }) => {
   const seed = await seedRun(page)
-  await page.getByTestId('execution-log-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('dock-zone-bottom').getByRole('tab', { name: 'Execution log', exact: true }).click()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
 
   await page.evaluate(({ execution }) => {
