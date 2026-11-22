@@ -71,6 +71,7 @@ export function ActivityBarButton(props: {
   readonly tooltipDetail?: string | undefined
   readonly pressed: boolean | undefined
   readonly panelId?: string | undefined
+  readonly suppressTooltipWhenPressed?: boolean | undefined
   readonly testId?: string | undefined
   readonly class?: string | undefined
   readonly onActivate: () => void
@@ -80,7 +81,7 @@ export function ActivityBarButton(props: {
       class={`sidebar-button${props.class ? ` ${props.class}` : ''}`}
       data-testid={props.testId}
       data-panel-toggle={props.panelId}
-      data-tooltip-label={props.tooltip}
+      data-tooltip-label={props.suppressTooltipWhenPressed && props.pressed ? undefined : props.tooltip}
       data-tooltip-detail={props.tooltipDetail}
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
