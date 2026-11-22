@@ -2735,7 +2735,7 @@ export class AppState {
     const existing = worlds?.get(pair.digest)
     if (existing) return this.extensionWorldLoads.get(existing)
     const world = new ExtensionWorld(connection, pair.digest, { ...this.extensionTargets, initialGates: loadGates() },
-      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]), globalThis.fetch)
+      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]))
     if (worlds === undefined) {
       worlds = new Map()
       this.extensionWorlds.set(connection, worlds)
