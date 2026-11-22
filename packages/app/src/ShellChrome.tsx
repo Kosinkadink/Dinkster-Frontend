@@ -19,6 +19,74 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import type { CommandRegistry } from './settings.js'
 import { useAppMessage } from './locale.js'
+import type { VisibleTooltip } from './tooltips.js'
+
+export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
+  const message = useAppMessage()
+  let element!: HTMLElement
+  let content!: HTMLDivElement
+  const position = (): void => {
+    const tip = props.tip
+    const rect = tip.element?.getBoundingClientRect()
+    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar'))
+    element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
+    content.style.removeProperty('-webkit-line-clamp')
+    const naturalHeight = element.getBoundingClientRect().height
+    let available = window.innerHeight - 16
+    let above = false
+    if (rect !== undefined && !beside) {
+      const belowSpace = window.innerHeight - rect.bottom - 16
+      const aboveSpace = rect.top - 16
+      above = naturalHeight > belowSpace && aboveSpace > belowSpace
+      available = above ? aboveSpace : belowSpace
+    }
+    if (naturalHeight > available) {
+      const chromeHeight = naturalHeight - content.getBoundingClientRect().height
+      const lineHeight = Number.parseFloat(getComputedStyle(content).lineHeight)
+      let lines = Math.max(1, Math.floor((available - chromeHeight) / lineHeight))
+      content.style.webkitLineClamp = String(lines)
+      while (lines > 1 && element.getBoundingClientRect().height > available) {
+        content.style.webkitLineClamp = String(--lines)
+      }
+    }
+    const { width, height } = element.getBoundingClientRect()
+    element.style.visibility = height > available ? 'hidden' : ''
+    let left = tip.x
+    let top = tip.y
+    if (rect !== undefined) {
+      if (beside) {
+        left = rect.right + 8
+        top = rect.top + (rect.height - height) / 2
+      } else {
+        left = rect.left + (rect.width - width) / 2
+        top = above ? rect.top - height - 8 : rect.bottom + 8
+      }
+    }
+    element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`
+    element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
+  }
+  createEffect(position)
+  onMount(() => {
+    const observer = new ResizeObserver(position)
+    observer.observe(element)
+    window.addEventListener('resize', position)
+    window.addEventListener('scroll', position, true)
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener('resize', position)
+      window.removeEventListener('scroll', position, true)
+    })
+  })
+  return (
+    <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
+      <div ref={content} role="tooltip">
+        <Show when={props.tip.title}><div class="app-tooltip-title">{props.tip.title}</div></Show>
+        <For each={props.tip.lines}>{(line) => <div>{line}</div>}</For>
+        <Show when={props.tip.detailed}><For each={props.tip.detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
+      </div>
+    </aside>
+  )
+}
 
 export function TransientStatus(props: { readonly message: string | undefined }) {
   return (
