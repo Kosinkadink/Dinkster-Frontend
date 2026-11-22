@@ -27,8 +27,8 @@ docs/editors.md (today's only editor kind is the graph canvas).
 
 The topbar uses `ProductWindowToolbar`, `ProductWindowAction` and
 `ProductIconButton`. Other shell actions use `ProductButton`: compact ghost
-controls in the status bar, secondary output-inspection actions, and a danger
-action for discarding a dirty tab. Menu refs, autofocus,
+controls in the status bar and secondary output-inspection actions. Discarding
+dirty tabs uses the shared `@dinkster/ui` solid-remove button. Menu refs, autofocus,
 disabled state, keyboard handling, and native button activation remain on the
 underlying button. Surface CSS supplies layout, not a separate control skin.
 
@@ -208,6 +208,31 @@ qualifiers, context actions, and live-preview choices follow the active locale
 while mounted. An open context menu and preview submenu update in place without
 changing the active workflow, tab identity, focus, scroll position, preview
 override, or caller-owned workflow title.
+
+Each tab keeps its kind icon: workflow, app, curve, shader source, or a
+file for an extension-defined editor. A running job breathes that same icon
+in cyan rather than replacing it with a spinner; reduced motion keeps it
+still. Queued work is cyan without motion. The run that ended most recently
+puts a cyan dot at the icon's lower right on completion, or a coral dot on
+failure or interruption; user cancellation has no dot. An edit or a new run
+clears the result.
+Run ownership follows the document lineage, independently of canvas overlay
+pins, and frozen tabs show only their own run. The unsaved marker is secondary
+text gray in the close button's place; hover or keyboard focus reveals Close.
+
+The tab context menu groups document actions, placement and sharing, preview
+and queue target settings, and close actions. Rename edits the title inline:
+Enter, Tab or blur stores a trimmed nonempty name; Escape or an empty name
+cancels. Double-clicking a title starts the same edit. The new name stays
+unsaved until Save writes it to the library and is used by Export. Rename is
+not offered for frozen snapshots or non-document editors. Titles follow the
+existing local workspace/window authority; they are not remote collaboration
+document edits.
+Duplicate creates an independent unsaved workflow on the same backend, without
+library links or run history, immediately after its source in the same group.
+It uses "<title> copy", then "copy 2" and so on; a frozen snapshot becomes an
+editable graph. Close others affects only the current split group. If any
+others are dirty, one confirmation names them; Cancel closes none.
 
 A workflow tab is as wide as its title and its close button, up to 220 px; a
 longer title ends in an ellipsis and shows in full in a tooltip on hover or
