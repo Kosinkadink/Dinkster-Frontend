@@ -337,40 +337,8 @@
   white-space: pre-wrap;
 }
 
-.problem-show-on-canvas,
-.problem-show-in-context {
+.problem-show-on-canvas {
   margin-top: 6px;
-}
-
-.problem-show-in-context {
-  margin-left: 6px;
-  user-select: none;
-}
-
-/* Context panel: the focused entity plus only its problems. */
-.context-panel .context-summary {
-  margin: 4px 0 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-subtle);
-}
-
-.context-panel .context-kind {
-  display: block;
-  font-size: 12px;
-}
-
-.context-panel .context-entities {
-  margin: 4px 0 0;
-  padding-left: 16px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.context-panel .context-entity-id {
-  color: var(--dinkster-text-secondary);
-  font-size: 11px;
 }
 
 .region-iteration-inspector {
@@ -461,14 +429,6 @@
 .region-iteration-value dd {
   min-width: 0;
   margin: 0;
-}
-
-.context-panel .context-problems-title {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin: 8px 0 4px;
-  font-size: 12px;
 }
 
 /* Panel attention badge (PanelIndicatorBadge): count with worst severity. */

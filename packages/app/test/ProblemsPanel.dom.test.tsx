@@ -142,7 +142,6 @@ describe('ProblemsPanel browser interactions', () => {
   it('updates mounted static chrome while preserving disclosure nodes and raw diagnostics', () => {
     registerCatalog('de-DE', {
       'shell.panel.problems.title': '[Probleme]',
-      'problems.action.showInFocused': '[Im Fokus zeigen]',
       'problems.action.showOnCanvas': '[Auf Leinwand zeigen]',
       'problems.section.packs': '[Pakete und Backend]',
       'problems.empty': '[Keine Probleme.]',
