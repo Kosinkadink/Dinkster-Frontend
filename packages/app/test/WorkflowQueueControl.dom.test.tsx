@@ -126,7 +126,7 @@ describe('WorkflowQueueControl', () => {
     expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('No active jobs')
 
     setEntries([execution(alpha, 'accepted-run', 'queued', 1)])
-    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('1 waiting')
+    expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('1 queued')
     expect(root.querySelector('[data-testid="workflow-queue-toggle"] [role="img"]')?.textContent).toBe('1')
     root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!.click()
     const entry = root.querySelector<HTMLElement>('[data-testid="workflow-queue-entry"]')!
@@ -151,9 +151,9 @@ describe('WorkflowQueueControl', () => {
       execution(alpha, 'failed', 'error', 5),
     ])
     const toggle = root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!
-    expect(toggle.getAttribute('aria-label')).toBe('3 running, 2 waiting: Hide runs for Alpha workflow')
+    expect(toggle.getAttribute('aria-label')).toBe('3 running, 2 queued: Hide runs for Alpha workflow')
     expect(toggle.getAttribute('data-running')).toBe('true')
-    expect(toggle.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('3 running, 2 waiting')
+    expect(toggle.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('3 running, 2 queued')
     expect(toggle.querySelector('[role="img"]')?.textContent).toBe('32')
 
     setEntries([execution(alpha, 'finished', 'completed', 4)])

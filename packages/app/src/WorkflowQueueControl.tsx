@@ -43,7 +43,7 @@ export function WorkflowQueueControl(props: {
     const { running, waiting } = activity()
     return [
       ...(running > 0 ? [`${running} running`] : []),
-      ...(waiting > 0 ? [`${waiting} waiting`] : []),
+      ...(waiting > 0 ? [`${waiting} queued`] : []),
     ].join(', ') || 'No active jobs'
   }
 
