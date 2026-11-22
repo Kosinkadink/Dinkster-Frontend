@@ -7016,13 +7016,17 @@ export class AppState {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
       const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
       const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
-      const resolver = documentResolver(document, resolve)
+      const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
       return boundaryPositions({
         document, graphId, resolve: resolver,
         tokens: defaultTokens, ...measurements,
         seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
         renderVirtualNode: (node) => this.virtualNodeKinds.get(node.type)?.render(node),
         occurrenceView: occurrenceDynamicView(document, resolver, path, path.length === 0 ? graphId : document.root),
+        ...(path.length > 0 ? { occurrence: {
+          owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
+          plannerAvailable: false,
+        } } : {}),
       })
     }
   }
