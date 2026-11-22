@@ -271,7 +271,6 @@
 
 .sidebar-toggle-stack::-webkit-scrollbar { display: none; }
 .sidebar-toggle-group { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 100%; }
-.sidebar-toggle-group-bottom { margin-top: auto; }
 
 .sidebar-button {
   position: relative;

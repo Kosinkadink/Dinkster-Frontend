@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('bottom zone repairs its rendered active tab across when flips and runtime registration', async ({ page }) => {
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const zone = page.getByTestId('dock-zone-bottom')
   await expect(zone.getByRole('tablist', { name: 'Bottom panels' })).toBeVisible()
 
@@ -417,7 +417,7 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
 
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const zone = page.getByTestId('dock-zone-bottom')
   await expect(page.getByTestId('bottom-panel')).toHaveAttribute('data-active-panel', 'logs')
   await expect(page.getByTestId('logs-panel')).toBeVisible()
@@ -435,12 +435,12 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   await zone.getByTestId('dock-zone-close').click()
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
-  await expect(page.getByTestId('logs-toggle')).toBeFocused()
+  await expect(page.getByTestId('bottom-panel-toggle')).toBeFocused()
 })
 
 test('bottom panel and rail toggles are independent of the dock', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await expect(page.getByTestId('dock-panel')).toBeVisible()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   await expect(page.getByTestId('queue-rail')).toBeVisible()
@@ -474,7 +474,7 @@ test('open bottom panel shrinks the canvas instead of covering it', async ({ pag
   const canvas = page.getByTestId('graph-canvas')
   const before = (await canvas.boundingBox())!
 
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await expect(page.getByTestId('bottom-panel')).toBeVisible()
   const after = (await canvas.boundingBox())!
 
@@ -550,7 +550,7 @@ test('rail and bottom panel are drag-resizable within bounds', async ({ page }) 
   expect(railAfter.width).toBeGreaterThan(railBefore.width + 100)
 
   // Bottom: drag its top-edge handle upward to grow, then far down to clamp.
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const panel = page.getByTestId('bottom-panel')
   const panelBefore = (await panel.boundingBox())!
   const topHandle = (await page.getByTestId('bottom-resize').boundingBox())!
@@ -572,7 +572,7 @@ test('rail and bottom panel are drag-resizable within bounds', async ({ page }) 
 
 test('layout persists across reload: open panels, rail state, and sizes', async ({ page }) => {
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await page.getByTestId('rail-toggle').click() // close the rail
 
   // Resize the dock so a persisted width is observable.
@@ -618,7 +618,7 @@ test('Customize Layout toggles supported regions and persists status bar visibil
   await waitForTemplateSetting()
   await waitForStartupOwnership(page)
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await page.getByTestId('dinkster-menu-button').click()
   await page.locator('[data-item-id="layout.customize"]').click()
   await expect(page.getByTestId('customize-layout')).toBeVisible()

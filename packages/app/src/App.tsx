@@ -1820,7 +1820,6 @@ export function App(props: {
   const bottomZonePanels = () => bottomView().panels
   const bottomActiveId = () => bottomView().activeId
   const dockPanels = leftPanels
-  const bottomPanels = bottomZonePanels
   const railPanels = () => railView().panels
   // Aggregate rail-panel indicators onto the region toggle, so attention
   // stays discoverable while the rail is collapsed or the panel's tab is
@@ -2191,7 +2190,8 @@ export function App(props: {
   const closeZone = (zone: Extract<DockZoneId, 'left' | 'bottom'>): void => {
     const activeId = zoneView(zone).activeId
     app.dock.setOpen(zone, false)
-    if (activeId !== undefined) focusPanelToggle(activeId)
+    if (zone === 'left' && activityBarVisible() && activeId !== undefined) focusPanelToggle(activeId)
+    else queueMicrotask(() => shellEl.querySelector<HTMLButtonElement>(`[data-testid="${zone === 'bottom' ? 'bottom' : 'left'}-panel-toggle"]`)?.focus())
   }
   const closeRail = (): void => {
     app.dock.setOpen('right', false)
@@ -2750,31 +2750,15 @@ export function App(props: {
                     icon={panel.icon}
                     label={panel.title}
                     accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
+                    tooltip={panel.title}
+                    tooltipDetail={panel.description}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
-                    suppressTooltipWhenPressed={true}
                     testId={panel.toggleTestId}
                     onActivate={() => {
                       tooltips.hide()
                       toggleSidebarPanel(panel.id)
                     }}
-                  />
-                )}
-              </For>
-            </div>
-            <div class="sidebar-toggle-group sidebar-toggle-group-bottom" data-testid="bottom-toggle-group">
-              <For each={bottomPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
-                    icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
-                    pressed={sidebarPressed(panel.id)}
-                    panelId={panel.id}
-                    testId={panel.toggleTestId}
-                    onActivate={() => toggleSidebarPanel(panel.id)}
                   />
                 )}
               </For>
