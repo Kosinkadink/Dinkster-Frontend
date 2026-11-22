@@ -1,17 +1,10 @@
 {
   "nodes": {
     "std.math.add_ints": {
-      "category": "math",
-      "description": "",
-      "displayName": "Add Ints",
-      "idempotent": true,
-      "nodeType": "std.math.add_ints",
-      "schemaVersion": 2,
-      "version": 1,
       "body": [
         {
-          "kind": "input",
           "id": "a",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -21,9 +14,9 @@
           }
         },
         {
-          "kind": "input",
           "default": 1,
           "id": "b",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -33,8 +26,8 @@
           }
         },
         {
-          "kind": "output",
           "id": "sum",
+          "kind": "output",
           "type": {
             "kind": "concrete",
             "types": [
@@ -42,20 +35,21 @@
             ]
           }
         }
-      ]
+      ],
+      "category": "math",
+      "description": "",
+      "displayName": "Add Ints",
+      "idempotent": true,
+      "interface": [],
+      "nodeType": "std.math.add_ints",
+      "schemaVersion": 2,
+      "version": 1
     },
     "test.absence": {
-      "category": "test",
-      "description": "",
-      "displayName": "Absence",
-      "idempotent": true,
-      "nodeType": "test.absence",
-      "schemaVersion": 2,
-      "version": 1,
       "body": [
         {
-          "kind": "input",
           "id": "must",
+          "kind": "input",
           "onAbsent": "fail",
           "required": true,
           "type": {
@@ -66,8 +60,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "tolerant",
+          "kind": "input",
           "onAbsent": "accept",
           "required": true,
           "type": {
@@ -78,8 +72,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "maybe",
+          "kind": "input",
           "required": false,
           "type": {
             "kind": "concrete",
@@ -89,8 +83,8 @@
           }
         },
         {
-          "kind": "output",
           "id": "image",
+          "kind": "output",
           "type": {
             "kind": "concrete",
             "types": [
@@ -99,10 +93,10 @@
           }
         },
         {
-          "kind": "output",
-          "tooltip": "present when detected",
           "id": "mask",
+          "kind": "output",
           "optional": true,
+          "tooltip": "present when detected",
           "type": {
             "kind": "concrete",
             "types": [
@@ -110,21 +104,21 @@
             ]
           }
         }
-      ]
-    },
-    "test.editor_metadata": {
+      ],
       "category": "test",
       "description": "",
-      "displayName": "Editor Metadata",
-      "editorRole": "video-edit",
+      "displayName": "Absence",
       "idempotent": true,
-      "nodeType": "test.editor_metadata",
+      "interface": [],
+      "nodeType": "test.absence",
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.editor_metadata": {
       "body": [
         {
-          "kind": "input",
           "id": "edit",
+          "kind": "input",
           "required": false,
           "type": {
             "kind": "concrete",
@@ -140,21 +134,23 @@
             "type": "VIDEO_EDIT"
           }
         }
-      ]
-    },
-    "test.families": {
+      ],
       "category": "test",
       "description": "",
-      "displayName": "Families",
+      "displayName": "Editor Metadata",
+      "editorRole": "video-edit",
       "idempotent": true,
-      "nodeType": "test.families",
+      "interface": [],
+      "nodeType": "test.editor_metadata",
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.families": {
       "body": [
         {
-          "kind": "input",
           "default": 0,
           "id": "bias",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -164,12 +160,22 @@
           }
         },
         {
-          "kind": "group",
+          "grows": "link",
           "id": "operands",
+          "keys": {
+            "numbered": {
+              "pad": 0,
+              "prefix": "value",
+              "start": 0
+            }
+          },
+          "kind": "group",
+          "maxMembers": 8,
+          "minMembers": 2,
           "tooltip": "grows",
           "value": {
-            "kind": "input",
             "id": "value",
+            "kind": "input",
             "required": true,
             "type": {
               "kind": "concrete",
@@ -177,24 +183,22 @@
                 "INT"
               ]
             }
-          },
-          "keys": {
-            "numbered": {
-              "prefix": "value",
-              "start": 0,
-              "pad": 0
-            }
-          },
-          "grows": "link",
-          "minMembers": 2,
-          "maxMembers": 8
+          }
         },
         {
-          "kind": "group",
+          "grows": "link",
           "id": "extras",
+          "keys": {
+            "numbered": {
+              "pad": 0,
+              "prefix": "value",
+              "start": 0
+            }
+          },
+          "kind": "group",
           "value": {
-            "kind": "input",
             "id": "value",
+            "kind": "input",
             "required": true,
             "type": {
               "kind": "concrete",
@@ -202,20 +206,11 @@
                 "std.image"
               ]
             }
-          },
-          "keys": {
-            "numbered": {
-              "prefix": "value",
-              "start": 0,
-              "pad": 0
-            }
-          },
-          "grows": "link",
-          "minMembers": 0
+          }
         },
         {
-          "kind": "output",
           "id": "out",
+          "kind": "output",
           "type": {
             "kind": "concrete",
             "types": [
@@ -224,46 +219,44 @@
           }
         },
         {
-          "kind": "group",
+          "grows": "link",
           "id": "parts",
+          "keys": {
+            "numbered": {
+              "pad": 0,
+              "prefix": "part",
+              "start": 0
+            }
+          },
+          "kind": "group",
+          "maxMembers": 4,
+          "minMembers": 1,
           "value": {
-            "kind": "output",
             "id": "part",
+            "kind": "output",
             "type": {
               "kind": "concrete",
               "types": [
                 "STRING"
               ]
             }
-          },
-          "keys": {
-            "numbered": {
-              "prefix": "part",
-              "start": 0,
-              "pad": 0
-            }
-          },
-          "grows": "link",
-          "minMembers": 1,
-          "maxMembers": 4
+          }
         }
-      ]
-    },
-    "test.hints": {
+      ],
       "category": "test",
       "description": "",
-      "displayName": "Hints",
+      "displayName": "Families",
       "idempotent": true,
-      "nodeType": "test.hints",
-      "occupies": [
-        "gpu"
-      ],
+      "interface": [],
+      "nodeType": "test.families",
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.hints": {
       "body": [
         {
-          "kind": "input",
           "id": "image",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -273,8 +266,8 @@
           }
         },
         {
-          "kind": "output",
           "id": "out",
+          "kind": "output",
           "type": {
             "kind": "concrete",
             "types": [
@@ -282,22 +275,25 @@
             ]
           }
         }
-      ]
-    },
-    "test.numeric_union": {
+      ],
       "category": "test",
       "description": "",
-      "displayName": "Frame rate",
+      "displayName": "Hints",
       "idempotent": true,
-      "nodeType": "test.numeric_union",
-      "outputNode": true,
+      "interface": [],
+      "nodeType": "test.hints",
+      "occupies": [
+        "gpu"
+      ],
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.numeric_union": {
       "body": [
         {
-          "kind": "input",
           "default": 25.0,
           "id": "frame_rate",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "union",
@@ -314,23 +310,25 @@
             "type": "NUMBER"
           }
         }
-      ]
+      ],
+      "category": "test",
+      "description": "",
+      "displayName": "Frame rate",
+      "idempotent": true,
+      "interface": [],
+      "nodeType": "test.numeric_union",
+      "outputNode": true,
+      "schemaVersion": 2,
+      "version": 1
     },
     "test.primitives": {
-      "category": "test",
-      "description": "every widget-derivable primitive",
-      "displayName": "Primitives",
-      "idempotent": true,
-      "nodeType": "test.primitives",
-      "schemaVersion": 2,
-      "version": 1,
       "body": [
         {
-          "kind": "input",
           "default": 4,
-          "tooltip": "how many",
           "id": "count",
+          "kind": "input",
           "required": true,
+          "tooltip": "how many",
           "type": {
             "kind": "concrete",
             "types": [
@@ -339,9 +337,9 @@
           }
         },
         {
-          "kind": "input",
           "default": 0.5,
           "id": "scale",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -351,9 +349,9 @@
           }
         },
         {
-          "kind": "input",
           "default": "hi",
           "id": "label",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -363,9 +361,9 @@
           }
         },
         {
-          "kind": "input",
           "default": true,
           "id": "enabled",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -375,8 +373,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "image",
+          "kind": "input",
           "required": false,
           "type": {
             "kind": "concrete",
@@ -386,8 +384,8 @@
           }
         },
         {
-          "kind": "output",
           "id": "out",
+          "kind": "output",
           "type": {
             "kind": "concrete",
             "types": [
@@ -395,22 +393,22 @@
             ]
           }
         }
-      ]
+      ],
+      "category": "test",
+      "description": "every widget-derivable primitive",
+      "displayName": "Primitives",
+      "idempotent": true,
+      "interface": [],
+      "nodeType": "test.primitives",
+      "schemaVersion": 2,
+      "version": 1
     },
     "test.selection_directory_dataset": {
-      "category": "",
-      "description": "",
-      "displayName": "",
-      "idempotent": true,
-      "nodeType": "test.selection_directory_dataset",
-      "outputNode": true,
-      "schemaVersion": 2,
-      "version": 1,
       "body": [
         {
-          "kind": "input",
           "default": "dataset",
           "id": "name",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -425,22 +423,23 @@
             "type": "ASSET"
           }
         }
-      ]
-    },
-    "test.selection_directory_input": {
+      ],
       "category": "",
       "description": "",
       "displayName": "",
       "idempotent": true,
-      "nodeType": "test.selection_directory_input",
+      "interface": [],
+      "nodeType": "test.selection_directory_dataset",
       "outputNode": true,
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.selection_directory_input": {
       "body": [
         {
-          "kind": "input",
           "default": "train/set",
           "id": "name",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -455,22 +454,23 @@
             "type": "ASSET"
           }
         }
-      ]
-    },
-    "test.selection_model_diffusers": {
+      ],
       "category": "",
       "description": "",
       "displayName": "",
       "idempotent": true,
-      "nodeType": "test.selection_model_diffusers",
+      "interface": [],
+      "nodeType": "test.selection_directory_input",
       "outputNode": true,
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.selection_model_diffusers": {
       "body": [
         {
-          "kind": "input",
           "default": "vendor/model",
           "id": "name",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "concrete",
@@ -485,22 +485,23 @@
             "type": "ASSET"
           }
         }
-      ]
-    },
-    "test.selection_model_vae": {
+      ],
       "category": "",
       "description": "",
       "displayName": "",
       "idempotent": true,
-      "nodeType": "test.selection_model_vae",
+      "interface": [],
+      "nodeType": "test.selection_model_diffusers",
       "outputNode": true,
       "schemaVersion": 2,
-      "version": 1,
+      "version": 1
+    },
+    "test.selection_model_vae": {
       "body": [
         {
-          "kind": "input",
           "default": "pixel_space",
           "id": "name",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "union",
@@ -516,20 +517,22 @@
             "type": "ASSET"
           }
         }
-      ]
+      ],
+      "category": "",
+      "description": "",
+      "displayName": "",
+      "idempotent": true,
+      "interface": [],
+      "nodeType": "test.selection_model_vae",
+      "outputNode": true,
+      "schemaVersion": 2,
+      "version": 1
     },
     "test.types": {
-      "category": "test",
-      "description": "",
-      "displayName": "Types",
-      "idempotent": false,
-      "nodeType": "test.types",
-      "schemaVersion": 2,
-      "version": 1,
       "body": [
         {
-          "kind": "input",
           "id": "either",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "union",
@@ -540,16 +543,16 @@
           }
         },
         {
-          "kind": "input",
           "id": "anything",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "wildcard"
           }
         },
         {
-          "kind": "input",
           "id": "t_in",
+          "kind": "input",
           "required": true,
           "type": {
             "kind": "variable",
@@ -557,8 +560,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "c_in",
+          "kind": "input",
           "required": true,
           "type": {
             "allowed": [
@@ -570,8 +573,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "ints",
+          "kind": "input",
           "required": true,
           "type": {
             "element": {
@@ -584,8 +587,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "matrix",
+          "kind": "input",
           "required": true,
           "type": {
             "element": {
@@ -601,8 +604,8 @@
           }
         },
         {
-          "kind": "input",
           "id": "items",
+          "kind": "input",
           "required": true,
           "type": {
             "element": {
@@ -613,14 +616,22 @@
           }
         },
         {
-          "kind": "output",
           "id": "t_out",
+          "kind": "output",
           "type": {
             "kind": "variable",
             "templateId": "T"
           }
         }
-      ]
+      ],
+      "category": "test",
+      "description": "",
+      "displayName": "Types",
+      "idempotent": false,
+      "interface": [],
+      "nodeType": "test.types",
+      "schemaVersion": 2,
+      "version": 1
     }
   },
   "schemaVersion": 2
