@@ -8476,85 +8476,6 @@ export class AppState {
     readonly project: string
     readonly generation: number | undefined
   }>()
-  private readonly pendingResultReads = new Map<string, {
-    readonly backend: Backend
-    readonly jobRef: string
-    readonly nodeId: string
-    readonly outputId: string
-    readonly current: () => boolean
-  }>()
-  private readonly resultAssetOwners = new Map<string, {
-    readonly backend: Backend
-    readonly retained: RetainedAssets
-    readonly project: string
-    readonly generation: number | undefined
-    readonly execution?: string
-    readonly interim?: true
-    readonly reader?: RetainedAssetReader
-    readonly valueKey?: string
-    readonly valueSlot?: string
-    readonly storage?: Storage
-    observed?: boolean
-    drained?: boolean
-  }>()
-
-  private mayAdoptResult(retained: RetainedAssets): boolean {
-    return this.resultHolderCensus.mayAdopt(retained.ownerId) && resultReceiptCurrent(retained)
-  }
-
-  private trackResultOwner(backend: Backend, retained: RetainedAssets, ref?: ExecutionRef): void {
-    if (!this.mayAdoptResult(retained)) throw new Error('Result ownership changed before publication')
-    this.resultAssetOwners.set(retained.ownerId, { backend, retained, project: activeProjectId(),
-      generation: this.assetConnectionGenerations.get(backend.connection),
-      ...(ref === undefined ? {} : { execution: executionKey(ref), interim: true, observed: true }) })
-  }
-
-  private retireUnusedResultOwners(): void {
-    if (this.disposed || this.resultAssetOwners.size === 0) return
-    const persisted = persistedResultReferences()
-    if (persisted === undefined) return
-    const live = new Set([...this.store.executions.get().values()].flatMap((state) =>
-      (state.assetRetentions ?? []).map((receipt) => receipt.ownerId)))
-    for (const [id, owner] of this.resultAssetOwners) {
-      const { backend, retained } = owner
-      if (activeProjectId() !== owner.project ||
-        (this.backendFor(backend.id) ?? this.retiredBackends.get(backend.id)) !== backend ||
-        this.assetConnectionGenerations.get(backend.connection) !== owner.generation) continue
-      if (live.has(id) || persisted.ownerIds.has(id)) continue
-      if (owner.execution !== undefined) {
-        const state = this.store.executions.get().get(owner.execution)
-        const replacements = state?.assetRetentions
-        // A sealed terminal result and its producing document replace the
-        // interim declaration only when every known root remains retained.
-        const replaced = owner.interim === true && replacements !== undefined && replacements.length > 0 &&
-          replacements.every((receipt) => receipt.complete) &&
-          retained.digests.every((digest) => replacements.some((receipt) => receipt.digests.includes(digest)))
-        if (!replaced && (state !== undefined || persisted.executions.has(owner.execution) ||
-          this.pendingResultReads.has(owner.execution))) {
-          owner.observed = true
-          continue
-        }
-        // Absence alone cannot end a historical reader whose owning result
-        // lifetime this window has never observed.
-        if (!owner.observed) continue
-      }
-      if (owner.reader !== undefined && owner.drained !== true) {
-        if (owner.drained === undefined) {
-          owner.drained = false
-          void owner.reader.close().then(() => {
-            owner.drained = true
-            this.retireUnusedResultOwners()
-          })
-        }
-        continue
-      }
-      // Recheck references and connection authority after admitted work settles.
-      // Only this lifetime's locally admitted exact receipt can be released.
-      this.resultAssetOwners.delete(id)
-      void this.retireAssetOwner(backend.connection, retained)
-    }
-  }
-
   private workflowAssetReaderSequence = 0
   private readonly cachedAssetReaders = new WeakMap<object, Map<string, NonNullable<ReturnType<AppState['workflowAssetReader']>>>>()
 
@@ -9199,7 +9120,6 @@ export class AppState {
     stillCurrent: () => boolean,
     document: WorkflowDocument,
   ): Promise<Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined> {
-    const project = activeProjectId()
     if (result.ref.connection !== backend.id || result.proof.connection !== backend.id ||
       result.proof.schemaHash !== registry.hash) return undefined
     const history = await backend.connection.getHistoryRun(result.jobRef, LIBRARY_SCOPE)
@@ -9261,20 +9181,9 @@ export class AppState {
       const progress = jobNodes[nodeId]
       if (progress?.state !== 'done' && progress?.state !== 'cached') continue
       for (const outputId of outputIds) {
-        // This proof-validated read precedes publication of the restored entry.
-        const pending = { backend, jobRef: result.jobRef, nodeId, outputId, current: () => stillCurrent() &&
-          activeProjectId() === project && this.store.canRestoreCompleted(result.ref) }
-        if (!pending.current()) return null
-        const key = executionKey(result.ref)
-        this.pendingResultReads.set(key, pending)
-        let peek: ValuePeekResult
-        try {
-          peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
-          if (this.pendingResultReads.get(key) !== pending || !pending.current()) return null
-        } finally {
-          if (this.pendingResultReads.get(key) === pending) this.pendingResultReads.delete(key)
-          this.finishResultHolderDisposal()
-        }
+        if (!stillCurrent() || !this.store.canRestoreCompleted(result.ref)) return null
+        const peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
+        if (!stillCurrent() || !this.store.canRestoreCompleted(result.ref)) return null
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
             peek.status >= 500 || peek.reason === 'malformed-response') return null
@@ -9300,36 +9209,12 @@ export class AppState {
       }
     }
     if (Object.keys(nodes).length === 0) return undefined
-    const releasedReceipts: RetainedAssets[] = []
-    for (const receipt of result.assetRetentions ?? []) {
-      const observed = await backend.connection.fetchRetainedAssets(receipt)
-      if (!stillCurrent()) return null
-      if (canonicalJson(observed) === canonicalJson(receipt)) continue
-      const released = { ...receipt, revision: receipt.revision + 1, complete: true, digests: [], sourceToken: undefined }
-      if (!receipt.complete || canonicalJson(observed) !== canonicalJson(released)) {
-        throw new Error('Persisted result retention differs')
-      }
-      releasedReceipts.push(receipt)
-    }
-    const admitted = await this.retainTerminalExecutionAssets(backend,
-      { ref: result.ref, artifact: compiled.artifact, jobRef: result.jobRef, sourceDocument: result.sourceDocument },
-      job, this.resolverWithVirtualNodes(registry.resolve), stillCurrent, releasedReceipts)
-    if (admitted === undefined) return null
-    const assetRetentions = [...admitted]
-    const covered = new Set(admitted.flatMap((receipt) => receipt.digests))
-    const uncovered = [...new Set((result.assetRetentions ?? []).flatMap((receipt) => receipt.digests))]
-      .filter((digest) => !covered.has(digest)).sort()
-    if (uncovered.length > 0) {
-      assetRetentions.push(await retainExecutionAssets(backend.connection, result.ref, { complete: false, digests: uncovered }))
-      if (!stillCurrent()) return null
-    }
     return {
       ref: result.ref,
       artifact: compiled.artifact,
       nodes,
       outputs,
       artifacts: job.artifacts ?? [],
-      assetRetentions,
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
@@ -9338,7 +9223,6 @@ export class AppState {
     }
   }
 
-  private readonly restorationSourceReaders = new WeakMap<Backend, Map<string, Set<RetainedAssetReader>>>()
   private readonly resultRestorations = new WeakMap<Backend, { dirty: boolean }>()
   private pendingResultRestorations = 0
 
@@ -9362,97 +9246,6 @@ export class AppState {
     }
   }
 
-  private readonly resultHolderCensus = new ResultOwnerCensus(() => {
-    if (this.disposed) return undefined
-    const holders = new Set(this.resultAssetOwners.keys())
-    for (const reader of this.valueAssetReaders.keys()) holders.add(reader.retained.ownerId)
-    for (const state of this.store.executions.get().values()) {
-      for (const receipt of state.assetRetentions ?? []) holders.add(receipt.ownerId)
-    }
-    for (const tab of this.tabs.get()) {
-      const frozen = this.frozenAssetOwners.get(tab)
-      if (frozen !== undefined) holders.add(frozen.retained.ownerId)
-      const state = this.executionForTab(tab)
-      for (const receipt of state?.assetRetentions ?? []) holders.add(receipt.ownerId)
-    }
-    return holders
-  })
-  private readonly resultOwnerRecoveries = new WeakMap<Backend, Promise<void>>()
-
-  private reclaimReopenedResultOwners(backend: Backend, identity: ExecutionResultBackendIdentity): Promise<void> {
-    let pending = this.resultOwnerRecoveries.get(backend)
-    if (pending !== undefined) return pending
-    const project = activeProjectId()
-    const storage = globalThis.localStorage
-    const current = () => !this.disposed && activeProjectId() === project && globalThis.localStorage === storage &&
-      this.backends.get().includes(backend)
-    pending = (async () => {
-      const previous = await this.retentionClientFor(backend.baseUrl).reopenedHolders()
-      if (previous === undefined || !current()) return
-      const results = loadExecutionResults(identity)
-      const replacements = new Map<string, RetainedAssets[]>()
-      for (const result of results) {
-        const receipts: RetainedAssets[] = []
-        for (const retained of result.assetRetentions ?? []) {
-          if (!current()) return
-          // A peer's acknowledged persisted receipt can cover replacement roots;
-          // only this client's recovered holders are eligible for release below.
-          if (retained.complete &&
-            canonicalJson(await backend.connection.fetchRetainedAssets(retained)) === canonicalJson(retained)) {
-            receipts.push(retained)
-          }
-        }
-        replacements.set(executionKey(result.ref), receipts)
-      }
-      const persistedClass = new Set((previous.holders['6'] ?? []).map((owner) => canonicalJson(owner)))
-      const otherClasses = new Set(Object.entries(previous.holders).flatMap(([key, owners]) =>
-        key === '5' || key === '6' ? [] : owners.map((owner) =>
-          JSON.stringify([owner['scope'], owner['ownerKind'], owner['ownerId']]))))
-      for (const raw of previous.holders['5'] ?? []) {
-        if (!current()) return
-        try {
-          if (raw['scope'] !== 'local' || raw['ownerKind'] !== 'shown-result' || typeof raw['ownerId'] !== 'string' ||
-            !/^execution-result:[a-zA-Z0-9-]+$/.test(raw['ownerId']) || !persistedClass.has(canonicalJson(raw)) ||
-            otherClasses.has(JSON.stringify([raw['scope'], raw['ownerKind'], raw['ownerId']]))) continue
-          const retained = retainedAssetAcknowledgment(raw, { scope: 'local', ownerKind: 'shown-result',
-            ownerId: raw['ownerId'], holderClasses: [5, 6] })
-          if (retained.revision !== 1) continue
-          const intent = JSON.parse(storage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)) ?? 'null')
-          if (intent?.version !== 3 || typeof intent.executionKey !== 'string' ||
-            (intent.resultCensus !== undefined && intent.resultCensus !== 2)) continue
-          const replacement = replacements.get(intent.executionKey)
-          if (replacement === undefined || replacement.length === 0 ||
-            !retained.digests.every((digest) => replacement.some((owner) => owner.digests.includes(digest)))) continue
-          const release = async (): Promise<void> => {
-            const persisted = persistedResultReferences()
-            if (!current() || persisted === undefined || persisted.ownerIds.has(retained.ownerId) ||
-              !replacement.every((owner) => persisted.ownerIds.has(owner.ownerId)) ||
-              [...this.store.executions.get().values()].some((state) =>
-                state.assetRetentions?.some((owner) => owner.ownerId === retained.ownerId)) ||
-              this.resultAssetOwners.has(retained.ownerId)) return
-            await this.retireAssetOwner(backend.connection, retained)
-          }
-          // Historical documents never joined the census. Engine release keeps
-          // their bytes available for exact-source re-admission until collection.
-          if (intent.resultCensus === undefined) {
-            await release()
-            continue
-          }
-          if (!await this.resultHolderCensus.reclaim(retained.ownerId, release)) {
-            this.log('warn', 'Ownership', 'Result ownership census unavailable; participating receipts were kept.')
-            return
-          }
-        } catch {
-          // A malformed or changed owner never authorizes releasing its protection.
-        }
-      }
-    })().catch(() => { /* Failed enrollment or observation leaves historical owners protected. */ }).finally(() => {
-      if (this.resultOwnerRecoveries.get(backend) === pending) this.resultOwnerRecoveries.delete(backend)
-    })
-    this.resultOwnerRecoveries.set(backend, pending)
-    return pending
-  }
-
   private async restoreExecutionResults(
     backend: Backend & { readonly protocol: 'dinkster' },
     registry: SchemaRegistry,
@@ -9471,49 +9264,36 @@ export class AppState {
     }
     this.pendingResultRestorations += 1
     try {
-      await this.reclaimReopenedResultOwners(backend, identity)
-      if (!current()) return
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         if (!this.store.canRestoreCompleted(result.ref)) continue
         let held = this.store.get(result.ref)
         const resultCurrent = (): boolean => current() && this.store.get(result.ref) === held
-        let sources = this.restorationSourceReaders.get(backend)
-        if (sources === undefined) this.restorationSourceReaders.set(backend, (sources = new Map()))
-        const sourceKey = canonicalJson({ project, ref: result.ref, jobRef: result.jobRef,
-          sourceDocument: result.sourceDocument, proof: result.proof })
-        let readers = sources.get(sourceKey)
-        if (readers === undefined) sources.set(sourceKey, (readers = new Set()))
         try {
-          const restored = await this.readAssetPreview(backend.connection, result.sourceDocument, async () => {
-            const source = await backend.connection.fetchAssetText(result.sourceDocument)
-            if (!current()) return null
-            if (source === undefined) return undefined
-            let document: WorkflowDocument | undefined
-            try { document = loadDocument(JSON.parse(source) as unknown).document } catch { return undefined }
-            return document === undefined ? undefined : this.validatedExecutionResult(backend, registry, result, resultCurrent, document)
-          }, resultCurrent, async (candidate) => {
-            if (candidate == null || !resultCurrent()) return false
-            if (!this.store.canRestoreCompleted(candidate.ref)) return false
-            this.retainedRegistries.set(candidate.artifact, registry)
-            // Fresh source claims and snapshot ownership never retire another window's receipts.
-            for (const retained of candidate.assetRetentions ?? []) this.trackResultOwner(backend, retained)
-            this.store.restoreCompleted(candidate)
-            held = this.store.get(candidate.ref)
-            return held?.artifact === candidate.artifact
-          }, readers)
-          if (readers.size === 0) sources.delete(sourceKey)
+          const source = await backend.connection.fetchAssetText(result.sourceDocument)
           if (!current()) return
+          if (source === undefined) { removeExecutionResult(result); continue }
+          let document: WorkflowDocument
+          try {
+            const loaded = loadDocument(JSON.parse(source) as unknown).document
+            if (loaded === undefined) { removeExecutionResult(result); continue }
+            document = loaded
+          } catch { removeExecutionResult(result); continue }
+          const restored = await this.validatedExecutionResult(backend, registry, result, resultCurrent, document)
+          if (restored === null || !resultCurrent()) continue
           if (restored === undefined) removeExecutionResult(result)
-          this.retireUnusedResultOwners()
+          else if (this.store.canRestoreCompleted(restored.ref)) {
+            this.retainedRegistries.set(restored.artifact, registry)
+            this.store.restoreCompleted(restored)
+            held = this.store.get(restored.ref)
+          }
         } catch {
-          // A transport failure proves nothing; retry the retained record on a later reload.
+          // A transport failure proves nothing; retry the persisted result on a later reload.
         }
       }
     } finally {
       this.pendingResultRestorations -= 1
       unsubscribe()
-      this.finishResultHolderDisposal()
     }
   }
 
