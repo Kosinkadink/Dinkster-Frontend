@@ -134,6 +134,10 @@ A single side is temporarily capped to the available space without changing
 its saved width. Widening the window restores that width, not a closed side.
 The topbar search shrinks between its control groups on intermediate widths
 instead of letting its shortcut badge overlap the layout controls.
+Inside Desktop, the attached header reserves separate columns for the control
+groups, search and environment identity, within the native-button insets. At
+800 px and below the app menu uses the compact symbol rather than the full wordmark;
+its menu actions are unchanged. The header stays at the shared 56 px height.
 
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the

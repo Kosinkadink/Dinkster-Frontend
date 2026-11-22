@@ -38,6 +38,9 @@ for (const existing of [false, true]) {
       `<!doctype html><html><head><style>body {margin:0} main {font:31px serif} header {display:flex} button {margin-left:auto}</style></head><body>${existing ? '<header class="topbar"><span>Engine title</span><button type="button" onclick="this.textContent=\'Clicked\'">Existing control</button></header>' : ''}<main>Original content</main></body></html>`,
     )
     await page.addStyleTag({ content: artifact.css })
+    await page.addStyleTag({
+      content: '.topbar {display:grid;grid-template-columns:1fr 1fr;padding:8px;min-height:48px;background:white}',
+    })
     await page.addScriptTag({ content: installer })
     for (const platform of ['win32', 'linux', 'darwin'] as const) {
       for (const theme of ['dark', 'light'] as const) {
@@ -71,6 +74,9 @@ for (const existing of [false, true]) {
             '[QA]Development',
           )
           const bounds = (await bar.boundingBox())!
+          expect(bounds.height).toBe(56)
+          await expect(bar).toHaveCSS('padding-top', '0px')
+          await expect(bar).toHaveCSS('padding-bottom', '0px')
           const identity = (await bar
             .locator('.dinkster-window-identity')
             .boundingBox())!

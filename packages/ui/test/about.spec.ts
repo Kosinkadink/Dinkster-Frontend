@@ -7,6 +7,9 @@ for (const width of [1280, 390]) {
   }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#desktop-about')
+    await page.addStyleTag({
+      content: '.dinkster-window-chrome { display:grid; padding:8px; min-height:48px; background:white }',
+    })
     for (const platform of ['win32', 'linux', 'darwin']) {
       const chrome = page.locator(
         `.dinkster-window-chrome[data-platform="${platform}"]`,

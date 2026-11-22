@@ -270,7 +270,7 @@ export function DinksterAppMenu(props: {
           }
         }}
       >
-        <BrandMark /><span class="app-menu-caret" aria-hidden="true" />
+        <BrandMark /><BrandMark symbol class="app-menu-compact-mark" /><span class="app-menu-caret" aria-hidden="true" />
       </ProductButton>
       <Show when={open()}>
         <ContextMenu
