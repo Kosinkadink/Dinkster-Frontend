@@ -6,7 +6,7 @@
 
 import type { TypeExpr } from '@dinkster/core'
 import type { LayoutRow, PinLayout } from './layout.js'
-import { canvasPaintTokens, type CanvasDetailLevel } from './tokens.js'
+import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import {
   boundaryFieldNode,
   GROUP_HEADER_HEIGHT,
@@ -35,7 +35,8 @@ export const PIN_HIT_RADIUS: number = canvasPaintTokens.hit.pinRadius
 /** Screen-space extent of each corner resize target. */
 export const RESIZE_HIT_SIZE = canvasPaintTokens.hit.resizeSize
 
-export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw'
+/** A node corner, or `s`: the bottom edge of a node whose preview is open, which sizes only its height. */
+export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw' | 's'
 
 /** World-space distance from a link's curve that still counts as a hit. */
 export const LINK_HIT_RADIUS: number = canvasPaintTokens.hit.linkRadius
@@ -107,6 +108,8 @@ export type Hit =
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'widget' }>
     }
+  /** The caption row of a preview or text result that folds it. */
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode }
   | { readonly kind: 'header'; readonly node: SceneNode }
   | { readonly kind: 'body'; readonly node: SceneNode }
   | { readonly kind: 'resize'; readonly node: SceneNode; readonly handle: ResizeHandle }
@@ -245,7 +248,22 @@ export function nodeResizeHandle(
   if (Math.abs(wx - right) <= corner && Math.abs(wy - top) <= corner) return 'ne'
   if (Math.abs(wx - right) <= corner && Math.abs(wy - bottom) <= corner) return 'se'
   if (Math.abs(wx - left) <= corner && Math.abs(wy - bottom) <= corner) return 'sw'
+  if (previewEdgeShown(node) && wx >= left && wx <= right) {
+    const edge = canvasPaintTokens.node.previewEdge
+    if (wy >= bottom - edge.hitAbove && wy <= bottom + edge.hitBelow) return 's'
+  }
   return undefined
+}
+
+/**
+ * True when a node's bottom edge carries the bar that sizes its open preview:
+ * the preview has its picture area, or its text result is open, and the node
+ * is not minimized.
+ */
+export function previewEdgeShown(node: SceneNode): boolean {
+  const l = node.layout
+  if (l.minimized === true) return false
+  return l.preview !== undefined ? l.preview.compact !== true : l.textOutput !== undefined && l.textOutput.folded !== true
 }
 
 /** The text box whose bottom-edge band holds the point, if any. */
@@ -270,6 +288,23 @@ export function minimizeArrowRect(node: SceneNode): { x: number; y: number; widt
   const { left, target } = canvasPaintTokens.node.minimizeArrow
   const size = Math.min(target, node.layout.headerHeight)
   return { x: node.x + left, y: node.y + (node.layout.headerHeight - size) / 2, width: size, height: size }
+}
+
+/**
+ * True when the point is on the caption row that folds a node's preview or
+ * text result. A caption with nothing to open (no picture yet, loading,
+ * failed) is ordinary node body.
+ */
+export function previewCaptionAt(node: SceneNode, wx: number, wy: number): boolean {
+  const l = node.layout
+  const region = l.preview !== undefined
+    ? l.preview.compact !== true || l.preview.folded === true ? l.preview : undefined
+    : l.textOutput
+  if (region === undefined) return false
+  const x = node.x + region.x
+  const y = node.y + region.y
+  return wx >= x && wx <= x + region.width &&
+    wy >= y && wy <= y + Math.min(region.height, defaultTokens.previewCaptionHeight)
 }
 
 /**
@@ -406,6 +441,9 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       const edge = textBoxEdgeAt(node, wx, wy)
       if (edge !== undefined && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'text-box-edge', node, row: edge }
+      }
+      if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
+        return { kind: 'preview-caption', node }
       }
       for (const row of l.rows) {
         if (row.kind === 'ports' || row.kind === 'fallback') continue

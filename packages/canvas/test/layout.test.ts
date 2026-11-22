@@ -557,13 +557,21 @@ describe('sizing', () => {
     expect(layout.pins.every((pin) => pin.minimized === true && pin.y === defaultTokens.headerHeight / 2)).toBe(true)
     expect(layout.pins.some((pin) => pin.type.kind === 'list')).toBe(true)
     expect(layout.pins.some((pin) => pin.type.kind === 'union')).toBe(true)
+    // Folded, a minimized node's preview is its caption row under the title.
     const compact = withCompactPreviewRegion(layout, defaultTokens)
     expect(compact.preview).toMatchObject({
       compact: true,
       y: defaultTokens.headerHeight + defaultTokens.previewGap,
-      height: defaultTokens.rowHeight,
+      height: defaultTokens.previewCaptionHeight,
     })
-    expect(withPreviewRegion(compact, defaultTokens)).toEqual(compact)
+    // Opened by its caption, the picture takes its height on the open node.
+    const openPreview = withPreviewRegion(
+      layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { size: { width: 400, height: 300 } }),
+      defaultTokens,
+    ).preview!
+    const opened = withPreviewRegion(layout, defaultTokens)
+    expect(opened.preview).toEqual({ ...compact.preview, compact: undefined, height: openPreview.height })
+    expect(opened.height).toBe(compact.height - defaultTokens.previewCaptionHeight + openPreview.height)
 
     // Rows the open node hides are laid out while minimized only for their
     // pins; a long label in the collapsed Advanced section must not widen it.
@@ -834,10 +842,37 @@ describe('in-node preview region', () => {
 
 describe('in-node text output region', () => {
 
-  it('uses one row for a one-line result and caps long results at six rows', () => {
+  it('shows at least two rows and at most six by default, and folds to the caption', () => {
     const base = doLayout([widget('w')])
-    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(defaultTokens.rowHeight)
-    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(defaultTokens.rowHeight * 6)
+    const caption = defaultTokens.previewCaptionHeight
+    const row = defaultTokens.rowHeight
+    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(caption + row * 2)
+    expect(withTextOutputRegion(base, defaultTokens, 4).textOutput?.height).toBe(caption + row * 4)
+    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(caption + row * 6)
+    const folded = withTextOutputRegion(base, defaultTokens, 20, true)
+    expect(folded.textOutput).toMatchObject({ height: caption, folded: true })
+    expect(folded.height).toBe(withTextOutputRegion(base, defaultTokens, 20).height - row * 6)
+  })
+
+  it('takes the node height in whole rows, at least two, and keeps the text boxes', () => {
+    const base = doLayout([widget('prompt', { type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'STRING', options: { multiline: true } } }), widget('w')])
+    const caption = defaultTokens.previewCaptionHeight
+    const row = defaultTokens.rowHeight
+    const two = withTextOutputRegion(base, defaultTokens, 1)
+    // A node made two and a half rows taller shows two more whole rows.
+    const taller = withTextOutputRegion({ ...base, height: two.height + row * 2.5 }, defaultTokens, 1)
+    expect(taller.textOutput?.height).toBe(caption + row * 4)
+    expect(taller.height).toBe(two.height + row * 2)
+    expect(taller.rows).toEqual(two.rows)
+    // Sized shorter than two rows, it keeps two.
+    expect(withTextOutputRegion({ ...base, height: base.minHeight + 1 }, defaultTokens, 6).textOutput?.height).toBe(caption + row * 2)
+    expect(two.minHeight).toBe(two.height)
+    // Dragging the bar moves the edge by whole rows.
+    const dragged = projectNodeLayoutHeight(two, two.height + row * 1.5, defaultTokens)
+    expect(dragged.textOutput?.height).toBe(caption + row * 3)
+    expect(dragged.height).toBe(two.height + row)
+    expect(dragged.rows).toEqual(two.rows)
+    expect(projectNodeLayoutHeight(two, 0, defaultTokens).textOutput?.height).toBe(caption + row * 2)
   })
 
 })

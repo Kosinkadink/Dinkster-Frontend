@@ -252,9 +252,9 @@ outline `border.group`, dark `#435557`; in light both keep `border.default`. Que
 
 The `sources/compare_*.py` scripts read their backgrounds and text from the
 palette; their fixed artwork colors do not change. Stored comparison sheets
-remain records of the approved artwork. The opaque Apple touch icon and
-`sources/export_favicons.py` retain their existing `#111316` background;
-that artwork is separate from the product's theme surfaces.
+remain records of the approved artwork. The opaque Apple touch icon uses the
+palette's dark canvas background through `sources/export_favicons.py`;
+its artwork, bounds-derived crop and inset are unchanged.
 
 Run `python sources/check_tokens.py` to recompute WCAG 2 sRGB
 relative-luminance contrast ratios directly from the JSON:

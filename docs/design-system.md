@@ -113,9 +113,10 @@ every core tab once.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
-  same attributes. It uses the label as a native title unless a nonempty
-  `data-tooltip-label` assigns hover/focus wording to the host tooltip.
-  `pending` shows the spinner and ignores presses under a
+  same attributes. A pressed icon-only toggle uses cyan without a box or fill;
+  its keyboard focus ring remains visible. It uses the label as a native title
+  unless a nonempty `data-tooltip-label` assigns hover/focus wording to the host
+  tooltip. `pending` shows the spinner and ignores presses under a
   stable name. A pending button, and a button that becomes disabled while it
   holds keyboard focus, stays focusable and is announced as unavailable, so
   focus is never dropped to the page. `ProductLink` is the text link.
@@ -342,8 +343,8 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
-The Problems panel uses ProductEmptyState when Selection only has no selected
-entity or no matching problems. Selection filtering and canvas navigation
+The Focused panel uses ProductEmptyState for an absent document and a context
+without problems. Context selection, problem filtering and canvas navigation
 remain independent of the empty presentation.
 
 Badge popovers use ProductEmptyState when error, log or problem details are

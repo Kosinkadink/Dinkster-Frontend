@@ -1,9 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
-test.use({ retentionApi: false })
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const EXAMPLES_ROOT = fileURLToPath(new URL('../../../docs/examples/loops-and-subgraphs/', import.meta.url))
@@ -113,7 +112,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 for (const [file, expected] of Object.entries(expectedResults)) {

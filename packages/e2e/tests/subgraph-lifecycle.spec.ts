@@ -1,5 +1,5 @@
 
-import { expect, openRailPanel, test, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
   if (mockLegacyDiscovery) {
@@ -111,7 +111,7 @@ test('creates an empty subgraph from universal search and drills into it', async
 
 test('previews and removes root-unreachable subgraph definitions', async ({ page }, testInfo) => {
   await ready(page, true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-cleanup-e2e', root: 'root',

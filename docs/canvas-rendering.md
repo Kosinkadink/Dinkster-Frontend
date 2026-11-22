@@ -137,10 +137,8 @@ subgraph mark `boxes`. A pack's badge has an icon when the pack names one.
 Static numeric widget edits reuse scene geometry when the effective interface
 is unchanged. Dynamic interfaces, subgraphs, conditional rows, sections and
 layout changes retain the full scene-build path. Each increment still commits
-its own document command and history entry. Existing finite numeric literals
-in static, concretely typed graphs also avoid repeating the asset-identity
-census. Dynamic or unresolved interfaces, value sources, subgraphs and asset
-changes keep the full ownership/admission path.
+its own document command and history entry. Document edits do not enumerate
+cleanup file lists or wait for cleanup acknowledgments.
 
 Canvas-only compilation for resident availability and preview recipe comparison
 waits until after a painted frame and a 100 ms editing pause. New edits replace

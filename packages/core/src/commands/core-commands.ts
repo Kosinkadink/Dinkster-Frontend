@@ -1888,6 +1888,9 @@ const viewSetNodeCollapsed: CommandDefinition = {
     const graphId = params.graphId
     for (const nodeId of nodeIds) {
       const viewNode = doc.view.graphs[graphId]?.nodes[nodeId]
+      if (viewNode?.minimizedPreviewOpen === true && (viewNode.collapsed === true) !== params.collapsed) {
+        tx.remove(['view', 'graphs', graphId, 'nodes', nodeId, 'minimizedPreviewOpen'])
+      }
       if (params.collapsed) {
         if (viewNode?.collapsed === true) continue
         ensureViewGraph(tx, graphId)
@@ -2122,6 +2125,44 @@ const viewSetTextBoxLines: CommandDefinition = {
     } else {
       if (!viewNode.textLines) tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId, 'textLines'], {})
       tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId, 'textLines', params.inputId], params.lines)
+    }
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
+// view.setPreviewFolded {graphId, nodeId, folded: boolean}
+//
+// Folds or opens a node's preview under its caption row. Pure view state.
+// An open node keeps its own choice; a minimized node starts folded and
+// keeps an opened preview only until it is minimized or restored again.
+// ---------------------------------------------------------------------------
+
+const viewSetPreviewFolded: CommandDefinition = {
+  id: 'view.setPreviewFolded',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.folded !== 'boolean') {
+      return [err('params.invalid', 'view.setPreviewFolded: params must be {graphId, nodeId, folded: boolean}')]
+    }
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `view.setPreviewFolded: unknown graph '${String(params.graphId)}'`)]
+    if (!def.nodes[params.nodeId]) {
+      return [err('node.missing', `view.setPreviewFolded: unknown node '${params.nodeId}'`)]
+    }
+    const graphId = params.graphId as string
+    const viewNode = doc.view.graphs[graphId]?.nodes[params.nodeId]
+    const key = viewNode?.collapsed === true ? 'minimizedPreviewOpen' : 'previewFolded'
+    const stored = key === 'minimizedPreviewOpen' ? !params.folded : params.folded
+    if ((viewNode?.[key] === true) === stored) return []
+    if (!stored) {
+      tx.remove(['view', 'graphs', graphId, 'nodes', params.nodeId, key])
+      return []
+    }
+    ensureViewGraph(tx, graphId)
+    if (!viewNode) {
+      tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId], { [key]: true })
+    } else {
+      tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId, key], true)
     }
     return []
   },
@@ -3322,6 +3363,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetNodeVideo,
   viewSetWidgetRepresentation,
   viewSetTextBoxLines,
+  viewSetPreviewFolded,
   viewSetSectionCollapsed,
   viewCreateGroup,
   viewMoveGroup,

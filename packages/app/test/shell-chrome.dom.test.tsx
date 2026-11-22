@@ -1132,6 +1132,34 @@ describe('DockZoneHost', () => {
     dispose()
   })
 
+  it('left dock titles follow selection and retain panel state and placement actions', () => {
+    const panels = [
+      zonePanel('one', {
+        allowedPlacements: ['dock', 'floating'],
+        component: () => <input aria-label="Panel draft" />,
+      }),
+      zonePanel('two', { allowedPlacements: ['dock', 'floating'] }),
+    ]
+    const { root, setActiveId, onRequestClose, dispose } = renderZone({ zone: 'left', titleOnly: true, panels, onFloat: () => {} })
+    const title = () => root.querySelector<HTMLElement>('[data-panel-title]')!
+    expect(title().textContent).toBe('Panel one')
+    const draft = root.querySelector<HTMLInputElement>('[aria-label="Panel draft"]')!
+    draft.value = 'Keep this draft'
+    setActiveId('two')
+    expect(title().textContent).toBe('Panel two')
+    setActiveId('one')
+    expect(root.querySelector<HTMLInputElement>('[aria-label="Panel draft"]')?.value).toBe('Keep this draft')
+    title().focus()
+    rightClick(title(), { clientX: 0, clientY: 0 })
+    expect(menuItems(root).map((item) => item.textContent?.trim())).toEqual(['Float'])
+    root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+    expect(document.activeElement).toBe(title())
+    click(root.querySelector('[data-testid="dock-zone-close"]')!)
+    expect(onRequestClose).toHaveBeenCalledOnce()
+    dispose()
+  })
+
   it('activating a tab reports the id; the host stays controlled', () => {
     const { root, activeId, dispose } = renderZone()
     click([...root.querySelectorAll('[role="tab"]')][1]!)

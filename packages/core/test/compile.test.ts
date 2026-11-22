@@ -1388,14 +1388,16 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects an invalid stored wire-15 choice without falling back', () => {
+  it('submits the default when a stored wire-15 choice has been removed', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
       type: 'Wire15Recursive',
       dynamic: { mode: { selected: 'gone' } },
     } } }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.target).toEqual({
+      class_type: 'Wire15Recursive', inputs: { mode: 'none' }, slotVariants: { mode: 'none' }, outputIds: [],
+    })
   })
 
   it('submits an explicitly stored first wire-15 option rather than a descriptor default', () => {

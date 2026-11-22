@@ -93,9 +93,11 @@ export async function compareCanvasFrames(
     fixture.previews = {
       ...fixture.previews,
       Image: { image, width: 320, height: 160 },
+      Folded: { image, width: 320, height: 160 },
       Cached: { image, width: 320, height: 160, state: 'cached' },
       Estimate: { image, width: 320, height: 160, state: 'estimate' },
       'Minimized image': { image, width: 320, height: 160 },
+      'Minimized opened': { image, width: 320, height: 160 },
     }
   }
   const node =
@@ -166,6 +168,7 @@ export async function compareCanvasFrames(
     renderer.setCompanions(fixture.companions)
     renderer.setToolbox(fixture.toolbox)
     renderer.setNodePreviews(fixture.previews)
+    renderer.setNodeOutputTexts(fixture.outputTexts)
     renderer.setViewport(viewport)
     return { canvas, renderer }
   }

@@ -8,10 +8,9 @@
  * Skips loudly if the shared backend is absent.
  */
 import { deflateSync } from 'node:zlib'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
-test.use({ retentionApi: false })
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -96,7 +95,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await addNativeBackend(page)
 })
 

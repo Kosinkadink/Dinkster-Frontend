@@ -21,14 +21,15 @@ import {
   type PortProblemMap,
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
-import { linkBounds, linkControlOffset, minimizeArrowRect } from './hit.js'
-import { animationFrameAt, containRect, minimizedStripContent, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
+import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
+import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
+import { projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
   GROUP_HEADER_HEIGHT,
   portEndKey,
+  previewFoldedOf,
   REROUTE_RADIUS,
   REROUTE_SOCKET_OFFSET,
   REROUTE_SOCKET_RADIUS,
@@ -59,7 +60,7 @@ import {
   type ToolboxRow,
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -362,9 +363,11 @@ export function previewSurfaceAffordanceRect(
   if (region === undefined) return undefined
   const paint = canvasPaintTokens.lensAffordance
   const size = paint.previewSize
+  const caption = Math.min(region.height, defaultTokens.previewCaptionHeight)
+  // Over the picture or text when there is one, else at the caption row's end.
   return {
     x: region.x + region.width - size - paint.previewInset,
-    y: region.y + paint.previewInset,
+    y: region.height > caption ? region.y + caption + paint.previewInset : region.y + (caption - size) / 2,
     width: size,
     height: size,
   }
@@ -393,6 +396,18 @@ type TypeAdornmentDescriptor = Readonly<{
   | { readonly anchor: 'link-midpoint'; readonly link: Scene['links'][number] }
   | { readonly anchor: 'node'; readonly node: SceneNode }
 )
+
+/**
+ * What a text result's caption says at its right end: the string's own lines,
+ * line breaks plus one, not counting a final line break. Like a picture's
+ * size, it does not change with the node's width.
+ */
+const textResultLineCount = (text: string): string => {
+  const own = text.replace(/\r\n?/g, '\n').replace(/\n$/, '')
+  if (own.length === 0) return 'empty'
+  const count = own.split('\n').length
+  return `${count} ${count === 1 ? 'line' : 'lines'}`
+}
 
 const boundedAdornmentText = (text: string): string =>
   text.length <= TYPE_ADORNMENT_MAX_TEXT
@@ -595,6 +610,10 @@ export interface OverlayState {
   readonly textBoxLines?: { readonly nodeId: string; readonly valueKey: string; readonly lines: number }
   /** The text box edge under the pointer, being dragged, or holding keyboard focus. */
   readonly textBoxEdge?: { readonly nodeId: string; readonly valueKey: string }
+  /** The node whose preview caption row is under the idle pointer. */
+  readonly hoveredPreviewCaption?: string
+  /** The node whose preview bar (its bottom edge) is under the pointer or being dragged. */
+  readonly previewEdge?: string
   /** Live node geometry used only for paint; committed as view.setNodeSize on release. */
   readonly resizePreview?: { readonly nodeId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Live group-drag offset (member nodes ride dragOffsets); committed as view.moveGroup. */
@@ -723,7 +742,7 @@ const modeDash = (mode: 'active' | 'muted' | 'bypassed', scale: number): number[
   return screenAwareDash(dash.world, dash.screen, scale)
 }
 
-/** The disclosure triangle shared by section rows and the title-bar minimize arrow. */
+/** The disclosure triangle shared by section rows, the title-bar minimize arrow and the preview caption's fold arrow. */
 function paintDisclosureArrow(ctx: CanvasRenderingContext2D, cx: number, cy: number, open: boolean): void {
   const paint = canvasPaintTokens.node.section
   ctx.beginPath()
@@ -984,7 +1003,8 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
+      'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
     for (const key of keys) {
@@ -1373,32 +1393,135 @@ export class CanvasRenderer {
     return Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, count))
   }
 
+  /** A decoded preview picture over the transparency checker. */
+  private paintPreviewPicture(
+    ctx: CanvasRenderingContext2D,
+    image: CanvasImageSource,
+    fit: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+  ): void {
+    const t = this.tokens
+    if (this.previewChecker === undefined) {
+      const size = canvasPaintTokens.preview.checkerSize
+      const half = size / 2
+      const tile = typeof OffscreenCanvas === 'undefined'
+        ? this.canvas.ownerDocument.createElement('canvas')
+        : new OffscreenCanvas(size, size)
+      tile.width = tile.height = size
+      const tileContext = tile.getContext('2d')!
+      tileContext.fillStyle = t.colors.widgetBackground
+      tileContext.fillRect(0, 0, size, size)
+      tileContext.fillStyle = t.colors.nodeBorder
+      tileContext.fillRect(0, 0, half, half)
+      tileContext.fillRect(half, half, half, half)
+      this.previewChecker = ctx.createPattern(tile, 'repeat')
+    }
+    ctx.fillStyle = this.previewChecker ?? t.colors.widgetBackground
+    ctx.fillRect(fit.x, fit.y, fit.width, fit.height)
+    try {
+      ctx.drawImage(image, fit.x, fit.y, fit.width, fit.height)
+    } catch {
+      // A closed/detached ImageBitmap must never kill the frame loop.
+    }
+  }
+
+  /**
+   * The caption row over a preview or text result: an arrow when it folds,
+   * the word, and at the right end what the region holds. Folded, a small
+   * picture stands before that detail.
+   */
+  private paintPreviewCaption(
+    ctx: CanvasRenderingContext2D,
+    rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+    caption: {
+      readonly arrow?: 'open' | 'folded' | undefined
+      readonly label: string
+      readonly detail: string
+      readonly detailColor: string
+      readonly detailFont: string
+      readonly thumbnail?: CanvasImageSource
+      readonly thumbnailSize?: { readonly width?: number; readonly height?: number }
+      readonly hovered: boolean
+    },
+  ): void {
+    const t = this.tokens
+    const paint = canvasPaintTokens.preview.caption
+    const cy = rect.y + rect.height / 2
+    if (caption.hovered) {
+      ctx.fillStyle = t.colors.widgetRaised
+      ctx.beginPath()
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.radius)
+      ctx.fill()
+    }
+    const ink = caption.arrow === undefined ? t.colors.valueMark : caption.hovered ? t.colors.title : t.colors.label
+    let x = rect.x + paint.padLeft
+    if (caption.arrow !== undefined) {
+      const arrowWidth = canvasPaintTokens.node.section.arrowHalfWidth * 2
+      ctx.fillStyle = ink
+      paintDisclosureArrow(ctx, x + arrowWidth / 2, cy, caption.arrow === 'open')
+      x += arrowWidth + paint.gap
+    }
+    const right = rect.x + rect.width - paint.padRight
+    ctx.font = `${t.fontSize}px ${t.fontFamily}`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = ink
+    const label = fitText(ctx, caption.label, Math.max(0, right - x))
+    ctx.fillText(label, x, cy)
+    const room = Math.max(0, right - (x + measureWidth(ctx, label) + paint.gap))
+    const size = caption.thumbnailSize
+    const thumbWidth = caption.thumbnail === undefined
+      ? 0
+      : size !== undefined && (size.width ?? 0) > 0 && (size.height ?? 0) > 0
+        ? Math.min(paint.thumbMaxWidth, paint.thumbHeight * size.width! / size.height!)
+        : paint.thumbMaxWidth
+    const thumb = thumbWidth > 0 && room >= thumbWidth
+    ctx.font = caption.detailFont
+    ctx.fillStyle = caption.detailColor
+    ctx.textAlign = 'right'
+    const detail = fitText(ctx, caption.detail, Math.max(0, room - (thumb ? thumbWidth + paint.gap : 0)))
+    ctx.fillText(detail, right, cy)
+    if (thumb) {
+      const detailWidth = detail === '' ? 0 : measureWidth(ctx, detail) + paint.gap
+      const box = { x: right - detailWidth - thumbWidth, y: cy - paint.thumbHeight / 2, width: thumbWidth, height: paint.thumbHeight }
+      this.paintPreviewPicture(ctx, caption.thumbnail!, size === undefined ? box : containRect(box, size))
+    }
+    ctx.textAlign = 'left'
+  }
+
   private sceneWithBodyRegions(scene: Scene): Scene {
     if (Object.keys(this.previews).length === 0 && Object.keys(this.outputTexts).length === 0 &&
         !scene.nodes.some((node) => node.previewCapable === true)) return scene
     const nodes = scene.nodes.map((node) => {
+      const folded = previewFoldedOf(node)
+      const preview = this.previews[node.id]
+      const outputText = this.outputTexts[node.id]
       if (node.layout.minimized === true) {
-        const content = minimizedStripContent(this.previews[node.id], this.outputTexts[node.id])
+        const content = minimizedStripContent(preview, outputText)
         return content === 'picture'
-          ? { ...node, layout: withPreviewRegion(node.layout, this.tokens) }
+          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, this.tokens) : withPreviewRegion(node.layout, this.tokens) }
           : content === 'text'
-            ? { ...node, layout: withTextOutputRegion(node.layout, this.tokens) }
+            ? { ...node, layout: withTextOutputRegion(node.layout, this.tokens, this.outputTextLineCount(node.layout, outputText!.text), folded) }
             : node
       }
-      const baseLayout = node.previewCapable === true
+      // Only the caption row: before a picture, while it loads or failed, and folded.
+      const panel = preview !== undefined && previewHasPanel(preview) && !folded
+      const baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
         ? withCompactPreviewRegion(node.layout, this.tokens)
         : node.layout
-      if (this.previews[node.id] !== undefined) {
-        return { ...node, layout: withPreviewRegion(baseLayout, this.tokens) }
+      if (panel) return { ...node, layout: withPreviewRegion(baseLayout, this.tokens) }
+      if (preview !== undefined && folded && previewHasPanel(preview)) {
+        return { ...node, layout: withFoldedPreviewRegion(baseLayout, this.tokens) }
       }
-      const outputText = this.outputTexts[node.id]
-      if (outputText !== undefined) {
+      if (preview === undefined && outputText !== undefined) {
+        // The text result takes the place of the caption row a node that
+        // can preview reserves before its first picture.
         return {
           ...node,
           layout: withTextOutputRegion(
-            baseLayout,
+            node.layout,
             this.tokens,
-            this.outputTextLineCount(baseLayout, outputText.text),
+            this.outputTextLineCount(node.layout, outputText.text),
+            folded,
           ),
         }
       }
@@ -1469,7 +1592,7 @@ export class CanvasRenderer {
     // Body regions follow which nodes have a preview and what each minimized
     // node has to show.
     const regionSignature = (map: PreviewMap): string => [
-      ...Object.keys(map).sort(),
+      ...Object.keys(map).sort().map((id) => `${id}:${previewHasPanel(map[id]!) ? 'panel' : 'caption'}`),
       ...this.baseScene.nodes
         .filter((node) => node.layout.minimized === true)
         .map((node) => `${node.id}:${minimizedStripContent(map[node.id], this.outputTexts[node.id]) ?? ''}`),
@@ -3488,6 +3611,9 @@ export class CanvasRenderer {
 
     const preview = this.previews[node.id]
     const outputText = this.outputTexts[node.id]
+    const captionHovered = this.overlay.hoveredPreviewCaption === sceneNode.id
+    const smallFont = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
+    const regionRadius = Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset)
     if (preview !== undefined && l.preview !== undefined) {
       const rect = {
         x: node.x + l.preview.x,
@@ -3495,104 +3621,57 @@ export class CanvasRenderer {
         width: l.preview.width,
         height: l.preview.height,
       }
-      ctx.fillStyle = t.colors.widgetBackground
-      ctx.strokeStyle = t.colors.nodeBorder
-      ctx.lineWidth = canvasPaintTokens.preview.stroke
-      ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset))
-      ctx.fill()
-      ctx.stroke()
-      const minimizedPreview = l.minimized === true
-      const farMedia = !minimizedPreview &&
-        (preview.kind === 'video' || preview.kind === 'audio') && detailLevel === 'overview'
-      const panel = splitPreviewRect(rect, t.previewCaptionHeight)
-      const mediaRect = farMedia || minimizedPreview ? rect : panel.media
-      if (farMedia) {
-        // Badge-only below the media visibility threshold.
-      } else if (preview.src !== undefined && (preview.kind === 'video' || preview.kind === 'audio')) {
-        // DOM owns ready audio/video at detail zoom. Canvas owns its caption
-        // below. A model3d preview keeps its src for the orbit overlay but
-        // paints its poster in-canvas like an image.
-      } else if (preview.image !== undefined && preview.status === undefined) {
-        // Live animation cycles on the running-node frame loop; reduced
-        // motion (which also stops that loop) keeps the newest still.
-        const animated = preview.animation !== undefined && !this.reducedMotion
-          ? animationFrameAt(preview.animation, this.animationTimeMs)
-          : undefined
-        const fit = containRect(mediaRect, preview)
-        if (this.previewChecker === undefined) {
-          const size = canvasPaintTokens.preview.checkerSize
-          const half = size / 2
-          const tile = typeof OffscreenCanvas === 'undefined'
-            ? this.canvas.ownerDocument.createElement('canvas')
-            : new OffscreenCanvas(size, size)
-          tile.width = tile.height = size
-          const tileContext = tile.getContext('2d')!
-          tileContext.fillStyle = t.colors.widgetBackground
-          tileContext.fillRect(0, 0, size, size)
-          tileContext.fillStyle = t.colors.nodeBorder
-          tileContext.fillRect(0, 0, half, half)
-          tileContext.fillRect(half, half, half, half)
-          this.previewChecker = ctx.createPattern(tile, 'repeat')
-        }
-        ctx.fillStyle = this.previewChecker ?? t.colors.widgetBackground
-        ctx.fillRect(fit.x, fit.y, fit.width, fit.height)
-        try {
-          ctx.drawImage(animated ?? preview.image, fit.x, fit.y, fit.width, fit.height)
-        } catch {
-          // A closed/detached ImageBitmap must never kill the frame loop.
-        }
-      } else if (contentDetail) {
-        ctx.fillStyle = t.colors.label
-        ctx.font = `${t.fontSize}px ${t.fontFamily}`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        const alpha = ctx.globalAlpha
-        ctx.globalAlpha = alpha * canvasPaintTokens.preview.placeholderOpacity
-        const media = preview.kind === 'video'
-          ? 'video'
-          : preview.kind === 'audio'
-            ? 'audio'
-            : preview.kind === 'model3d' ? '3D model' : undefined
-        const label = preview.statusMessage === undefined ? (media === undefined
-          ? preview.status === 'unavailable'
-            ? 'preview unavailable'
-            : 'loading preview...'
-          : preview.status === 'unavailable'
-            ? 'Preview unavailable'
-            : preview.status === 'failed'
-              ? `${media[0]!.toUpperCase()}${media.slice(1)} unavailable`
-              : `Loading ${media}`)
-          : fitText(ctx, preview.statusMessage, Math.max(0, mediaRect.width - canvasPaintTokens.preview.labelPadding))
-        ctx.fillText(label, mediaRect.x + mediaRect.width / 2, mediaRect.y + mediaRect.height / 2)
-        ctx.globalAlpha = alpha
-      }
-      if (farMedia) {
-        ctx.fillStyle = t.colors.nodeBody
-        const label = `${preview.kind ?? 'media'}${(preview.count ?? 0) > 1 ? ` ${(preview.index ?? 0) + 1}/${preview.count}` : ''}`
-        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
-        const width = Math.max(canvasPaintTokens.preview.mediaBadgeMinWidth, ctx.measureText(label).width + canvasPaintTokens.preview.mediaBadgePadding)
-        const height = canvasPaintTokens.preview.mediaBadgeHeight
-        ctx.fillRect(rect.x + (rect.width - width) / 2, rect.y + (rect.height - height) / 2, width, height)
-        ctx.fillStyle = t.colors.label
-        ctx.textAlign = 'center'
-        ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2)
-      }
-      if (!farMedia && !minimizedPreview) {
-        const caption = panel.caption
-        ctx.fillStyle = t.colors.nodeBody
-        ctx.fillRect(caption.x, caption.y, caption.width, caption.height)
+      const panel = l.preview.compact === true ? undefined : splitPreviewRect(rect, t.previewCaptionHeight)
+      const folded = l.preview.folded === true
+      const statusLabel = preview.statusMessage ?? (preview.status === 'failed'
+        ? 'failed'
+        : preview.status === 'unavailable' ? 'unavailable' : 'loading')
+      if (panel !== undefined) {
+        const mediaRect = panel.media
+        ctx.fillStyle = t.colors.widgetBackground
         ctx.strokeStyle = t.colors.nodeBorder
         ctx.lineWidth = canvasPaintTokens.preview.stroke
         ctx.beginPath()
-        ctx.moveTo(caption.x, caption.y)
-        ctx.lineTo(caption.x + caption.width, caption.y)
+        ctx.roundRect(mediaRect.x, mediaRect.y, mediaRect.width, mediaRect.height, regionRadius)
+        ctx.fill()
         ctx.stroke()
+        const farMedia = l.minimized !== true &&
+          (preview.kind === 'video' || preview.kind === 'audio') && detailLevel === 'overview'
+        if (farMedia) {
+          ctx.fillStyle = t.colors.nodeBody
+          const label = `${preview.kind ?? 'media'}${(preview.count ?? 0) > 1 ? ` ${(preview.index ?? 0) + 1}/${preview.count}` : ''}`
+          ctx.font = smallFont
+          const width = Math.max(canvasPaintTokens.preview.mediaBadgeMinWidth, ctx.measureText(label).width + canvasPaintTokens.preview.mediaBadgePadding)
+          const height = canvasPaintTokens.preview.mediaBadgeHeight
+          ctx.fillRect(mediaRect.x + (mediaRect.width - width) / 2, mediaRect.y + (mediaRect.height - height) / 2, width, height)
+          ctx.fillStyle = t.colors.label
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(label, mediaRect.x + mediaRect.width / 2, mediaRect.y + mediaRect.height / 2)
+        } else if (preview.image !== undefined) {
+          // Live animation cycles on the running-node frame loop; reduced
+          // motion (which also stops that loop) keeps the newest still. A
+          // model3d preview keeps its src for the orbit overlay but paints
+          // its poster in-canvas like an image.
+          const animated = preview.animation !== undefined && !this.reducedMotion
+            ? animationFrameAt(preview.animation, this.animationTimeMs)
+            : undefined
+          this.paintPreviewPicture(ctx, animated ?? preview.image, containRect(mediaRect, preview))
+        } else if (preview.status !== undefined && contentDetail) {
+          // A page of a list output that is loading or failed.
+          ctx.fillStyle = t.colors.label
+          ctx.font = `${t.fontSize}px ${t.fontFamily}`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          const alpha = ctx.globalAlpha
+          ctx.globalAlpha = alpha * canvasPaintTokens.preview.placeholderOpacity
+          ctx.fillText(fitText(ctx, statusLabel, Math.max(0, mediaRect.width - canvasPaintTokens.preview.labelPadding)),
+            mediaRect.x + mediaRect.width / 2, mediaRect.y + mediaRect.height / 2)
+          ctx.globalAlpha = alpha
+        }
+        // A ready video or audio player is DOM the host mounts over the media area.
       }
-      if (!farMedia && !minimizedPreview && contentDetail) {
-        const caption = panel.caption
-        const provenanceY = caption.y + caption.height * canvasPaintTokens.preview.provenancePosition
-        const metadataY = caption.y + caption.height * canvasPaintTokens.preview.metadataPosition
+      if (contentDetail) {
         // The approx prefix keeps a mirror-computed estimate distinguishable
         // from real imagery even without color.
         const stateLabel = preview.state === 'cached'
@@ -3601,62 +3680,37 @@ export class CanvasRenderer {
         const countLabel = (preview.count ?? 0) > 1
           ? `${(preview.index ?? 0) + 1}/${preview.count}`
           : undefined
-        const dimensionsLabel = preview.status === undefined &&
-          Number.isFinite(preview.width) && (preview.width ?? 0) > 0 &&
+        const dimensionsLabel = preview.status === undefined && Number.isFinite(preview.width) && (preview.width ?? 0) > 0 &&
           Number.isFinite(preview.height) && (preview.height ?? 0) > 0
           ? `${Math.round(preview.width!)} x ${Math.round(preview.height!)}`
           : undefined
-        const metadataLabel = [dimensionsLabel, preview.colorTransform === undefined
-          ? undefined : `Preview color: ${preview.colorTransform}`].filter((label) => label !== undefined).join(' | ')
-        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
-        ctx.fillStyle = t.colors.label
-        ctx.textBaseline = 'middle'
-        const padding = canvasPaintTokens.preview.labelPadding
-        if (stateLabel !== undefined) {
-          if (preview.state === 'estimate') ctx.fillStyle = t.colors.companionEstimate
-          ctx.textAlign = 'left'
-          ctx.fillText(stateLabel, caption.x + padding, provenanceY, caption.width - padding * 2)
-          ctx.fillStyle = t.colors.label
-        }
-        if (countLabel !== undefined) {
-          ctx.textAlign = 'right'
-          ctx.fillText(countLabel, caption.x + caption.width - padding, provenanceY)
-        }
-        if (metadataLabel !== '') {
-          ctx.textAlign = 'center'
-          ctx.fillText(metadataLabel, caption.x + caption.width / 2, metadataY, caption.width - padding * 2)
-        }
+        const colorLabel = preview.colorTransform === undefined ? undefined : `Preview color: ${preview.colorTransform}`
+        this.paintPreviewCaption(ctx, panel?.caption ?? rect, {
+          arrow: panel !== undefined ? 'open' : folded ? 'folded' : undefined,
+          label: 'Preview',
+          detail: panel !== undefined || folded
+            ? [stateLabel, countLabel, dimensionsLabel, colorLabel].filter((label) => label !== undefined).join(' | ')
+            : statusLabel,
+          detailColor: preview.state === 'estimate' && (panel !== undefined || folded) ? t.colors.companionEstimate : t.colors.valueMark,
+          detailFont: smallFont,
+          ...(folded && preview.image !== undefined ? { thumbnail: preview.image, thumbnailSize: preview } : {}),
+          hovered: captionHovered && (panel !== undefined || folded),
+        })
       }
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'alphabetic'
-    } else if (contentDetail && outputText !== undefined && l.textOutput !== undefined) {
+    } else if (outputText !== undefined && l.textOutput !== undefined) {
       const rect = {
         x: node.x + l.textOutput.x,
         y: node.y + l.textOutput.y,
         width: l.textOutput.width,
         height: l.textOutput.height,
       }
-      ctx.save()
-      ctx.fillStyle = t.colors.widgetBackground
-      ctx.strokeStyle = t.colors.nodeBorder
-      ctx.lineWidth = canvasPaintTokens.preview.stroke
-      ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset))
-      ctx.fill()
-      ctx.stroke()
-      ctx.clip()
+      const { caption, media: body } = splitPreviewRect(rect, t.previewCaptionHeight)
       const padding = canvasPaintTokens.preview.outputPadding
-      const visibleLines = Math.max(1, Math.min(canvasPaintTokens.preview.outputMaxLines, Math.round(rect.height / t.rowHeight)))
-      const lineHeight = (rect.height - padding * 2) / visibleLines
-      const maxWidth = Math.max(0, rect.width - padding * 2)
+      const maxWidth = Math.max(0, body.width - padding * 2)
+      ctx.save()
       ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'middle'
       const lines = outputText.text.replace(/\r\n?/g, '\n').split('\n').flatMap((line) => wrapText(ctx, line, maxWidth))
-      const overflow = lines.length > visibleLines
-      const shown = overflow && visibleLines > 1
-        ? lines.slice(0, visibleLines - 1)
-        : lines.slice(0, visibleLines)
+      ctx.restore()
       const color = outputText.stale === true
         ? t.colors.companionUnproven
         : outputText.error === true
@@ -3664,59 +3718,88 @@ export class CanvasRenderer {
           : outputText.estimate === true
             ? t.colors.companionEstimate
             : t.colors.companionValue
-      ctx.fillStyle = color
-      let textY = rect.y + padding + lineHeight / 2
-      for (const line of shown) {
-        ctx.fillText(line, rect.x + padding, textY)
-        if (outputText.stale === true && line.length > 0) {
-          ctx.save()
-          ctx.strokeStyle = color
-          ctx.lineWidth = canvasPaintTokens.preview.staleStroke
-          ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
-          ctx.beginPath()
-          ctx.moveTo(rect.x + padding, textY + t.fontSize / 2 + canvasPaintTokens.preview.staleUnderlineOffset)
-          ctx.lineTo(rect.x + padding + measureWidth(ctx, line), textY + t.fontSize / 2 + canvasPaintTokens.preview.staleUnderlineOffset)
-          ctx.stroke()
-          ctx.restore()
+      const folded = l.textOutput.folded === true
+      if (!folded) {
+        ctx.save()
+        ctx.fillStyle = t.colors.widgetBackground
+        ctx.strokeStyle = t.colors.nodeBorder
+        ctx.lineWidth = canvasPaintTokens.preview.stroke
+        ctx.beginPath()
+        ctx.roundRect(body.x, body.y, body.width, body.height, regionRadius)
+        ctx.fill()
+        ctx.stroke()
+        ctx.clip()
+        if (contentDetail) {
+          // Lines keep one rhythm, so a taller region only shows more of them.
+          const lineHeight = t.rowHeight - padding
+          const visibleLines = Math.max(1, Math.floor((body.height - padding * 2) / lineHeight))
+          ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'middle'
+          const overflow = lines.length > visibleLines
+          const shown = overflow && visibleLines > 1
+            ? lines.slice(0, visibleLines - 1)
+            : lines.slice(0, visibleLines)
+          ctx.fillStyle = color
+          let textY = body.y + padding + lineHeight / 2
+          for (const line of shown) {
+            ctx.fillText(line, body.x + padding, textY)
+            if (outputText.stale === true && line.length > 0) {
+              ctx.save()
+              ctx.strokeStyle = color
+              ctx.lineWidth = canvasPaintTokens.preview.staleStroke
+              ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
+              ctx.beginPath()
+              ctx.moveTo(body.x + padding, textY + t.fontSize / 2 + canvasPaintTokens.preview.staleUnderlineOffset)
+              ctx.lineTo(body.x + padding + measureWidth(ctx, line), textY + t.fontSize / 2 + canvasPaintTokens.preview.staleUnderlineOffset)
+              ctx.stroke()
+              ctx.restore()
+            }
+            textY += lineHeight
+          }
+          if (overflow && visibleLines > 1) {
+            ctx.font = smallFont
+            ctx.fillStyle = t.colors.label
+            ctx.textAlign = 'right'
+            ctx.fillText(`+${lines.length - shown.length} more`, body.x + body.width - padding, textY)
+          }
         }
-        textY += lineHeight
+        ctx.restore()
       }
-      if (overflow && visibleLines > 1) {
-        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, t.fontSize - canvasPaintTokens.type.smallReduction)}px ${t.fontFamily}`
-        ctx.fillStyle = t.colors.label
-        ctx.textAlign = 'right'
-        ctx.fillText(`+${lines.length - shown.length} more`, rect.x + rect.width - padding, textY)
+      if (contentDetail) {
+        // Folded, the caption shows the start of the first line in place of a picture.
+        this.paintPreviewCaption(ctx, caption, {
+          arrow: folded ? 'folded' : 'open',
+          label: 'Preview',
+          detail: folded ? lines.find((line) => line.trim().length > 0) ?? '' : textResultLineCount(outputText.text),
+          detailColor: t.colors.valueMark,
+          detailFont: folded ? `${t.fontSize}px ${t.fontFamily}` : smallFont,
+          hovered: captionHovered,
+        })
       }
-      ctx.restore()
-    } else if (l.preview?.compact === true) {
-      const rect = {
+    } else if (l.preview?.compact === true && contentDetail) {
+      // A node that can show a preview always says so, before its first picture too.
+      this.paintPreviewCaption(ctx, {
         x: node.x + l.preview.x,
         y: node.y + l.preview.y,
         width: l.preview.width,
         height: l.preview.height,
-      }
-      ctx.fillStyle = t.colors.widgetBackground
-      ctx.strokeStyle = t.colors.nodeBorder
-      ctx.lineWidth = canvasPaintTokens.preview.stroke
-      ctx.beginPath()
-      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, Math.max(canvasPaintTokens.preview.minRadius, t.cornerRadius - canvasPaintTokens.preview.radiusInset))
-      ctx.fill()
-      ctx.stroke()
-      if (contentDetail) {
-        ctx.fillStyle = t.colors.title
-        ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.fontSize}px ${t.fontFamily}`
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(
-          'Preview - right-click',
-          rect.x + canvasPaintTokens.preview.labelPadding,
-          rect.y + t.rowHeight / 2,
-          Math.max(0, rect.width - canvasPaintTokens.preview.labelPadding * 2),
-        )
-        ctx.textBaseline = 'alphabetic'
-      }
+      }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
     }
-
+    if (previewEdgeShown(node) && contentDetail) {
+      // The text box's bar, on the node's bottom edge: it sizes the open
+      // preview through the node's height.
+      const edge = canvasPaintTokens.widget.textBoxEdge
+      const hot = this.overlay.previewEdge === sceneNode.id
+      const barWidth = hot ? edge.hotWidth : edge.width
+      ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+      ctx.beginPath()
+      ctx.roundRect(node.x + (l.width - barWidth) / 2, node.y + l.height - canvasPaintTokens.node.previewEdge.barRise,
+        barWidth, edge.height, edge.radius)
+      ctx.fill()
+    }
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
     const previewAffordance = l.minimized
       ? undefined
       : this.lensCapabilities.previewSurfaceAffordance?.(sceneNode)

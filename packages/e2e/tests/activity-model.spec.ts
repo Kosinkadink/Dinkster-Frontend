@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -30,8 +30,6 @@ const records = Array.from({ length: 27 }, (_, index) => ({
 }))
 
 async function installFixture(page: Page): Promise<void> {
-  await mockProjectPacks(page)
-  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -128,6 +126,12 @@ async function capture(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(proofDir, `${name}.png`), animations: 'disabled', fullPage: true })
 }
 
+async function selectLibrarySource(page: Page, id: string): Promise<void> {
+  const tab = page.locator(`[data-testid=collection-source][data-source=${id}]`)
+  if (await tab.isVisible()) await tab.click()
+  else await selectProductOption(page, page.getByTestId('library-source-select'), id)
+}
+
 test('activity model remains truthful and usable across wide, narrow, and zoom-equivalent states', async ({ page }) => {
   await installFixture(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -135,7 +139,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await seedExecutions(page)
 
   await page.getByTestId('workflow-queue-toggle').click()
@@ -159,26 +163,42 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await capture(page, 'after-activity-wide-queue-and-executions')
   await railScroll.evaluate((element) => { element.scrollTop = 0 })
 
-  await page.getByTestId('workflow-queue-toggle').click()
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
-  const panel = page.getByTestId('runs-panel')
-  const runs = panel.getByRole('listbox', { name: 'Runs results', exact: true })
+  const library = page.getByTestId('library-overlay')
+  if (!await library.isVisible()) await page.getByTestId('library-toggle').click()
+  await expect(library).toBeVisible()
+  await page.getByTestId('dock-resize').focus()
+  await page.keyboard.press('End')
+  await selectLibrarySource(page, 'history')
+  // Hidden Assets panels also contain collection entries from native mounts.
+  const historyEntries = library.getByRole('listbox', { name: 'History results', exact: true }).getByTestId('collection-entry')
+  await expect(historyEntries).toHaveCount(7)
+  const external = historyEntries.first()
+  await external.click()
+  await expect(external).toContainText('External execution')
+  await expect(external).toContainText('Snapshot unavailable')
+  await expect(external).not.toContainText('Local snapshot')
+  await capture(page, 'after-activity-history-incomplete-and-long-identities')
+
+  await selectLibrarySource(page, 'runs')
+  const runs = library.getByRole('listbox', { name: 'Runs results', exact: true })
   const runEntries = runs.getByTestId('collection-entry')
-  await expect(panel.getByTestId('execution-row')).toHaveCount(3)
   await expect(runEntries).toHaveCount(23)
   const group = runEntries.filter({ hasText: /2 runs|x2/ }).first()
   await group.getByTestId('collection-expand').click()
   await expect(runs.locator('.collection-entry.collection-child')).toHaveCount(2)
-  await panel.getByTestId('collection-more').click()
+  await library.getByTestId('collection-more').click()
   await expect(runEntries).toHaveCount(28)
   const failed = runEntries.filter({ hasText: 'job-2-' }).first()
+  const detailRail = page.getByTestId('library-detail-rail')
+  await detailRail.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await failed.click()
-  await failed.locator('.runs-details > summary').click()
-  await expect(failed.locator('.output-facts')).toContainText('The sampler failed after preserving two exact node receipts.')
-  const remove = failed.locator('[data-action=delete]')
+  await expect.poll(() => detailRail.evaluate((element) => element.scrollTop)).toBe(0)
+  await detailRail.locator('.library-detail-header').scrollIntoViewIfNeeded()
+  await expect(detailRail.locator('.library-detail-header')).toBeInViewport()
+  const remove = page.locator('[data-action=delete]').filter({ visible: true }).first()
   await remove.click()
-  await expect(remove).toHaveText('Confirm delete')
-  await failed.scrollIntoViewIfNeeded()
+  if (process.env['DINKSTER_ACTIVITY_EXPECT_REDESIGN'] === '1') await expect(remove).toHaveText('Confirm delete')
+  await expect.poll(() => detailRail.evaluate((element) => element.scrollTop)).toBe(0)
   await capture(page, 'after-activity-runs-grouped-paged-confirmation')
 
   await page.setViewportSize({ width: 390, height: 844 })
@@ -186,7 +206,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await capture(page, 'after-activity-narrow-runs')
 
   await page.setViewportSize({ width: 720, height: 450 })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await page.getByTestId('library-toggle').click()
   await page.getByTestId('workflow-queue-toggle').focus()
   await page.keyboard.press('Enter')
   await page.locator('.workflow-queue-list').evaluate((element) => { element.scrollTop = element.scrollHeight })

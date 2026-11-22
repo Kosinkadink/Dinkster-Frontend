@@ -1,6 +1,6 @@
 // Native discovery loads the live CheckpointLoaderSimple schema without
 // seeded editing documents; ownership acknowledgments use the shared fixture.
-import { expect, nativeTest as test, skipWithoutNativeCatalog, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, skipWithoutNativeCatalog, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function paintNode(page: Page, width?: number): Promise<{
   calls: string[]
@@ -53,7 +53,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-value-presentation', root: 'g0',
@@ -66,7 +66,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
     }, 'Widget Value Presentation')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'loader')
     return node?.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'ckpt_name') ?? false

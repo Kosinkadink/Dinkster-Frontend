@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 const PROOF = 'test-results/latent-assets'
@@ -203,7 +203,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: STARTUP_CATALOG }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('2 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const registry = (app as unknown as {
