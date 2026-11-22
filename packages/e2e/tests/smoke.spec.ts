@@ -49,7 +49,7 @@ test('subgraph tab queues its flattened prompt and routes state by lineage', asy
   }), { timeout: 30_000 }).toBe('completed')
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Subgraph' }).click()
   const execution = page.getByTestId('execution-row').first()
-  await expect(execution.locator('.execution-tab')).toHaveText('Subgraph')
+  await expect(execution.getByRole('button', { name: 'Subgraph', exact: true })).toBeVisible()
   await expect(execution.locator('.execution-status')).toHaveText('Completed')
 
   // Bridge-level check: the flattened prompt used occurrence-key runtime ids
