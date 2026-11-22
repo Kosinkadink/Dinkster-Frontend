@@ -8,7 +8,7 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { Check, ChevronDown, LogOut, type LucideIcon } from 'lucide-solid'
+import { Check, ChevronDown, LogOut, User, type LucideIcon } from 'lucide-solid'
 import { ProductIcon, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
@@ -186,7 +186,9 @@ function Menu(props: {
                 role="presentation"
               >
                 <strong>{identity().name}</strong>
-                <span class="dinkster-metadata">{identity().email}</span>
+                <Show when={identity().email}>
+                  <span class="dinkster-metadata">{identity().email}</span>
+                </Show>
               </div>
             )}
           </Show>
@@ -250,12 +252,16 @@ export function ProductMenu(props: {
 
 /** Site triggers show a picture or initial; the menu identifies the session. */
 export function ProductAccountMenu(props: {
-  name: string
-  email: string
+  name?: string | null
+  email?: string | null
   pictureSrc?: string | null
   onSignOut: () => void
 }) {
   const strings = useProductStrings()
+  const name = () => props.name?.trim() ?? ''
+  const email = () => props.email?.trim() ?? ''
+  const primary = () => name() || email() || strings.signedIn
+  const secondary = () => (name() && email() !== name() ? email() : '')
   const [failed, setFailed] = createSignal(false)
   const picture = createMemo(() => {
     if (!props.pictureSrc) return undefined
@@ -275,10 +281,10 @@ export function ProductAccountMenu(props: {
   })
   return (
     <Menu
-      triggerName={`${strings.accountMenu}: ${props.name}`}
+      triggerName={`${strings.accountMenu}: ${primary()}`}
       menuName={strings.accountMenu}
       account
-      identity={{ name: props.name, email: props.email }}
+      identity={{ name: primary(), email: secondary() }}
       items={[
         {
           label: strings.signOut,
@@ -293,15 +299,22 @@ export function ProductAccountMenu(props: {
         aria-hidden="true"
         // Drawn by the stylesheet so the initial is not part of the visible
         // label that the accessible name has to contain.
-        data-initial={[...props.name.trim()][0]?.toLocaleUpperCase() ?? ''}
+        data-initial={[...(name() || email())][0]?.toLocaleUpperCase() ?? ''}
         data-picture={!!picture() && !failed()}
       >
-        <Show when={picture() && !failed()}>
+        <Show
+          when={picture() && !failed()}
+          fallback={
+            <Show when={!name() && !email()}>
+              <ProductIcon icon={User} />
+            </Show>
+          }
+        >
           <img src={picture()} alt="" onError={() => setFailed(true)} />
         </Show>
       </span>
       <span class="dinkster-menu-label" data-compact="true">
-        {props.name}
+        {primary()}
       </span>
     </Menu>
   )

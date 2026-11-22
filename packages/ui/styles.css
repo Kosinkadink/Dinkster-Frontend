@@ -180,6 +180,8 @@
 .dinkster-menu-trigger[data-account] { padding-inline: var(--dinkster-space-8); border-color: transparent; background: var(--dinkster-surface-raised); }
 .dinkster-avatar { display: inline-grid; place-items: center; flex: none; width: var(--dinkster-space-24); height: var(--dinkster-space-24); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-bold); }
 .dinkster-avatar::before { content: attr(data-initial); }
+.dinkster-avatar[data-initial='']::before { content: none; }
+.dinkster-avatar > .dinkster-icon { width: var(--dinkster-type-metadata-size); height: var(--dinkster-type-metadata-size); }
 .dinkster-menu-popover { position: fixed; z-index: 1; width: max-content; max-width: calc(100vw - var(--dinkster-space-32)); overflow: auto; }
 .dinkster-message-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .dinkster-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); }

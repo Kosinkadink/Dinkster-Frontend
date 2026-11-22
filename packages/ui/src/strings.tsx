@@ -4,6 +4,7 @@ export const defaultProductStrings = {
   mainNavigation: 'Main navigation',
   toggleNavigation: 'Toggle navigation',
   accountMenu: 'Account menu',
+  signedIn: 'Signed in',
   qaServices: 'QA services',
   customServices: 'Custom services',
   customServiceShort: 'Custom',

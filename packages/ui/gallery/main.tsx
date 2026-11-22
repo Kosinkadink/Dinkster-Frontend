@@ -969,6 +969,8 @@ function WindowToolbarGallery() {
               <option value="none">No account control</option>
               <option value="signed-out">Signed out</option>
               <option value="signed-in">Signed in</option>
+              <option value="signed-in-email">Email only</option>
+              <option value="signed-in-empty">No profile</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -1019,7 +1021,7 @@ function WindowToolbarGallery() {
                       account={
                         <Show when={account() !== 'none'}>
                           <Show
-                            when={account() === 'signed-in'}
+                            when={account().startsWith('signed-in')}
                             fallback={
                               <ProductButton
                                 onClick={() => setActivity('Sign in opened')}
@@ -1029,8 +1031,8 @@ function WindowToolbarGallery() {
                             }
                           >
                             <ProductAccountMenu
-                              name="Alex Rivers"
-                              email="alex@example.test"
+                              name={account() === 'signed-in' ? 'Alex Rivers' : null}
+                              email={account() === 'signed-in-empty' ? null : 'alex@example.test'}
                               onSignOut={() => setActivity('Signed out')}
                             />
                           </Show>

@@ -129,7 +129,11 @@ foreground against their actual fill, including the hovered fill.
   only while it is open. Item text follows its intent. Removal callbacks open a
   confirmation. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
-  and email with the menu, and invokes Sign out immediately.
+  and email with the menu, and invokes Sign out immediately. With no name it
+  uses the email and its initial as a single identity line. With neither name
+  nor email it draws the shared person icon and one Signed in line. Empty or
+  repeated secondary identity lines are omitted; the trigger's accessible name
+  follows the same primary line.
 - `ProductNotice` is standing information without a dismiss button, including
   its warning tone for QA environments.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.

@@ -89,6 +89,47 @@ for (const width of [1280, 390]) {
   })
 }
 
+test('account menu identifies a session without a name or profile', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.goto('/#window-toolbar')
+  const bar = page
+    .getByRole('region', { name: 'custom dark linux', exact: true })
+    .locator('header')
+  for (const [state, primary, secondary] of [
+    ['signed-in', 'Alex Rivers', 'alex@example.test'],
+    ['signed-in-email', 'alex@example.test', ''],
+    ['signed-in-empty', 'Signed in', ''],
+  ]) {
+    await page.getByLabel('Account state').selectOption(state!)
+    const trigger = bar.getByRole('button', {
+      name: `Account menu: ${primary}`,
+      exact: true,
+    })
+    await trigger.scrollIntoViewIfNeeded()
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    )
+    await bar.screenshot({
+      path: `test-results/captures/toolbar-account-${state}.png`,
+    })
+    await trigger.click()
+    const menu = bar.getByRole('menu', { name: 'Account menu', exact: true })
+    await expect(menu).toHaveAccessibleDescription(
+      secondary ? `${primary} ${secondary}` : primary!,
+    )
+    await menu.screenshot({
+      path: `test-results/captures/toolbar-account-menu-${state}.png`,
+    })
+    await menu.getByRole('menuitem', { name: 'Sign out', exact: true }).click()
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByRole('status')).toHaveText('Signed out')
+    await expect(trigger).toBeFocused()
+  }
+})
+
 test('narrow toolbar keeps region switches in the checked layout menu', async ({
   page,
 }) => {
@@ -121,6 +162,11 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
     name: 'Customize layout',
     exact: true,
   })
+  await trigger.scrollIntoViewIfNeeded()
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  )
   await trigger.focus()
   await page.keyboard.press('ArrowDown')
   const menu = bar.getByRole('menu', { name: 'Customize layout', exact: true })
