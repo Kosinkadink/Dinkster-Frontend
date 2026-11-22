@@ -3715,7 +3715,6 @@ export class AppState {
           candidate.tab.store.revision === candidate.revision) {
           this.replaceWorkflowAssetOwner(candidate.tab.store, candidate.backend, receipt, candidate.project, candidate.generation)
         }
-        this.reportIncompleteOwnership(candidate.document.lineage, roots, receipt)
       }
     } finally {
       admission.pending = false
@@ -3974,7 +3973,6 @@ export class AppState {
         }
         for (const { tab, roots, receipt } of retained) {
           receipts.set(tab, receipt)
-          this.reportIncompleteOwnership(tab.id, roots, receipt)
         }
       } catch (error) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
@@ -4201,7 +4199,6 @@ export class AppState {
         }
         // A refreshed schema can expose new roots; its own acknowledgment must precede publication.
         if (backend.registry.get() !== registry) continue
-        this.reportIncompleteOwnership(document.lineage, roots, retained)
         return () => {
           if (session !== undefined && !connectionChanged && stillCurrent() && backend.registry.get() === registry) {
             if (retained.complete) {
@@ -4243,7 +4240,6 @@ export class AppState {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
           boundaryPositionsFor: this.boundaryPositionResolver(resolve),
-          validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, resolve, retainedDocuments),
           beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
             const owner = this.tabs.get().find((candidate) => candidate.store === (session ?? tab.store))
             const destination = owner === undefined ? undefined : this.backendForTab(owner)
@@ -4324,7 +4320,6 @@ export class AppState {
             session.status.get() !== 'live') {
             throw new Error('The workflow changed while workspace ownership was being confirmed; the local workflow was kept')
           }
-          this.reportIncompleteOwnership(tab.id, roots, retained)
           current = latest
         } finally {
           unsubscribe()
@@ -5838,92 +5833,6 @@ export class AppState {
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
   }
 
-  /** Clipboard text and external source-node references outlive their source tab. */
-  async retainClipboardAssets(tab: Tab, text: string): Promise<boolean> {
-    const backend = tab.execution
-      ? this.backendFor(tab.execution.connection) ?? this.retiredBackends.get(tab.execution.connection)
-      : this.backendForTab(tab)
-    if (backend === undefined) return false
-    if (backend.protocol !== 'dinkster') return true
-    if (this.disposed || !this.tabs.get().includes(tab)) return false
-    const document = tab.store.doc
-    const revision = tab.store.revision
-    const registry = this.registryForTab(tab)
-    void Promise.resolve().then(async () => {
-      // Connected paste can reference nodes outside the copied selection.
-      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-      await retainWorkflowAssets(backend.connection, document.lineage, revision, { ...roots, complete: false }, undefined, text)
-    }).catch((error: unknown) => { console.warn('Clipboard file-list recording failed', error) })
-    return true
-  }
-
-  private readonly pickerAssetOwners = new WeakMap<NonNullable<ReturnType<AppState['workflowAssetReader']>>, {
-    readonly session: DocumentSession
-    readonly backend: Backend
-    readonly registry: ReturnType<Backend['registry']['get']>
-    readonly project: string
-    readonly generation: number | undefined
-    owned?: RetainedAssetReader
-    readonly current: () => boolean
-    readonly invalidate: () => void
-  }>()
-
-  async retainPickerAssets(tab: Tab, backend: Backend, value: unknown): Promise<NonNullable<ReturnType<AppState['workflowAssetReader']>>> {
-    const session = tab.store
-    const document = session.doc
-    const revision = session.revision
-    const registry = backend.registry.get()
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    let active = true
-    const destinationCurrent = (): boolean => !this.disposed && activeProjectId() === project &&
-      session.doc === document && session.revision === revision &&
-      generation === this.assetConnectionGenerations.get(backend.connection) &&
-      this.backendFor(backend.id) === backend && this.registryUnchanged(registry, backend.registry.get()) &&
-      this.tabs.get().some((candidate) => candidate.store === session && !candidate.execution &&
-        this.backendForTab(candidate) === backend)
-    const current = (): boolean => active && destinationCurrent()
-    if (backend.protocol !== 'dinkster' || !current()) throw new Error('Picker destination is unavailable')
-    const assets = value === null ? [] : Array.isArray(value) ? value : [value]
-    if (!assets.every(isAssetRef)) throw new Error('Picker asset inventory is invalid')
-    const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest))].sort() }
-    const reader = {
-      key: `picker:${++this.workflowAssetReaderSequence}`,
-      current,
-      read: <T>(consume: () => Promise<T>): Promise<T> => this.readAssetPreview(backend.connection, roots, consume, current),
-    }
-    this.pickerAssetOwners.set(reader, { session, backend, registry, project, generation,
-      current: destinationCurrent, invalidate: () => { active = false } })
-    void retainWorkflowAssets(backend.connection, document.lineage, revision, roots, undefined, undefined, false, [4, 8])
-      .then((retained) => {
-        const held = this.pickerAssetOwners.get(reader)
-        if (held && current()) held.owned = new RetainedAssetReader(backend.connection, retained, current)
-      }).catch((error: unknown) => { console.warn('Picked file-list recording failed', error) })
-    return reader
-  }
-
-  async replacePickerAssets(
-    previous: NonNullable<ReturnType<AppState['workflowAssetReader']>>,
-    replacement: NonNullable<ReturnType<AppState['workflowAssetReader']>>,
-    publish: () => boolean,
-  ): Promise<boolean> {
-    const before = this.pickerAssetOwners.get(previous)
-    const after = this.pickerAssetOwners.get(replacement)
-    if (previous === replacement || !before || !after || !previous.current() || !replacement.current() ||
-      before.session !== after.session || before.backend !== after.backend || !this.registryUnchanged(before.registry, after.registry) ||
-      before.project !== after.project || before.generation !== after.generation || !publish() ||
-      !replacement.current() || this.pickerAssetOwners.get(previous) !== before) return false
-    before.invalidate()
-    this.pickerAssetOwners.delete(previous)
-    // Publication transfers the staged selection, not an unfinished body read.
-    // Closing admission waits for every reader before retiring its exact receipt.
-    if (before.owned) void before.owned.close().then(async () => {
-      if (before.current() && after.current()) await this.retireAssetOwner(before.backend.connection, before.owned!.retained)
-    }).catch((error: unknown) => { console.warn('Picked file-list retirement failed', error) })
-    return true
-  }
-
   curveTargetForInput(
     tab: Tab,
     graphId: string,
@@ -6134,7 +6043,6 @@ export class AppState {
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
         boundaryPositionsFor: this.boundaryPositionResolver(resolve),
-        validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
@@ -6160,34 +6068,6 @@ export class AppState {
       next.delete(tabId)
       return next
     })
-  }
-
-  private recordWorkflowFileList(tab: Tab, history: HistorySnapshot): void {
-    const registry = this.registryForTab(tab)
-    const backend = this.backendForTab(tab)
-    if (backend.protocol !== 'dinkster') return
-    const document = tab.store.doc
-    const revision = tab.store.revision
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    void Promise.resolve().then(async () => {
-      const roots = workflowAssetRoots(document, history,
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-      const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-      if (this.disposed || !this.tabs.get().includes(tab) || tab.store.doc !== document || tab.store.revision !== revision ||
-        this.backendForTab(tab) !== backend || this.registryForTab(tab) !== registry || activeProjectId() !== project ||
-        this.assetConnectionGenerations.get(backend.connection) !== generation) return
-      // A snapshot-only list must not replace protection for live undo history.
-      if (history.undo.length > 0 || history.redo.length > 0 ||
-        (tab.store.historySnapshot().undo.length === 0 && tab.store.historySnapshot().redo.length === 0)) {
-        this.replaceWorkflowAssetOwner(tab.store, backend, retained, project, generation)
-      }
-    }).catch((error: unknown) => { console.warn('Workflow file-list recording failed', error) })
-  }
-
-  private reportIncompleteOwnership(owner: ProblemOwner, roots: ReturnType<typeof workflowAssetRoots>, retained?: RetainedAssets): void {
-    if (retained?.complete || roots.incompleteDiagnostics === undefined) return
-    console.warn('Workflow file list is incomplete', owner, roots.incompleteDiagnostics)
   }
 
   /**
@@ -6567,7 +6447,6 @@ export class AppState {
       // silently overwritten by the stale snapshot.
       const expect = { store: tab.store, revision: tab.store.revision }
       const snapshot = tab.store.doc
-      this.recordWorkflowFileList(tab, tab.store.historySnapshot())
       if (!this.tabs.get().includes(tab) || tab.store !== expect.store || tab.store.revision !== expect.revision ||
         tab.store.doc !== snapshot || this.collabBackend() !== backend) throw new Error('Workflow changed during publication admission')
       const descriptor = await this.collabTransport.create(backend.baseUrl, {
@@ -7988,7 +7867,6 @@ export class AppState {
     const revision = tab.store.revision
     const link = this.libraryLinks.get(tab.id)
     try {
-      this.recordWorkflowFileList(tab, { revision, undo: [], redo: [] })
       const payload = JSON.stringify(await this.documentWithAssetLocations(tab))
       const digest = await backend.connection.uploadAsset(payload)
       let record: LibraryRecord | undefined
