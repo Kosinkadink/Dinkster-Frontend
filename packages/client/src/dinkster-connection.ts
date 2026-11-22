@@ -69,7 +69,6 @@ import {
   type DinksterRawMessage,
   type ExecutionRef,
   type EffectiveExtensionSnapshot,
-  type InputSpec,
   type Json,
   type JsonObject,
   type NodeSchema,
@@ -112,55 +111,11 @@ const asLinkTuple = (v: unknown): readonly [string, number] | undefined =>
     ? (v as [string, number])
     : undefined
 
-type MaterializedPathKind = 'combo' | 'other' | 'missing'
-
-/** Classify a materialized path through only the stored active branches. */
-function materializedPathKind(
-  inputs: readonly InputSpec[],
-  parts: readonly string[],
-  choices: Readonly<Record<string, string>>,
-  prefix: readonly string[] = [],
-): MaterializedPathKind {
-  if (parts.length === 0) return 'missing'
-  const input = inputs.find((candidate) => candidate.id === parts[0])
-  if (input === undefined) return 'missing'
-  const rest = parts.slice(1)
-  const path = [...prefix, input.id]
-  const construct = path.join('.')
-  const dynamic = input.dynamic
-  if (dynamic?.kind === 'dynamicCombo') {
-    const selected = choices[construct]
-    const active = dynamic.materialization === 'wire15'
-      ? dynamic.options.find((option) => option.key === selected)
-      : undefined
-    if (active === undefined) return 'other'
-    return rest.length === 0
-      ? 'combo'
-      : materializedPathKind(active.inputs, rest, choices, path)
-  }
-  if (dynamic?.kind === 'autogrow') {
-    return rest.length >= 2
-      ? materializedPathKind(dynamic.template, rest.slice(1), choices, [...path, rest[0]!])
-      : 'other'
-  }
-  if (dynamic?.kind === 'dynamicSlot') {
-    if (rest.length === 0) return 'other'
-    const shared = materializedPathKind(dynamic.inputs, rest, choices, path)
-    if (shared !== 'missing') return shared
-    const selected = choices[construct]
-    const active = dynamic.variants?.find((variant) => variant.key === selected)
-    return active === undefined
-      ? 'missing'
-      : materializedPathKind(active.inputs, rest, choices, path)
-  }
-  return rest.length === 0 ? 'other' : 'missing'
-}
-
 /**
  * Convert a compiled V1 prompt to the native Dinkster graph wire. Link tuples
  * become {$link: {node, output}} by indexing compiler-owned outputIds; only
- * legacy prompts use the catalog's declared outputs. DynamicCombo selectors stay in the V1
- * prompt but move to slotVariants instead of remaining native inputs.
+ * legacy prompts use the catalog's declared outputs. Choice keys travel in
+ * slotVariants, never as inputs.
  */
 export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): PromptToGraphResult {
   const nodes: Record<string, { nodeType: string; inputs: Record<string, DinksterInputWire>; outputMembers?: Readonly<Record<string, readonly string[]>>; slotVariants?: Readonly<Record<string, string>> }> = {}
@@ -181,10 +136,7 @@ export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): 
   if (diagnostics.length > 0) return { ok: false, diagnostics }
   for (const [nodeId, node] of Object.entries(prompt)) {
     const inputs: Record<string, DinksterInputWire> = {}
-    const nodeSchema = resolve(node.class_type)
     for (const [inputId, value] of Object.entries(node.inputs)) {
-      if (nodeSchema !== undefined &&
-          materializedPathKind(inputsOf(nodeSchema), inputId.split('.'), node.slotVariants ?? {}) === 'combo') continue
       const link = asLinkTuple(value)
       if (link === undefined) {
         inputs[inputId] = value

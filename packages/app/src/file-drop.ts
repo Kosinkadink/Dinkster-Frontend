@@ -1,4 +1,4 @@
-import { defaultValuesOf, type AssetRef, type CommandInvocation, type Json, type JsonObject, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { defaultValuesOf, type AssetRef, type CommandInvocation, type Json, type JsonObject, type NodeSchema, type WorkflowDocument, inputsOf, type InputSpec } from '@dinkster/core'
 import { readLatentMetadata, type LatentMetadata } from './latent-metadata.js'
 import { mediaAcceptsFile } from './asset-browser/helpers.js'
 
@@ -233,11 +233,11 @@ const loaderForMediaType = (
   schemas: Iterable<NodeSchema>,
   mediaType: string,
   name: string,
-): { readonly schema: NodeSchema; readonly input: Extract<NodeSchema['items'][number], { kind: 'input' }> } | undefined => {
-  let fallback: { readonly schema: NodeSchema; readonly input: Extract<NodeSchema['items'][number], { kind: 'input' }> } | undefined
+): { readonly schema: NodeSchema; readonly input: InputSpec } | undefined => {
+  let fallback: { readonly schema: NodeSchema; readonly input: InputSpec } | undefined
   for (const schema of schemas) {
-    const matching = schema.items.filter((item): item is Extract<NodeSchema['items'][number], { kind: 'input' }> => {
-      if (item.kind !== 'input' || item.hidden === true || item.widget?.widgetType !== 'ASSET') return false
+    const matching = inputsOf(schema).filter((item) => {
+      if (item.hidden === true || item.widget?.widgetType !== 'ASSET') return false
       const accept = item.widget.options['accept']
       return Array.isArray(accept) && accept.every((value) => typeof value === 'string') &&
         mediaAcceptsFile(accept, mediaType, name)

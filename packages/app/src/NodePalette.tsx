@@ -30,7 +30,6 @@ import {
   hintsMatchPortFilters,
   inputsOf,
   isDeprecated,
-  outputsOf,
   parseSearchFilters,
   rankSearch,
   schemaInputTypes,
@@ -43,10 +42,14 @@ import {
   type PackBlueprintDescriptor,
   type TypeExpr,
   type WidgetRegistry,
+  elaborateInterface,
+  elabInputsOf,
+  elabOutputsOf,
+  type ElaboratedOrigin,
 } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { useAppMessage } from './locale.js'
-import { paintSchemaPreview } from './palette-node-preview.js'
+import { paintSchemaPreview, transientPreviewNode } from './palette-node-preview.js'
 import { SearchInput, SearchResultGroup, SearchResultRow, SearchState } from './SearchSurface.js'
 
 /**
@@ -386,11 +389,17 @@ interface PreviewPort {
   readonly type: string
   readonly optional: boolean
   readonly tooltip?: string
-  /** Dynamic family badge; families preview as one row, never expanded. */
+  /** Badge for a group member, a choice's dropdown or a type choice's pin. */
   readonly dynamic?: 'autogrow' | 'combo' | 'slot'
 }
 
-const DYNAMIC_BADGE = { autogrow: 'autogrow', dynamicCombo: 'combo', dynamicSlot: 'slot' } as const
+const DYNAMIC_BADGE: Partial<Record<ElaboratedOrigin['kind'], NonNullable<PreviewPort['dynamic']>>> = {
+  member: 'autogrow', selector: 'combo', slot: 'slot',
+}
+const badgeOf = (origin: ElaboratedOrigin): Pick<PreviewPort, 'dynamic'> => {
+  const badge = DYNAMIC_BADGE[origin.kind]
+  return badge === undefined ? {} : { dynamic: badge }
+}
 
 export function NodePalette(props: {
   anchor: PaletteAnchor
@@ -628,20 +637,22 @@ export function NodePalette(props: {
     entry: PaletteEntry,
   ): { inputs: PreviewPort[]; outputs: PreviewPort[]; declared: boolean } => {
     if (entry.schema !== undefined) {
+      // The rows the drawn preview shows: the elaborated start of a new node.
+      const elab = elaborateInterface(entry.schema, transientPreviewNode(entry.schema))
       return {
-        inputs: inputsOf(entry.schema).filter((i) => i.hidden !== true).map((i) => ({
+        inputs: elabInputsOf(elab).filter(({ spec }) => spec.hidden !== true).map(({ spec: i, origin }) => ({
           name: i.displayName ?? i.id,
           type: typeLabelOf(i.type),
           tooltip: presentedType(defaultTokens, i.type).tooltip,
           optional: i.optional,
-          ...(i.dynamic !== undefined ? { dynamic: DYNAMIC_BADGE[i.dynamic.kind] } : {}),
+          ...badgeOf(origin),
         })),
-        outputs: outputsOf(entry.schema).map((o) => ({
+        outputs: elabOutputsOf(elab).map(({ spec: o, origin }) => ({
           name: o.displayName ?? o.id,
           type: typeLabelOf(o.type),
           tooltip: presentedType(defaultTokens, o.type).tooltip,
           optional: o.optional === true,
-          ...(o.dynamic !== undefined ? { dynamic: DYNAMIC_BADGE[o.dynamic.kind] } : {}),
+          ...badgeOf(origin),
         })),
         declared: false,
       }

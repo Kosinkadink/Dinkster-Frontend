@@ -2,6 +2,7 @@ import {
   isImageAssetInput,
   type AssetRef,
   type NodeSchema,
+  inputsOf,
 } from '@dinkster/core'
 import { projectMask, type MaskEditOperation } from './image-mask-tool.js'
 import type { ImageRaster } from './image-png.js'
@@ -33,8 +34,8 @@ export function imageInputCandidates(args: {
   readonly drivenInputIds?: ReadonlySet<string>
 }): readonly ImageInputCandidate[] {
   if (!args.schema) return []
-  return args.schema.items.flatMap((item): ImageInputCandidate[] => {
-    if (item.kind !== 'input' || !isImageAssetInput(item) || args.drivenInputIds?.has(item.id)) return []
+  return inputsOf(args.schema).flatMap((item): ImageInputCandidate[] => {
+    if (!isImageAssetInput(item) || args.drivenInputIds?.has(item.id)) return []
     const value = args.values[item.id]
     return isAssetRef(value) && value.mediaType === 'image/png'
       ? [{ nodeId: args.nodeId, inputId: item.id, sourceRef: value }]

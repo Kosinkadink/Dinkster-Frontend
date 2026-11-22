@@ -40,6 +40,7 @@ import {
   regionBoundaryLabels,
   resolveBoundaryRoute,
   outputsOf,
+  allRowsOf,
   samePortRef,
   solveGraphTypes,
   subgraphDefIdOf,
@@ -1007,7 +1008,7 @@ export function updateSceneNodeValues(
   for (const node of Object.values(after.nodes)) {
     const schema = resolve(node.type)
     if (node.virtual || node.type.startsWith('#') || node.region || !schema || schema.virtual ||
-        schema.items.some((item) => item.kind !== 'section' && (item.dynamic !== undefined || item.outputDescriptors !== undefined))) return undefined
+        allRowsOf(schema.body).some((row) => row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described')) return undefined
   }
   let changed = false
   const nodes: SceneNode[] = []
@@ -1019,13 +1020,12 @@ export function updateSceneNodeValues(
     if (existing.node !== old || node.virtual || node.type.startsWith('#') ||
         !sameReferencesExcept(old as unknown as Readonly<Record<string, unknown>>, node as unknown as Readonly<Record<string, unknown>>, 'values')) return undefined
     const schema = resolve(node.type)
-    if (!schema || schema.selector || schema.widgetGroups || schema.items.some((item) =>
-      item.kind === 'section' || item.dynamic !== undefined || item.outputDescriptors !== undefined ||
-      (item.kind === 'input' && (item.advanced || item.section !== undefined)))) return undefined
+    if (!schema || schema.selector || schema.widgetGroups ||
+      !schema.body.every((row) => row.kind === 'input' || row.kind === 'output')) return undefined
     for (const key of new Set([...Object.keys(old.values), ...Object.keys(node.values)])) {
       if (old.values[key] === node.values[key]) continue
-      const input = schema.items.find((item) => item.kind === 'input' && item.id === key)
-      if (input?.kind !== 'input' || !['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '') ||
+      const input = inputsOf(schema).find((item) => item.id === key)
+      if (input === undefined || !['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '') ||
           typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
           (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
     }

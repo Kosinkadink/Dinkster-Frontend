@@ -120,6 +120,7 @@ import {
   type WidgetSpec,
   type WidgetView,
   type WorkflowDocument,
+  type OutputDescriptorsSpec,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
@@ -5075,8 +5076,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
       const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
-      const descriptors = schema?.items.flatMap((item) => item.kind !== 'section' && item.outputDescriptors?.input === hit.row.valueKey
-        ? [item.outputDescriptors] : [])[0]
+      // TODO(#1134 question 7): no row opens the descriptor editor until the design thread answers.
+      const descriptors = undefined as OutputDescriptorsSpec | undefined
       const descriptorRevision = tab.store.revision
       const descriptorNode = tab.store.doc.graphs[graphId]?.nodes[nodeId]
       const occurrenceValues = descriptors === undefined ? undefined : occurrenceDynamicView(

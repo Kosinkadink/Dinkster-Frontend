@@ -53,6 +53,8 @@ import {
   type SchemaResolver,
   type TypeExpr,
   type WorkflowDocument,
+  allRowsOf,
+  inputsOf,
 } from '@dinkster/core'
 import { isSaveTarget } from '@dinkster/widgets'
 import { isAssetRef } from './image-editor.js'
@@ -295,18 +297,12 @@ function censusWorkflowAssetRoots(
   }
   const registerInputDefaults = (input: InputSpec): void => {
     if (input.ext !== undefined && Object.keys(input.ext).every((key) => key === 'default')) knownSchemaExtensions.add(input)
-    const dynamic = input.dynamic
-    if (dynamic?.kind === 'autogrow') dynamic.template.forEach(registerInputDefaults)
-    else if (dynamic?.kind === 'dynamicCombo') dynamic.options.forEach((option) => option.inputs.forEach(registerInputDefaults))
-    else if (dynamic?.kind === 'dynamicSlot') {
-      dynamic.inputs.forEach(registerInputDefaults)
-      dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
-    }
   }
   const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
-    const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
+    const dynamic = schema !== undefined && allRowsOf(schema.body).some((row) =>
+      row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice')
     if (dynamic) hasContextualValues = true
     // A stable node can resolve differently after its referenced graph changes.
     let checkedSchemas = checkedNodes.get(node)
@@ -339,12 +335,9 @@ function censusWorkflowAssetRoots(
         (fields['occupies'] === undefined || (Array.isArray(fields['occupies']) && fields['occupies'].every((entry) => typeof entry === 'string'))) &&
         (fields['ioBound'] === undefined || fields['ioBound'] === true)) knownSchemaExtensions.add(schema)
     }
-    for (const item of schema.items) if (item.kind === 'input') registerInputDefaults(item)
+    for (const row of allRowsOf(schema.body)) if (row.kind === 'input') registerInputDefaults(row)
     checkExtensions(schema as unknown as Json, false)
     if (Object.values(node.dynamic ?? {}).some((state) => !assetFreeDynamicState(state))) complete = false
-    for (const item of schema?.items ?? []) {
-      if (item.kind !== 'input' && item.kind !== 'output') complete = false
-    }
     const connectivity = dynamic ? buildGraphConnectivity(graph)(node.id) : EMPTY_CONNECTIVITY
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
@@ -410,8 +403,7 @@ function censusWorkflowAssetRoots(
     }
     for (const [input, value] of Object.entries(node.values)) {
       const candidates = inputs.filter((item) => valueKeyOf(item) === input)
-      const conflicting = candidates.some((item) => item.wire15Materialization) &&
-        new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
+      const conflicting = new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
       const typed = parseTypedLiteralWire(value)
       const matching = conflicting && typed !== undefined ? candidates.filter((item) =>
         canonicalJson(item.spec.type) === canonicalJson(typeExprFromTypeId(typed.type))) : candidates
@@ -477,9 +469,9 @@ function censusWorkflowAssetRoots(
           if (consumers.length === 0) complete = false
           for (const consumer of consumers) {
             const node = graph.nodes[consumer.node]
-            const input = node === undefined ? undefined : schemas(graph.id, node)?.items.find((item) =>
-              item.kind === 'input' && item.id === consumer.port)
-            if (consumer.members !== undefined || input?.kind !== 'input' || input.dynamic !== undefined) complete = false
+            const schema = node === undefined ? undefined : schemas(graph.id, node)
+            const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === consumer.port)
+            if (consumer.members !== undefined || input === undefined) complete = false
             else valueRoots(source.value, input.type)
           }
         }
@@ -563,15 +555,16 @@ export function workflowAssetRootsUnchanged(
       const schema = resolve(node.type)
       // Contextual elaboration can activate another input's asset default.
       if (node.type.startsWith('#') || node.virtual || node.region || !schema || schema.virtual ||
-          schema.items.some((item) => item.kind !== 'section' &&
-            (item.dynamic !== undefined || item.outputDescriptors !== undefined ||
-              (item.type.kind !== 'concrete' && item.type.kind !== 'asset')))) return false
+          allRowsOf(schema.body).some((row) => row.kind === 'input' || row.kind === 'output'
+            ? row.type.kind !== 'concrete' && row.type.kind !== 'asset'
+            : !['section', 'row', 'note', 'button'].includes(row.kind))) return false
     }
   }
   return prepared.forward.every((op) => {
     const node = prepared.document.graphs[String(op.path[1])]?.nodes[String(op.path[3])]
-    const input = node && resolve(node.type)?.items.find((item) => item.kind === 'input' && item.id === op.path[5])
-    return input?.kind === 'input' && input.type.kind === 'concrete' &&
+    const schema = node && resolve(node.type)
+    const input = schema ? inputsOf(schema).find((item) => item.id === op.path[5]) : undefined
+    return input !== undefined && input.type.kind === 'concrete' &&
       ['INT', 'FLOAT'].includes(input.type.name) && ['INT', 'FLOAT'].includes(input.widget?.widgetType ?? '')
   })
 }

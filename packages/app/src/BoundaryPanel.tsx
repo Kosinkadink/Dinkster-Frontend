@@ -1,42 +1,25 @@
 /**
- * Boundary exposure editor (hazard F10): shown while a tab is editing a
- * subgraph DEFINITION, one entry per boundary item.
- *
- * Forwarded families get the exposure tree: a mirror of the family's
- * template where each slot is whole / narrowed / excluded. All document
- * writes go through boundary.setSlots / boundary.clearSlots (undoable,
- * serializable); the tree's state is always derived FROM the document -
- * there is no local selection mirror to fall out of sync.
- *
- * Invalid configurations are unrepresentable at the source: toggles come
- * from toggleSlotSelection, which never emits a whole-subtree entry
- * alongside a narrowed descendant and refuses to empty a pinned selection
- * (the refusal surfaces as an inline notice). Template-aware problems the
- * editor cannot rule out structurally (starvation of a required socket-only
- * slot) come back from deriveBoundarySchema and render inline on the item.
+ * Boundary editor: shown while a tab is editing a subgraph DEFINITION, one
+ * entry per boundary item, with its name, binding and region role. Problems
+ * deriveBoundarySchema reports (such as an unresolved forward) render inline
+ * on the item.
  */
 
-import { createEffect, createSignal as createSolidSignal, For, Index, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal as createSolidSignal, For, onCleanup, Show } from 'solid-js'
 import {
   defaultBoundaryLabels,
   deriveBoundarySchema,
   documentResolver,
-  exposureAt,
   inputsOf,
   outputsOf,
-  parseSelection,
-  resolveBoundaryRoute,
   subgraphDefIdOf,
-  toggleSlotSelection,
   type BoundaryItem,
   type Diagnostic,
   type GraphDef,
-  type InputSpec,
   type JsonObject,
   type RegionContract,
-  type SelectionTree,
 } from '@dinkster/core'
-import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { useAppMessage } from './locale.js'
 import { activateProblem } from './ProblemsPanel.js'
@@ -159,40 +142,8 @@ export function BoundaryPanel(props: { app: AppState }) {
   const itemName = (side: 'inputs' | 'outputs', item: BoundaryItem): string =>
     item.displayName ?? defaultItemName(side, item)
 
-  const conditionalKind = (item: BoundaryItem): 'dynamicCombo' | 'dynamicSlot' | undefined => {
-    if (item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') return undefined
-    const ctx = editedDef()
-    const reg = registry()
-    const node = ctx?.def.nodes[item.binds.node]
-    const schema = ctx && reg && node && documentResolver(ctx.tab.store.doc, reg.resolve)(node.type)
-    const route = schema && resolveBoundaryRoute(schema, item.binds, 'input')
-    const kind = route?.ok && route.route.terminal.kind === 'port' ? route.route.terminal.slot.dynamic?.kind : undefined
-    return kind === 'dynamicCombo' || kind === 'dynamicSlot' ? kind : undefined
-  }
-
-  const setConditionalBinding = (item: BoundaryItem, bindingKind: 'port' | 'slot' | 'dynamicCombo'): void => {
-    if (item.binds.kind === 'widgetTap' || item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') return
-    dispatch('boundary.setBinding', { side: 'inputs', itemId: item.id, node: item.binds.node, port: item.binds.port,
-      ...(item.binds.members !== undefined ? { members: [...item.binds.members] } : {}), bindingKind })
-  }
-
-  /** Template of the family an item forwards, resolved structurally. */
-  const familyTemplate = (side: 'inputs' | 'outputs', item: BoundaryItem): readonly InputSpec[] | undefined => {
-    const ctx = editedDef()
-    const reg = registry()
-    if (!ctx || !reg || item.binds.kind !== 'family') return undefined
-    const node = ctx.def.nodes[item.binds.node]
-    if (!node) return undefined
-    const schema = documentResolver(ctx.tab.store.doc, reg.resolve)(node.type)
-    if (!schema) return undefined
-    const route = resolveBoundaryRoute(schema, item.binds, side === 'inputs' ? 'input' : 'output')
-    if (!route.ok || route.route.terminal.kind !== 'family') return undefined
-    return route.route.terminal.spec.template
-  }
-
-  // One inline notice at a time (e.g. "at least one slot must stay
-  // exposed"), keyed to the item that provoked it; cleared by any
-  // successful edit.
+  // One inline notice at a time, keyed to the item whose edit the command
+  // refused; cleared by any successful edit.
   const [notice, setNotice] = createSolidSignal<{ key: string; text: string } | undefined>(undefined)
   const [nameDrafts, setNameDrafts] = createSolidSignal<Record<string, string>>({})
   const [pending, setPending] = createSolidSignal<object | undefined>(undefined)
@@ -281,37 +232,6 @@ export function BoundaryPanel(props: { app: AppState }) {
     return role?.kind === 'state' ? role.statePort : undefined
   }
 
-  const pin = (side: 'inputs' | 'outputs', item: BoundaryItem, template: readonly InputSpec[]): void => {
-    // Pinning starts from an explicit FULL selection: same exposure as
-    // absence today, but new template slots stay hidden until selected.
-    dispatch('boundary.setSlots', { side, itemId: item.id, slots: template.map((s) => s.id) })
-  }
-
-  const unpin = (side: 'inputs' | 'outputs', item: BoundaryItem): void => {
-    dispatch('boundary.clearSlots', { side, itemId: item.id })
-  }
-
-  const toggle = (
-    side: 'inputs' | 'outputs',
-    item: BoundaryItem,
-    template: readonly InputSpec[],
-    path: string,
-  ): void => {
-    const slots = item.binds.slots
-    if (slots === undefined) return
-    const result = toggleSlotSelection(template, slots, path)
-    if (!result.ok) {
-      setNotice({
-        key: itemKey(side, item),
-        text:
-          result.reason === 'empty'
-            ? 'At least one slot must stay exposed; unpin to expose the whole template.'
-            : 'This selection cannot be edited (unrecognized slot path).',
-      })
-      return
-    }
-    dispatch('boundary.setSlots', { side, itemId: item.id, slots: result.entries })
-  }
 
   const sideItemCache: Record<'inputs' | 'outputs', readonly BoundaryItem[]> = { inputs: [], outputs: [] }
   const sideItems = (side: 'inputs' | 'outputs'): readonly BoundaryItem[] => {
@@ -658,105 +578,6 @@ export function BoundaryPanel(props: { app: AppState }) {
                         </Show>
                       )}
                     </Show>
-                    <Show when={side === 'inputs' && conditionalKind(item) === 'dynamicCombo'}>
-                      <p class="boundary-message" role="status">
-                        {item.binds.kind === 'dynamicCombo' ? 'Full branch: inputs and values are independent on each instance.' : 'Selector only: branch inputs stay definition-owned.'}
-                      </p>
-                      <button type="button" class="boundary-button" disabled={editingDisabled()}
-                        aria-label={`${item.binds.kind === 'dynamicCombo' ? 'Use selector only for' : 'Upgrade to full branch for'} ${itemName(side, item)}`}
-                        onClick={() => setConditionalBinding(item, item.binds.kind === 'dynamicCombo' ? 'port' : 'dynamicCombo')}>
-                        {item.binds.kind === 'dynamicCombo' ? 'Use selector only' : 'Upgrade to full branch'}
-                      </button>
-                    </Show>
-                    <Show when={side === 'inputs' && conditionalKind(item) === 'dynamicSlot'}>
-                      <p class="boundary-message" role="status">
-                        {item.binds.kind === 'slot' ? 'Full slot: specialization and dependents are independent on each instance.' : 'Slot dependents are not forwarded.'}
-                      </p>
-                      <Show when={item.binds.kind !== 'slot'}>
-                        <button type="button" class="boundary-button" disabled={editingDisabled()}
-                          aria-label={`Forward full slot for ${itemName(side, item)}`}
-                          onClick={() => setConditionalBinding(item, 'slot')}>Forward full slot</button>
-                      </Show>
-                    </Show>
-                    <Show when={item.binds.kind === 'family'}>
-                      <Show
-                        when={familyTemplate(side, item)}
-                        fallback={
-                          <p class="boundary-message" data-tone="unavailable" data-testid="boundary-unavailable" role="status">
-                            <strong>Exposure unavailable.</strong> The nested slot template cannot be resolved from the current schema catalog.
-                          </p>
-                        }
-                      >
-                        {(template) => (
-                          <div class="boundary-exposure">
-                            <div class="boundary-pin-row">
-                              <Show
-                                when={item.binds.slots !== undefined}
-                                fallback={
-                                  <>
-                                    <div class="boundary-mode-copy">
-                                      <span class="boundary-state-badge" data-tone="tracking">Tracks template</span>
-                                      <span class="boundary-mode">New nested slots are exposed automatically.</span>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      class="boundary-button"
-                                      data-testid="boundary-pin"
-                                      disabled={editingDisabled()}
-                                      onClick={() => pin(side, item, template())}
-                                    >
-                                      Pin selection
-                                    </button>
-                                  </>
-                                }
-                              >
-                                <div class="boundary-mode-copy">
-                                  <span class="boundary-state-badge" data-tone="pinned">Pinned</span>
-                                  <span class="boundary-mode">Only selected nested slots are exposed.</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  class="boundary-button"
-                                  data-testid="boundary-unpin"
-                                  disabled={editingDisabled()}
-                                  onClick={() => unpin(side, item)}
-                                >
-                                  Track all slots
-                                </button>
-                              </Show>
-                            </div>
-                            <Show when={item.binds.slots}>
-                              {(slots) => {
-                                const tree = (): SelectionTree | undefined => {
-                                  const parsed = parseSelection(slots())
-                                  return 'error' in parsed ? undefined : parsed.tree
-                                }
-                                return (
-                                  <Show
-                                    when={tree()}
-                                    fallback={
-                                      <p class="boundary-message" data-tone="invalid" data-testid="boundary-invalid" role="alert">
-                                        <strong>Invalid stored selection.</strong> Track all slots to reset this exposure safely.
-                                      </p>
-                                    }
-                                  >
-                                    {(t) => (
-                                      <SlotTree
-                                        template={template()}
-                                        tree={t()}
-                                        prefix=""
-                                        disabled={editingDisabled()}
-                                        onToggle={(path) => toggle(side, item, template(), path)}
-                                      />
-                                    )}
-                                  </Show>
-                                )
-                              }}
-                            </Show>
-                          </div>
-                        )}
-                      </Show>
-                    </Show>
                     <Show when={notice()?.key === itemKey(side, item)}>
                       <p class="boundary-message" data-tone="notice" data-testid="boundary-notice" role="status">
                         {notice()!.text}
@@ -780,69 +601,5 @@ export function BoundaryPanel(props: { app: AppState }) {
         </For>
       </section>
     </Show>
-  )
-}
-
-/**
- * One level of the exposure tree. Checkbox state is derived from the
- * document's selection: checked = whole subtree, indeterminate = narrowed
- * (exposed only through selected descendants), unchecked = excluded.
- * Autogrow constructs expand to their nested template.
- */
-function SlotTree(props: {
-  template: readonly InputSpec[]
-  tree: SelectionTree
-  prefix: string
-  disabled: boolean
-  onToggle: (path: string) => void
-}) {
-  const pathOf = (slot: InputSpec): string =>
-    props.prefix === '' ? slot.id : `${props.prefix}.${slot.id}`
-  return (
-    <ul class="slot-tree">
-      <Index each={props.template as InputSpec[]}>
-        {(slot) => {
-          const path = () => pathOf(slot())
-          const state = () => exposureAt(props.tree, path())
-          const nested = (): readonly InputSpec[] | undefined =>
-            slot().dynamic?.kind === 'autogrow'
-              ? (slot().dynamic as { template: readonly InputSpec[] }).template
-              : undefined
-          return (
-            <li class="slot-row">
-              <label classList={{ 'slot-label': true, excluded: state() === 'excluded' }}>
-                <ProductCheckbox
-                  testId="slot-toggle"
-                  dataAttributes={{ 'data-slot-path': path(), 'data-state': state() }}
-                  ariaLabel={`Expose ${slot().displayName ?? slot().id}: ${state()}`}
-                  checked={state() === 'narrowed' ? 'mixed' : state() === 'whole'}
-                  disabled={props.disabled}
-                  enterActivates
-                  onChange={() => props.onToggle(path())}
-                />
-                <span class="slot-copy">
-                  <span class="slot-id">{slot().displayName ?? slot().id}</span>
-                  <code class="slot-path">{path()}</code>
-                </span>
-                <Show when={nested()}>
-                  <span class="slot-kind">autogrow</span>
-                </Show>
-              </label>
-              <Show when={nested()}>
-                {(t) => (
-                  <SlotTree
-                    template={t()}
-                    tree={props.tree}
-                    prefix={path()}
-                    disabled={props.disabled}
-                    onToggle={props.onToggle}
-                  />
-                )}
-              </Show>
-            </li>
-          )
-        }}
-      </Index>
-    </ul>
   )
 }
