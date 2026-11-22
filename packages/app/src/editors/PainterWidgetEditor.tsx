@@ -164,14 +164,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           if (!bytes) throw new Error(message('painterWidget.unavailable'))
           await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
         }
-        if (local) await load()
-        else {
-          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string, abort.signal)
-          if (!reader) throw new Error(message('painterWidget.unavailable'))
-          const connectedCurrent = sourceCurrent
-          sourceCurrent = () => connectedCurrent() && reader.current()
-          await reader.read(load)
-        }
+        await load()
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })

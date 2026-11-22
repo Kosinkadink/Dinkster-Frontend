@@ -120,10 +120,6 @@ async function bootstrap(): Promise<void> {
     app={app}
     {...(desktopWindow ? { desktopWindow } : {})}
   />, root)
-  // Cleanup bookkeeping must not delay shared editing or become a user problem.
-  void started.then(() => app.confirmStartupOwnership()).catch((error: unknown) => {
-    console.warn('Startup file-list recording failed', error)
-  })
   void started.then(() => app.enableWorkspaceAuthority()).catch((error: unknown) => {
     console.warn('Shared editing could not start', error)
   })

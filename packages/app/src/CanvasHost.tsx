@@ -1010,7 +1010,6 @@ function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): R
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
-  readonly assetReader?: PreviewSource['assetReader']
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
@@ -1041,7 +1040,7 @@ export function NodeMediaOverlay(props: {
         {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
       </Show>
       <Show when={props.media.kind === 'video'} fallback={
-        <AudioTransport media={props.media} assetReader={props.assetReader} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
+        <AudioTransport media={props.media} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
           onMediaError={() => props.onMediaError?.()} />
       }>
         <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
@@ -1059,7 +1058,6 @@ export function NodeMediaOverlay(props: {
 export function NodeModel3dOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'model3d'; readonly src: string }
-  readonly assetReader?: PreviewSource['assetReader']
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
@@ -1069,17 +1067,13 @@ export function NodeModel3dOverlay(props: {
   const [failed, setFailed] = createSolidSignal(false)
   let container: HTMLDivElement | undefined
   let viewer: { dispose(): void } | undefined
-  let settleViewer: (() => void) | undefined
   let mountToken = 0
   const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const source = createMemo(() => props.media.src)
-  const assetReader = createMemo(() => props.assetReader)
   const close = (): void => {
     mountToken += 1
     viewer?.dispose()
     viewer = undefined
-    settleViewer?.()
-    settleViewer = undefined
     setActive(false)
     props.onActiveChange?.(false)
   }
@@ -1090,34 +1084,26 @@ export function NodeModel3dOverlay(props: {
     props.onActiveChange?.(true)
     const token = ++mountToken
     const src = props.media.src
-    const reader = props.assetReader
     try {
-      const mount = async (): Promise<void> => {
-        const { mountModel3dViewer } = await import('./model3d-viewer.js')
-        if (token !== mountToken || container === undefined || reader?.current() === false) return
-        const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
-        if (token !== mountToken || reader?.current() === false) {
-          handle.dispose()
-          return
-        }
-        viewer = handle
-        await new Promise<void>((resolve) => { settleViewer = resolve })
+      const { mountModel3dViewer } = await import('./model3d-viewer.js')
+      if (token !== mountToken || container === undefined) return
+      const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
+      if (token !== mountToken) {
+        handle.dispose()
+        return
       }
-      if (reader === undefined) await mount()
-      else await reader.read(mount)
+      viewer = handle
     } catch {
       if (token === mountToken) setFailed(true)
     }
   }
   // A page change or new execution swaps the source without remounting the
   // overlay; an open viewer would keep showing the old model.
-  createEffect(on([source, assetReader], () => close(), { defer: true }))
+  createEffect(on(source, () => close(), { defer: true }))
   onCleanup(() => {
     mountToken += 1
     viewer?.dispose()
     viewer = undefined
-    settleViewer?.()
-    settleViewer = undefined
     queueMicrotask(() => props.onActiveChange?.(false))
   })
   return (
@@ -1553,7 +1539,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly node: EditorWorldRect
     readonly preview: EditorWorldRect
     readonly media: NodePreview & { readonly kind: 'video' | 'audio' | 'model3d'; readonly src: string }
-    readonly assetReader?: PreviewSource['assetReader']
     readonly onMediaError?: () => void
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
@@ -2177,17 +2162,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return (signal) => connection.fetchAssetBytes(digest, signal)
     },
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
-    },
-    inputAssetReader: (digest, holder) => {
-      const tab = activeTab()
-      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest, holder)
     },
     onDecoded: () => setPreviewTick((v) => v + 1),
     validateMediaRendition: validateBrowserMediaRendition,
@@ -4651,7 +4631,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
               preview: mediaRect,
               media: media as NodePreview & { readonly kind: 'video' | 'audio' | 'model3d'; readonly src: string },
-              ...(source?.assetReader === undefined ? {} : { assetReader: source.assetReader }),
               ...(source === undefined ? {} : { onMediaError: () => previewLoader.markUnavailable?.(source) }),
             }]
           : []
@@ -5689,14 +5668,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       const text = JSON.stringify(envelope)
       clipboardFallback = text
-      const ownership = props.app.retainClipboardAssets(tab, text)
-      void ownership.then((accepted) => {
-        if (!accepted && clipboardFallback === text) {
-          clipboardFallback = undefined
-          clipboardScopes.delete(scopeToken)
-        }
-      })
-      await writeClipboardText((value) => navigator.clipboard.writeText(value), text, ownership)
+      await writeClipboardText((value) => navigator.clipboard.writeText(value), text)
     }
 
     const pasteSelection = async (
@@ -6287,7 +6259,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <NodeMediaOverlay
                 ownerId={id}
                 media={currentItem().media as NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }}
-                assetReader={currentItem().assetReader}
                 rect={projected()!}
                 scale={editorViewport().scale}
                 canvas={canvasEl}
@@ -6307,7 +6278,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <NodeModel3dOverlay
                 ownerId={id}
                 media={currentItem().media as NodePreview & { readonly kind: 'model3d'; readonly src: string }}
-                assetReader={currentItem().assetReader}
                 rect={projected()!}
                 scale={editorViewport().scale}
                 canvas={canvasEl}
