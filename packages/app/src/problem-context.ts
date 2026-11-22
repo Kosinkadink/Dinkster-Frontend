@@ -153,10 +153,3 @@ export function contextProblems<T extends Diagnostic>(
   }
 }
 
-/**
- * Whether a diagnostic names a context the Focused panel can be focused on
- * (an occurrence or port anchor resolving to a node, or a link anchor). The whole-document
- * panel offers "Show in Focused" exactly for these entries.
- */
-export const hasOwningContext = (diagnostic: Diagnostic): boolean =>
-  diagnostic.anchor?.occurrence !== undefined || diagnostic.anchor?.port !== undefined || diagnostic.anchor?.link !== undefined
