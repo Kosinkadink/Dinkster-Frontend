@@ -45,9 +45,9 @@ for (const width of [1280, 1440, 1920, 390]) {
       }
     })
     expect(geometry).toEqual({
-      topbar: 56,
+      topbar: 44,
       avatar: 32,
-      trigger: 40,
+      trigger: 32,
       wordmark: 30,
       panelRadius: '8px',
       rowButton: width < 768 ? 32 : 28,

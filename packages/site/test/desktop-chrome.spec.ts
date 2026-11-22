@@ -43,7 +43,7 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
         const compact =
           width -
             (platform === 'win32' ? 160 : platform === 'darwin' ? 104 : 24) <
-          945
+          940
         await page.setViewportSize({ width, height: 300 })
         await page.evaluate(
           ({ platform, theme }) =>
@@ -148,9 +148,10 @@ for (const existing of [false, true]) {
     )
     expect(artifact.format).toBe('dinkster.desktop-chrome/1')
     expect(artifact.native).toEqual({
+      minimumWidth: { linux: 342, darwin: 422, win32: 478 },
       overlay: {
-        dark: { color: '#141C1D', symbolColor: '#F0F5F5', height: 44 },
-        light: { color: '#FFFFFF', symbolColor: '#20252A', height: 44 },
+        dark: { color: '#090D0D', symbolColor: '#F0F5F5', height: 44 },
+        light: { color: '#EDEFF2', symbolColor: '#20252A', height: 44 },
       },
       trafficLightPosition: { x: 14, y: 10 },
     })
@@ -182,7 +183,7 @@ for (const existing of [false, true]) {
           await expect(bar).toHaveCSS('min-height', '44px')
           await expect(bar).toHaveCSS(
             'background-color',
-            theme === 'dark' ? 'rgb(20, 28, 29)' : 'rgb(255, 255, 255)',
+            theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)',
           )
           await expect(bar).toHaveCSS('font-family', '"Noto Sans", sans-serif')
           await expect(bar).toHaveCSS('-webkit-app-region', 'drag')

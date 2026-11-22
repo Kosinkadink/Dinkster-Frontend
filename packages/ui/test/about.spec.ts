@@ -464,7 +464,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
       await expect(bar.locator('button[aria-pressed]')).toHaveCount(
         right - left < 460 ? 0 : 3,
       )
-      const compact = right - left < 945
+      const compact = right - left < 940
       const action = bar.getByRole('button', {
         name: 'Dinkster menu',
         exact: true,
@@ -581,7 +581,7 @@ for (const state of ['running', 'pending'])
         .locator('header')
       const search = bar.getByRole('button', { name: 'Search', exact: true })
       const project = bar.getByRole('button', { name, exact: true })
-      for (const contentWidth of [1045, 945, 944.5, 944, 769]) {
+      for (const contentWidth of [1040, 940, 939.5, 939, 769]) {
         // A fractional container width must not leave a gap between the two forms.
         await page.setViewportSize({
           width: Math.ceil(contentWidth + reservation),
@@ -618,7 +618,7 @@ for (const state of ['running', 'pending'])
             expect(spinner.y + spinner.height / 2).toBe(
               actionBounds.y + actionBounds.height / 2,
             )
-            if (contentWidth < 945 || label === 'Cancel run')
+            if (contentWidth < 940 || label === 'Cancel run')
               expect(spinner.x + spinner.width / 2).toBe(
                 actionBounds.x + actionBounds.width / 2,
               )
@@ -626,7 +626,7 @@ for (const state of ['running', 'pending'])
         }
         await expect(project).toHaveAttribute('title', name)
         const text = project.locator('.dinkster-window-project-name')
-        if (contentWidth >= 945) {
+        if (contentWidth >= 940) {
           await expect(search.locator('kbd')).toBeVisible()
           await expect(
             project.locator('.dinkster-window-project-label > svg'),
@@ -638,7 +638,7 @@ for (const state of ['running', 'pending'])
           ).toBe(true)
           const searchBounds = (await search.boundingBox())!
           expect(searchBounds.width).toBeGreaterThanOrEqual(116)
-          expect(searchBounds.width).toBe(contentWidth === 945 ? 126 : 226)
+          expect(searchBounds.width).toBe(contentWidth === 940 ? 121 : 221)
           const layoutBounds = (await bar
             .getByRole('button', { name: 'Customize layout', exact: true })
             .boundingBox())!
@@ -675,7 +675,7 @@ for (const state of ['running', 'pending'])
               rect.right <= previous.left || rect.left >= previous.right,
             ).toBe(true)
         }
-        if (contentWidth === 945 || contentWidth === 769)
+        if (contentWidth === 940 || contentWidth === 769)
           await bar.screenshot({
             path: `test-results/captures/toolbar-expanded-${platform}-${contentWidth}-${state}.png`,
           })
@@ -723,7 +723,7 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
           right - left < 460 ? 0 : 3,
         )
         const search = bar.getByRole('button', { name: 'Search', exact: true })
-        const compact = right - left < 945
+        const compact = right - left < 940
         await expect(search).toHaveAttribute('title', 'Search (Ctrl+K)')
         await expect(search).toHaveAccessibleDescription('Search (Ctrl+K)')
         if (compact) {

@@ -941,7 +941,13 @@ The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
 `DinksterDesktopChrome.install({title, platform, theme, qa?, development?})`,
 and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
 scoped shared CSS with embedded Noto fonts plus token-derived native overlay
-colors/height and macOS traffic-light position. The installer reuses the first
+colors/height and macOS traffic-light position. The DOM bar and native overlay
+both use `surface.frame`. `native.minimumWidth` supplies Linux, macOS (`darwin`)
+and Windows (`win32`) widths from the three `toolbarMinimumWidth` layout tokens:
+342, 422 and 478px. These include the shared narrow row's 318px and native
+reservations; hosts with additional controls must measure that fuller row and
+apply a greater minimum. The host applies the minimum to window construction
+and resizing; CSS does not enforce a native window size. The installer reuses the first
 `.dinkster-window-toolbar-host`, `.topbar`, `.dinkster-topbar` or direct body
 header, preserving its children. On a shared toolbar it mounts identity inside
 the toolbar grid; a host-managed toolbar leaves its component `qa` and
@@ -963,7 +969,7 @@ optional rightmost account slot separate from actions. It has a fixed 44px
 height and 32px controls. Wordmarks and avatars retain their drawn dimensions;
 the site account trigger is a borderless, unpadded 32px circle. The 2px focus
 outline and 2px offset fit inside the bar's 6px vertical clearance.
-Below the fixed 945px available-content `toolbarExpandedRowWidth`, a container
+Below the fixed 940px available-content `toolbarExpandedRowWidth`, a container
 query compacts `ProductWindowAction` labels to icons. This boundary holds across
 execution, account and project-name changes. In the expanded row Search takes
 spare grid width and gives it back first. Project labels compose
