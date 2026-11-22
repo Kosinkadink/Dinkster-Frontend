@@ -3002,19 +3002,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onWidgetActivate: (hit, _screenX, _screenY) => openWidgetEditor(hit),
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
-        if (!tab || tab.execution) return
+        if (!tab || refuseFrozenEdit()) return
         const item = widgetExposureItem(tab, hit.node, hit.row)
         if (item?.action.kind === 'command') props.app.dispatchTo(tab, item.action.invocation)
       },
       onPreviewSurfaceAffordanceActivate: (node) => {
         const tab = activeTab()
-        if (!tab || tab.execution) return
+        if (!tab || refuseFrozenEdit()) return
         const item = previewExposureItem(tab, node)
         if (item?.action.kind === 'command') props.app.dispatchTo(tab, item.action.invocation)
       },
       onControllerActivate: (hit, screenX, screenY) => {
         const tab = activeTab()
-        if (!tab || tab.execution || hit.row.controllerMode === undefined) return
+        if (!tab || refuseFrozenEdit() || hit.row.controllerMode === undefined) return
         if (companionInputs.get(hit.node.id)?.has(hit.row.inputId)) return
         const rect = canvasEl.getBoundingClientRect()
         props.tooltips?.hide()
@@ -3684,7 +3684,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         void props.app.queueSelection(tab, nodeIds.filter((id): id is string => typeof id === 'string'))
       },
       promoteToNet: (params, m) => {
-        if (frozen() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
+        if (refuseFrozenEdit() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
         const source =
           params && typeof params === 'object' && !Array.isArray(params)
             ? (params as JsonObject)['source']
@@ -3707,7 +3707,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       renameNet: (params, m) => {
-        if (frozen() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
+        if (refuseFrozenEdit() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
         const tab = activeTab()
         const netId =
           params && typeof params === 'object' && !Array.isArray(params)
@@ -4124,11 +4124,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // in-flight link drag and hiding tooltips for no observable change -
       // so the identical scene stays installed. Everything downstream that
       // rebinds to the live Tab wrapper still runs.
+      const continuesFrozenView = tab.replacesFrozenTabId !== undefined && sceneKey === `${tab.replacesFrozenTabId}:${graphId}`
+      const keptSelection = continuesFrozenView ? [
+        controller.getSelection(), controller.getLinkSelection(), controller.getRerouteSelection(),
+        controller.getValueSourceSelection(), controller.getSelectorSelection(), controller.getGroupSelection(),
+        controller.getNetViewSelection(),
+      ] as const : undefined
       const replaced = key !== sceneKey || (repositioned !== undefined ? scene !== built : !scenesEqual(scene, built))
       if (replaced) {
         scene = built
         renderer.setScene(scene)
         controller.setSelectionOwner(key)
+        if (keptSelection) controller.setSelection(...keptSelection)
         // A document op replaces the scene but not remote gesture state.
         // Re-project the current actors directly, without an empty teardown.
         untrack(refreshPresenceProjection)
@@ -4221,7 +4228,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         sceneKey = key
         sceneViewportOwner = { tabId: tab.id, graphId }
         const saved = props.app.graphViewport(tab.id, graphId)
-        if (saved) renderer.setViewport(saved)
+        if (continuesFrozenView) props.app.setGraphViewport(tab.id, graphId, renderer.getViewport())
+        else if (saved) renderer.setViewport(saved)
         else renderer.fitToScene()
       }
       if (focusPlan && graphId === focusPlan.graphStack[focusPlan.graphStack.length - 1]) {
@@ -6560,7 +6568,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             <ProductButton size="compact"
               class="banner-button"
               data-testid="frozen-open-copy"
-              onClick={() => { void props.app.duplicateTab(f().tab.id) }}
+              onClick={() => { void props.app.duplicateTab(f().tab.id, true) }}
             >{message('frozen.openCopy')}</ProductButton>
             <Show when={f().live}>
               {(live) => (

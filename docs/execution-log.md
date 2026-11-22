@@ -18,8 +18,11 @@ Values, wires, adding or deleting nodes, bypassing and renaming are refused.
 An attempt shows one neutral pointer toast: "Frozen. Open as copy to edit."
 Fields and pins do not show edit hover highlights in a frozen tab.
 
-**Open as copy** opens the current arrangement as an editable workflow named
+**Open as copy** replaces the frozen tab with an editable workflow named
 "<workflow> copy", then "<workflow> copy 2" if that name is already open.
+It keeps the current arrangement, pan, zoom and selection. The tab menu's
+Duplicate action instead opens a second tab. The run can be opened frozen
+again from its row, with its original arrangement.
 **Go to live** returns to the source workflow when its tab is still open.
 A job submitted by another browser without a retained snapshot cannot be
 opened frozen; its snowflake is disabled with an explanatory tooltip.
