@@ -346,11 +346,11 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="graph-canvas"]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     return {
-      overlayBottom: overlay.getBoundingClientRect().bottom,
-      captionTop: canvas.top + (node.y + preview.y + preview.height - captionHeight) * viewport.scale + viewport.y,
+      overlayTop: overlay.getBoundingClientRect().top,
+      captionBottom: canvas.top + (node.y + preview.y + captionHeight) * viewport.scale + viewport.y,
     }
   }, previewCaptionHeight)
-  expect(captionBoundary.overlayBottom).toBeCloseTo(captionBoundary.captionTop, 1)
+  expect(captionBoundary.overlayTop).toBeCloseTo(captionBoundary.captionBottom, 1)
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.renderer!.getNodePreviews()['failed']?.status,
   )).toBe('unavailable')

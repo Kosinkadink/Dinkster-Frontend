@@ -13,6 +13,7 @@ import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADG
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import type { NodePreview } from '../src/previews.js'
 
 // Crisp edges center a side pin on the node's 1 px border, half a pixel
 // inside the box's edge, and half a pixel below its row's center.
@@ -57,6 +58,12 @@ interface PaintCall {
  * paths that scope their changes (groups, boundary dashes) - without it a
  * scoped globalAlpha would leak into every later snapshot.
  */
+/** The text, or its start cut with three dots to fit a narrow node. */
+function fitted(painted: unknown, text: string): boolean {
+  const value = String(painted)
+  return value === text || (value.endsWith('...') && value.length > 3 && text.startsWith(value.slice(0, -3)))
+}
+
 function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: PaintCall[] } {
   const calls: PaintCall[] = []
   let state: Record<string, unknown> = {
@@ -1582,7 +1589,7 @@ describe('node chrome paint on the live renderer', () => {
       ...source,
       layout: {
         ...source.layout,
-        width: 100,
+        width: 160,
         height: source.layout.headerHeight + defaultTokens.padBottom,
         minWidth: 80,
         minHeight: source.layout.headerHeight + defaultTokens.padBottom,
@@ -1629,7 +1636,7 @@ describe('node chrome paint on the live renderer', () => {
     ]) {
       update()
       const bare = nodeOf(renderer.getScene(), minimizedSource.id)
-      expect(bare.layout).toMatchObject({ width: 100, height: minimizedHeight })
+      expect(bare.layout).toMatchObject({ width: 160, height: minimizedHeight })
       expect(bare.layout.preview).toBeUndefined()
       expect(bare.layout.textOutput).toBeUndefined()
     }
@@ -1637,20 +1644,23 @@ describe('node chrome paint on the live renderer', () => {
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'fillText' &&
       ['Preview', 'No preview', 'Loading', 'loading preview...'].includes(String(call.args[0])))).toBe(false)
-    // A recorded text result is content: one row with its first line.
+    // A recorded text result is content: its folded caption row shows the
+    // start of its first line, upright and in the caption's quieter color.
     renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'first line\nsecond line' } })
     const withText = nodeOf(renderer.getScene(), minimizedSource.id)
-    expect(withText.layout.width).toBe(100)
-    expect(withText.layout.textOutput).toMatchObject({ height: defaultTokens.rowHeight })
+    expect(withText.layout.width).toBe(160)
+    expect(withText.layout.textOutput).toMatchObject({ height: defaultTokens.previewCaptionHeight })
     calls.length = 0
     renderer.renderNow()
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'first line')).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'second line')).toBe(false)
-    // The same preview entry turning into a decoded picture opens the strip.
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'Preview'))).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'first line') &&
+      call.font === `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}` && call.fillStyle === defaultTokens.colors.valueMark)).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'second line'))).toBe(false)
+    // The same preview entry turning into a decoded picture shows the folded caption.
     renderer.setNodePreviews({ [minimizedSource.id]: { image: {} as CanvasImageSource, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimizedSource.id)
-    expect(projected.layout.width).toBe(100)
-    expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
+    expect(projected.layout.width).toBe(160)
+    expect(projected.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
     expect(projected.layout.textOutput).toBeUndefined()
     expect(renderer.getScene().links.every((link) =>
       link.x1 === projected.x + projected.layout.width &&
@@ -1699,9 +1709,9 @@ describe('node chrome paint on the live renderer', () => {
       ...source,
       layout: {
         ...source.layout,
-        width: 80,
+        width: 200,
         height: source.layout.headerHeight + defaultTokens.padBottom,
-        minWidth: 80,
+        minWidth: 200,
         minHeight: source.layout.headerHeight + defaultTokens.padBottom,
         rows: [],
         minimized: true as const,
@@ -1720,11 +1730,12 @@ describe('node chrome paint on the live renderer', () => {
     renderer.setNodePreviews({ [minimized.id]: { image, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimized.id)
     // Header badges sit in the title bar as on the open node; they do not widen it.
-    expect(projected.layout.width).toBe(80)
-    expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
+    expect(projected.layout.width).toBe(200)
+    expect(projected.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
     renderer.renderNow()
-    expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === '320 x 240')).toBe(false)
+    // Folded, the picture is the caption row's small picture.
+    expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image &&
+      Number(call.args[4]) <= canvasPaintTokens.preview.caption.thumbHeight)).toBe(true)
     const checkerColors = () => {
       const pattern = calls.filter((call) => call.method === 'createPattern').at(-1)!
       const tile = pattern.args[0] as { recording: { calls: PaintCall[] } }
@@ -1753,6 +1764,32 @@ describe('node chrome paint on the live renderer', () => {
     expect(calls.some((call) => call.method === 'setLineDash' && JSON.stringify(call.args[0]) === '[1,2]')).toBe(true)
   })
 
+  it('gives a node that can show a preview its caption row before, with and folded over a picture', () => {
+    const scene = fixtureScene('withMismatch')
+    const source = { ...nodeOf(scene, 'img'), layout: { ...nodeOf(scene, 'img').layout, width: 260 }, previewCapable: true as const }
+    const image = {} as CanvasImageSource
+    const regionOf = (node: SceneNode, preview?: NodePreview) => {
+      const { ctx, calls } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setScene({ ...scene, nodes: scene.nodes.map((candidate) => candidate.id === node.id ? node : candidate) })
+      if (preview !== undefined) renderer.setNodePreviews({ [node.id]: preview })
+      renderer.renderNow()
+      const layout = nodeOf(renderer.getScene(), node.id).layout
+      renderer.dispose()
+      return { layout, texts: calls.filter((call) => call.method === 'fillText').map((call) => String(call.args[0])) }
+    }
+    const before = regionOf(source)
+    expect(before.layout.preview).toMatchObject({ compact: true, height: defaultTokens.previewCaptionHeight })
+    expect(before.texts).toEqual(expect.arrayContaining(['Preview', 'no picture yet']))
+    const open = regionOf(source, { image, width: 320, height: 240 })
+    expect(open.layout.preview?.compact).toBeUndefined()
+    expect(open.texts).toEqual(expect.arrayContaining(['Preview', '320 x 240']))
+    const folded = regionOf({ ...source, previewFolded: true }, { image, width: 320, height: 240 })
+    expect(folded.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
+    expect(folded.layout.height).toBe(before.layout.height)
+    expect(folded.texts).toEqual(expect.arrayContaining(['Preview', '320 x 240']))
+  })
+
   it('suppresses the text region when an image preview is active', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
@@ -1760,7 +1797,7 @@ describe('node chrome paint on the live renderer', () => {
       renderer.setNodeOutputTexts({ [node.id]: { text: 'hidden by image' } })
       renderer.setNodePreviews({ [node.id]: { status: 'loading' } })
     })
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'loading preview...')).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'loading')).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'hidden by image')).toBe(false)
     const projectedLayout = nodeOf((() => {
       const { ctx } = recordingCtx()
@@ -1776,18 +1813,34 @@ describe('node chrome paint on the live renderer', () => {
     expect(projectedLayout).not.toHaveProperty('textOutput')
   })
 
-  it('paints in-body loading/unavailable placeholders and the actual list page', () => {
+  it('says loading, failed or unavailable in the caption row and keeps a list page\'s panel', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
-    const loading = paintWith(scene, (renderer) => renderer.setNodePreviews({
-      [node.id]: { status: 'loading', count: 3, index: 1 },
+    for (const [status, word] of [['loading', 'loading'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
+      const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status } }))
+      expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
+      // A page of a list output keeps its panel, so its paging controls stay.
+      const page = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status, count: 3, index: 1 } }))
+      expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], '2/3'))).toBe(true)
+      expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
+    }
+    // A single executed output loading its picture keeps its panel too, so
+    // its pager and an open output viewer stay; a bare loading preview folds.
+    const projected = (preview: NodePreview) => {
+      const { ctx } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setScene(scene)
+      renderer.setNodePreviews({ [node.id]: preview })
+      const layout = nodeOf(renderer.getScene(), node.id).layout
+      renderer.dispose()
+      return layout
+    }
+    expect(projected({ status: 'loading', count: 1, index: 0 }).preview?.compact).not.toBe(true)
+    expect(projected({ status: 'loading' }).preview?.compact).toBe(true)
+    const page = paintWith(scene, (renderer) => renderer.setNodePreviews({
+      [node.id]: { image: {} as CanvasImageSource, width: 320, height: 240, count: 3, index: 1 },
     }))
-    expect(loading.some((call) => call.method === 'fillText' && call.args[0] === 'loading preview...')).toBe(true)
-    expect(loading.some((call) => call.method === 'fillText' && call.args[0] === '2/3')).toBe(true)
-    const unavailable = paintWith(scene, (renderer) => renderer.setNodePreviews({
-      [node.id]: { status: 'unavailable' },
-    }))
-    expect(unavailable.some((call) => call.method === 'fillText' && call.args[0] === 'preview unavailable')).toBe(true)
+    expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], '2/3 | 320 x 240'))).toBe(true)
   })
 
   it('projects preview geometry into scene hit testing', () => {
@@ -1885,10 +1938,12 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
     const projectedLayout = projectNodeLayoutHeight(withPreviewRegion(node.layout, defaultTokens), preview.height, defaultTokens)
     const panel = { ...projectedLayout.preview!, width: preview.width - defaultTokens.padX * 2 }
+    // The picture's box sits under the caption row.
+    const caption = defaultTokens.previewCaptionHeight
     expect(calls.some((call) =>
       call.method === 'roundRect' &&
-      call.args[0] === preview.x + panel.x && call.args[1] === preview.y + panel.y &&
-      call.args[2] === panel.width && call.args[3] === panel.height,
+      call.args[0] === preview.x + panel.x && call.args[1] === preview.y + panel.y + caption &&
+      call.args[2] === panel.width && call.args[3] === panel.height - caption,
     )).toBe(true)
     expect(calls.some((call) =>
       call.method === 'setLineDash' && JSON.stringify(call.args[0]) === '[6,4]',
