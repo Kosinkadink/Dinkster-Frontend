@@ -496,7 +496,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
-| Border      | subtle, strong, focus, selected                                                                 |
+| Border      | subtle, hover, strong, focus, selected                                                          |
 | Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
@@ -507,6 +507,16 @@ Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
 elevation or motion tokens. DOM surfaces consume the generated
 `--dinkster-*` variables.
+
+Every scrolling surface in the app, the gallery and the site uses one scrollbar
+from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so
+the surface behind shows, and a fully rounded thumb 1 px clear of each side.
+The thumb is `border-subtle` at rest, `border-hover` under the pointer and
+`border-strong` while dragged. Firefox, which has no `::-webkit-scrollbar`,
+gets `scrollbar-width: thin` with the resting color on a transparent track.
+Chrome ignores the WebKit rules on an element that sets `scrollbar-width` or
+`scrollbar-color`, so a surface does not set either; it may reserve the space
+with `scrollbar-gutter: stable`.
 
 `pnpm check:raw-controls` also rejects undefined `--dinkster-*` references in
 app TypeScript and every app stylesheet. Use a name from the shared projection
@@ -952,9 +962,30 @@ screenshot baselines do not use fallback text.
 `ProductWindowChrome` reserves the native title-bar overlay area and the
 macOS traffic-light inset, uses the shared 56px bar and palette, and marks
 its empty background draggable while its contents remain non-draggable.
-The host supplies the exact title and platform. The gallery shows Windows,
-Linux and macOS geometry; native Electron control behavior is checked by
-the adopting Desktop application, not the browser gallery.
+The host supplies the exact title and platform. Optional `qa` and `development`
+flags add `ProductWindowIdentity` inside the bar. The visible Development label
+has the full unpublished-project explanation as its title. QA and development
+labels stack at narrow widths instead of occupying the bottom-right toast
+corner; the existing toast inset is unchanged. The gallery shows Windows,
+Linux and macOS geometry;
+native Electron control behavior is checked by the adopting Desktop application,
+not the browser gallery.
+
+The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
+`DinksterDesktopChrome.install({title, platform, theme, qa?, development?})`,
+and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
+scoped shared CSS with embedded Noto fonts plus token-derived native overlay
+colors/height and macOS traffic-light position. The installer reuses the first
+`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
+without one it prepends `ProductWindowChrome`. If the app later creates or
+replaces its bar, the installer moves its markings there and removes its own
+fallback; removing the app bar restores the fallback. Reinstallation disconnects
+the prior observer and replaces only its own markings/fallback. The host inserts
+the supplied CSS and runs the
+installer after document load, using its existing isolated renderer boundary.
+The bundle has an embedded symbol, no network imports, no Node/Electron API and
+no preload bridge. Content styles and the page's CSP remain host-owned. Both
+files are hashed by the site manifest and required by the wheel packager.
 
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host

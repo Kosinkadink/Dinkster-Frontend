@@ -29,7 +29,8 @@
       "hover": "#343940"
     },
     "border": {
-      "default": "#3B4148"
+      "default": "#3B4148",
+      "hover": "#5B636C"
     },
     "text": {
       "primary": "#F2F4F5",
@@ -55,7 +56,8 @@
       "hover": "#E4E8EC"
     },
     "border": {
-      "default": "#D3D9DE"
+      "default": "#D3D9DE",
+      "hover": "#9EA6AE"
     },
     "text": {
       "primary": "#20252A",

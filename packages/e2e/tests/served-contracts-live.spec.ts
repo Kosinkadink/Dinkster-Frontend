@@ -50,6 +50,7 @@ test('dropping a latent uses the served extension-declared Load Latent input', a
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.latent.load_latent'))).toBe(true)
   await waitForStartupOwnership(page)
   await page.evaluate(() => { window.__dinksterTest!.app.createWorkflow() })
+  await waitForStartupOwnership(page)
   const uploaded = page.waitForResponse((response) => response.request().method() === 'POST' &&
     new URL(response.url()).pathname === '/api/assets/latent')
   await page.locator('canvas').first().evaluate((canvas) => {
