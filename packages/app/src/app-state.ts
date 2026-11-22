@@ -30,6 +30,9 @@ import {
   effectiveOccurrenceTopology,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
+  elaborateInterface,
+  buildGraphConnectivity,
+  documentNodeResolver,
   detectFormat,
   diag,
   createLocalSession,
@@ -6201,6 +6204,53 @@ export class AppState {
     })
   }
 
+  private adjustRemovedPartsOnOpen(tab: Tab): Promise<void> | undefined {
+    const registry = this.registryForTab(tab)
+    if (registry === undefined) return
+    const document = tab.store.doc
+    const resolve = documentNodeResolver(document, this.resolverWithVirtualNodes(registry.resolve))
+    const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
+    for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+      const child = subgraphDefIdOf(node.type)
+      if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+    }
+    const invocations: CommandInvocation[] = []
+    const entries: Diagnostic[] = []
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const schema = resolve(graph.id, node)
+      if (schema === undefined || node.dynamic === undefined) continue
+      const connectivity = buildGraphConnectivity(graph)(node.id)
+      const diagnostics = [
+        ...elaborateInterface(schema, node, connectivity, { promoteGhosts: false }).diagnostics,
+        ...elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }).diagnostics,
+      ]
+      const changes = [...new Map(diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
+        'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
+        .map((entry) => [JSON.stringify([entry.code, entry.data]), entry])).values()]
+      if (changes.length === 0) continue
+      for (const entry of changes) {
+        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
+        const { construct, selected, ancestors } = entry.data
+        if (typeof selected !== 'string' && selected !== null) continue
+        invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
+          graphId: graph.id, nodeId: node.id, construct, ancestors,
+          ...(selected === null ? { variant: null } : { option: selected }),
+        } as Json })
+      }
+      const instancePath = paths.get(graph.id)
+      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+        }))
+    }
+    if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
+      { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
+        if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+      })
+    if (entries.length > 0 && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+  }
+
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.reviewReplacements.get()) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
@@ -6280,7 +6330,12 @@ export class AppState {
       this.schemaDiagnosticsPending.delete(tab.id)
       this.reportEnvironmentDrift(tab)
       const store = tab.store
-      const upgrade = this.upgradeOnOpen(tab)
+      const adjustment = this.adjustRemovedPartsOnOpen(tab)
+      const upgrade = adjustment === undefined
+        ? this.upgradeOnOpen(tab)
+        : adjustment.then(() => {
+          if (this.tabs.get().includes(tab) && tab.store === store) return this.upgradeOnOpen(tab)
+        })
       if (upgrade === undefined) this.reportUnresolvedTypes(tab)
       else void upgrade.then(() => {
         if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)

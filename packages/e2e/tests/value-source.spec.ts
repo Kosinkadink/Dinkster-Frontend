@@ -6,7 +6,7 @@
  * normal command path, that spec pin/unpin never resets the value, that the
  * raw JSON fallback cannot corrupt state, and that frozen tabs stay read-only.
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { executionDetails, expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import fixture from '../../core/fixtures/workflows/value-source.json' with { type: 'json' }
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
@@ -294,7 +294,7 @@ test('frozen execution tabs are read-only: no pill editor, no pin/unpin', async 
   await expect(row).toBeVisible({ timeout: 10_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
 
-  await row.locator('.execution-open').click()
+  await (await executionDetails(row)).locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await identityViewport(page)
 

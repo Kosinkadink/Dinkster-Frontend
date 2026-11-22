@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const PROOF_DIR = '/tmp/audit-ae-proof'
-const RANGE_FILL = '#343940'
+const RANGE_FILL = '#283537'
 const advertisedWires: string[] = []
 
 const numberInput = (id: string, display?: string, displayName?: string) => ({

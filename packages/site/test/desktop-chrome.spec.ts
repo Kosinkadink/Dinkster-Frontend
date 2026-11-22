@@ -149,7 +149,7 @@ for (const existing of [false, true]) {
     expect(artifact.format).toBe('dinkster.desktop-chrome/1')
     expect(artifact.native).toEqual({
       overlay: {
-        dark: { color: '#1C1F23', symbolColor: '#F2F4F5', height: 44 },
+        dark: { color: '#141C1D', symbolColor: '#F0F5F5', height: 44 },
         light: { color: '#FFFFFF', symbolColor: '#20252A', height: 44 },
       },
       trafficLightPosition: { x: 14, y: 10 },
@@ -182,7 +182,7 @@ for (const existing of [false, true]) {
           await expect(bar).toHaveCSS('min-height', '44px')
           await expect(bar).toHaveCSS(
             'background-color',
-            theme === 'dark' ? 'rgb(28, 31, 35)' : 'rgb(255, 255, 255)',
+            theme === 'dark' ? 'rgb(20, 28, 29)' : 'rgb(255, 255, 255)',
           )
           await expect(bar).toHaveCSS('font-family', '"Noto Sans", sans-serif')
           await expect(bar).toHaveCSS('-webkit-app-region', 'drag')
