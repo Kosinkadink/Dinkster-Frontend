@@ -129,6 +129,7 @@
 .dinkster-window-identity { display: flex; flex: none; margin-left: auto; color: var(--dinkster-warning-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-bold); white-space: nowrap; }
 .dinkster-window-identity-wide { display: flex; flex-direction: column; align-items: flex-end; }
 .dinkster-window-identity-compact { display: none; }
+.dinkster-window-toolbar:has(> .dinkster-window-toolbar-service) .dinkster-window-identity-custom { display: none; }
 .dinkster-window-toolbar-host { container-type: inline-size; }
 .dinkster-window-toolbar-host[data-desktop-chrome] .dinkster-window-toolbar > .dinkster-window-identity { display: none; }
 .dinkster-window-toolbar-host > .dinkster-window-toolbar { -webkit-app-region: drag; }

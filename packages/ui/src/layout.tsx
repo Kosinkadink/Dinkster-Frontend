@@ -88,8 +88,16 @@ export function ProductWindowIdentity(props: {
     <Show when={service() || props.development}>
       <span class="dinkster-window-identity">
         <span class="dinkster-window-identity-wide">
-          <Show when={props.qa}>
+          <Show when={service() === 'qa'}>
             <span>[QA]</span>
+          </Show>
+          <Show when={service() === 'custom'}>
+            <span
+              class="dinkster-window-identity-custom"
+              title={strings.customServices}
+            >
+              {strings.customServiceShort}
+            </span>
           </Show>
           <Show when={props.development}>
             <span title={strings.developmentProject}>

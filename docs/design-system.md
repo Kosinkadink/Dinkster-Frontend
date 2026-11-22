@@ -953,7 +953,11 @@ header, preserving its children. On a shared toolbar it mounts identity inside
 the toolbar grid; a host-managed toolbar leaves its component `qa` and
 `development` flags unset so the installer alone owns those markings. The
 artifact includes the canonical toolbar container rules, including the compact
-metadata row. Without an application bar it prepends `ProductWindowChrome`.
+metadata row. A host's reactive `data-service-kind="qa"` or `"custom"`
+also supplies the identity at wide and compact widths without installer option
+flags. Wide Custom text is omitted when the toolbar already has a full service
+label; compact identity still carries the service kind. Without an application
+bar it prepends `ProductWindowChrome`.
 If the app later creates or replaces its bar, the installer moves its markings there and removes its own
 fallback; removing the app bar restores the fallback. Reinstallation disconnects
 the prior observer and replaces only its own markings/fallback. The host inserts

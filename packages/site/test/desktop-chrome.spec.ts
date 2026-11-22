@@ -135,6 +135,82 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
   expect(requests).toEqual([])
 })
 
+test('portable Desktop chrome shows reactive host service metadata without option flags', async ({
+  page,
+}) => {
+  const artifact = JSON.parse(
+    await readFile(new URL('desktop-chrome.json', distribution), 'utf8'),
+  )
+  await page.route('**/*', (route) => route.abort())
+  await page.setContent(
+    '<header class="dinkster-desktop-bar dinkster-window-toolbar-host"><div class="dinkster-window-toolbar"><div class="dinkster-window-toolbar-brand">Dinkster</div><div class="dinkster-window-toolbar-search"></div><div class="dinkster-window-toolbar-actions"></div></div></header>',
+  )
+  await page.addStyleTag({ content: artifact.css })
+  await page.addScriptTag({
+    content: await readFile(new URL(artifact.installer, distribution), 'utf8'),
+  })
+  const bar = page.locator('header')
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((theme) => {
+      window.DinksterDesktopChrome.install({
+        title: 'Host toolbar',
+        platform: 'linux',
+        theme,
+      })
+    }, theme)
+    for (const width of [1200, 390]) {
+      await page.setViewportSize({ width, height: 160 })
+      for (const kind of ['qa', 'custom'] as const) {
+        await bar.evaluate((node, kind) => {
+          node.dataset.serviceKind = kind
+        }, kind)
+        const marking = bar.locator(
+          width === 1200
+            ? '.dinkster-window-identity-wide'
+            : '.dinkster-window-identity-compact',
+        )
+        await expect(marking).toHaveText(
+          kind === 'qa' ? (width === 1200 ? '[QA]' : 'QA') : 'Custom',
+        )
+        await expect(marking).toBeVisible()
+        const bounds = (await marking.boundingBox())!
+        expect(bounds.width).toBeGreaterThan(0)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 12)
+        await page.screenshot({
+          path: `test-results/captures/chrome-metadata-${kind}-${theme}-${width}.png`,
+        })
+      }
+      if (width === 1200) {
+        await bar.locator('.dinkster-window-toolbar').evaluate((grid) => {
+          const label = document.createElement('span')
+          label.className = 'dinkster-window-toolbar-service'
+          label.textContent = 'Custom services'
+          grid.append(label)
+        })
+        await expect(
+          bar.getByText('Custom services', { exact: true }),
+        ).toBeVisible()
+        await expect(
+          bar
+            .locator('.dinkster-window-identity-wide')
+            .getByText('Custom', { exact: true }),
+        ).toBeHidden()
+        await bar
+          .locator('.dinkster-window-toolbar-service')
+          .evaluate((node) => node.remove())
+        await expect(bar.locator('.dinkster-window-identity-wide')).toHaveText(
+          'Custom',
+        )
+        await expect(
+          bar.locator('.dinkster-window-identity-wide'),
+        ).toBeVisible()
+      }
+      await bar.evaluate((node) => delete node.dataset.serviceKind)
+      await expect(bar.locator('.dinkster-window-identity')).toHaveCount(0)
+    }
+  }
+})
+
 for (const existing of [false, true]) {
   test(`portable Desktop chrome preserves content with ${existing ? 'an existing' : 'a fallback'} bar`, async ({
     page,

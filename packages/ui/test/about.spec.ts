@@ -290,9 +290,16 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
     await page.setViewportSize({ width: 484, height: 900 })
     for (const name of ['Left panel', 'Bottom panel', 'Right panel'])
       await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
-    await bar
-      .getByRole('button', { name: 'Customize layout', exact: true })
-      .click()
+    const layout = bar.getByRole('button', {
+      name: 'Customize layout',
+      exact: true,
+    })
+    await layout.scrollIntoViewIfNeeded()
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    )
+    await layout.click()
     await expect(bar.getByRole('menuitemcheckbox')).toHaveText([
       'Left bar',
       'Status bar',
