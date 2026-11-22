@@ -1325,6 +1325,72 @@ export class Formula {
     return new Evaluator(this.scope, values, new Map()).outcome(this)
   }
 
+  /**
+   * The row names and the functions this formula reads, its derived formulas
+   * included. Comprehension names and table names are not rows.
+   */
+  uses(): { readonly names: ReadonlySet<string>; readonly calls: ReadonlySet<string> } {
+    const names = new Set<string>()
+    const calls = new Set<string>()
+    const walk = (node: Node, locals: ReadonlySet<string>): void => {
+      const path = dotted(node)
+      if (path !== undefined) {
+        if (!locals.has(path) && this.scope.names.has(path)) names.add(path)
+        return
+      }
+      switch (node.type) {
+        case 'constant':
+        case 'name':
+        case 'attribute':
+          return
+        case 'binary':
+          walk(node.left, locals)
+          walk(node.right, locals)
+          return
+        case 'unary':
+          walk(node.operand, locals)
+          return
+        case 'bool':
+          for (const value of node.values) walk(value, locals)
+          return
+        case 'compare':
+          walk(node.left, locals)
+          for (const comparator of node.comparators) walk(comparator, locals)
+          return
+        case 'if':
+          walk(node.test, locals)
+          walk(node.body, locals)
+          walk(node.orelse, locals)
+          return
+        case 'subscript':
+          walk(node.value, locals)
+          walk(node.index, locals)
+          return
+        case 'list':
+          for (const item of node.items) walk(item, locals)
+          return
+        case 'comprehension': {
+          walk(node.iterable, locals)
+          const inner = new Set([...locals, node.target])
+          walk(node.element, inner)
+          for (const condition of node.conditions) walk(condition, inner)
+          return
+        }
+        case 'call':
+          if (node.func.type === 'name') calls.add(node.func.name)
+          for (const argument of node.args) walk(argument, locals)
+          return
+      }
+    }
+    walk(this.tree, new Set())
+    for (const derived of this.derived.values()) {
+      const inner = derived.uses()
+      for (const name of inner.names) names.add(name)
+      for (const call of inner.calls) calls.add(call)
+    }
+    return { names, calls }
+  }
+
   /** @internal */
   get node(): Node {
     return this.tree
