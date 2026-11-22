@@ -16,6 +16,7 @@ export type CanvasIconName =
   | 'sliders-horizontal' | 'panel-top-close' | 'panel-top-open'
   | 'check' | 'clock' | 'database' | 'triangle-alert' | 'info'
   | 'image' | 'palette' | 'chevron-right' | 'list' | 'list-checks' | 'spline'
+  | 'mic' | 'camera' | 'box' | 'crop' | 'columns-2' | 'folder-output' | 'film' | 'rotate-3d' | 'layers' | 'ruler'
 
 export interface ToolboxButton {
   /** Stable namespaced id ('core.mode.muted', 'core.delete'). */
