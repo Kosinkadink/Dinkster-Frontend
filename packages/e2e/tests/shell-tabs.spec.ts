@@ -252,6 +252,19 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
   for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
+  await page.evaluate(() => document.fonts.ready)
+  const titleWidths = await page.getByTestId('tab-bar').locator('.tab-title').evaluateAll((titles) => {
+    const context = document.createElement('canvas').getContext('2d')!
+    return titles.map((title) => {
+      context.font = getComputedStyle(title).font
+      return {
+        title: title.textContent!,
+        width: title.getBoundingClientRect().width,
+        prefix: context.measureText(`${title.textContent!.slice(0, 3)}\u2026`).width,
+      }
+    })
+  })
+  for (const title of titleWidths) expect(title.width, title.title).toBeGreaterThanOrEqual(title.prefix)
   const overflow = await page.getByTestId('tab-bar').locator('.workflow-tablist').evaluate((element) => {
     const style = getComputedStyle(element)
     const before = element.scrollLeft
