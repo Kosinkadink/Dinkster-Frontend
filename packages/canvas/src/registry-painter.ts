@@ -11,7 +11,8 @@
 import { formatWidgetValue, type Json, type WidgetRegistry } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, paintCompanionValue, paintStaleValueStrikethrough, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
@@ -34,6 +35,66 @@ function compactAssetValue(value: Json, valid: boolean): string {
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
   const custom = options[value === true ? 'labelOn' : 'labelOff']
   return typeof custom === 'string' && custom !== '' ? custom : String(value)
+}
+
+type WidgetRow = WidgetPaintArgs['row']
+
+/** The icon a raised opener row shows before its name, if any. */
+function openerIconOf(row: WidgetRow, tokens: DesignTokens): 'image' | 'palette' | 'list-checks' | 'list' | 'spline' | undefined {
+  return tokens.widgetRowLook !== 'inset'
+    ? row.viewId === 'core.asset' ? 'image'
+      : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
+      : tokens.widgetRowLook === 'inset-raised-collections'
+        ? row.viewId === 'core.multiSelect' ? 'list-checks'
+          : row.viewId === 'core.list' ? 'list'
+          : row.viewId === 'core.colors' ? 'palette'
+          : row.viewId === 'core.curve' ? 'spline' : undefined
+        : undefined
+    : undefined
+}
+
+/** Space a field's name gives up to the subgraph mark before it. */
+const subgraphMarkReserve = (row: WidgetRow): number =>
+  row.subgraphMark === undefined ? 0 : paint.subgraphMark.size + paint.subgraphMark.gap
+
+/**
+ * Row-local square of the cyan subgraph icon before the name of a field
+ * shown on the subgraph node without a wire. Shared by painting and pointer
+ * hit testing; `companion` is whether the row shows a value arriving by wire.
+ */
+export function subgraphMarkRect(
+  row: WidgetRow,
+  width: number,
+  rowHeight: number,
+  tokens: DesignTokens,
+  companion: boolean,
+): { readonly x: number; readonly y: number; readonly size: number } {
+  const geometry = tokens.rowGeometry
+  const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+  const size = paint.subgraphMark.size
+  if (companion) {
+    const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
+    return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
+  }
+  const opener = openerIconOf(row, tokens)
+  const multiline = row.viewId === 'core.text'
+  const leftControl = multiline ? 0 : opener !== undefined ? paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
+  return {
+    x: leftControl + (numeric && opener === undefined ? geometry.stepperLabelInset : paint.labelInset),
+    y: multiline ? geometry.fieldInsetY + (tokens.multilineText.labelHeight - size) / 2 : (rowHeight - size) / 2,
+    size,
+  }
+}
+
+function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean): void {
+  const { ctx, row, x, y, width, rowHeight, tokens } = args
+  if (row.subgraphMark === undefined) return
+  const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion)
+  const alpha = ctx.globalAlpha
+  // The mark keeps its full color on a dimmed (driven) row.
+  if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
+  paintToolboxIcon(ctx, 'boxes', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
+  ctx.globalAlpha = alpha
 }
 
 /** Measured ASCII ellipsis shared by every registry-backed compact view.
@@ -63,8 +124,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       const formatted = formatWidgetValue(args.companion.value, row.spec)
       const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
-      const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
-      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - paint.labelClipPadding)), x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+      const lead = subgraphMarkReserve(row)
+      const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
+      ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2)
+      paintSubgraphMark(args, true)
       paintCompanionValue(args)
       return
     }
@@ -81,16 +144,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const inRow = tokens.widgetEditing === 'in-row'
     // In-row editing draws a number's after-run mode as an icon before its value instead of the chip.
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
-    const openerIcon = tokens.widgetRowLook !== 'inset'
-      ? row.viewId === 'core.asset' ? 'image'
-        : row.viewId === 'core.color' || row.viewId === 'core.integerColor' ? 'palette'
-        : tokens.widgetRowLook === 'inset-raised-collections'
-          ? row.viewId === 'core.multiSelect' ? 'list-checks'
-            : row.viewId === 'core.list' ? 'list'
-            : row.viewId === 'core.colors' ? 'palette'
-            : row.viewId === 'core.curve' ? 'spline' : undefined
-          : undefined
-      : undefined
+    const openerIcon = openerIconOf(row, tokens)
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
@@ -110,7 +164,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const combo = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO'
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
     const usableWidth = Math.max(0, width - leftControl - rightControl)
-    const naturalLabelWidth = measureWidth(ctx, row.label) + paint.labelWidthPadding
+    const lead = subgraphMarkReserve(row)
+    const naturalLabelWidth = lead + measureWidth(ctx, row.label) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
     // the label takes exactly its natural width; when they do not, each side
     // shrinks in proportion to its natural width with the label biased to
@@ -160,10 +215,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
       ctx.fillText(
-        ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - paint.labelClipPadding)),
-        x + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
+        ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - lead - paint.labelClipPadding)),
+        x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
       )
+      paintSubgraphMark(args, false)
     }
     const sliderMin = row.spec.options['min']
     const sliderMax = row.spec.options['max']

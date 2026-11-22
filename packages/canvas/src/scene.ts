@@ -2078,6 +2078,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       return defaults.get(item.id) ?? 'Boundary'
     }
 
+    // Inputs drawn without their wire, by boundary item id: the name each
+    // has on the subgraph node, for the mark on its fields.
+    const markLabels = new Map<string, string>()
     const slotsOf = (items: readonly BoundaryItem[], side: 'inputs' | 'outputs'): BoundarySlotInfo[] => {
       const defaults = defaultBoundaryLabels(items)
       const roles = ownerNode?.region === undefined ? undefined : regionBoundaryLabels(items, ownerNode.region, side)
@@ -2086,12 +2089,17 @@ export function buildScene(input: BuildSceneInput): Scene {
           side === 'inputs'
             ? derivedInputs.find((s) => s.id === item.id)
             : derivedOutputs.find((s) => s.id === item.id)
+        const label = boundaryLabel(item, spec?.displayName, defaults, roles)
+        const pinless = side === 'inputs' && item.wireHidden === true
+        if (pinless) markLabels.set(item.id, label)
+        const field = side === 'inputs' ? outsideRows.get(item.id) : undefined
         return {
           id: item.id,
-          label: boundaryLabel(item, spec?.displayName, defaults, roles),
+          label,
           ...(spec !== undefined ? { type: spec.type } : {}),
           ...(item.binds.kind === 'family' ? { family: true as const } : {}),
-          ...(side === 'inputs' && outsideRows.has(item.id) ? { field: outsideRows.get(item.id)! } : {}),
+          ...(field !== undefined ? { field: pinless ? { ...field, subgraphMark: { item: item.id, label } } : field } : {}),
+          ...(pinless ? { pinless: true as const } : {}),
         }
       })
     }
@@ -2265,8 +2273,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       })
     }
 
+    // A row drawn without its wire keeps its bindings as hidden links, so
+    // each inner field still reads as driven by the boundary; they start
+    // at the panel row, which has no pin.
+    const pinlessRowAnchor = (itemId: string): { x: number; y: number } | undefined => {
+      const row = inputsNode.layout.rows.find((candidate) =>
+        candidate.kind === 'widget' ? candidate.inputId === itemId : candidate.kind === 'ports' && candidate.output?.portId === itemId)
+      return row === undefined ? undefined : { x: inputsNode.x + inputsNode.layout.width, y: inputsNode.y + row.y + input.tokens.rowHeight / 2 }
+    }
     for (const item of def.boundary.inputs) {
-      const from = boundaryPin(inputsNode, item.id)
+      const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
       const typeName = pinType === undefined ? undefined : canonicalTypeIdOf(pinType)
@@ -2289,12 +2305,28 @@ export function buildScene(input: BuildSceneInput): Scene {
             y2: to.y,
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
+            ...(item.wireHidden === true ? { hidden: true as const } : {}),
             ...(b.kind === 'family' ? { boundaryFamily: true as const } : {}),
             ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
             ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
           })
         })
       })
+    }
+    // The inner fields of an input drawn without its wire carry the mark.
+    for (const item of def.boundary.inputs) {
+      const label = markLabels.get(item.id)
+      if (label === undefined) continue
+      for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (b.kind !== 'port' && b.kind !== 'dynamicCombo') continue
+        const index = nodes.findIndex((candidate) => candidate.id === b.node)
+        const target = nodes[index]
+        if (target === undefined) continue
+        const rows = target.layout.rows.map((row) => row.kind === 'widget' && row.address.port === b.port &&
+          portEndKey(row.address) === portEndKey({ port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) })
+          ? { ...row, subgraphMark: { item: item.id, label } } : row)
+        nodes[index] = { ...target, layout: { ...target.layout, rows } }
+      }
     }
     for (const item of def.boundary.outputs) {
       const to = boundaryPin(outputsNode, item.id)

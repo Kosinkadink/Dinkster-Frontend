@@ -10,7 +10,7 @@ import {
 } from '@dinkster/core'
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
 import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
@@ -3973,6 +3973,38 @@ describe('a wire dragged from the Inputs panel to a field', () => {
     expect(derived?.items.find((item) => item.kind === 'input' && item.id === 'radius')).toMatchObject({ widget: { widgetType: 'INT', default: 6 } })
     expect(sceneOf(store.doc).links.filter((link) => link.boundary === true).map((link) => link.to))
       .toEqual([{ kind: 'port', node: 'blur', port: 'radius' }])
+  })
+
+  it('draws a field shown without its wire with no wire or pin and the subgraph mark, until a wire is dragged to it', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'blur', port: 'radius' } }).ok).toBe(true)
+    const hidden = sceneOf(store.doc)
+    const panel = hidden.boundaryNodes.find((node) => node.side === 'inputs')!
+    const markOf = (rows: readonly LayoutRow[]) => {
+      const row = rows.find((candidate) => candidate.kind === 'widget' && candidate.address.port === 'radius')
+      return row?.kind === 'widget' ? row.subgraphMark : undefined
+    }
+    const blurNode = (scene: Scene) => scene.nodes.find((candidate) => candidate.id === 'blur')!
+    expect(hidden.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
+      .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, true]])
+    expect(panel.layout.pins.map((pin) => pin.portId)).toEqual([BOUNDARY_ADD_SLOT])
+    expect(markOf(panel.layout.rows)).toEqual({ item: 'radius', label: 'radius' })
+    expect(markOf(blurNode(hidden).layout.rows)).toEqual({ item: 'radius', label: 'radius' })
+
+    const slot = panel.layout.pins.find((pin) => pin.portId === BOUNDARY_ADD_SLOT)!
+    const node = blurNode(hidden)
+    const field = node.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'radius')!
+    const harness = interactionHarness(hidden, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', panel.x + panel.layout.width, panel.y + slot.y)
+    harness.fire('pointermove', node.x + 40, node.y + field.y)
+    harness.fire('pointermove', node.x, node.y + field.y)
+    harness.fire('pointerup', node.x, node.y + field.y)
+
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    const wired = sceneOf(store.doc)
+    expect(wired.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
+      .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, undefined]])
+    expect(markOf(blurNode(wired).layout.rows)).toBeUndefined()
   })
 })
 

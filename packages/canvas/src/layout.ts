@@ -168,6 +168,13 @@ export type LayoutRow =
       readonly representationId?: string
       /** Effective controller mode. Absent document state defaults to randomize. */
       readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+      /**
+       * Inside a subgraph: this field is on the subgraph node without a wire
+       * (BoundaryItem.wireHidden). Names the boundary input it became and that
+       * input's name on the subgraph node; painted as the cyan subgraph icon
+       * before the field's name.
+       */
+      readonly subgraphMark?: { readonly item: string; readonly label: string }
       readonly optional?: boolean
       /**
        * Value not stored in node.values (DynamicCombo selector: the selected
@@ -1350,6 +1357,8 @@ export interface BoundarySlotInfo {
    * this input. The panel shows the same field, with its pin on the right.
    */
   readonly field?: Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>
+  /** A field row drawn without its wire: no pin. */
+  readonly pinless?: true
 }
 
 /**
@@ -1390,7 +1399,7 @@ export function layoutBoundaryNode(
       const field = slot.field
       const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
       rows.push({ ...field, kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
-      pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + tokens.rowHeight / 2, type })
+      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + tokens.rowHeight / 2, type })
       y += height
       continue
     }
@@ -1403,7 +1412,7 @@ export function layoutBoundaryNode(
       height,
       ...(direction === 'in' ? { input: portSlot } : { output: { ...portSlot, index: pins.length } }),
     })
-    pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + height / 2, type, ...(slot.regionIndex ? { regionIndex: true } : {}) })
+    if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + height / 2, type, ...(slot.regionIndex ? { regionIndex: true } : {}) })
     y += height
   }
   {
@@ -1440,7 +1449,8 @@ export function layoutBoundaryNode(
   let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
     if (row.kind === 'widget') {
-      width = Math.max(width, measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
+      width = Math.max(width, mark + measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
       continue
     }
     if (row.kind !== 'ports') continue

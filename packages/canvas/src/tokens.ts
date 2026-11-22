@@ -426,6 +426,8 @@ export const canvasPaintTokens = {
   },
   widget: {
     opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    /** The subgraph icon before the name of a field shown on the subgraph node without a wire. */
+    subgraphMark: { size: 12, gap: canvasSemanticTokens.space[4] },
     curve: { sourceRows: 2, inset: 2, minSampleHeight: 1 },
     minLabelWidth: 44,
     minValueWidth: 56,
@@ -638,6 +640,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
+    readonly subgraphMark: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -837,6 +841,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // The dot on a closed section that hides changed values. Yellow is kept
     // for problems.
     modifiedIndicator: tokens.meaning.accent.foreground,
+    subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,

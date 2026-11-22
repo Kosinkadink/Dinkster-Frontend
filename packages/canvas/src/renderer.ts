@@ -482,6 +482,8 @@ export interface WidgetPaintArgs {
   readonly companion?: CompanionDisplay
   /** Alpha before connected-row dimming, reserved for legible companion text. */
   readonly companionAlpha?: number
+  /** Alpha for the subgraph mark (row.subgraphMark), which a driven row does not dim. */
+  readonly markAlpha?: number
   /** Absolute content origin/size (inside node padding). */
   readonly x: number
   readonly y: number
@@ -849,6 +851,8 @@ export class CanvasRenderer {
   private connectedInputPins: ReadonlySet<string> = new Set()
   private connectedOutputPins: ReadonlySet<string> = new Set()
   private connectedWidgetTaps: ReadonlySet<string> = new Set()
+  /** Inputs driven only by a boundary input drawn without its wire. */
+  private wirelessBoundaryInputPins: ReadonlySet<string> = new Set()
   /** Like connectedInputPins but excluding boundary bindings (row inertness). */
   private valueDrivenInputPins: ReadonlySet<string> = new Set()
   /** Inner input (node id, input id) -> the value an Inputs panel field sends it. */
@@ -1811,6 +1815,11 @@ export class CanvasRenderer {
           return `${from.node}\u0000${from.input}`
         }),
     )
+    const wireless = new Set<string>()
+    for (const link of this.scene.links)
+      if (link.boundary === true && link.hidden === true && link.to.kind === 'port')
+        wireless.add(`${link.to.node}\u0000${portEndKey(link.to)}`)
+    this.wirelessBoundaryInputPins = wireless
     // Boundary bindings are excluded here: a bound SELECTOR row stays the
     // occurrence-local editor (edits route to the owning instance), so it
     // must not paint inert. Pins keep using the full set - visually the
@@ -3821,7 +3830,9 @@ export class CanvasRenderer {
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
           !isLegalTarget && !nodeHovered)
         continue
-      if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
+      // A field driven by an input drawn without its wire shows no pin.
+      const wired = connected && !this.wirelessBoundaryInputPins.has(`${node.id}\u0000${pin.portId}`)
+      if (pin.widgetBacked && pin.direction === 'in' && !wired && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
         continue
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (isTarget) {
@@ -3979,6 +3990,7 @@ export class CanvasRenderer {
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
+      ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
       x: node.x + row.inset,
       y: rowY,
       width: widgetWidth,
