@@ -453,6 +453,19 @@ target is reached. Leaving the rail boundary hides immediately, so a later
 re-entry uses the configured delay again. Opening a dock panel dismisses
 the shown tooltip, including while keyboard focus remains on its selected toggle.
 
+## Tooltip placement
+
+DOM tooltips use the element's current bounds and the tooltip's measured size.
+They sit centered 8 px below the element, or 8 px above when there is no room
+below. Horizontal placement shifts only enough to retain an 8 px window
+margin. Activity rail help sits to the right of the item, vertically centered.
+Canvas help keeps its producer's point anchor and uses the same measured
+window clamp. Placement updates when the content or window size changes;
+content, delay, focus and dismissal rules are unchanged. If long help fits on
+neither side, it uses the side with more room and cuts at a whole line with an
+ellipsis rather than covering the element or adding a scrollbar. Rail and
+canvas help use the same whole-line limit against the window height.
+
 ## The bottom panel
 
 A tabbed dock zone under the canvas column. Multiple panels, such as Problems
