@@ -8645,7 +8645,7 @@ export class AppState {
   private readonly sourceDocCache = new WeakMap<
     Tab,
     { connection: DinksterConnection; revision: number; schemaHash: string; digest: string;
-      document: WorkflowDocument; project: string; generation: number | undefined; retained: RetainedAssets }
+      document: WorkflowDocument; project: string; generation: number | undefined }
   >()
   private pendingAssetRetirements = 0
   private pendingValueAdmissions = 0
@@ -9353,7 +9353,7 @@ export class AppState {
   private async sourceDocumentFor(
     tab: Tab,
     backend: Extract<Backend, { protocol: 'dinkster' }>,
-  ): Promise<{ sourceDocument: string; retained: RetainedAssets; project: string; generation: number | undefined } | undefined> {
+  ): Promise<{ sourceDocument: string; retained: Promise<RetainedAssets | undefined>; project: string; generation: number | undefined } | undefined> {
     const revision = tab.store.revision
     const snapshot = tab.store.doc
     const registry = this.registryForTab(tab)
@@ -9367,17 +9367,18 @@ export class AppState {
       const document = this.stampedDocumentOf(tab)
       const resolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
       const digest = cached?.connection === backend.connection && cached.revision === revision &&
-        cached.schemaHash === schemaHash && cached.document === snapshot && cached.project === project && cached.generation === generation &&
-        this.resultAssetOwners.get(cached.retained.ownerId)?.retained === cached.retained
+        cached.schemaHash === schemaHash && cached.document === snapshot && cached.project === project && cached.generation === generation
         ? cached.digest : await backend.connection.uploadAsset(JSON.stringify(document))
       if (!current()) return undefined
-      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] }, resolve, [], 'publication', digest)
-      // Cached bytes do not carry ownership: each submission needs its own
-      // acknowledged receipt until its accepted execution covers these roots.
-      const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-      if (!current()) return undefined
+      const retained = Promise.resolve().then(async () => {
+        const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] }, resolve, [], 'publication', digest)
+        return retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+      }).catch((error: unknown) => {
+        console.warn('Run source file-list recording failed', error)
+        return undefined
+      })
       if (schemaHash !== undefined) this.sourceDocCache.set(tab, {
-        connection: backend.connection, revision, schemaHash, digest, document: snapshot, project, generation, retained,
+        connection: backend.connection, revision, schemaHash, digest, document: snapshot, project, generation,
       })
       return { sourceDocument: digest, retained, project, generation }
     } catch {
@@ -9388,12 +9389,15 @@ export class AppState {
   private handoffSourceDocument(
     backend: Backend, ref: ExecutionRef, source: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
   ): void {
-    if (source === undefined || this.disposed || activeProjectId() !== source.project ||
-      this.backendFor(backend.id) !== backend ||
-      this.assetConnectionGenerations.get(backend.connection) !== source.generation) return
-    this.resultAssetOwners.set(source.retained.ownerId, { backend, retained: source.retained,
-      project: source.project, generation: source.generation, execution: executionKey(ref), interim: true, observed: true })
-    this.retireUnusedResultOwners()
+    if (source === undefined) return
+    void source.retained.then((retained) => {
+      if (retained === undefined || this.disposed || activeProjectId() !== source.project ||
+        this.backendFor(backend.id) !== backend ||
+        this.assetConnectionGenerations.get(backend.connection) !== source.generation) return
+      this.resultAssetOwners.set(retained.ownerId, { backend, retained,
+        project: source.project, generation: source.generation, execution: executionKey(ref), interim: true, observed: true })
+      this.retireUnusedResultOwners()
+    }).catch((error: unknown) => { console.warn('Run file-list handoff failed', error) })
   }
 
   /**
@@ -11197,9 +11201,14 @@ export class AppState {
           owned.document !== compiledDocument || owned.registry !== registry ||
           owned.retained.digests.length !== roots.digests.length ||
           !owned.retained.digests.every((digest, index) => digest === roots.digests[index])) {
-          const retained = await retainWorkflowAssets(backend.connection, result.artifact.snapshot.lineage,
-            result.artifact.revision, { ...roots, complete: false })
-          owners.set(tab, { connection: backend.connection, document: compiledDocument, registry, retained })
+          const submittedTab = tab
+          void retainWorkflowAssets(backend.connection, result.artifact.snapshot.lineage,
+            result.artifact.revision, roots).then((retained) => {
+            if (!this.disposed && this.liveTabContinuing(submittedTab.store)?.store.doc === compiledDocument &&
+              this.registryForTab(submittedTab) === registry) {
+              owners.set(submittedTab, { connection: backend.connection, document: compiledDocument, registry, retained })
+            }
+          }).catch((error: unknown) => { console.warn('Run file-list recording failed', error) })
         }
         if (lease.signal.aborted) return
       }

@@ -46,6 +46,34 @@ function deferred<T>() {
 describe('nonblocking file lists', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+  it.each(['pending', 'failed'] as const)('saves and runs an incomplete workflow while recording is %s', async (scenario) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const app = createWorkflowApp([schema])
+    try {
+      await app.openDocument({ ...session().doc, ext: { unknown: { file: asset('c') } } }, 'Incomplete list')
+      const tab = app.activeTab()!
+      const declarations: RetainedAssetDeclaration[] = []
+      vi.spyOn(app.connection, 'retainAssets').mockImplementation((_owner, declaration) => {
+        declarations.push(declaration)
+        return scenario === 'failed' ? Promise.reject(new Error('Recording unavailable')) : new Promise(() => {})
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const upload = vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('d').digest)
+      vi.spyOn(app.connection, 'createLibraryRecord').mockResolvedValue({ id: 'saved', scope: 'local',
+        name: tab.title, digest: asset('d').digest, mediaType: 'application/json', labels: [],
+        created: 1, modified: 1, revision: 1 })
+      expect(await app.saveWorkflow(tab.id)).toBe(true)
+      expect(JSON.parse(upload.mock.calls[0]![0] as string).ext.unknown.file).toEqual(asset('c'))
+      const execution = { connection: app.connection.id, prompt: asPromptId('nonblocking-run') }
+      vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: true, execution })
+      await app.queueSelection(tab, ['n0'])
+      expect(app.store.get(execution)?.artifact?.snapshot).toBeDefined()
+      expect(declarations).toContainEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('c').digest] })
+      expect(app.problems.get().some((problem) => /ownership/i.test(problem.message))).toBe(false)
+    } finally { app.dispose() }
+  })
+
   it.each(['pending', 'failed'] as const)('copies and picks files while recording is %s', async (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
