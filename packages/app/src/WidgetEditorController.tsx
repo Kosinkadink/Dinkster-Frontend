@@ -124,6 +124,7 @@ export interface WidgetEditorState {
    */
   readonly inRow?: {
     readonly look: 'original' | 'flat-title'
+    readonly nodeTop: number
     readonly nodeBottom: number
     readonly help?: string
     /** The raw stored value when the field opened (null when none was stored). */
