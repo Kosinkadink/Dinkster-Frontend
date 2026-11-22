@@ -10,6 +10,7 @@ import {
 import { Menu, type LucideIcon } from 'lucide-solid'
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
 import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
+import lightWordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-light.svg?url'
 import { ProductIcon } from './controls.js'
 import { useProductStrings } from './strings.js'
 
@@ -17,8 +18,14 @@ export function ProductBrandMark() {
   return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />
 }
 
-export function ProductWordmark() {
-  return <img class="dinkster-wordmark" src={wordmarkUrl} alt="Dinkster" />
+export function ProductWordmark(props: { theme?: 'dark' | 'light' }) {
+  return (
+    <img
+      class="dinkster-wordmark"
+      src={props.theme === 'light' ? lightWordmarkUrl : wordmarkUrl}
+      alt="Dinkster"
+    />
+  )
 }
 
 /** A standalone site flow has no shell navigation or top bar. */
@@ -82,6 +89,38 @@ export function ProductWindowChrome(props: {
         qa={props.qa ?? false}
         development={props.development ?? false}
       />
+    </header>
+  )
+}
+
+export function ProductWindowToolbar(props: {
+  title: string
+  platform: 'darwin' | 'win32' | 'linux'
+  brand: JSX.Element
+  search: JSX.Element
+  actions: JSX.Element
+  service?: string | undefined
+  qa?: boolean
+  development?: boolean
+}) {
+  return (
+    <header
+      class="dinkster-desktop-bar dinkster-window-toolbar-host"
+      data-platform={props.platform}
+      aria-label={props.title}
+    >
+      <div class="dinkster-window-toolbar">
+        <div class="dinkster-window-toolbar-brand">{props.brand}</div>
+        <div class="dinkster-window-toolbar-search">{props.search}</div>
+        <div class="dinkster-window-toolbar-actions">{props.actions}</div>
+        <Show when={props.service}>
+          <span class="dinkster-window-toolbar-service">{props.service}</span>
+        </Show>
+        <ProductWindowIdentity
+          qa={props.qa ?? false}
+          development={props.development ?? false}
+        />
+      </div>
     </header>
   )
 }

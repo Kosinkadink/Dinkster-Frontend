@@ -163,20 +163,42 @@ describe('shape validation failures', () => {
   })
 })
 
-describe('pre-release canonicalization: retired scalar member', () => {
-  // Pre-release, v1 is revised in place: documents saved while PortRef
-  // carried a scalar `member` are translated to the canonical member-id
-  // path array `members` on load. There is no ongoing dual representation.
-  const legacy = () => structuredClone(loadFixture('retired-scalar-member')) as JsonObject
+describe('document shape rejection', () => {
+  it('rejects retired scalar members with ordinary shape diagnostics', () => {
+    const result = loadDocument(loadFixture('retired-scalar-member'))
+    expect(result.document).toBeUndefined()
+    const errors = errorsOf(result.diagnostics)
+    expect(errors.every((diagnostic) => diagnostic.code === 'doc.shape.invalid')).toBe(true)
+    for (const path of [
+      '$.graphs.g0.links.l3.to.member',
+      '$.graphs.g0.nets.net4.sinks[0].member',
+      '$.graphs.g1.boundary.inputs[0].binds.member',
+    ]) {
+      expect(errors.some((diagnostic) => diagnostic.message.startsWith(`${path}:`))).toBe(true)
+    }
+  })
+
+  it('rejects a boundary binding without kind rather than guessing a port binding', () => {
+    const raw = structuredClone(loadFixture('subgraph')) as JsonObject
+    const graph = (raw['graphs'] as JsonObject)['g1'] as JsonObject
+    const boundary = graph['boundary'] as JsonObject
+    const binding = ((boundary['inputs'] as JsonObject[])[0]!['binds']) as Record<string, unknown>
+    delete binding['kind']
+    const result = loadDocument(raw)
+    expect(result.document).toBeUndefined()
+    expect(errorsOf(result.diagnostics)).toMatchObject([{
+      code: 'doc.shape.invalid',
+      message: expect.stringContaining('$.graphs.g1.boundary.inputs[0].binds.kind:'),
+    }])
+  })
 
   it('rejects nested member paths that do not resolve through persisted dynamic state', () => {
-    const raw = JSON.parse(JSON.stringify(loadDocument(legacy()).document)) as JsonObject
-    const g0 = (raw['graphs'] as JsonObject)['g0'] as JsonObject
-    const l3 = (g0['links'] as JsonObject)['l3'] as Record<string, unknown>
-    l3['to'] = { node: 'n1', port: 'input.input', members: ['outer', 'inner'] }
+    const raw = structuredClone(loadFixture('subgraph')) as JsonObject
+    const graph = (raw['graphs'] as JsonObject)['g1'] as JsonObject
+    const link = (graph['links'] as JsonObject)['l3'] as Record<string, unknown>
+    link['to'] = { node: 'n2', port: 'input.input', members: ['outer', 'inner'] }
     const result = loadDocument(raw)
     expect(result.document).toBeUndefined()
     expect(errorsOf(result.diagnostics).map((diagnostic) => diagnostic.code)).toContain('doc.dynamic.memberMissing')
   })
-
 })

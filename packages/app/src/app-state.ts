@@ -18,9 +18,10 @@ import {
   canonicalTypeIdOf,
   companionSourcesOf,
   compile,
-  compositorStateOf,
   documentResolver,
   coreCommandRegistry,
+  initializeBoundaryViews,
+  type BoundaryPositionResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
@@ -178,7 +179,8 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { canvasMeasures } from './canvas-measures.js'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
@@ -210,11 +212,10 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
-import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
-import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
+import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { admitWorkflowDispatch, executionAssetRoots, onAssetOwnerRetirement, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, resultReceiptCurrent, workflowAssetRoots, workflowAssetRootsCover, workflowAssetRootsUnchanged, workflowNodeTitlesOnlyChanged } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
@@ -1184,7 +1185,6 @@ export interface CanvasBridge {
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
-  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean | Promise<boolean>
   /** Extracts the captured selection and group contents with the default name. */
   readonly extractSubgraph?: () => boolean | Promise<boolean>
   /** Flattens the sole selected subgraph occurrence by one level. */
@@ -1301,15 +1301,6 @@ export interface Tab {
   readonly execution?: ExecutionRef
 }
 
-/** Session-only destination for the registry-resolved image editor. */
-export interface ImageEditorTarget {
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly sourceRef: AssetRef
-}
-
 export interface CurveEditorTarget {
   readonly tabId: string
   readonly graphId: string
@@ -1332,23 +1323,8 @@ export interface GlslEditorTarget {
   readonly openedValue: string
 }
 
-/** Session-only destination for the compositor mode of the image editor. */
-export interface CompositorEditorTarget {
-  readonly mode: 'compositor'
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly instancePath: readonly string[]
-  readonly openedStoredValue: Json | undefined
-}
-
-export const isCompositorEditorTarget = (
-  target: ImageEditorTarget | CompositorEditorTarget,
-): target is CompositorEditorTarget => 'mode' in target && target.mode === 'compositor'
-
 const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === IMAGE_EDITOR_KIND || kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
+  kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -2951,9 +2927,6 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
-  /** Never serialized: identifies the active mask or graph-compositor image editing session. */
-  readonly imageEditorTarget: Signal<ImageEditorTarget | CompositorEditorTarget | undefined> =
-    createSignal<ImageEditorTarget | CompositorEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the one input projected by the curve editor. */
   readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the first-party GLSL source editor session. */
@@ -3338,13 +3311,6 @@ export class AppState {
       run: () => this.canvasBridge.get()?.createEmptySubgraph?.(),
       enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createEmptySubgraph !== undefined,
     })
-    for (const kind of ['map', 'fold', 'while'] as const) {
-      this.frontendDoors.command(`region.create${kind[0]!.toUpperCase()}${kind.slice(1)}`, {
-        get label() { return t(`command.region.create.${kind}`) },
-        run: () => this.canvasBridge.get()?.createRegion?.(kind),
-        enabled: () => activeTabNow()?.execution === undefined && this.canvasBridge.get()?.createRegion !== undefined,
-      })
-    }
     register(
       'subgraph.extract',
       'command.subgraph.extract',
@@ -3620,17 +3586,13 @@ export class AppState {
       this.workflowOpenIntent += 1
       this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
-      const imageTarget = this.imageEditorTarget.get()
       const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (imageTarget && imageTarget.tabId !== activeId) this.imageEditorTarget.set(undefined)
       if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
       if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
-      if ((imageTarget && imageTarget.tabId !== activeId) ||
-          (curveTarget && curveTarget.tabId !== activeId) ||
+      if ((curveTarget && curveTarget.tabId !== activeId) ||
           (glslTarget && glslTarget.tabId !== activeId)) {
         this.tabs.update((list) => list.map((tab) =>
-          (tab.id === imageTarget?.tabId && tab.editorKind === IMAGE_EDITOR_KIND) ||
           (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
           (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
             ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
@@ -4663,6 +4625,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
+          boundaryPositionsFor: this.boundaryPositionResolver(resolve),
           validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, resolve, retainedDocuments),
           beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
             const owner = this.tabs.get().find((candidate) => candidate.store === (session ?? tab.store))
@@ -6495,7 +6458,6 @@ export class AppState {
     editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
-    if (editorKind !== IMAGE_EDITOR_KIND && this.imageEditorTarget.get()?.tabId === tabId) this.imageEditorTarget.set(undefined)
     if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
     if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
@@ -6520,54 +6482,6 @@ export class AppState {
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || (tab.appArrange === true) === appArrange) return
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
-  }
-
-  /** Resolve the bounded selected-node entry. Ambiguous, driven, frozen, and non-image inputs refuse. */
-  imageTargetForSelection(tab: Tab, graphId: string, selectedNodeIds: readonly string[]): ImageEditorTarget | undefined {
-    if (tab.execution !== undefined || selectedNodeIds.length !== 1) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[selectedNodeIds[0]!]
-    if (!graph || !node) return undefined
-    const resolve = this.registryForTab(tab)?.resolve
-    const candidates = imageInputCandidates({
-      schema: resolve?.(node.type),
-      nodeId: node.id,
-      values: node.values,
-      drivenInputIds: new Set([
-        ...Object.values(graph.links).flatMap((link) =>
-          'node' in link.to && 'port' in link.to && link.to.node === node.id ? [link.to.port] : []),
-        ...Object.values(graph.nets).flatMap((net) => net.sinks.flatMap((sink) =>
-          sink.node === node.id ? [sink.port] : [])),
-      ]),
-    })
-    const candidate = candidates.length === 1 ? candidates[0] : undefined
-    return candidate ? { tabId: tab.id, graphId, ...candidate } : undefined
-  }
-
-  /** Explicit image-ASSET row entry, revalidated against the current document and schema. */
-  imageTargetForInput(tab: Tab, graphId: string, nodeId: string, inputId: string): ImageEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const schema = node ? this.registryForTab(tab)?.resolve(node.type) : undefined
-    const driven = graph && (Object.values(graph.links).some((link) =>
-      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === nodeId && sink.port === inputId)))
-    const candidate = node && !driven
-      ? imageInputCandidates({ schema, nodeId, values: node.values }).find((item) => item.inputId === inputId)
-      : undefined
-    return candidate ? { tabId: tab.id, graphId, ...candidate } : undefined
-  }
-
-  /** Re-resolve a target against current schema, topology, and the complete source ref. */
-  validateImageTarget(target: ImageEditorTarget): ImageEditorTarget | undefined {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    if (!tab) return undefined
-    const current = this.imageTargetForInput(tab, target.graphId, target.nodeId, target.inputId)
-    if (!current) return undefined
-    const left = current.sourceRef, right = target.sourceRef
-    return left.digest === right.digest && left.name === right.name && left.size === right.size &&
-      left.mediaType === right.mediaType && left.virtualPath === right.virtualPath ? current : undefined
   }
 
   /** Clipboard text and external source-node references outlive their source tab. */
@@ -6672,178 +6586,6 @@ export class AppState {
     // Closing admission waits for every reader before retiring its exact receipt.
     await before.owned.close()
     if (before.current() && after.current()) await this.retireAssetOwner(before.backend.connection, before.owned.retained)
-    return true
-  }
-
-  private readonly editorAssetRequests = new WeakMap<ImageEditorTarget | CompositorEditorTarget, object>()
-  private readonly endedEditorDocuments = new WeakSet<DocumentSession>()
-  private readonly editorDocumentContinuations = new WeakMap<DocumentSession, DocumentSession>()
-  private readonly editorAssetOwners = new Map<RetainedAssets, {
-    readonly target: ImageEditorTarget | CompositorEditorTarget
-    readonly session: DocumentSession
-    readonly backend: Backend
-    readonly project: string
-    readonly registry: ReturnType<Backend['registry']['get']>
-    readonly generation: number | undefined
-  }>()
-
-  private retireEndedEditorOwners(): void {
-    for (const [retained, owner] of this.editorAssetOwners) {
-      let session = owner.session
-      for (let next = this.editorDocumentContinuations.get(session); next; next = this.editorDocumentContinuations.get(session)) {
-        session = next
-      }
-      if (!this.endedEditorDocuments.has(session) || this.disposed ||
-        activeProjectId() !== owner.project || this.backendFor(owner.backend.id) !== owner.backend ||
-        this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
-        this.tabs.get().some((tab) => tab.store === session)) continue
-      this.editorAssetOwners.delete(retained)
-      void this.retireAssetOwner(owner.backend.connection, retained)
-    }
-  }
-
-  async retainEditorAssets(
-    target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown, publish: () => boolean,
-  ): Promise<void> {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const registry = backend.registry.get()
-    const project = activeProjectId()
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const request = {}
-    this.editorAssetRequests.set(target, request)
-    let unchanged = true
-    const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
-    const current = (): boolean => unchanged && !this.disposed && activeProjectId() === project && tab !== undefined &&
-      this.editorAssetRequests.get(target) === request && generation === this.assetConnectionGenerations.get(backend.connection) &&
-      this.imageEditorTarget.get() === target && this.backendFor(backend.id) === backend &&
-      backend.registry.get() === registry && this.tabs.get().some((candidate) =>
-        candidate.id === tab.id && candidate.store === tab.store && this.backendForTab(candidate) === backend) &&
-      (isCompositorEditorTarget(target) ? this.validateCompositorTarget(target) : this.validateImageTarget(target)) !== undefined
-    try {
-      if (tab === undefined || !current() || backend.protocol !== 'dinkster') throw new Error('Editor source is no longer available')
-      let digests: readonly string[]
-      if (isCompositorEditorTarget(target)) {
-        const state = compositorStateOf(value)
-        if (state === undefined) throw new Error('Editor resource inventory is invalid')
-        // Every external resource belongs to the editable document, including
-        // hidden layers, masks and resources not referenced by the current recipe.
-        digests = [...new Set([state.documentDigest, ...Object.values(state.document.resources)
-          .filter((resource) => resource.inline === undefined).map((resource) => resource.digest)])].sort()
-      } else {
-        if (!isAssetRef(value) || value.digest !== target.sourceRef.digest) throw new Error('Editor resource inventory is invalid')
-        digests = [value.digest]
-      }
-      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision,
-        { complete: true, digests }, undefined, undefined, false, [4])
-      const previous = [...this.editorAssetOwners].filter(([, owner]) => owner.target === target)
-      this.editorAssetOwners.set(retained, { target, session: tab.store, backend, project, registry, generation })
-      this.retireEndedEditorOwners()
-      if (!current()) throw new Error('Editor source changed during asset admission')
-      if (!publish() || !current()) return
-      // A canceled view does not transfer ownership. Only publishing the
-      // acknowledged replacement on this exact lifetime can retire its draft.
-      for (const [receipt, owner] of previous) {
-        if (current() && owner.backend === backend && owner.project === project &&
-          owner.registry === registry && owner.generation === generation) {
-          this.editorAssetOwners.delete(receipt)
-          await this.retireAssetOwner(backend.connection, receipt)
-        }
-      }
-    } finally { unsubscribe() }
-  }
-
-  openImageEditor(target: ImageEditorTarget): boolean {
-    const validated = this.validateImageTarget(target)
-    const tab = validated ? this.tabs.get().find((candidate) => candidate.id === validated.tabId) : undefined
-    if (!tab || !validated) return false
-    const previous = this.imageEditorTarget.get()
-    if (previous && previous.tabId !== validated.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === IMAGE_EDITOR_KIND ? { ...candidate, editorKind: GRAPH_EDITOR_KIND } : candidate))
-    }
-    this.imageEditorTarget.set(validated)
-    this.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
-    return this.tabs.get().some((candidate) => candidate.id === tab.id && candidate.editorKind === IMAGE_EDITOR_KIND)
-  }
-
-  closeImageEditor(target: ImageEditorTarget | CompositorEditorTarget): void {
-    if (this.imageEditorTarget.get() !== target) return
-    this.imageEditorTarget.set(undefined)
-    this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
-  }
-
-  compositorTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-    instancePath: readonly string[] = [],
-  ): CompositorEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const resolver = this.registryForTab(tab)?.resolve
-    const input = node ? resolver?.(node.type)?.items.find((item) =>
-      item.kind === 'input' && item.id === inputId) : undefined
-    const definitionDriven = graph && (Object.values(graph.links).some((link) =>
-      'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) =>
-        'port' in sink && sink.node === nodeId && sink.port === inputId)))
-    let occurrenceDriven = false
-    if (instancePath.length > 0 && graph && resolver) {
-      const owner = {
-        instancePath: instancePath.slice(0, -1).map(asNodeId),
-        node: asNodeId(instancePath.at(-1)!),
-      }
-      const effective = effectiveOccurrenceTopology(tab.store.doc, resolver, owner)
-      if (effective.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
-      occurrenceDriven = effectiveTopologyDrivesPort(
-        effective,
-        graph.id,
-        instancePath.map(asNodeId),
-        { node: asNodeId(nodeId), port: asPortId(inputId) },
-      )
-    }
-    return !definitionDriven && !occurrenceDriven &&
-      input?.kind === 'input' && input.widget?.widgetType === 'COMPOSITOR'
-      ? {
-          mode: 'compositor',
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: node?.values[inputId],
-        }
-      : undefined
-  }
-
-  validateCompositorTarget(target: CompositorEditorTarget): CompositorEditorTarget | undefined {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const current = tab && this.compositorTargetForInput(
-      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
-    )
-    if (!current || (current.openedStoredValue === undefined) !== (target.openedStoredValue === undefined)) return undefined
-    if (current.openedStoredValue !== undefined && target.openedStoredValue !== undefined &&
-        canonicalJson(current.openedStoredValue) !== canonicalJson(target.openedStoredValue)) return undefined
-    return current
-  }
-
-  openCompositorEditor(target: CompositorEditorTarget): boolean {
-    const current = this.validateCompositorTarget(target)
-    const tab = current ? this.tabs.get().find((candidate) => candidate.id === current.tabId) : undefined
-    if (!tab || !current) return false
-    const previous = this.imageEditorTarget.get()
-    if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === IMAGE_EDITOR_KIND
-          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-          : candidate))
-    }
-    this.imageEditorTarget.set(current)
-    this.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
     return true
   }
 
@@ -7009,6 +6751,26 @@ export class AppState {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
+  private boundaryPositionResolver(resolve: SchemaResolver): BoundaryPositionResolver {
+    return (document, graphId) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
+      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
+      const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
+      const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
+      return boundaryPositions({
+        document, graphId, resolve: resolver,
+        tokens: defaultTokens, ...measurements,
+        seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
+        renderVirtualNode: (node) => this.virtualNodeKinds.get(node.type)?.render(node),
+        occurrenceView: occurrenceDynamicView(document, resolver, path, path.length === 0 ? graphId : document.root),
+        ...(path.length > 0 ? { occurrence: {
+          owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
+          plannerAvailable: false,
+        } } : {}),
+      })
+    }
+  }
+
   private makeTab(
     document: WorkflowDocument,
     title: string,
@@ -7036,6 +6798,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
+        boundaryPositionsFor: this.boundaryPositionResolver(resolve),
         validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
@@ -7599,13 +7362,11 @@ export class AppState {
         const recoveryStartedByClose = tab === closing && !priorRecovery?.pending &&
           this.documentRecoveryStages.get(tab.store) !== priorRecovery
         this.captureClosedWorkflow(tab, this.workspaceTabRevision + 1, recoveryStartedByClose)
-        this.endedEditorDocuments.add(tab.store)
       }
     }
     const remaining = this.tabs.get().filter((t) => t.id !== id)
     this.tabs.set(remaining)
     this.cleanupClosedTab(id)
-    this.retireEndedEditorOwners()
     if (this.activeTabId.get() === id) this.activeTabId.set(remaining[0]?.id ?? '')
   }
 
@@ -7638,7 +7399,6 @@ export class AppState {
 
   private cleanupClosedTab(id: string): void {
     this.dismissMigrationNotice(id)
-    if (this.imageEditorTarget.get()?.tabId === id) this.imageEditorTarget.set(undefined)
     if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
@@ -7894,6 +7654,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
+        boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, sessionResolver, retainedDocuments),
         beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
           const live = this.tabs.get().find((tab) => tab.store === session)
@@ -9052,7 +8813,6 @@ export class AppState {
   }>()
 
   private continueWorkflowAssetOwner(previous: DocumentSession, session: DocumentSession): void {
-    this.editorDocumentContinuations.set(previous, session)
     const owner = this.workflowAssetOwners.get(previous)
     if (owner === undefined || this.workflowAssetOwners.has(session) || this.disposed ||
       activeProjectId() !== owner.project || !this.backends.get().includes(owner.backend) ||
@@ -9734,8 +9494,12 @@ export class AppState {
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
     ])
-    if (!unavailable) return result
-    return { ...result, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
+    const imported = result.document === undefined ? result : {
+      ...result,
+      document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
+    }
+    if (!unavailable) return imported
+    return { ...imported, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
       ? { ...entry, code: 'import.registry.unreachable', message: `registry could not be reached; ${entry.message}`, data: { detail: entry.message } }
       : entry) }
   }

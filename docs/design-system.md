@@ -379,7 +379,7 @@ stale entries and lower ceilings. Write mode never permits count increases.
 `packages/app/src/styles.css` is the ordered entrypoint for the surface files
 in `styles/`. Keep imports in cascade order: base and product controls, search
 and modals, canvas and widget surfaces, panels and library, shell and execution
-log, widget assets and App view, collaboration and boot, then image editor.
+log, widget assets and App view, then collaboration, boot and shared editors.
 Keep each surface's responsive and reduced-motion rules beside its rules;
 do not regroup selectors across files if that changes override order.
 The `cssLiteral` entry for `styles.css` aggregates the entrypoint and every
@@ -410,19 +410,6 @@ after dismissal; Escape, Tab and outside clicks dismiss without cancelling the
 submitted command. Synchronous select callers keep their immediate behavior.
 Option IDs preserve pointer targets across inventory refreshes and reordering;
 labels, values and disabled state follow the current inventory.
-
-The compositor editor uses the same buttons, number inputs, checkboxes,
-sliders, text input and select controls as the Image document workspace.
-Layer selection and flips expose pressed state with the primary variant.
-`ProductColorInput` keeps the native color picker and forwards native input
-props while using shared input styling; the compositor retains lowercase
-color storage. Recipe edits, preview geometry and apply/refusal rules remain
-owned by the editor, not by the controls.
-
-The compositor uses ProductEmptyState when no target is open or when the
-selected run has no compositor sources. The latter keeps the explanation that
-the layer stack stays in the graph; Cancel remains enabled and Apply stays
-disabled until runtime data supplies a configurable recipe.
 
 The GLSL editor uses ProductEmptyState for missing targets, absent runtime
 inputs and unavailable browser previews. Preview refusals stay neutral while
@@ -935,9 +922,13 @@ The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
 and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
 scoped shared CSS with embedded Noto fonts plus token-derived native overlay
 colors/height and macOS traffic-light position. The installer reuses the first
-`.topbar`, `.dinkster-topbar` or direct body header, preserving its children;
-without one it prepends `ProductWindowChrome`. If the app later creates or
-replaces its bar, the installer moves its markings there and removes its own
+`.dinkster-window-toolbar-host`, `.topbar`, `.dinkster-topbar` or direct body
+header, preserving its children. On a shared toolbar it mounts identity inside
+the toolbar grid; a host-managed toolbar leaves its component `qa` and
+`development` flags unset so the installer alone owns those markings. The
+artifact includes the canonical toolbar container rules, including the compact
+metadata row. Without an application bar it prepends `ProductWindowChrome`.
+If the app later creates or replaces its bar, the installer moves its markings there and removes its own
 fallback; removing the app bar restores the fallback. Reinstallation disconnects
 the prior observer and replaces only its own markings/fallback. The host inserts
 the supplied CSS and runs the
@@ -945,6 +936,31 @@ installer after document load, using its existing isolated renderer boundary.
 The bundle has an embedded symbol, no network imports, no Node/Electron API and
 no preload bridge. Content styles and the page's CSP remain host-owned. Both
 files are hashed by the site manifest and required by the wheel packager.
+
+`ProductWindowToolbar` composes the same native geometry with brand, search and
+actions slots, an optional service label and QA/development identity. It has a
+fixed 56px height. At the standard 768px available-content boundary, a container
+query compacts `ProductWindowAction` labels to icons and moves service/identity
+labels into a metadata row inside the bar. Native reservations therefore reduce
+available space before the breakpoint is evaluated. Actions retain their full
+accessible name and title. An optional `shortcut` shows a keyboard hint beside
+the expanded action label; compact mode hides the hint but retains it in the
+button's title and accessible description without changing its action name.
+Changing or removing the shortcut updates both presentations. The hint is
+informational: the caller still owns shortcut registration and activation.
+An optional `labelContent` replaces only the expanded visible label, for example
+`ProductWordmark` with the host's `theme`. The required string `label` still owns
+the accessible name and title; rich content must be non-interactive. Compact
+mode clips that content and shows the action's icon without changing activation
+or menu ownership. Toolbar wordmarks reserve their shared token width and height
+before the image loads. `ProductWordmark` defaults to dark artwork when no theme
+is supplied. Pending actions reuse the shared disabled/focus and spinner behavior.
+The gallery's Window toolbar page demonstrates plain menu and rich brand
+presentations across production and QA/custom services, all three platforms,
+both app themes and idle/running/pending states. Supply an icon-bearing brand
+menu or action and the fixed QA/custom service labels;
+arbitrary environment names are outside this toolbar contract. These are shared
+patterns, not app adoption or OS-input acceptance.
 
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host

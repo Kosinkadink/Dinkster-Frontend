@@ -46,6 +46,25 @@ acceptance clears the draft. Navigating away clears transient drafts and
 notices without cancelling a submitted command. Its later completion cannot
 clear a newer draft or report a refusal in another view.
 
+## Subgraph field values
+
+A subgraph node displays the value a run sends: a value set on the instance
+wins, otherwise a forwarded option field inherits the inner node's stored
+value. Scene construction derives this state when no occurrence view is
+supplied, including gallery and standalone canvas callers, without writing
+inherited values into the document.
+
+## Canvas panel positions
+
+The Inputs and Outputs panels inside a subgraph keep their own saved positions.
+Moving, adding, removing or resizing other graph items does not move them. Drag a
+panel, alone or in a selection, to reposition it.
+
+New definitions store their initial content-bound positions during extraction,
+paste or import. Opening an older document does not change it: the first command
+that edits a definition stores its previously drawn panel positions in that same
+undo step. Undo restores the edited items and the panels' original places.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become

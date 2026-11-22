@@ -569,9 +569,9 @@ per-backend membership identity, repeated-rejoin idempotence).
 
 ## Editor-readiness pins (document surfaces)
 
-Dinkster's image editor and future Video, Audio, and Text editors use new editor
-kinds (docs/editors.md). These pins make those surfaces collaborative and
-agent-capable without reworking this layer.
+Editor kinds follow the [editor contract](editors.md). These pins let retained
+document surfaces use collaboration and agent commands without reworking this
+layer; parked image editing surfaces are listed in the [rework queue](rework-queue.md).
 
 - **Commands are the only mutation path, namespaced per surface.** Editors
   mutate shared state only by dispatching maintained serializable commands
