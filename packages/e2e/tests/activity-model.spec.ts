@@ -33,6 +33,7 @@ async function installFixture(page: Page): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
+  await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
