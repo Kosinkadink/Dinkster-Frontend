@@ -161,7 +161,7 @@ foreground against their actual fill, including the hovered fill.
   `finished`/`failed` result adds a lower-right cyan or
   coral dot, hidden while running. Tabs and the status bar use this same export.
   `ProductRunActivity` shows separate numeric running and waiting activity:
-  a turning cyan ring has a number only for multiple running jobs, and a
+  a turning cyan ring always carries the running count, including one, and a
   still secondary-text clock always carries the waiting count. Zero counts
   hide their mark. Callers provide an accessible `label` and counts from
   their execution scope; reduced motion stops the ring. It is shared by

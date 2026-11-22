@@ -25,7 +25,7 @@ test('run activity distinguishes concurrent running jobs from queued jobs and re
   const queued = page.getByRole('img', { name: '2 queued', exact: true })
   const mixed = page.getByRole('img', { name: '3 running, 1 queued', exact: true })
   await expect(one).toBeVisible()
-  await expect(one).toHaveText('')
+  await expect(one).toHaveText('1')
   await expect(many).toHaveText('3')
   await expect(queued).toHaveText('2')
   await expect(mixed).toHaveText('31')

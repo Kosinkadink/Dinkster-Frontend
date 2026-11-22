@@ -34,7 +34,7 @@ export function ProductRunActivity(props: {
       <Show when={props.running > 0}>
         <span class="dinkster-run-activity-running" aria-hidden="true">
           <ProductIcon icon={LoaderCircle} />
-          <Show when={props.running > 1}><span>{props.running}</span></Show>
+          <span>{props.running}</span>
         </span>
       </Show>
       <Show when={props.waiting > 0}>

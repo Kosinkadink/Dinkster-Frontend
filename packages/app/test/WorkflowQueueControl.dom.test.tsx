@@ -137,7 +137,7 @@ describe('WorkflowQueueControl', () => {
 
     setEntries([execution(alpha, 'accepted-run', 'running', 1)])
     expect(root.querySelector('[data-testid="workflow-queue-summary"]')?.textContent).toBe('1 running')
-    expect(root.querySelector('[data-testid="workflow-queue-toggle"] [role="img"]')?.textContent).toBe('')
+    expect(root.querySelector('[data-testid="workflow-queue-toggle"] [role="img"]')?.textContent).toBe('1')
     expect(root.querySelector('[data-testid="workflow-queue-entry"]')?.getAttribute('data-status')).toBe('running')
     expect(root.textContent).toContain('Running')
 
