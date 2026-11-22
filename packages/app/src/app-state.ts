@@ -11016,90 +11016,6 @@ export class AppState {
     })
   }
 
-  private connectedPlacementWorker(backend: Backend, workerName: string): WorkerInfo | undefined {
-    if (backend.protocol !== 'dinkster' || backend.connection.status.get() !== 'connected') return undefined
-    const catalog = backend.workerCatalog.get()
-    if (catalog.status !== 'ready') return undefined
-    return catalog.workers.find((worker) => worker.name === workerName && worker.status === 'connected')
-  }
-
-  private placementIsCurrent(
-    tab: Tab,
-    backend: Backend,
-    compiledDocument: WorkflowDocument,
-    placement: Readonly<Record<string, string>>,
-  ): boolean {
-    const registry = backend.registry.get()
-    const root = compiledDocument.graphs[compiledDocument.root]
-    return this.tabs.get().includes(tab) &&
-      this.backendForTab(tab) === backend &&
-      registry?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_PLACEMENT) === true &&
-      root !== undefined &&
-      Object.entries(placement).every(([nodeId, workerName]) => {
-        if (!Object.hasOwn(root.nodes, nodeId)) return false
-        const node = root.nodes[nodeId]!
-        const worker = this.connectedPlacementWorker(backend, workerName)
-        return worker !== undefined && (
-          node.region !== undefined || (
-            subgraphDefIdOf(node.type) === undefined && worker.routedNodeTypes.includes(node.type)
-          )
-        )
-      })
-  }
-
-  private placementStillAvailable(
-    tab: Tab,
-    backend: Backend,
-    compiledDocument: WorkflowDocument,
-    placement: Readonly<Record<string, string>>,
-    diagnostics: readonly Diagnostic[],
-  ): boolean {
-    if (this.placementIsCurrent(tab, backend, compiledDocument, placement)) return true
-    if (this.tabs.get().includes(tab)) {
-      this.refuseQueue(tab, [
-        ...diagnostics,
-        diag(
-          'error',
-          'compile',
-          'submit.workerUnavailable',
-          'worker placement is no longer available; choose Run on machine again',
-        ),
-      ])
-    }
-    return false
-  }
-
-  async queueOnWorker(tab: Tab, nodeIds: readonly string[], workerName: string): Promise<void> {
-    if (tab.execution || currentGraphId(tab) !== tab.store.doc.root) return
-    const graph = tab.store.doc.graphs[tab.store.doc.root]
-    const selected = graph === undefined ? [] : [...new Set(nodeIds)].flatMap((nodeId) => {
-      if (!Object.hasOwn(graph.nodes, nodeId)) return []
-      const node = graph.nodes[nodeId]!
-      return node !== undefined && (node.region !== undefined || subgraphDefIdOf(node.type) === undefined)
-        ? [node]
-        : []
-    })
-    const backend = this.backendForTab(tab)
-    const worker = this.connectedPlacementWorker(backend, workerName)
-    const routed = new Set(worker?.routedNodeTypes ?? [])
-    const unroutable = selected.filter((node) => node.region === undefined && !routed.has(node.type))
-    if (selected.length === 0 || worker?.status !== 'connected' || unroutable.length > 0) {
-      this.refuseQueue(tab, [diag(
-        'error',
-        'compile',
-        'submit.workerUnavailable',
-        selected.length === 0
-          ? 'Run on machine requires at least one ordinary root node or region'
-          : worker?.status !== 'connected'
-            ? `worker '${workerName}' is not connected`
-            : `worker '${workerName}' does not route every selected node type`,
-      )])
-      return
-    }
-    const placement = Object.fromEntries(selected.map((node) => [node.id, workerName]))
-    await this.queue(tab, { kind: 'full' }, selected.map((node) => node.id), placement)
-  }
-
   private refuseQueue(tab: Tab, diagnostics: readonly Diagnostic[]): void {
     this.replaceProblems(tab.id, diagnostics)
     this.queueRefusal.set(tab)
@@ -11216,7 +11132,6 @@ export class AppState {
     tab: Tab,
     scope: ExecutionScope = { kind: 'full' },
     requiredRootNodes: readonly string[] = [],
-    placement?: Readonly<Record<string, string>>,
   ): Promise<void> {
     if (this.disposed || tab.execution) return // frozen views never queue
     this.queueRefusal.set(undefined)
@@ -11232,10 +11147,9 @@ export class AppState {
     // different document lineage session - it must not queue, and its late
     // results must not touch the replacement's Problems entries.
     if (!this.tabs.get().includes(tab)) return
-    const requestedPlacement = placement === undefined ? undefined : { ...placement }
     let compiledDocument = tab.store.doc
     const registry = this.registryForTab(tab)
-    let result = this.compileTab(tab, scope, undefined, requestedPlacement)
+    let result = this.compileTab(tab, scope)
     if (!result || !registry) return
     if (!result.ok) {
       // Queueing refreshes THIS tab's Problems entries (compile results
@@ -11289,7 +11203,7 @@ export class AppState {
       }
       if (capturedDocument !== compiledDocument) {
         compiledDocument = capturedDocument
-        result = this.compileTab(tab, scope, choices, requestedPlacement)
+        result = this.compileTab(tab, scope, choices)
         if (result === undefined || lease.signal.aborted) return
         if (!result.ok) {
           this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))
@@ -11345,18 +11259,10 @@ export class AppState {
       // stay on the zero-work fast path. Never send the captured artifact
       // once the current document has entered the unsupported combination.
       if (this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument)) return
-      if (requestedPlacement !== undefined && !this.placementStillAvailable(
-        tab,
-        backend,
-        compiledDocument,
-        requestedPlacement,
-        result.artifact.diagnostics,
-      )) return
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
         ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
-        ...(requestedPlacement !== undefined ? { placement: requestedPlacement } : {}),
         // Overrides come from the artifact snapshot (the exact document
         // that compiled), layered global < workflow < node.
         previews: resolvePreviewPolicy(
@@ -11381,7 +11287,6 @@ export class AppState {
             scope,
             compiledDocument,
             backend,
-            requestedPlacement,
             sourceDocument,
             lease,
           )
@@ -11455,7 +11360,6 @@ export class AppState {
     scope: ExecutionScope,
     compiledDocument: WorkflowDocument,
     backend: Backend,
-    placement: Readonly<Record<string, string>> | undefined,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
@@ -11477,19 +11381,12 @@ export class AppState {
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply
-      // the same document and placement safety gates before every retry stage.
+      // the same document safety gates before every retry stage.
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
         this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
         (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
-        !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument) &&
-        (placement === undefined || this.placementStillAvailable(
-          tab,
-          backend,
-          compiledDocument,
-          placement,
-          artifact.diagnostics,
-        )),
+        !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument),
       onSubmitted: (ok) => {
         if (this.disposed) return
         this.installRun(ok.execution, artifact, plan, undefined, {

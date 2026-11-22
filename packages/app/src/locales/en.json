@@ -8,6 +8,7 @@
   "runs.pending": "Queued and running runs",
   "runs.search": "Search runs",
   "runs.empty": "No runs for this workflow",
+  "runs.stored.empty": "No finished runs are stored",
   "runs.loading": "Loading retained outputs...",
   "runs.loadError": "Could not load outputs: {error}",
   "runs.openSnapshot": "Open snapshot",

@@ -509,8 +509,8 @@
 }
 
 /* On a region toggle the badge overlays the icon's corner. */
-.shell-region-toggle { position: relative; }
-.shell-region-toggle .panel-indicator {
+[data-testid='rail-toggle'] { position: relative; }
+[data-testid='rail-toggle'] .panel-indicator {
   position: absolute;
   top: -5px;
   right: -5px;

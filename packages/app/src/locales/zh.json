@@ -8,6 +8,7 @@
   "runs.pending": "排队中和运行中的任务",
   "runs.search": "搜索运行记录",
   "runs.empty": "此工作流尚无运行记录",
+  "runs.stored.empty": "尚未存储已完成的运行记录",
   "runs.loading": "正在加载保留的输出...",
   "runs.loadError": "无法加载输出: {error}",
   "runs.openSnapshot": "打开快照",

@@ -58,18 +58,28 @@ for (const theme of ['dark', 'light'] as const) {
     }, theme)
     let releaseWordmark!: () => void
     const wordmarkReady = new Promise<void>((resolve) => { releaseWordmark = resolve })
-    await page.route('**/branding/svg/dinkster-wordmark-color-*.svg', async (route) => {
+    let delayedWordmarks = 0
+    await page.route(/\/branding\/svg\/dinkster-wordmark-color-.*\.svg(?:\?.*)?$/, async (route) => {
+      if (route.request().resourceType() !== 'image') return route.continue()
+      delayedWordmarks += 1
       await wordmarkReady
       await route.continue()
     })
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
-    const headerBefore = await page.locator('.topbar').boundingBox()
+    const headerBefore = await page.locator('.dinkster-window-toolbar-host').boundingBox()
+    const trigger = page.getByTestId('dinkster-menu-button')
+    await expect.poll(() => delayedWordmarks).toBeGreaterThan(0)
+    const triggerBefore = await trigger.boundingBox()
+    const wordmarkBefore = (await trigger.locator('img').boundingBox())!
+    expect(wordmarkBefore.width).toBe(99)
+    expect(wordmarkBefore.height).toBe(30)
     releaseWordmark()
-    await expect.poll(() => page.getByTestId('dinkster-menu-button').locator('img:visible')
+    await expect.poll(() => trigger.locator('img:visible')
       .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
-    expect(await page.locator('.topbar').boundingBox()).toEqual(headerBefore)
+    expect(await page.locator('.dinkster-window-toolbar-host').boundingBox()).toEqual(headerBefore)
+    expect(await trigger.boundingBox()).toEqual(triggerBefore)
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
     await expect(page.getByTestId('dinkster-menu-button').getByRole('img', { name: 'Dinkster' })).toBeVisible()
     const expectedCanvas = theme === 'dark' ? 'rgb(17, 19, 22)' : 'rgb(247, 248, 250)'
@@ -97,6 +107,39 @@ for (const theme of ['dark', 'light'] as const) {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
     await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(17, 19, 22)')
+    await expect(trigger.locator('img')).toHaveAttribute('src', new RegExp(`color-${theme === 'dark' ? 'light' : 'dark'}\\.svg`))
+    await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
+    const header = page.locator('.dinkster-window-toolbar-host')
+    await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
+    await page.setViewportSize({ width: 390, height: 900 })
+    await expect(trigger).toHaveAccessibleName('Dinkster')
+    expect((await trigger.boundingBox())!.width).toBe(32)
+    for (const control of await header.locator('button:visible').all()) {
+      const box = (await control.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(12)
+      expect(box.x + box.width).toBeLessThanOrEqual(242)
+      expect(box.y + box.height).toBeLessThanOrEqual(56)
+    }
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
+    })
+    const rail = page.getByTestId('rail-toggle')
+    const attention = rail.locator('.panel-indicator')
+    await expect(attention).toBeVisible()
+    await expect(attention).toHaveCSS('position', 'absolute')
+    const railBox = (await rail.boundingBox())!
+    const iconBox = (await rail.locator('svg').boundingBox())!
+    const badgeBox = (await attention.boundingBox())!
+    expect(iconBox.width).toBe(20)
+    expect(iconBox.height).toBe(18)
+    expect(badgeBox.y).toBeLessThan(railBox.y)
+    expect(badgeBox.x).toBeGreaterThan(iconBox.x)
+    await trigger.click()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    await page.keyboard.press('Escape')
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await expect(trigger).toBeFocused()
   })
 
 }
@@ -252,6 +295,16 @@ test('stored run outputs load only after selection and retain their original ide
   await page.mouse.move(600, 400)
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('stored-run-error.png'), animations: 'disabled' })
+  await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [] } }))
+  await page.getByTestId('runs-scope').click()
+  await page.getByRole('option', { name: 'This workflow', exact: true }).click()
+  await page.getByTestId('runs-scope').click()
+  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  const empty = page.getByTestId('runs-panel').getByTestId('collection-empty')
+  await expect(empty).toHaveText('No finished runs are stored')
+  await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
+  await page.getByTestId('runs-panel').getByTestId('collection-search').fill('absent run')
+  await expect(empty).toHaveText('No matches.')
 })
 
 test('App view validation and remote failures keep editable controls', async ({ page }) => {
