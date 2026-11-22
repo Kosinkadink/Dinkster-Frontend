@@ -355,7 +355,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     // must remain usable where they meet the resize band.
     if (inside && contentDetail) {
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
@@ -377,7 +377,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }

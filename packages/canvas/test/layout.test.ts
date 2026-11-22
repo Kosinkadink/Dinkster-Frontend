@@ -4,7 +4,7 @@
  * get dedicated rows, auto-size is a pure function of the row stack.
  */
 import { describe, expect, it } from 'vitest'
-import type { InputSpec, NodeData, NodeSchema, OutputSpec } from '@dinkster/core'
+import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
 import { layoutNode, projectNodeLayoutHeight, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { defaultTokens } from '../src/tokens.js'
@@ -98,6 +98,37 @@ describe('pairing', () => {
       }
       expect(JSON.stringify({ schema, node })).toBe(before)
     }
+  })
+
+  it('draws notes and buttons as rows, inside a Row on its line, and only under the chosen option', () => {
+    const note = (id: string, text: NoteSpec['text'], unknown?: string): NoteSpec =>
+      ({ kind: 'note', id, text, ...(unknown !== undefined ? { unknown } : {}) })
+    const button = (id: string, label: string): ButtonSpec => ({ kind: 'button', id, label, steps: [] })
+    const mode: NodeSchema['body'][number] = {
+      kind: 'choice', id: 'mode', required: true, shared: [],
+      options: [{ key: 'a', rows: [note('shown', 'under a')] }, { key: 'b', rows: [note('hidden', 'under b'), button('go', 'Go')] }],
+    }
+    const layout = doLayout([
+      note('intro', 'Plain text'),
+      { kind: 'row', rows: [widget('w'), note('size', { formula: 'w * 2' }, 'pending'), button('swap', 'Swap')] },
+      widget('after'),
+      mode,
+    ])
+    const kinds = layout.rows.map((row) => row.kind === 'note' ? `note:${row.noteId}:${row.text}${row.unknown ? ':unknown' : ''}`
+      : row.kind === 'button' ? `button:${row.buttonId}:${row.label}`
+        : row.kind === 'widget' ? `widget:${row.inputId}` : row.kind)
+    expect(kinds).toEqual(['note:intro:Plain text', 'widget:w', 'note:size:pending:unknown', 'button:swap:Swap', 'widget:after', 'widget:mode', 'note:mode.shown:under a'])
+    const [intro, w, size, swap, after] = layout.rows
+    expect(w!.y).toBe(intro!.y + intro!.height)
+    expect(size!.y).toBe(w!.y)
+    expect(swap!.y).toBe(w!.y)
+    const span = (row: (typeof layout.rows)[number] | undefined) =>
+      row !== undefined && 'inset' in row ? [row.inset, row.inset + row.width!] : []
+    expect(span(w)[1]).toBeLessThanOrEqual(span(size)[0]!)
+    expect(span(size)[1]).toBeLessThanOrEqual(span(swap)[0]!)
+    expect(after!.y).toBe(w!.y + w!.height)
+    // Neither kind is a pin target.
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['w', 'after'])
   })
 
   it('outputs pair with connection-input rows top-down', () => {

@@ -17,10 +17,17 @@ non-empty legacy `interface` list.
   only.
 - **Section**: a titled box that holds rows and can start folded (wire
   `collapsed`). Layout only; it adds nothing to row ids.
-- **Row**: two to four fields side by side. Layout only: each field is drawn
-  beside the one before it when both are in the same section.
-- **Note**, **Editor** and **Button**: decoded with the schema. The canvas
-  does not draw them, and the editor never runs a button's steps. An editor
+- **Row**: two to four cells side by side: fields, notes and buttons.
+  Layout only: each cell is drawn beside the one before it when both are in
+  the same section.
+- **Note**: read-only text with no pin, on its own line or as a cell of a
+  Row. It keeps its line while its text is empty. A note whose text is a
+  formula or a lookup shows its `unknown` text dimmed (empty when it has
+  none), because the editor does not evaluate formulas yet.
+- **Button**: a capsule with its label and no pin, on its own line or as a
+  cell of a Row. It does nothing when clicked: the editor never runs a
+  button's steps.
+- **Editor**: decoded with the schema; the canvas does not draw it. An editor
   row is a custom or compositor widget with no value of its own; it must name
   at least one row it writes or reads.
 

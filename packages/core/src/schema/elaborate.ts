@@ -44,10 +44,12 @@ import {
 } from './body.js'
 import type {
   BodyRow,
+  ButtonSpec,
   ChoiceSpec,
   DescribedSpec,
   GroupSpec,
   InputSpec,
+  NoteSpec,
   NodeSchema,
   OptionRow,
   OutputSpec,
@@ -259,7 +261,39 @@ export interface ElaboratedGrowth {
   readonly section?: string
 }
 
-export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth
+/**
+ * Read-only text drawn as a row. A note whose text is a formula or a lookup
+ * shows its `unknown` text: the editor does not evaluate it here.
+ */
+export interface ElaboratedNote {
+  readonly kind: 'note'
+  /** Flattened id. */
+  readonly id: string
+  readonly text: string
+  /** The text is the note's "while unknown" answer. */
+  readonly unknown?: true
+  readonly section?: string
+  /** Line key of the cell drawn before this one in a `Row`. */
+  readonly adjacentTo?: string
+}
+
+/** An action drawn as a row. The editor does not run its steps. */
+export interface ElaboratedButton {
+  readonly kind: 'button'
+  /** Flattened id. */
+  readonly id: string
+  readonly label: string
+  readonly section?: string
+  /** Line key of the cell drawn before this one in a `Row`. */
+  readonly adjacentTo?: string
+}
+
+/** The key a cell of a `Row` names the cell before it by: an input's flattened id, or a note's or button's. */
+export const lineKeyOf = (item: ElaboratedItem): string | undefined =>
+  item.kind === 'input' ? item.spec.id
+    : item.kind === 'note' || item.kind === 'button' ? `${item.kind}:${item.id}` : undefined
+
+export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth | ElaboratedNote | ElaboratedButton
 
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
@@ -829,10 +863,28 @@ function elaboratePass(
         described(row, scope.prefix + row.id, scope)
         return
       case 'note':
-      case 'editor':
       case 'button':
+        layoutRow(row, scope)
+        return
+      case 'editor':
         return
     }
+  }
+
+  /** A note or a button: drawn, never stored, compiled or wired. */
+  const layoutRow = (row: NoteSpec | ButtonSpec, scope: Scope, adjacentTo?: string): string | undefined => {
+    if (scope.ghost || scope.dormant || scope.hidden) return undefined
+    const id = scope.prefix + row.id
+    const placed = {
+      ...(scope.section !== undefined ? { section: scope.section } : {}),
+      ...(adjacentTo !== undefined ? { adjacentTo } : {}),
+    }
+    const item: ElaboratedItem = row.kind === 'note'
+      ? typeof row.text === 'string'
+        ? { kind: 'note', id, text: row.text, ...placed }
+        : { kind: 'note', id, text: row.unknown ?? '', unknown: true, ...placed }
+      : { kind: 'button', id, label: row.label, ...placed }
+    return push(item) ? lineKeyOf(item) : undefined
   }
 
   const section = (row: SectionSpec, scope: Scope): void => {
@@ -858,6 +910,10 @@ function elaboratePass(
     if (!enter(`${scope.prefix}row`)) return
     let previous: string | undefined
     for (const row of list) {
+      if (row.kind === 'note' || row.kind === 'button') {
+        previous = layoutRow(row, scope, previous) ?? previous
+        continue
+      }
       if (row.kind !== 'input') continue
       const path = scope.prefix + row.id
       emitInput(previous === undefined ? row : { ...row, adjacentTo: previous }, path, scope)
