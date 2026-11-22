@@ -260,19 +260,22 @@ export function structuralGalleryScene(
       (schema) => [schema.type, schema],
     ),
   )
+  const resolve = documentResolver(document, (type) => schemas.get(type))
+  // The top level carries the occurrence view as the app does, so a subgraph
+  // node paints the values a run sends.
   if (!inside)
     return buildScene({
       document,
       graphId: 'g0',
-      resolve: (type) => schemas.get(type),
+      resolve,
       tokens,
       measure,
       widgetMeasure,
       renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
+      occurrenceView: occurrenceDynamicView(document, resolve, [], 'g0'),
     })
   // Inside, the subgraph is entered through its node, as the app does: the
   // Inputs panel carries that node's radius, which the inner Blur shows.
-  const resolve = documentResolver(document, (type) => schemas.get(type))
   return buildScene({
     document,
     graphId: 'g1',
