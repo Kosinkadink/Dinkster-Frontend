@@ -68,6 +68,14 @@ subgraph is dimmed and not editable, and shows the arriving value when the
 document fixes it. A frozen run view shows the values that run used and
 edits nothing.
 
+A field takes the view chosen for it on the subgraph node (a slider stays a
+slider); the view is chosen there, so a right-click on a panel field opens
+the canvas menu. Tab, Enter and Escape move through the panel's fields as
+through a node's, skipping wired ones, and the canvas keyboard list names
+each as a row of Inputs. A choice whose options are edited on the node
+itself (editable choices, family members) stays a name and a pin. A field
+row is renamed in the Boundary panel, not by double-clicking it.
+
 ## Showing a field on the subgraph node
 
 Inside a subgraph, the right-click menu of a field on an inner node offers

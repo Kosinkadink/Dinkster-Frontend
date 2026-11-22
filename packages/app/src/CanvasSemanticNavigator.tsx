@@ -308,6 +308,16 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
         target: { kind: 'port', nodeId: id, id: pin.portId, direction: pin.direction },
       })
     }
+    for (const row of boundary.fields === undefined ? [] : boundary.layout.rows) {
+      if (row.kind !== 'widget') continue
+      const connected = Object.hasOwn(boundary.fields!.wired, row.valueKey)
+      items.push({
+        key: `widget:${id}:${row.valueKey}`,
+        category: 'widget',
+        label: `Row: ${row.label} of Inputs, ${widgetValueText(boundary.fields!.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        target: { kind: 'widget', nodeId: id, valueKey: row.valueKey },
+      })
+    }
   }
 
   for (const link of scene.links) {

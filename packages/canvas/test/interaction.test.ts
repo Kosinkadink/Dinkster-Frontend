@@ -13,7 +13,7 @@ import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -4133,5 +4133,10 @@ describe('Inputs panel fields', () => {
     expect(radiusOf(store, 'g1', 'inner')).toBe(5)
     expect(radiusOf(store, 'g0', 'soft')).toBe(6)
     expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+  })
+
+  it('rebuilds to an equal scene, so an unrelated document change keeps a drag in progress', () => {
+    const doc = workflow()
+    expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)
   })
 })

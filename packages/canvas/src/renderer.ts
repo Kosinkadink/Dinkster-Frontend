@@ -1847,7 +1847,7 @@ export class CanvasRenderer {
       const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === item)
       if (row?.kind !== 'widget') continue
       const wired = panel!.fields!.wired
-      const value: Json | undefined = wired.has(item) ? wired.get(item) : panel!.fields!.node.values[item] ?? effectiveWidgetDefault(row.spec)
+      const value: Json | undefined = Object.hasOwn(wired, item) ? wired[item]!.value : panel!.fields!.node.values[item] ?? effectiveWidgetDefault(row.spec)
       if (value !== undefined) panelFieldValues.set(`${link.to.node}\u0000${portEndKey(link.to)}`, value)
     }
     this.panelFieldValues = panelFieldValues
@@ -3963,7 +3963,7 @@ export class CanvasRenderer {
     sceneNode: SceneNode,
     node: SceneNode,
     row: Extract<LayoutRow, { kind: 'widget' }>,
-    driven?: { readonly value: Json | undefined },
+    driven?: { readonly value?: Json },
   ): void {
     const t = this.tokens
     const l = node.layout
@@ -4325,7 +4325,7 @@ export class CanvasRenderer {
       for (const row of l.rows) {
         if (row.kind === 'widget' && face !== undefined) {
           this.drawFieldRow(ctx, face, { ...face, x, y }, row,
-            bnode.fields!.wired.has(row.valueKey) ? { value: bnode.fields!.wired.get(row.valueKey) } : undefined)
+            bnode.fields!.wired[row.valueKey])
           ctx.font = `${t.fontSize}px ${t.fontFamily}`
           ctx.textBaseline = 'middle'
           continue

@@ -1399,7 +1399,7 @@ export function layoutBoundaryNode(
       const field = slot.field
       const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
       rows.push({ ...field, kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
-      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + tokens.rowHeight / 2, type })
+      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type })
       y += height
       continue
     }
