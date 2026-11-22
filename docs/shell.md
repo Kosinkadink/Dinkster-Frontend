@@ -136,12 +136,14 @@ The topbar search shrinks between its control groups on intermediate widths
 instead of letting its shortcut badge overlap the layout controls.
 Inside Desktop, the attached header reserves separate columns for the control
 groups, search and environment identity, within the native-button insets. At
-768 px and below the app menu uses the compact symbol rather than the full
-wordmark; its menu actions are unchanged. Environment labels use a metadata row
-above the controls, keeping the total header at the shared 56 px height even
-with Windows' wider native buttons. At 768 px and below search and the active
-run's cancel action use icons; their full text remains available to assistive
-technology. The cancel action retains its pending and disabled states.
+1100 px and below the app menu uses the compact symbol rather than the full
+wordmark; its menu actions are unchanged. Engine service labels and Desktop
+identity use opposite ends of a metadata row above the controls, keeping the
+total header at the shared 56 px height even with Windows' wider native
+buttons. Search and the active run's cancel action use icons in this compact
+layout; their full text remains available to assistive technology. The cancel
+action retains its pending and disabled states. Production services have no
+service label, and published production Desktop has no environment identity.
 
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the
