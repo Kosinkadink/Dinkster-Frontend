@@ -75,7 +75,8 @@ const detailedStatus = {
 
 async function addBackend(page: Page, address: string): Promise<void> {
   const input = page.getByTestId('backend-url-input')
-  if (!await input.isVisible()) await page.getByTestId('backends-sidebar-toggle').click()
+  if (!await page.getByTestId('backends-panel').isVisible()) await page.getByTestId('backends-sidebar-toggle').click()
+  if (!await input.isVisible()) await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await input.fill(address)
   await page.getByTestId('backend-add').click()
   await expect(page.getByTestId('backend-row').filter({ hasText: address })).toBeVisible({ timeout: 10_000 })

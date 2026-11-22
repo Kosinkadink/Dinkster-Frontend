@@ -123,7 +123,12 @@ export function ModelSettings(props: {
     const download = current.settings.downloadLocation === location.id && !writable()
       ? locations.find((row) => row.mode === 'readwrite')?.id ?? null
       : current.settings.downloadLocation ?? (writable() ? location.id : null)
-    if (await save(locations, download)) resetForm()
+    if (await save(locations, download)) {
+      const current = state()!
+      const location = current.settings.locations.find((row) => row.id === props.editLocation)
+      if (location) startEdit(location, current.revision)
+      else resetForm()
+    }
   }
   const choose = async () => {
     if (busy() || !nativeChoice() || props.backendUrl === undefined) return
@@ -227,7 +232,7 @@ export function ModelSettings(props: {
           <ProductField controlId="model-location-kind" label={message('projectFolders.purpose')} description={message('modelSettings.kindHint')} layout="stack"><ProductTextInput id="model-location-kind" aria-describedby="model-location-kind-description" value={kind()} disabled={disabled()} onInput={(event) => setKind(event.currentTarget.value)} /></ProductField>
           <label class="project-folder-shared"><ProductCheckbox checked={writable()} disabled={disabled()} ariaLabel={message('modelSettings.writable')} onChange={setWritable} />{message('modelSettings.writable')}</label>
           <ProductButton type="submit" variant="primary" disabled={disabled() || !id().trim() || !path().trim() || !changed()}>{message(editing() ? 'modelSettings.save' : 'modelSettings.add')}</ProductButton>
-          <Show when={editing()}><ProductButton type="button" disabled={busy()} onClick={resetForm}>{message('projectFolders.cancel')}</ProductButton></Show>
+          <Show when={editing() && props.editLocation === undefined}><ProductButton type="button" disabled={busy()} onClick={resetForm}>{message('projectFolders.cancel')}</ProductButton></Show>
         </form></Show>
       </>}</Show>
     </div>

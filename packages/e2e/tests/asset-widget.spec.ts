@@ -51,6 +51,7 @@ async function targetNativeBackend(page: Page): Promise<void> {
   })
   if (!alreadyNative) {
     await page.getByTestId('backends-toggle').click()
+    await page.getByRole('button', { name: 'Add backend', exact: true }).click()
     await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
     await page.getByTestId('backend-add').click()
     await expect(page.getByTestId('tab-target')).toBeVisible()

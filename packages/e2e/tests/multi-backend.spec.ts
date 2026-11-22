@@ -28,11 +28,12 @@ async function queueAndComplete(page: Page, expectedRows: number): Promise<void>
 /** Add the second origin through the panel UI and wait for schemas. */
 async function addSecondBackend(page: Page): Promise<void> {
   await page.getByTestId('backends-toggle').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(secondBackend!)
   await page.getByTestId('backend-add').click()
   const rows = page.getByTestId('backend-row')
   await expect(rows).toHaveCount(2)
-  await expect(rows.nth(1)).toContainText(/Schemas\d+ available/, { timeout: 15_000 })
+  await expect(rows.nth(1)).toContainText(/\d+ available/, { timeout: 15_000 })
   await expect(rows.nth(1)).toContainText('Connected', { timeout: 15_000 })
 }
 
@@ -64,6 +65,7 @@ test('adding a backend connects it and reveals per-tab targeting', async ({ page
   await expect(page.getByTestId('tab-target')).toBeVisible()
   await expect(page.getByTestId('statusbar-backend')).toHaveText('Local')
   // Duplicate registration is rejected (still 2 rows).
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(`${secondBackend}/`)
   await page.getByTestId('backend-add').click()
   await expect(rows).toHaveCount(2)
@@ -121,7 +123,10 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(renditionUrls.length).toBeGreaterThan(0)
 
   // Removing the second origin keeps the history row and frozen image route.
-  await page.getByTestId('backend-remove').click()
+  if (!await page.getByTestId('backends-panel').isVisible()) await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('backend-row').filter({ hasText: secondBackend! }).getByRole('button', { name: `Actions for ${secondBackend}` }).click()
+  await page.getByRole('menuitem', { name: 'Remove backend', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove backend', exact: true }).click()
   await expect(page.getByTestId('backend-row')).toHaveCount(1)
   await expect(page.getByTestId('tab-target')).toHaveCount(0) // single-backend again
   await expect(page.getByTestId('execution-row')).toHaveCount(1)

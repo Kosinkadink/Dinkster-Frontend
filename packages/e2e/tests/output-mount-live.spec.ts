@@ -193,7 +193,8 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     fullPage: true,
   });
 
-  await page.getByTestId("backends-sidebar-toggle").click();
+  await page.getByTestId("storage-sidebar-toggle").click();
+  await page.getByRole("button", { name: "Default save folder", exact: true }).click();
   const settings = page.getByTestId("output-mount-settings");
   await expect(settings).toBeVisible();
   await settings
@@ -210,7 +211,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     fullPage: true,
   });
 
-  await page.getByTestId("backends-sidebar-toggle").click();
+  await page.getByTestId("storage-sidebar-toggle").click();
   await queueAndWait(page, 1);
   await page.getByRole("tab", { name: "Outputs" }).click();
   await expect(page.getByTestId("outputs-panel")).toContainText(

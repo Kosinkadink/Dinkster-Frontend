@@ -150,6 +150,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await page.getByTestId('backends-toggle').click()
+    await page.getByRole('button', { name: 'Add backend', exact: true }).click()
     await page.getByTestId('backend-url-input').fill(MOCK)
     await page.getByTestId('backend-add').click()
     await selectProductOption(page, page.getByTestId('tab-target'), MOCK)

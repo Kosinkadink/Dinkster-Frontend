@@ -199,6 +199,9 @@ it('opens only the requested folder editor and requires a changed value before s
     expect(save().disabled).toBe(false)
     save().click()
     await vi.waitFor(() => expect(settings.locations[0]?.path).toBe('/new/checkpoints'))
+    await vi.waitFor(() => expect(save()?.disabled).toBe(true))
+    expect(input().value).toBe('/new/checkpoints')
+    expect(root.textContent).not.toContain('Add model folder')
     expect(settings.locations[1]).toEqual(initial.settings.locations[1])
   } finally { dispose() }
 })

@@ -389,7 +389,7 @@ export function SettingsDialog(props: {
               </Show>
               }>
                 <Show when={props.backends?.find((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => `backend:${backend.id}` === category() && backend.protocol === 'dinkster')} keyed>{(backend) => <>
-                  <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={['dtype-policy', 'fp8-matmul', 'worker-comfy-args', 'jobs', 'logging']} alwaysOpen />
+                  <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={(category) => !['memory-budgets', 'memory-headroom', 'aimdo-policy'].includes(category)} alwaysOpen />
                   <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
                 </>}</Show>
               </Show>

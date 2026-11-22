@@ -1312,6 +1312,8 @@ export function App(props: {
   })
   onCleanup(unregisterStorageCommand)
   const [assetsBackendId, setAssetsBackendId] = createSolidSignal<string>()
+  const activeAssetsBackendId = createMemo(() => activeBackend().id)
+  createEffect(() => { activeAssetsBackendId(); setAssetsBackendId(undefined) })
   const AssetsPanelBody = () => <Show when={backends().find((backend) => backend.id === assetsBackendId()) ?? activeBackend()} keyed>
     {(backend) => {
       return backend.protocol === 'dinkster'

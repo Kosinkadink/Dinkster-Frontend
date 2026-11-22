@@ -238,7 +238,7 @@ function CategoryEditor(props: {
   )
 }
 
-export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[]; readonly alwaysOpen?: boolean; readonly memoryControls?: boolean; readonly showGrantWarnings?: boolean; readonly memoryStatus?: MemoryStatus }) {
+export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[] | ((category: string) => boolean); readonly alwaysOpen?: boolean; readonly memoryControls?: boolean; readonly showGrantWarnings?: boolean; readonly memoryStatus?: MemoryStatus }) {
   const message = useAppMessage()
   const [open, setOpen] = createSignal(props.alwaysOpen === true)
   const [loading, setLoading] = createSignal(false)
@@ -273,7 +273,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const current = data()
     if (!current) return []
     const all = [...current.categories.available, ...Object.keys(current.settings).filter((category) => !current.categories.available.includes(category))]
-    return all.filter((category) => props.categories === undefined || props.categories.includes(category))
+    return all.filter((category) => props.categories === undefined || (typeof props.categories === 'function' ? props.categories(category) : props.categories.includes(category)))
   }
   const editable = (category: string, section: RuntimeSettingSection): boolean =>
     (data()?.categories.granted.length ?? 0) > 0 && data()!.categories.granted.includes(category) && section.writable
@@ -321,7 +321,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
           <Show when={error()}><ProductNotice tone="error">{error()}{data() !== undefined ? message('runtimeSettings.error.previousVisible') : ''}</ProductNotice></Show>
           <Show when={data()}>{(settings) => (
             <>
-            <Show when={props.showGrantWarnings === true}><For each={(props.categories ?? []).filter((category) => !settings().categories.granted.includes(category) || settings().settings[category]?.writable !== true)}>{(category) => <ProductNotice tone="warning">{message('runtimeSettings.warning.missingGrant', { category })}</ProductNotice>}</For></Show>
+            <Show when={props.showGrantWarnings === true}><For each={(typeof props.categories === 'function' ? categories() : props.categories ?? []).filter((category) => !settings().categories.granted.includes(category) || settings().settings[category]?.writable !== true)}>{(category) => <ProductNotice tone="warning">{message('runtimeSettings.warning.missingGrant', { category })}</ProductNotice>}</For></Show>
             <Show when={categories().length === 0}><ProductNotice tone="info">{message('runtimeSettings.state.empty')}</ProductNotice></Show>
             <For each={categories()}>{(category) => {
               const section = () => settings().settings[category]
