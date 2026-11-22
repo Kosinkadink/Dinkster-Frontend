@@ -80,9 +80,10 @@ it.each(['viewer-close-mount', 'viewer-mounted-close'] as const)('releases 3D UR
   let release!: () => void
   fixtures.mount = () => new Promise<void>((resolve) => { release = resolve })
   const registry = createWidgetRegistry()
+  const connection = { fetchAssetBytes: async () => new Uint8Array([1]) }
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
-    backendForTab: () => ({ protocol: 'dinkster', connection: { fetchAssetBytes: async () => new Uint8Array([1]) } }),
+    backendForTab: () => ({ protocol: 'dinkster', connection }),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{ tab: { store } as unknown as Tab, graphId: 'g0',

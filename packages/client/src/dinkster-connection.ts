@@ -1986,6 +1986,7 @@ export class DinksterConnection {
       onResumed: () => { for (const listener of [...this.resumedListeners]) listener() },
     })
     this.status = this.socket.status
+    this.status.subscribe(() => { this.valuesClient = undefined })
   }
 
   /** Subscribe to normalized events. Returns unsubscribe. */
@@ -4240,6 +4241,7 @@ export class DinksterConnection {
   }
 
   disconnect(): void {
+    this.valuesClient = undefined
     this.socket.disconnect()
   }
 

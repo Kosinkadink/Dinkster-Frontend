@@ -298,7 +298,7 @@ export function ExecutedImageViewer(props: {
         <div><span>Execution</span><strong>{props.provenance.executionId}</strong></div>
         <div><span>Status</span><strong>{props.provenance.executionStatus}</strong></div>
         <Show when={!props.provenance.backendAvailable}>
-          <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
+          <p role="status">{message('outputs.backendDisconnected')}</p>
         </Show>
       </section>
       <div class="output-viewer-toolbar" role="toolbar" aria-label="Image viewer controls">

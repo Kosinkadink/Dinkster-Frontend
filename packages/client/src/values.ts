@@ -562,10 +562,6 @@ export class DinksterValuesClient {
    */
   async rendition(query: ValueQuery, kind: string, options: RenditionOptions = {}): Promise<RenditionResult> {
     if (options.signal?.aborted === true) return aborted()
-    const reader = options.descriptor === undefined ? undefined : this.descriptorReaders.get(options.descriptor)
-    if (options.descriptor !== undefined && reader?.queryUrl !== this.url(query)) {
-      return localRefusal('invalid-descriptor', 'Rendition requires its value descriptor')
-    }
     return this.readRendition(query, kind, options)
   }
 
