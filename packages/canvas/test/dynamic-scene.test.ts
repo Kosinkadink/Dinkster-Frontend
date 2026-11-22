@@ -457,7 +457,7 @@ describe('dynamic layout on plain nodes', () => {
     // The ghost's port row is annotated identically and labeled by ordinal.
     const row = portRowsOf(scene, 'b').find((r) => r.input?.portId === 'images.image#m0')!
     expect(row.input!.ghost).toBe(true)
-    expect(row.input!.label).toBe('image0')
+    expect(row.input!.label).toBe('image 1')
   })
 
   it('persisted members render as real pins; the ghost continues from seq, never recycling ids', () => {
@@ -968,7 +968,7 @@ describe('dynamic layout on subgraph instances', () => {
     expect(pins.map((p) => p.portId)).toEqual(['fam.image#m0', 'fam.image#m1'])
     const rows = portRowsOf(scene, 's')
     expect(rows.find((r) => r.input?.portId === 'fam.image#m0')!.input!.label).toBe('image1')
-    expect(rows.find((r) => r.input?.portId === 'fam.image#m1')!.input!.label).toBe('image2')
+    expect(rows.find((r) => r.input?.portId === 'fam.image#m1')!.input!.label).toBe('image 3')
     // The suffix link anchors at the member pin.
     expect(scene.links).toHaveLength(1)
     expect(scene.links[0]!.to).toEqual({ kind: 'port', node: 's', port: 'fam.image', members: ['m0'] })

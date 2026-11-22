@@ -1034,7 +1034,8 @@ export function createCanvasGalleryFixture(
                 optional: true,
                 dynamic: {
                   kind: 'autogrow',
-                  naming: { kind: 'prefix', prefix: 'value', min: 0, max: 8 },
+                  // The offered row reads the kind's name and position: "text 1".
+                  naming: { kind: 'prefix', prefix: value.id, min: 0, max: 8 },
                   template: [value],
                 },
               }
