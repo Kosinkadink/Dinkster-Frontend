@@ -6,7 +6,7 @@
 
 import type { TypeExpr } from '@dinkster/core'
 import type { LayoutRow, PinLayout } from './layout.js'
-import { canvasPaintTokens, type CanvasDetailLevel } from './tokens.js'
+import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import {
   GROUP_HEADER_HEIGHT,
   REROUTE_RADIUS,
@@ -104,6 +104,8 @@ export type Hit =
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'widget' }>
     }
+  /** The caption row of a preview or text result that folds it. */
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode }
   | { readonly kind: 'header'; readonly node: SceneNode }
   | { readonly kind: 'body'; readonly node: SceneNode }
   | { readonly kind: 'resize'; readonly node: SceneNode; readonly handle: ResizeHandle }
@@ -263,6 +265,23 @@ export function textBoxEdgeAt(
 }
 
 /**
+ * True when the point is on the caption row that folds a node's preview or
+ * text result. A caption with nothing to open (no picture yet, loading,
+ * failed) is ordinary node body.
+ */
+export function previewCaptionAt(node: SceneNode, wx: number, wy: number): boolean {
+  const l = node.layout
+  const region = l.preview !== undefined
+    ? l.preview.compact !== true || l.preview.folded === true ? l.preview : undefined
+    : l.textOutput
+  if (region === undefined) return false
+  const x = node.x + region.x
+  const y = node.y + region.y
+  return wx >= x && wx <= x + region.width &&
+    wy >= y && wy <= y + Math.min(region.height, defaultTokens.previewCaptionHeight)
+}
+
+/**
  * Topmost hit at a world point. Scene order is draw order, so scan nodes in
  * reverse. Pins are checked across ALL nodes first (they overhang node edges
  * and must win against a neighboring node's body).
@@ -384,6 +403,9 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       const edge = textBoxEdgeAt(node, wx, wy)
       if (edge !== undefined && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'text-box-edge', node, row: edge }
+      }
+      if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
+        return { kind: 'preview-caption', node }
       }
       for (const row of l.rows) {
         if (row.kind === 'ports' || row.kind === 'fallback') continue

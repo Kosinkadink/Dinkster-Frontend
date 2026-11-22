@@ -171,6 +171,61 @@ describe('lens preview-surface affordance', () => {
   })
 })
 
+describe('preview caption row', () => {
+  const withRegion = (folded: boolean, minimized: boolean, region: 'panel' | 'pending') => {
+    const base = interactionScene()
+    const node = base.nodes[0]!
+    const previewNode = {
+      ...node,
+      ...(folded && !minimized ? { previewFolded: true as const } : {}),
+      ...(!folded && minimized ? { minimizedPreviewOpen: true as const } : {}),
+      layout: {
+        ...node.layout,
+        ...(minimized ? { minimized: true as const } : {}),
+        height: 140,
+        preview: region === 'panel'
+          ? { x: 10, y: 56, width: 80, height: 72 }
+          : { x: 10, y: 56, width: 80, height: 22, compact: true as const },
+      },
+    }
+    return { scene: { ...base, nodes: [previewNode, ...base.nodes.slice(1)] } as Scene, node: previewNode }
+  }
+
+  it('folds or opens the preview on a click, and leaves a drag and a pending caption alone', () => {
+    const open = withRegion(false, false, 'panel')
+    const harness = interactionHarness(open.scene)
+    const x = open.node.x + 50
+    const y = open.node.y + 56 + 11
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setPreviewFolded',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, folded: true },
+    }])
+    // A minimized node starts folded: its caption opens it.
+    const minimized = withRegion(true, true, 'pending')
+    const folded = { ...minimized.node, layout: { ...minimized.node.layout, preview: { ...minimized.node.layout.preview!, folded: true as const } } }
+    const minimizedHarness = interactionHarness({ ...minimized.scene, nodes: [folded, ...minimized.scene.nodes.slice(1)] } as Scene)
+    minimizedHarness.fire('pointerdown', x, y)
+    minimizedHarness.fire('pointerup', x, y)
+    expect(minimizedHarness.dispatched).toEqual([{
+      command: 'view.setPreviewFolded',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, folded: false },
+    }])
+    const dragHarness = interactionHarness(open.scene)
+    dragHarness.fire('pointerdown', x, y)
+    dragHarness.fire('pointermove', x + 30, y + 30)
+    dragHarness.fire('pointerup', x + 30, y + 30)
+    expect(dragHarness.dispatched.some((call) => call.command === 'view.setPreviewFolded')).toBe(false)
+    // "No picture yet", loading and failed captions have nothing to open.
+    const pending = withRegion(false, false, 'pending')
+    const pendingHarness = interactionHarness(pending.scene)
+    pendingHarness.fire('pointerdown', x, y)
+    pendingHarness.fire('pointerup', x, y)
+    expect(pendingHarness.dispatched.some((call) => call.command === 'view.setPreviewFolded')).toBe(false)
+  })
+})
+
 function interactionScene(): Scene {
   const widget = (inputId: string, widgetType: 'INT' | 'FLOAT', value: number, options: Record<string, number> = {}) => ({
     kind: 'widget' as const,

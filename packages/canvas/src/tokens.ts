@@ -371,6 +371,17 @@ export const canvasPaintTokens = {
     outputMaxLines: 6,
     staleStroke: 1,
     staleUnderlineOffset: 1,
+    /** The "Preview" caption row over a preview or text result. */
+    caption: {
+      padLeft: 6,
+      padRight: canvasSemanticTokens.space[8],
+      arrowWidth: 6,
+      arrowLength: 4,
+      gap: 6,
+      thumbHeight: canvasSemanticTokens.space[16],
+      thumbMaxWidth: 28,
+      radius: canvasSemanticTokens.space[4],
+    },
   },
   lensAffordance: {
     rowMinSize: 10,

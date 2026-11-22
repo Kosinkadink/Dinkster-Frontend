@@ -120,6 +120,15 @@ export function minimizedStripContent(
   return text === undefined ? undefined : 'text'
 }
 
+/**
+ * True when a preview has something to open under its caption row: a
+ * decoded picture, or a ready video, audio or 3D player the host mounts. A
+ * pending or failed preview is only its caption row, which says so.
+ */
+export function previewHasPanel(preview: NodePreview): boolean {
+  return preview.status === undefined && (preview.image !== undefined || preview.src !== undefined)
+}
+
 export interface PreviewRect {
   readonly x: number
   readonly y: number
@@ -127,16 +136,15 @@ export interface PreviewRect {
   readonly height: number
 }
 
-/** Reserve a bottom caption while retaining a distinct media region. */
+/** Split a preview region into its caption row on top and the media below. */
 export function splitPreviewRect(
   rect: PreviewRect,
   captionHeight: number,
 ): { readonly media: PreviewRect; readonly caption: PreviewRect } {
   const height = Math.max(0, Math.min(rect.height, captionHeight))
-  const mediaHeight = rect.height - height
   return {
-    media: { ...rect, height: mediaHeight },
-    caption: { x: rect.x, y: rect.y + mediaHeight, width: rect.width, height },
+    media: { x: rect.x, y: rect.y + height, width: rect.width, height: rect.height - height },
+    caption: { x: rect.x, y: rect.y, width: rect.width, height },
   }
 }
 

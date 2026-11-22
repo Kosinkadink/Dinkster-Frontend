@@ -21,7 +21,6 @@ import {
   buildScene,
   dropTargetKey,
   pinPosition,
-  withPreviewRegion,
   executionBlockedBadge,
   executionErrorBadge,
   executionExpandedBadge,
@@ -35,6 +34,7 @@ import {
   type RowMarkMap,
   type DesignTokens,
   type OverlayState,
+  type OutputTextMap,
   type PreviewMap,
   type Scene,
   type TextMeasurer,
@@ -205,6 +205,7 @@ export interface CanvasGalleryFixture {
   overlay: OverlayState
   toolbox: readonly ToolboxRow[]
   previews: PreviewMap
+  outputTexts: OutputTextMap
   companions: CompanionMap
   rowMarks: RowMarkMap
   labels: readonly { text: string; x: number; y: number }[]
@@ -246,6 +247,7 @@ export function createCanvasGalleryFixture(
     overlay: {},
     toolbox: [],
     previews: {},
+    outputTexts: {},
     companions: {},
     rowMarks: {},
     labels: [],
@@ -353,6 +355,8 @@ export function createCanvasGalleryFixture(
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
                   : {}),
+                ...(id === 'Folded' || id === 'Text folded' ? { previewFolded: true } : {}),
+                ...(id === 'Minimized opened' ? { minimizedPreviewOpen: true } : {}),
               },
             },
           },
@@ -1019,52 +1023,47 @@ export function createCanvasGalleryFixture(
     fixture.rowMarks = { Invalid: new Set([widgetInput.id]) }
     fixture.height = 850
   } else if (page === 'previews') {
-    for (const id of [
-      'Image',
-      'Loading',
-      'Unavailable',
-      'Failed',
-      'Cached',
-      'Estimate',
-      'Video',
-      'Audio',
-      'Model',
-      'Minimized',
-      'Minimized loading',
-      'Minimized image',
-    ])
-      add(
-        id,
-        schema(id, [
-          {
-            kind: 'input',
-            id: 'images',
-            type: concrete('IMAGE'),
-            optional: false,
-          },
-        ]),
-      )
+    // Rows of three: each row's height in the gallery.
+    const rows: readonly (readonly [number, readonly string[]])[] = [
+      [300, ['No picture yet', 'Image', 'Folded']],
+      [90, ['Loading', 'Failed', 'Video']],
+      [300, ['Cached', 'Estimate', 'Text result']],
+      [90, ['Text folded', 'Minimized', 'Minimized loading']],
+      [270, ['Minimized image', 'Minimized opened', 'Minimized text']],
+    ]
+    for (const [, ids] of rows)
+      for (const id of ids)
+        add(
+          id,
+          schema(id, [
+            {
+              kind: 'input',
+              id: 'images',
+              type: concrete('IMAGE'),
+              optional: false,
+            },
+          ]),
+        )
     fixture.previews = {
       Loading: { status: 'loading' },
-      Unavailable: { status: 'unavailable' },
-      Failed: { status: 'failed', statusMessage: 'Preview failed' },
-      Cached: { state: 'cached' },
-      Estimate: { state: 'estimate' },
-      Video: { kind: 'video' },
-      Audio: { kind: 'audio' },
-      Model: { kind: 'model3d' },
+      Failed: { status: 'failed' },
+      Video: { kind: 'video', status: 'loading' },
       'Minimized loading': { status: 'loading' },
     }
+    const text = 'A red fox in deep snow, early morning light,\nlong shadows, shallow depth of field'
+    fixture.outputTexts = {
+      'Text result': { text },
+      'Text folded': { text },
+      'Minimized text': { text },
+    }
+    fixture.overlay = { hoveredPreviewCaption: 'Folded' }
+    const rowY = rows.map((_, index) => 54 + rows.slice(0, index).reduce((y, [height]) => y + height, 0))
     fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
       ...node,
-      y: 54 + Math.floor(fixture.scene.nodes.indexOf(node) / 3) * 360,
-      // The renderer gives a minimized node a strip only for a picture.
-      layout: node.layout.minimized
-        ? node.layout
-        : withPreviewRegion(node.layout, tokens),
+      y: rowY[rows.findIndex(([, ids]) => ids.includes(node.id))]!,
       previewCapable: true,
     }))
-    fixture.height = 1250
+    fixture.height = rowY[rowY.length - 1]! + rows[rows.length - 1]![0]
   } else {
     add('Ordinary node')
     add('Long title', {

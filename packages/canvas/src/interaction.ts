@@ -93,6 +93,7 @@ import {
   portEndKey,
   selectorBadgeRect,
   selectorOutPinPosition,
+  previewFoldedOf,
   valueSourceBadgeRect,
   valueSourcePinPosition,
   type Scene,
@@ -734,6 +735,7 @@ type Gesture =
   | { readonly kind: 'widget-affordance'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
   | {
       /** Dragging a text box's bottom edge: its height follows in whole lines. */
@@ -880,6 +882,7 @@ export class InteractionController {
   private hoveredWidgetValue: string | undefined
   /** Text box edge under the idle pointer, and the one arrow keys size. */
   private hoveredTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  private hoveredPreviewCaption: string | undefined
   private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
   /** A box a double-click fitted to its text, with the height it had before. */
   private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
@@ -1778,7 +1781,8 @@ export class InteractionController {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
       return
     }
-    if ((hit.kind === 'body' || hit.kind === 'header') && this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
+    if ((hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'preview-caption') &&
+        this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
       this.gesture = { kind: 'preview-affordance', node: hit.node, moved: false }
       return
     }
@@ -1808,6 +1812,9 @@ export class InteractionController {
       }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
+        return
+      case 'preview-caption':
+        this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
@@ -2947,7 +2954,8 @@ export class InteractionController {
 
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge'
+      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'preview-caption'
       ? hit.node
       : undefined
   }
@@ -3146,6 +3154,7 @@ export class InteractionController {
     this.setAffordanceHover(hit)
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
     this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
+    this.setHoveredPreviewCaption(hit?.kind === 'preview-caption' ? hit.node.id : undefined)
     this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
@@ -3335,6 +3344,7 @@ export class InteractionController {
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
+      case 'preview-caption':
       case 'growth':
         if (passed) g.moved = true
         return
@@ -3582,6 +3592,15 @@ export class InteractionController {
         }
         return
       }
+      case 'preview-caption':
+        this.pushOverlay()
+        if (!g.moved) {
+          this.host.dispatch({
+            command: 'view.setPreviewFolded',
+            params: { graphId: scene.graphId, nodeId: g.node.id, folded: !previewFoldedOf(g.node) },
+          })
+        }
+        return
       case 'section':
         this.pushOverlay()
         if (!g.moved) {
@@ -4520,6 +4539,7 @@ export class InteractionController {
         return j('growth', hit.node.id, hit.row.construct)
       case 'header':
       case 'body':
+      case 'preview-caption':
         return j('node', hit.node.id)
       case 'resize':
         return j('resize', hit.node.id, hit.handle)
@@ -4587,6 +4607,7 @@ export class InteractionController {
       case 'resize':
       case 'widget':
       case 'text-box-edge':
+      case 'preview-caption':
       case 'section':
       case 'growth':
       case 'pin':
@@ -4865,6 +4886,7 @@ export class InteractionController {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
       ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.hoveredPreviewCaption !== undefined ? { hoveredPreviewCaption: this.hoveredPreviewCaption } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -4980,6 +5002,12 @@ export class InteractionController {
   private setHoveredTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
     if (edge?.nodeId === this.hoveredTextEdge?.nodeId && edge?.valueKey === this.hoveredTextEdge?.valueKey) return
     this.hoveredTextEdge = edge
+    this.pushOverlay()
+  }
+
+  private setHoveredPreviewCaption(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewCaption) return
+    this.hoveredPreviewCaption = nodeId
     this.pushOverlay()
   }
 

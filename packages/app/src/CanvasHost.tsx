@@ -4859,7 +4859,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const media = model.previews[node.id]
         const source = model.previewSources[node.id]
         const preview = node.layout.preview
-        const mediaRect = preview === undefined
+        // A folded or pending preview is only its caption row.
+        const mediaRect = preview === undefined || preview.compact === true
           ? undefined
           : splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media
         return media?.src !== undefined &&
@@ -4880,7 +4881,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const output = model.executedImages[node.id]
         const content = model.previews[node.id]
         const preview = node.layout.preview
-        const mediaRect = preview === undefined
+        // A folded or pending preview is only its caption row.
+        const mediaRect = preview === undefined || preview.compact === true
           ? undefined
           : splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media
         return output !== undefined && mediaRect !== undefined

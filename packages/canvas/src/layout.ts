@@ -294,21 +294,28 @@ export interface NodeLayout {
   readonly pins: readonly PinLayout[]
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
   readonly minimized?: true
+  /** On a minimized node: the preview region's height on the open node, which a caption-opened preview takes. */
+  readonly openPreviewHeight?: number
   /** Expanded Advanced enclosure, including the header and every member row. */
   readonly advancedGroup?: {
     readonly y: number
     readonly height: number
   }
-  /** Optional imagery area appended inside the node body after all rows. */
+  /**
+   * Optional imagery area appended inside the node body after all rows: the
+   * "Preview" caption row on top, then the picture.
+   */
   readonly preview?: {
     readonly x: number
     readonly y: number
     readonly width: number
     readonly height: number
-    /** Discoverable pre-execution surface without preview content. */
+    /** Only the caption row: no picture yet, or a folded preview. */
     readonly compact?: true
+    /** A preview with a picture, folded to its caption row, which opens it again. */
+    readonly folded?: true
   }
-  /** Optional recorded string result appended inside the body after all rows. */
+  /** Optional recorded string result appended inside the body after all rows, under its caption row. */
   readonly textOutput?: {
     readonly x: number
     readonly y: number
@@ -460,8 +467,9 @@ const projectedAdvancedGroup = (
 /** Reserve the one-line preview surface available before execution. */
 export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignTokens): NodeLayout {
   if (layout.preview !== undefined) return layout
+  const compactHeight = tokens.previewCaptionHeight
   if (layout.minimized) {
-    const height = layout.minHeight + tokens.previewGap + tokens.rowHeight
+    const height = layout.minHeight + tokens.previewGap + compactHeight
     return {
       ...layout,
       height,
@@ -470,14 +478,13 @@ export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignToken
         x: tokens.padX,
         y: layout.headerHeight + tokens.previewGap,
         width: Math.max(0, layout.width - tokens.padX * 2),
-        height: tokens.rowHeight,
+        height: compactHeight,
         compact: true,
       },
     }
   }
   // The node's resize surplus is the preview's: its text boxes keep their
   // own heights, and the request opens the panel at that size later.
-  const compactHeight = tokens.rowHeight
   const defaultHeight = previewPanelDefaultHeight(tokens)
   const baseHeight = boxedMinHeight(layout, tokens)
   const defaultActiveHeight = baseHeight + tokens.previewGap + defaultHeight
@@ -507,15 +514,29 @@ export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignToken
   }
 }
 
+/** Fold a preview that has a picture to its caption row. */
+export function withFoldedPreviewRegion(layout: NodeLayout, tokens: DesignTokens): NodeLayout {
+  const compact = withCompactPreviewRegion(layout, tokens)
+  return { ...compact, preview: { ...compact.preview!, folded: true } }
+}
+
 /**
  * Activate the in-body preview region while preserving the persisted total
  * size as a request. The preview takes all of the node's resize surplus;
  * text boxes keep their own heights.
  */
 export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): NodeLayout {
-  if (layout.minimized) return withCompactPreviewRegion(layout, tokens)
+  if (layout.minimized) {
+    // Opened by its caption, a minimized node's preview takes the height it
+    // has on the open node.
+    const compact = withCompactPreviewRegion(layout, tokens)
+    const height = layout.openPreviewHeight ?? previewPanelDefaultHeight(tokens)
+    const extra = height - compact.preview!.height
+    const { compact: _compact, ...preview } = compact.preview!
+    return { ...compact, height: compact.height + extra, minHeight: compact.minHeight + extra, preview: { ...preview, height } }
+  }
   if (layout.preview?.compact === true) {
-    const compactHeight = tokens.rowHeight
+    const compactHeight = tokens.previewCaptionHeight
     const panelMinHeight = previewPanelMinHeight(tokens)
     const compactSurplus = Math.max(0, layout.height - layout.minHeight)
     const requestedPanelHeight = Math.max(panelMinHeight, compactHeight - (layout.resizeHeightOffset ?? 0))
@@ -562,15 +583,29 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
  * Activate the capped Standard-view string result region. Image previews use
  * their separate region and take precedence before this helper is called.
  */
-export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, lineCount: number = canvasPaintTokens.node.textOutputMaxRows): NodeLayout {
+export function withTextOutputRegion(
+  layout: NodeLayout,
+  tokens: DesignTokens,
+  lineCount: number = canvasPaintTokens.node.textOutputMaxRows,
+  folded = false,
+): NodeLayout {
   if (layout.textOutput !== undefined) return layout
+  // A folded text result is only its caption row.
+  const regionHeight = tokens.previewCaptionHeight + (folded
+    ? 0
+    : tokens.rowHeight * Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, Math.trunc(lineCount))))
   if (layout.minimized) {
     const { preview, ...base } = withCompactPreviewRegion(layout, tokens)
-    return { ...base, textOutput: { x: preview!.x, y: preview!.y, width: preview!.width, height: preview!.height } }
+    const extra = regionHeight - preview!.height
+    return {
+      ...base,
+      height: base.height + extra,
+      minHeight: base.minHeight + extra,
+      textOutput: { x: preview!.x, y: preview!.y, width: preview!.width, height: regionHeight },
+    }
   }
-  const regionHeight = tokens.rowHeight * Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, Math.trunc(lineCount)))
   if (layout.preview?.compact === true) {
-    const expansion = regionHeight - tokens.rowHeight
+    const expansion = regionHeight - layout.preview.height
     const { preview: compactPreview, ...base } = layout
     return {
       ...base,
@@ -631,8 +666,8 @@ export function projectNodeLayoutHeight(
       height,
       preview: {
         ...layout.preview,
-        y: layout.minHeight - tokens.rowHeight - tokens.padBottom + extra,
-        height: tokens.rowHeight,
+        y: layout.minHeight - tokens.previewCaptionHeight - tokens.padBottom + extra,
+        height: tokens.previewCaptionHeight,
       },
     }
   }
@@ -1250,6 +1285,7 @@ export function layoutNode(
       height: minimizedHeight,
       minWidth: open.minWidth,
       minHeight: minimizedHeight,
+      openPreviewHeight: withPreviewRegion(open, tokens).preview!.height,
       headerHeight: tokens.headerHeight,
       title,
       titleRenamed,

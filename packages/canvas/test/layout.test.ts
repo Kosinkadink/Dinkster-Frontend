@@ -557,13 +557,21 @@ describe('sizing', () => {
     expect(layout.pins.every((pin) => pin.minimized === true && pin.y === defaultTokens.headerHeight / 2)).toBe(true)
     expect(layout.pins.some((pin) => pin.type.kind === 'list')).toBe(true)
     expect(layout.pins.some((pin) => pin.type.kind === 'union')).toBe(true)
+    // Folded, a minimized node's preview is its caption row under the title.
     const compact = withCompactPreviewRegion(layout, defaultTokens)
     expect(compact.preview).toMatchObject({
       compact: true,
       y: defaultTokens.headerHeight + defaultTokens.previewGap,
-      height: defaultTokens.rowHeight,
+      height: defaultTokens.previewCaptionHeight,
     })
-    expect(withPreviewRegion(compact, defaultTokens)).toEqual(compact)
+    // Opened by its caption, the picture takes its height on the open node.
+    const openPreview = withPreviewRegion(
+      layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { size: { width: 400, height: 300 } }),
+      defaultTokens,
+    ).preview!
+    const opened = withPreviewRegion(layout, defaultTokens)
+    expect(opened.preview).toEqual({ ...compact.preview, compact: undefined, height: openPreview.height })
+    expect(opened.height).toBe(compact.height - defaultTokens.previewCaptionHeight + openPreview.height)
 
     // Rows the open node hides are laid out while minimized only for their
     // pins; a long label in the collapsed Advanced section must not widen it.
@@ -834,10 +842,14 @@ describe('in-node preview region', () => {
 
 describe('in-node text output region', () => {
 
-  it('uses one row for a one-line result and caps long results at six rows', () => {
+  it('puts a caption row over one row for a one-line result, caps long results at six rows, and folds to the caption', () => {
     const base = doLayout([widget('w')])
-    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(defaultTokens.rowHeight)
-    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(defaultTokens.rowHeight * 6)
+    const caption = defaultTokens.previewCaptionHeight
+    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(caption + defaultTokens.rowHeight)
+    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(caption + defaultTokens.rowHeight * 6)
+    const folded = withTextOutputRegion(base, defaultTokens, 20, true)
+    expect(folded.textOutput?.height).toBe(caption)
+    expect(folded.height).toBe(withTextOutputRegion(base, defaultTokens, 20).height - defaultTokens.rowHeight * 6)
   })
 
 })

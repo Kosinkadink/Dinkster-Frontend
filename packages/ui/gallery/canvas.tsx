@@ -139,7 +139,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   previews:
-    'Previews inside nodes: image, video, audio and model, the loading, unavailable, failed, cached and estimated states, and minimized nodes that show a strip only for a picture.',
+    'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
   tabs: 'Tabs above a node say what it is and tabs below say what happened, drawn at 75 percent zoom; a tab is as wide as its icon and its text.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
@@ -348,12 +348,15 @@ function ExampleCard(props: {
         ? {
             ...fixture.previews,
             Image: { image, width: 320, height: 160 },
+            Folded: { image, width: 320, height: 160 },
             Cached: { image, width: 320, height: 160, state: 'cached' },
             Estimate: { image, width: 320, height: 160, state: 'estimate' },
             'Minimized image': { image, width: 320, height: 160 },
+            'Minimized opened': { image, width: 320, height: 160 },
           }
         : fixture.previews,
     )
+    renderer.setNodeOutputTexts(fixture.outputTexts)
     renderer.setViewport({ x: 0, y: 0, scale })
     const measure = canvas.getContext('2d')!
     measure.font = `${tokens.fontSize}px ${tokens.fontFamily}`
