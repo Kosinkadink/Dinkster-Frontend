@@ -64,7 +64,7 @@ test('bottom zone repairs its rendered active tab across when flips and runtime 
 
   const runtime = zone.getByRole('tab', { name: 'Runtime bottom' })
   await runtime.click()
-  const logs = zone.getByRole('tab', { name: 'Activity' })
+  const logs = zone.getByRole('tab', { name: 'Log' })
   await expect(runtime).toHaveAttribute('aria-selected', 'true')
   await expect(runtime).toHaveAttribute('tabindex', '0')
   await expect(logs).toHaveAttribute('tabindex', '-1')
@@ -119,7 +119,6 @@ test('a zone with no renderable tabs hides without losing its saved open state',
     bridge.__dockSoleVisible = true
     const panels = bridge.__dinksterTest.app.panels
     panels.setPlacement('logs', 'floating')
-    panels.setPlacement('execution-log', 'floating')
     panels.register({
       id: 'runtime-bottom-only',
       title: 'Runtime bottom only',
@@ -418,7 +417,7 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   const zone = page.getByTestId('dock-zone-bottom')
   await expect(page.getByTestId('bottom-panel')).toHaveAttribute('data-active-panel', 'logs')
   await expect(page.getByTestId('logs-panel')).toBeVisible()
-  await expect(zone.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
+  await expect(zone.getByRole('tab', { name: 'Log' })).toHaveAttribute('aria-selected', 'true')
   // Opening the bottom panel never opens the left dock.
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
 

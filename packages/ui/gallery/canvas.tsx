@@ -96,6 +96,11 @@ export function CanvasGallery() {
       const colors = canvasColorsForTheme(currentTheme)
       const tokens: DesignTokens = {
         ...defaultTokens,
+        stateColors: {
+          ...defaultTokens.stateColors,
+          pending: colors.pendingOutline,
+          skipped: colors.skippedOutline,
+        },
         widgetRowLook:
           currentPage === 'collection-rows'
             ? currentCollectionLook

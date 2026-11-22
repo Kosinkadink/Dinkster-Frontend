@@ -177,7 +177,7 @@ test('a dragged panel tab shows a cursor-following ghost with its title, icon, a
   // Within its own tab strip the target is allowed.
   await page.mouse.move(from.x + 80, from.y, { steps: 3 })
   await expect(ghost).toBeVisible()
-  await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Activity')
+  await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Log')
   await expect(ghost.locator('.tab-drag-ghost-icon svg')).toBeVisible()
   await expect(ghost).toHaveAttribute('data-refused', 'false')
   const box = (await ghost.boundingBox())!

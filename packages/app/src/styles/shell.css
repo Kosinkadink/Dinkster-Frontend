@@ -25,7 +25,7 @@
   min-width: 0;
   min-height: 40px;
   padding: var(--dinkster-space-4) var(--dinkster-space-8) 0;
-  background: var(--dinkster-surface-inset);
+  background: var(--dinkster-surface-frame);
 }
 
 .workflow-tabs {
@@ -66,10 +66,10 @@
 .tab:hover,
 .tab-new:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 
-/* A tab is as wide as its title and close button, up to 220px; when the
-   strip is crowded it shrinks to about three letters and the close button. */
+/* A crowded tab reserves the kind icon, about three title letters plus
+   ellipsis, and the close button before the strip scrolls horizontally. */
 .tab {
-  min-width: calc(2 * var(--dinkster-space-8) + 2px + 5ch + var(--dinkster-space-4) + 24px);
+  min-width: calc(2 * var(--dinkster-space-8) + 2px + 5ch + var(--dinkster-space-16) + var(--dinkster-space-8) + var(--dinkster-space-4) + 24px);
   max-width: 220px;
 }
 
@@ -100,6 +100,9 @@
 .tab.frozen { border-style: dashed; border-color: var(--dinkster-info-border); }
 
 .tab-select {
+  display: flex;
+  align-items: center;
+  gap: var(--dinkster-space-8);
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -114,6 +117,7 @@
   cursor: pointer;
 }
 .tab-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .tab-rename { min-width: 0; width: 100%; flex: 1; min-height: var(--dinkster-control-compact-height); padding-block: 0; }
 
 .tab-select:focus-visible,
 .tab-close:focus-visible,
@@ -157,8 +161,12 @@
   width: var(--dinkster-space-8);
   height: var(--dinkster-space-8);
   border-radius: var(--dinkster-radius-capsule);
-  background: var(--dinkster-warning-border);
+  background: var(--dinkster-text-secondary);
 }
+
+.tab-select .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-surface-raised); }
+.tab.active .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-surface-canvas); }
+.tab:hover .dinkster-run-icon[data-result]::after { box-shadow: 0 0 0 2px var(--dinkster-interaction-hover); }
 
 .tab:hover .tab-dirty,
 .tab:focus-within .tab-dirty { display: none; }
@@ -221,7 +229,7 @@
   flex-direction: column;
   align-items: center;
   padding: var(--dinkster-space-4);
-  background: var(--dinkster-surface-inset);
+  background: var(--dinkster-surface-frame);
 }
 
 .left-sidebar[hidden] { display: none; }
@@ -569,7 +577,7 @@
    title via product tooltip) and the actions keep their size; the strip
    never scrolls, so no native scrollbar can render inside the row. Tabs
    beyond the last complete floor are hidden and remain in the all-tabs menu. */
-.dock-zone { display: flex; flex: 1; min-height: 0; flex-direction: column; border-radius: inherit; background: var(--dinkster-surface-inset); }
+.dock-zone { display: flex; flex: 1; min-height: 0; flex-direction: column; border-radius: inherit; background: var(--dinkster-surface-frame); }
 .dock-zone[data-zone='bottom'] { flex-direction: row; }
 .dock-zone-section { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; border-radius: 8px; background: var(--dinkster-surface-panel); }
 
@@ -738,7 +746,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   padding: 0 var(--dinkster-space-12);
   overflow-x: auto;
   color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-inset);
+  background: var(--dinkster-surface-frame);
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
   white-space: nowrap;

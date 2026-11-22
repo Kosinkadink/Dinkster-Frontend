@@ -47,6 +47,8 @@ export interface SemanticDesignTokens {
     }
   }
   readonly surface: {
+    readonly frame: string
+    readonly field: string
     readonly canvas: string
     readonly panel: string
     readonly inset: string
@@ -62,6 +64,8 @@ export interface SemanticDesignTokens {
     readonly onSelected: string
   }
   readonly border: {
+    readonly pending: string
+    readonly skipped: string
     readonly subtle: string
     /** Between subtle and strong: a quiet line under the pointer, such as a scrollbar thumb. */
     readonly hover: string
@@ -123,6 +127,8 @@ export const semanticTokensForTheme = (
     space: components.space,
     type: components.type as SemanticDesignTokens['type'],
     surface: {
+      frame: colors.bg.frame,
+      field: colors.bg.field,
       canvas: colors.bg.canvas,
       panel: colors.bg.surface,
       inset: colors.bg.canvas,
@@ -138,6 +144,8 @@ export const semanticTokensForTheme = (
       onSelected: colors.text.primary,
     },
     border: {
+      pending: colors.border.pending,
+      skipped: colors.border.skipped,
       subtle: colors.border.default,
       hover: colors.border.hover,
       strong: colors.text.muted,
@@ -270,6 +278,8 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.type.weight.regular,
     ),
     '--dinkster-weight-bold': String(semanticDesignTokens.type.weight.bold),
+    '--dinkster-surface-frame': semanticDesignTokens.surface.frame,
+    '--dinkster-surface-field': semanticDesignTokens.surface.field,
     '--dinkster-surface-canvas': semanticDesignTokens.surface.canvas,
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
