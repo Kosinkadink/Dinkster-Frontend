@@ -6,7 +6,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SHOW_ON_SUBGRAPH_NODE_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -73,12 +73,8 @@ test.beforeEach(async ({ page }) => {
   })
   await page.waitForFunction(() => window.__dinksterTest!.app.activeTab()?.store.doc.lineage === 'show-on-subgraph-node')
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
-  const header = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'soften')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'soften')
+  await page.mouse.dblclick(mark.x, mark.y)
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
 })
