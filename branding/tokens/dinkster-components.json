@@ -32,6 +32,8 @@
     "borderWidth": 1,
     "topBarHeight": 44,
     "toolbarFullRowWidth": 460,
+    "toolbarExpandedRowWidth": 945,
+    "toolbarProjectNameMaxWidth": 160,
     "sidebarWidth": 240,
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,

@@ -954,8 +954,13 @@ optional rightmost account slot separate from actions. It has a fixed 44px
 height and 32px controls. Wordmarks and avatars retain their drawn dimensions;
 the site account trigger is a borderless, unpadded 32px circle. The 2px focus
 outline and 2px offset fit inside the bar's 6px vertical clearance.
-At the standard 768px available-content boundary, a container query compacts
-`ProductWindowAction` labels to icons. Service and development become a single
+Below the fixed 945px available-content `toolbarExpandedRowWidth`, a container
+query compacts `ProductWindowAction` labels to icons. This boundary holds across
+execution, account and project-name changes. In the expanded row Search takes
+spare grid width and gives it back first. Project labels compose
+`.dinkster-window-project-name` through `labelContent`, limiting visible text to
+160px with an end ellipsis; the required full `label` retains the accessible
+name and tooltip. Service and development become a single
 bold warning-colored marking after actions, before the account slot: QA, Custom,
 Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
 independently of the localized full `service` label. Full words remain in the

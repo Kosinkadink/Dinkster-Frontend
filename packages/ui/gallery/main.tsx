@@ -907,6 +907,7 @@ function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
   const [brand, setBrand] = createSignal('menu')
+  const [projectName, setProjectName] = createSignal('Sample project')
   const [account, setAccount] = createSignal('none')
   const [visible, setVisible] = createSignal<Record<string, boolean>>({
     'Left panel': true,
@@ -957,6 +958,15 @@ function WindowToolbarGallery() {
               <option value="menu">Plain menu</option>
               <option value="wordmark">Wordmark action</option>
             </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Project name">
+          {(attributes) => (
+            <ProductTextInput
+              {...attributes}
+              value={projectName()}
+              onInput={(event) => setProjectName(event.currentTarget.value)}
+            />
           )}
         </ProductField>
         <ProductField label="Account state">
@@ -1126,7 +1136,12 @@ function WindowToolbarGallery() {
                             />
                           </Show>
                           <ProductWindowAction
-                            label="Sample project"
+                            label={projectName()}
+                            labelContent={
+                              <span class="dinkster-window-project-name">
+                                {projectName()}
+                              </span>
+                            }
                             icon={FolderOpen}
                             onClick={() => setActivity('Projects opened')}
                           />

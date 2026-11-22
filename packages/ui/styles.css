@@ -135,7 +135,9 @@
 .dinkster-window-toolbar > * { -webkit-app-region: no-drag; }
 .dinkster-window-toolbar { display: grid; grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto auto; align-items: center; gap: var(--dinkster-space-4); width: 100%; min-width: 0; }
 .dinkster-window-toolbar-brand { grid-column: 1; grid-row: 1; display: flex; align-items: center; }
-.dinkster-window-toolbar-search { grid-column: 2; grid-row: 1; display: flex; align-items: center; justify-self: start; }
+.dinkster-window-toolbar-search { grid-column: 2; grid-row: 1; display: flex; align-items: center; min-width: 0; }
+.dinkster-window-toolbar-search > .dinkster-window-action, .dinkster-window-toolbar-search > .dinkster-window-action > .dinkster-button { width: 100%; }
+.dinkster-window-action .dinkster-window-project-name { display: block; max-width: var(--dinkster-toolbar-project-name-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-window-toolbar-actions { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: var(--dinkster-space-4); }
 .dinkster-window-toolbar-actions .dinkster-menu-trigger { width: var(--dinkster-control-compact-height); padding-inline: 0; }
 .dinkster-window-toolbar-actions .dinkster-menu-trigger > .dinkster-menu-label { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
@@ -152,7 +154,7 @@
 .dinkster-window-action-label .dinkster-wordmark { display: block; width: var(--dinkster-wordmark-width); height: var(--dinkster-wordmark-height); }
 .dinkster-window-action-icon { display: none; }
 .dinkster-window-action-shortcut { padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); color: var(--dinkster-text-secondary); font: inherit; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-@container (max-width: DINKSTER_SIDEBAR_BREAKPOINT) {
+@container (width < DINKSTER_TOOLBAR_EXPANDED_WIDTH) {
   .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto; }
   .dinkster-window-toolbar-service, .dinkster-window-toolbar .dinkster-window-identity-wide { display: none; }
   .dinkster-window-toolbar .dinkster-window-identity { grid-column: 4; margin-left: 0; }
