@@ -122,7 +122,6 @@ export const canvasPaintTokens = {
     bypassed: { world: [8, 3], screen: [5, 3] },
   },
   node: {
-    minimizedMinWidth: 80,
     titleWidthPadding: canvasSemanticTokens.space[8],
     portLabelPadding: 6,
     labelPinGap: canvasSemanticTokens.space[4],
