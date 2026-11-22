@@ -155,7 +155,7 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
       widgetType: 'LIST',
       options: {},
       default: [1, 0.5, 0.25],
-      element: { widgetType: 'FLOAT', options: {} },
+      element: { widgetType: 'FLOAT', options: { step: 0.1 } },
     },
   },
   widget('color', 'COLOR', '#3366cc80'),
