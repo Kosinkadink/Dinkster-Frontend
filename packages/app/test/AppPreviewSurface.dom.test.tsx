@@ -6,7 +6,6 @@ import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
 import { AppView } from '../src/AppView.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import type { PreviewLoader } from '../src/node-previews.js'
-import type { RetainedAssets } from '@dinkster/client'
 import { asPromptId } from '@dinkster/core'
 
 afterEach(() => document.body.replaceChildren())
@@ -65,7 +64,7 @@ describe('AppView document-owned previews', () => {
     }
   })
 
-  it.each(['live', 'edited', 'closed'] as const)('admits exposed input images and refuses stale publication: %s', async (scenario) => {
+  it.each(['live', 'edited', 'closed'] as const)('loads exposed input images directly and discards stale responses: %s', async (scenario) => {
     const app = createWorkflowApp([{
       type: 'ImageInput', displayName: 'Image input', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'image', optional: false, type: { kind: 'concrete', name: 'core.ASSET' },
@@ -82,14 +81,15 @@ describe('AppView document-owned previews', () => {
       ext: { 'dinkster.exposedPreviews': [{ graphId: 'root', nodeId: 'image', label: 'Selected image' }] },
     }, 'App reader'))).toEqual([])
     const tab = app.activeTab()!
-    vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(new Uint8Array([1, 2, 3]).buffer)
-    let acknowledge!: (receipt: RetainedAssets) => void
-    const admission = new Promise<RetainedAssets>((resolve) => { acknowledge = resolve })
-    let receipt: RetainedAssets | undefined
-    vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => {
-      receipt = { ...owner, ...declaration, revision: 1 }
-      return admission
-    })
+    const reads: Array<{ readonly url: string; readonly signal: AbortSignal; finish: () => void }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, options?: RequestInit) => new Promise<Response>((resolve) => {
+      const signal = options?.signal as AbortSignal
+      reads.push({
+        url,
+        signal,
+        finish: () => resolve(new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })),
+      })
+    })))
     const decodes: Array<{ src: string; finish: () => void }> = []
     class Image {
       src = ''
@@ -102,32 +102,35 @@ describe('AppView document-owned previews', () => {
     document.body.append(root)
     const dispose = render(() => <AppView app={app} />, root)
     try {
-      await vi.waitFor(() => expect(receipt).toBeDefined())
-      expect(receipt!.digests).toEqual([asset('a').digest])
-      expect(decodes).toHaveLength(0)
-      expect(root.querySelector('[data-testid="app-preview-image"]')).toBeNull()
-      if (scenario === 'closed') app.closeTab(tab.id)
-      acknowledge(receipt!)
+      await vi.waitFor(() => expect(reads).toHaveLength(1))
+      expect(decodeURIComponent(reads[0]!.url)).toContain(asset('a').digest)
       if (scenario === 'closed') {
-        await admission
+        dispose()
+        expect(reads[0]!.signal.aborted).toBe(true)
+        reads[0]!.finish()
         await new Promise<void>((resolve) => queueMicrotask(resolve))
         expect(decodes).toHaveLength(0)
-        expect(root.querySelector('[data-testid="app-preview-image"]')).toBeNull()
         return
       }
-      await vi.waitFor(() => expect(decodes).toHaveLength(1))
       if (scenario === 'edited') {
         expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
           graphId: 'root', nodeId: 'image', inputId: 'image', value: asset('b'),
         } })).ok).toBe(true)
+        await vi.waitFor(() => expect(reads).toHaveLength(2))
+        reads[0]!.finish()
+        await new Promise<void>((resolve) => queueMicrotask(resolve))
+        expect(root.querySelector('[data-testid="app-preview-image"]')).toBeNull()
+        reads[1]!.finish()
         await vi.waitFor(() => expect(decodes).toHaveLength(2))
-        expect(decodes[1]!.src).toMatch(/^blob:/)
-        expect(decodes[1]!.src).not.toBe(decodes[0]!.src)
         decodes[0]!.finish()
         await new Promise<void>((resolve) => queueMicrotask(resolve))
         expect(root.querySelector('[data-testid="app-preview-image"]')).toBeNull()
         decodes[1]!.finish()
-      } else decodes[0]!.finish()
+      } else {
+        reads[0]!.finish()
+        await vi.waitFor(() => expect(decodes).toHaveLength(1))
+        decodes[0]!.finish()
+      }
       await vi.waitFor(() => expect(root.querySelector('canvas')?.width).toBe(13))
       expect(root.querySelector('canvas')?.height).toBe(7)
     } finally { dispose(); app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }

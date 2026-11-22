@@ -319,7 +319,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     assetPreviewAbort = abort
     try {
       const bytes = await backend.connection.fetchAssetBytes(ref.digest, abort.signal)
-      if (!live || request !== assetPreviewRequest || bytes === undefined ||
+      if (!live || request !== assetPreviewRequest || abort.signal.aborted || bytes === undefined ||
         props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name,
@@ -614,10 +614,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const assetPanelSources = createMemo(() => {
     const adapters = assetSources() ?? []
     const assetUrl = assetUrlOf()
-    const backend = props.app.backendForTab(ed.tab)
-    const previewSource = backend.protocol === 'dinkster'
-      ? { previewOwner: { connection: backend.connection, current: () => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project } }
-      : {}
+
     const fixedKind = assetBrowseKind()
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
@@ -626,15 +623,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
       const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
       return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { ...previewSource, fixedKind, failWhenAllSourcesFail: true }),
-        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { ...previewSource, id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
-        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { ...previewSource, id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
+        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true }),
+        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
+        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
       ]
     }
     return [
       ...adapters.map((adapter) =>
       assetCollectionSource(adapter, {
-        ...previewSource,
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
       }
