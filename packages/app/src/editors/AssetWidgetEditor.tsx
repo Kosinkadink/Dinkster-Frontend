@@ -146,19 +146,17 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const project = activeProjectId()
   const openedTab = ed.tab
   const openedStore = openedTab.store
-  const openedDocument = openedStore?.doc
-  const openedRevision = openedStore?.revision
-  const openedRegistry = props.app.registryForTab?.(openedTab)
+  const openedDocument = openedStore.doc
+  const openedRevision = openedStore.revision
+  const openedRegistry = props.app.registryForTab(openedTab)
   let connectionChanged = false
-  const unsubscribeConnection = uploadBackend.connection.status?.subscribe?.(() => { connectionChanged = true }) ?? (() => {})
+  const unsubscribeConnection = uploadBackend.connection.status.subscribe(() => { connectionChanged = true })
   onCleanup(unsubscribeConnection)
   const pickerContextCurrent = (): boolean =>
-    openedStore === undefined || props.app.registryForTab === undefined || props.app.tabs === undefined
-      ? live
-      : live && !connectionChanged && ed.tab === openedTab && openedTab.store === openedStore &&
-        openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
-        props.app.tabs.get().includes(openedTab) && props.app.backendForTab(openedTab) === uploadBackend &&
-        props.app.registryForTab(openedTab) === openedRegistry && activeProjectId() === project
+    live && !connectionChanged && ed.tab === openedTab && openedTab.store === openedStore &&
+    openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
+    props.app.tabs.get().includes(openedTab) && props.app.backendForTab(openedTab) === uploadBackend &&
+    props.app.registryForTab(openedTab) === openedRegistry && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
@@ -1009,7 +1007,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
                   if (!pickerContextCurrent()) {
-                    setAssetError('Picker selection changed; reopen the asset picker')
+                    setAssetError(message('widgetEditor.commitRefused'))
                     return
                   }
                   const selection = assetSelection()

@@ -89,6 +89,19 @@ function widgetState(
   }
 }
 
+function prepareAssetEditorApp(app: AppState, ed: WidgetEditorState): AppState {
+  if (ed.tab.store === undefined) Object.assign(ed.tab, { store: { doc: {}, revision: 0 } })
+  const backend = app.backendForTab(ed.tab)
+  const context = app as unknown as {
+    registryForTab?: AppState['registryForTab']
+    tabs?: AppState['tabs']
+  }
+  if (backend.connection.status === undefined) Object.assign(backend.connection, { status: createCoreSignal('disconnected' as const) })
+  context.registryForTab ??= () => typeof backend.registry?.get === 'function' ? backend.registry.get() : undefined
+  context.tabs ??= createCoreSignal([ed.tab])
+  return app
+}
+
 function mountWidget(ed: WidgetEditorState) {
   const root = document.createElement('div')
   document.body.append(root)
@@ -291,7 +304,7 @@ describe('ASSET widget modal integration', () => {
       if (offline) connection.listMounts.mockRejectedValue(new Error('Mount discovery offline'))
       const root = document.createElement('div')
       document.body.append(root)
-      const dispose = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+      const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
       await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 1 : 2))
       expect(connection.fetchAssetBytes).not.toHaveBeenCalled()
       const names = [...root.querySelectorAll('[data-testid="collection-entry"]')].map((entry) => entry.textContent)
@@ -356,7 +369,7 @@ describe('ASSET widget modal integration', () => {
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = mountEditor
-      ? render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
+      ? render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
       : () => {}
     return { root, close, dispatchTo, connection, ed, digestA, digestB, unmount, app, retainPickerAssets }
   }
@@ -403,7 +416,7 @@ describe('ASSET widget modal integration', () => {
     let complete!: () => void
     mounted.connection.listMountEntries.mockImplementationOnce(() => new Promise((resolve) => { complete = () => resolve({ entries: [] }) }))
     mounted.unmount()
-    const unmount = render(() => <WidgetEditor app={mounted.app} ed={mounted.ed}
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
       viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
     await vi.waitFor(() => expect(complete).toBeTypeOf('function'))
     const cancel = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.toLowerCase() === 'cancel')!
@@ -467,7 +480,7 @@ describe('ASSET widget modal integration', () => {
           })))
         } else {
           expect(root.querySelector('.asset-error')?.textContent)
-            .toContain('Picker selection changed; reopen the asset picker')
+            .toContain('The edit was not accepted. Retry or cancel to keep the stored value.')
           expect(dispatch).not.toHaveBeenCalled()
         }
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
@@ -508,7 +521,7 @@ describe('ASSET widget modal integration', () => {
     }] }))
     const root = document.createElement('div')
     document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState)} ed={mounted.ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState), mounted.ed)} ed={mounted.ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
     expect(root.textContent).toContain('archive.png')
     const source = root.querySelector<HTMLButtonElement>('[data-testid="collection-source-select"]')!
@@ -663,7 +676,7 @@ describe('ASSET widget modal integration', () => {
       ...overrides,
     } as unknown as AppState
     const unmount = render(() => (
-      <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
+      <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
     ), root)
     return { root, close, dispatchTo, connection, ed, unmount }
   }
@@ -715,7 +728,7 @@ describe('ASSET widget modal integration', () => {
       dispatchTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }
-    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
     const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === text)!
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="pixel_space"]')).not.toBeNull())
     button('Browse files').click()
@@ -843,7 +856,7 @@ describe('ASSET widget modal integration', () => {
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => (
-      <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
+      <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
     ), root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
@@ -951,7 +964,7 @@ describe('ASSET widget modal integration', () => {
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => (
-      <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
+      <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
     ), root)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull())
 
@@ -1022,7 +1035,7 @@ describe('ASSET widget modal integration', () => {
       dispatchTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
-    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-video-preview"]')).not.toBeNull())
 
     const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
@@ -1070,7 +1083,7 @@ describe('ASSET widget modal integration', () => {
       dispatchTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
-    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     await vi.waitFor(() => expect(root.querySelector<HTMLImageElement>('img[alt="Asset preview"]')).not.toBeNull())
 
     root.querySelector<HTMLImageElement>('img[alt="Asset preview"]')!.dispatchEvent(new Event('error'))
@@ -1124,7 +1137,7 @@ describe('ASSET widget modal integration', () => {
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
-    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -1205,7 +1218,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     }
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:late-preview')
     const [open, setOpen] = createSignal(true)
-    const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
+    const unmount = render(() => <Show when={open()}><WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed}
       viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => setOpen(false)} /></Show>, root)
     try {
       await vi.waitFor(() => expect(signal).toBeDefined())
