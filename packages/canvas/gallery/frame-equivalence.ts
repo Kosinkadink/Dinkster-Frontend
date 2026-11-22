@@ -55,12 +55,6 @@ export async function compareCanvasFrames(
     ...defaultTokens,
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
-    widgetRowLook:
-      page === 'collection-rows'
-        ? ('inset-raised-collections' as const)
-        : page === 'core-rows'
-          ? ('inset-raised' as const)
-          : defaultTokens.widgetRowLook,
   }
   const measurement = document.createElement('canvas').getContext('2d')!
   const measure: TextMeasurer = (text, role) => {

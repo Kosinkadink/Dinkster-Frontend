@@ -477,6 +477,19 @@ describe('VIDEO_EDIT', () => {
 })
 
 describe('compact views', () => {
+  it('COMPOSITOR displays stored recipe state without offering an editor', () => {
+    const view = registry().viewsFor('COMPOSITOR').find((item) => item.id === 'core.compositor')!
+    for (const [value, label] of [
+      [{ version: 2, documentDigest: null, commands: [] }, 'Run to load layers'],
+      [{ version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, '1 document edit'],
+    ] as const) {
+      const { builder, ops } = recordingBuilder()
+      view.drawCompact(builder, value, spec('COMPOSITOR'), { focused: false, connected: false, readonly: false })
+      expect(ops).toContainEqual(expect.objectContaining({ op: 'text', args: expect.arrayContaining([label]) }))
+      expect(ops.filter((op) => op.op === 'hitRegion' || op.op === 'rect')).toEqual([])
+    }
+  })
+
   it('all representative compact views satisfy shared layout invariants across widths', () => {
     const long = 'a value long enough to require measured truncation'
     expectCompactLayout('INT', 123456789)
@@ -513,14 +526,35 @@ describe('compact views', () => {
     expect(populated.ops.find((op) => op.op === 'text')?.args[2]).toBe('literal')
   })
 
-  it('COLOR compact row paints a swatch and exact stored text', () => {
+  it.each([
+    ['INT', 'core.number', {}],
+    ['FLOAT', 'core.number', {}],
+    ['FLOAT', 'core.slider', { display: 'slider', min: 0, max: 1 }],
+  ])('an empty %s in %s shows its hint or nothing, never the word null', (type, viewId, options) => {
+    const view = registry().viewsFor(type).find((v) => v.id === viewId)!
+    const valueText = (extra: Record<string, unknown>, value: unknown) => {
+      const { ops, builder } = recordingBuilder()
+      view.drawCompact(builder, value as never, spec(type, { ...options, ...extra }), {
+        focused: false, connected: false, readonly: false,
+      })
+      return ops.find((op) => op.op === 'text' && (op.args[3] as { role?: string }).role === 'widgetValue')!.args
+    }
+    expect(valueText({}, null)[2]).toBe('')
+    expect(valueText({ placeholder: 'Any size' }, null)).toEqual([1, 0, 'Any size', expect.objectContaining({ placeholder: true })])
+    expect(valueText({ placeholder: 'Any size' }, 0)[2]).toBe(type === 'INT' ? '0' : '0.0')
+  })
+
+  it('COLOR compact row asks for a square of the color directly before its exact stored text', () => {
     const view = registry().viewsFor('COLOR').find((candidate) => candidate.id === 'core.color')!
     const { ops, builder } = recordingBuilder()
     view.drawCompact(builder, '#00ff3380', spec('COLOR'), {
       focused: false, connected: false, readonly: false,
     })
-    expect(ops.some((op) => op.op === 'rect' && (op.args[4] as { fill?: string }).fill === '#00ff3380')).toBe(true)
-    expect(ops.some((op) => op.op === 'text' && op.args[2] === '#00ff3380')).toBe(true)
+    const value = ops.find((op) => op.op === 'text' && op.args[2] === '#00ff3380')
+    expect(value?.args[3]).toMatchObject({ role: 'widgetValue', align: 'right', swatch: '#00ff3380' })
+    const notAColor = recordingBuilder()
+    view.drawCompact(notAColor.builder, 'teal', spec('COLOR'), { focused: false, connected: false, readonly: false })
+    expect(notAColor.ops.find((op) => op.op === 'text')?.args[3]).not.toHaveProperty('swatch')
     expect(ops.some((op) => op.op === 'hitRegion')).toBe(true)
   })
 

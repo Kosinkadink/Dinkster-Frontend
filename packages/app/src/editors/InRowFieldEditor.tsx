@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, type
 import { effectiveWidgetDefault, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { floatKind, intKind, numberFieldFacts } from '@dinkster/widgets'
 import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, type CanvasSeedMode } from '@dinkster/ui'
-import { placeRow, rowPlacement } from './row-placement.js'
+import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
@@ -24,6 +24,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const initialText = ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
   const [draft, setDraft] = createSignal(initialText)
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
+  const bounds = visibleCanvas(host.boundary)
   let live = true
   let input: HTMLInputElement | undefined
   onCleanup(() => { live = false })
@@ -194,10 +195,10 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const placement = createMemo(() => rowPlacement(
-    { rect: ed.rect, look: inRow.look, nodeBottom: inRow.nodeBottom },
+    { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
     host.viewport(),
-    { width: host.boundary?.clientWidth ?? Infinity, height: host.boundary?.clientHeight ?? Infinity },
-    sideSize().width,
+    bounds(),
+    sideSize(),
   ))
 
   // The side part's first line is a refusal or a failed check when there is
@@ -303,6 +304,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         {...(inRow.controllerMode === undefined ? {} : { mark: <CanvasSeedModeIcon mode={mode()!} /> })}
         place={placement().place}
         sideTop={placement().sideTop}
+        {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
         onSideSize={setSideSize}
         {...(side() === undefined ? {} : { side: side()! })}
       />

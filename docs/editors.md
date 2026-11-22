@@ -10,8 +10,7 @@ rewrites or bolted-on views.
 
 - A tab is conceptually **(document, editorKind)**. `Tab.editorKind` names
   the editor that renders it; the built-in kinds are `graph` (the node
-  canvas), `app` (the form-style app view), and `image` (image editing,
-  including mask tools).
+  canvas), `app` (the form-style app view), `curve` and `glsl`.
 - Editors are projections: they render shared document state and mutate it
   ONLY by dispatching maintained serializable commands - never by reaching
   into renderer or editor internals. This is what keeps undo, document
@@ -29,33 +28,12 @@ rewrites or bolted-on views.
   media by asset-digest reference, and agent actions through the same
   commands and proposal conventions humans use.
 
-## Editor asset ownership
-
-Opening an image or compositor editor still selects its target synchronously.
-Decoded image sessions and compositor drafts wait for independent journaled
-ownership of their known source and resource digests before becoming editable.
-Compositor admission validates the full ImageDocument and declares its source
-document plus every external resource, including hidden layers, masks and unused
-resource records, as a complete editor inventory. Inline resources travel inside
-the document and do not require separate server identities. Invalid resources
-refuse admission rather than producing a complete empty inventory. These
-document-owner declarations do not certify other holders or enable collection.
-Refusal keeps the session or draft unavailable and uses the existing editor
-error surface.
-Closing or replacing the target, changing its source/backend/registry or
-connection lifetime, or disposing the app prevents late admission. Component
-unmount and superseded runtime frames also prevent draft publication.
-Only publication of an acknowledged replacement on the same target, project,
-backend and catalog lifetime retires that target's captured predecessor revision.
-Canceled or out-of-order admission and unmount do not release owners. Receipts
-from another target or recovered from storage are not adopted for retirement.
-
 ## EditorRegistry
 
 `packages/app/src/editors.ts`, exposed as `app.editors`. A descriptor is:
 
 - `id`: the stable kind id tabs reference (`GRAPH_EDITOR_KIND = 'graph'`,
-  `APP_EDITOR_KIND = 'app'`, `IMAGE_EDITOR_KIND = 'image'`).
+  `APP_EDITOR_KIND = 'app'`, `CURVE_EDITOR_KIND = 'curve'`, `GLSL_EDITOR_KIND = 'glsl'`).
 - `title`: human-readable name.
 - `roles`: backend schema roles that open this editor. A role has one owner;
   duplicate role registrations refuse loudly.
@@ -67,7 +45,7 @@ from another target or recovered from storage are not adopted for retirement.
 Registration follows the house registry discipline (PanelRegistry,
 CommandRegistry, widget registry): `register` returns the unregister
 function, duplicate ids refuse loudly, `changed` ticks on every mutation.
-Core registers graph, app, image, curve, and GLSL editors through
+Core registers graph, app, curve, and GLSL editors through
 `app.frontendDoors.editor`. Extension packs use the `editor()` door and provide
 a declarative host-UI provider instead of a component.
 
@@ -80,8 +58,7 @@ the shared document session and view state.
 
 Native node schemas carry `editorRole`. Canvas editor entry points resolve that
 role through `EditorRegistry` rather than matching node type IDs, so a new node
-can reuse an editor without a frontend code change. Schema roles also identify
-supporting nodes used by image and layer commands.
+can reuse an editor without a frontend code change.
 
 ## Rendering
 
@@ -90,7 +67,7 @@ renders the descriptor's component inside `.canvas-stage`. With no active
 tab the graph editor stays mounted (it owns the empty state). A tab whose
 kind has no registered editor (an unregistered extension kind) renders a
 ProductEmptyState alert with the `editor-missing` test ID, never a blank stage.
-Image and curve editors without an active target use neutral ProductEmptyState
+Curve and GLSL editors without an active target use neutral ProductEmptyState
 messages rather than an error-colored private placeholder.
 
 The keyed host only remounts when the DESCRIPTOR changes: same-kind tab
@@ -103,23 +80,9 @@ navigation restore the last pan and zoom; App View restores its scroll
 position. Concurrent windows merge different positions independently; the
 latest update wins when they change the same position. This state never
 enters the workflow document, collaboration, `WorkspaceTabRecord`, or
-SharedWorker authority. Gestures in progress, Arrange mode, and image-editor
-state remain session-only. The image editor's target, local operation history,
-pan, and zoom belong to its temporary edit session. The transient `image`
-projection is therefore omitted from tab persistence and cannot be restored
-after refresh.
-
-**Bake to asset** encodes the edited mask into a PNG and replaces the eligible
-image input in one undoable change. The source asset is checked again before
-the replacement. Graph-native mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
-
-Mask source loading requires acknowledged workflow asset ownership before
-fetching. The read remains owned through the response body and PNG decode;
-closing, replacing the target, or changing its owner prevents late pixels from
-entering the edit session. Refused ownership leaves the source unavailable.
-When a local workflow becomes a shared workspace during source loading, the
-editor cancels the old session's read and admits a new read through the shared
-session. An already loaded mask and its edits stay intact for the same target.
+SharedWorker authority. Gestures in progress, Arrange mode, and curve/GLSL
+editor targets remain session-only. These transient editor projections are
+omitted from tab persistence and cannot be restored after refresh.
 
 ## Switching kinds (the app view)
 
