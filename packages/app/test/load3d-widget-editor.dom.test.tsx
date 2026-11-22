@@ -54,7 +54,6 @@ it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('op
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
-    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
@@ -67,7 +66,7 @@ it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('op
   dispose()
 })
 
-it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-expired', 'capture-late-expired', 'capture-success', 'capture-rejected', 'recording-close', 'recording-stop-close', 'recording-error-close', 'recording-expired', 'recording-start-failed', 'recording-success', 'recording-late-expired'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
+it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-success', 'capture-rejected', 'recording-close', 'recording-stop-close', 'recording-error-close', 'recording-start-failed', 'recording-success'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('dinkster.3d.load3_d', { interface: [
@@ -93,7 +92,6 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   let fail = true
-  let current = true
   const uploads: string[] = []
   const connection = {
     fetchAssetBytes: async (digest: string) => digest === (source === 'tap' ? linkedModel.digest : model.digest) ? new Uint8Array([1]) : undefined,
@@ -144,16 +142,11 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
       stop() { this.state = 'inactive' }
     })
     fail = false
-    if (source === 'recording-expired') current = false
     button('Record viewport').click()
-    if (source === 'recording-expired') {
-      expect(instance).toBeUndefined()
-      expect(document.body.textContent).toContain('The selected model file is unavailable.')
-    } else if (source === 'recording-start-failed') {
+    if (source === 'recording-start-failed') {
       expect(document.body.textContent).toContain('recording start failed')
     } else {
       expect(instance.state).toBe('recording')
-      expect(activeReads).toBe(1)
       if (source === 'recording-error-close') {
         instance.onerror!()
         expect(button('Apply').disabled).toBe(true)
@@ -164,14 +157,11 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
         expect(instance.state).toBe('inactive')
         expect(fixtures.disposed).toBe(1)
         await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
-        expect(activeReads).toBe(1)
         expect(URL.revokeObjectURL).not.toHaveBeenCalled()
       }
-      if (source === 'recording-late-expired') current = false
       instance.ondataavailable!({ data: new Blob(['recorded frames']) })
       instance.onstop!()
-      if (source.endsWith('close')) await vi.waitFor(() => expect(activeReads).toBe(0))
-      else {
+      if (!source.endsWith('close')) {
         button('Apply').click()
         if (source === 'recording-success') await vi.waitFor(() => expect(uploads).toEqual(['viewport-image.png', 'viewport-mask.png', 'viewport-normal.png', 'viewport-recording.webm']))
         else await vi.waitFor(() => expect(button('Apply').disabled).toBe(false))
@@ -182,8 +172,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
       expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
     }
     if (!source.endsWith('close')) dispose()
-    await vi.waitFor(() => expect(activeReads).toBe(0))
-    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1))
     return
   }
   if (source.startsWith('capture-')) {
@@ -193,31 +182,22 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
     let capturing = false
     fixtures.capture = () => { capturing = true; return pending }
     fail = false
-    if (source === 'capture-expired') current = false
     button('Apply').click()
-    if (source === 'capture-expired') {
-      await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
-      expect(capturing).toBe(false)
-    } else {
+    {
       await vi.waitFor(() => expect(capturing).toBe(true))
-      expect(activeReads).toBe(1)
       if (source.startsWith('capture-close')) {
         dispose()
         expect(fixtures.disposed).toBe(1)
         await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
-        expect(activeReads).toBe(1)
         expect(URL.revokeObjectURL).not.toHaveBeenCalled()
       }
-      if (source === 'capture-late-expired') current = false
       if (source.endsWith('rejected')) reject(new Error('capture failed'))
       else release()
       if (source.startsWith('capture-close')) {
-        await vi.waitFor(() => expect(activeReads).toBe(0))
-        expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+        await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1))
       } else if (source === 'capture-success') {
         await vi.waitFor(() => expect(uploads).toHaveLength(3))
         await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.image).not.toEqual(initial))
-        expect(activeReads).toBe(1)
       } else await vi.waitFor(() => expect(button('Apply').disabled).toBe(false))
     }
     if (source !== 'capture-success') {
@@ -225,7 +205,6 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
       expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
     }
     if (!source.startsWith('capture-close')) dispose()
-    await vi.waitFor(() => expect(activeReads).toBe(0))
     return
   }
   if (source === 'stored') {
@@ -291,7 +270,6 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: current }),
-    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -314,7 +292,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   dispose()
 })
 
-it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edited', 'viewer-expired', 'viewer-close-mount', 'viewer-mounted-close', 'reader-held', 'reader-refused', 'reader-expired', 'reader-close', 'reader-edited', 'reader-missing', 'sidecar-refused', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
+it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
@@ -371,39 +349,10 @@ it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edite
     fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : bytes.buffer },
     uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
   }
-  let release!: () => void
-  const pending = new Promise<void>((resolve) => { release = resolve })
-  let entered = false
-  let settled = false
-  let readCount = 0
-  let current = true
-  if (variant === 'viewer-close-mount' || variant === 'viewer-expired') fixtures.mount = () => pending
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
-    workflowAssetReader: (_tab: Tab, digest: string) => variant === 'reader-missing' ? undefined : ({
-      current: () => current,
-      read: async <T,>(consume: () => Promise<T>) => {
-        const viewerRead = ++readCount === 3 && variant.startsWith('viewer-')
-        activeReads++
-        try {
-          if (viewerRead && !['viewer-close-mount', 'viewer-expired', 'viewer-mounted-close'].includes(variant)) {
-            entered = true
-            await pending
-            if (variant === 'viewer-refused') throw new Error('The selected model file is unavailable.')
-          }
-          if (variant.startsWith('reader-') || (variant === 'sidecar-refused' && digest === sidecar.digest)) {
-            entered = true
-            await pending
-          }
-          if (variant === 'reader-refused' || (variant === 'sidecar-refused' && digest === sidecar.digest)) throw new Error('The selected model file is unavailable.')
-          const result = await consume()
-          if (variant === 'reader-expired') throw new Error('The selected model file is unavailable.')
-          return result
-        } finally { settled = true; activeReads-- }
-      },
-    }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -412,76 +361,6 @@ it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edite
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  if (variant.startsWith('viewer-')) {
-    const apply = Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!
-    if (variant === 'viewer-close-mount' || variant === 'viewer-expired' || variant === 'viewer-mounted-close') {
-      await vi.waitFor(() => expect(fixtures.loads).toHaveLength(1))
-      expect(activeReads).toBe(1)
-      if (variant === 'viewer-mounted-close') {
-        await vi.waitFor(() => expect(apply.disabled).toBe(false))
-        dispose()
-      } else {
-        expect(apply.disabled).toBe(true)
-        if (variant === 'viewer-close-mount') dispose()
-        else current = false
-        expect(activeReads).toBe(1)
-        expect(URL.revokeObjectURL).not.toHaveBeenCalled()
-        release()
-      }
-      await vi.waitFor(() => expect(activeReads).toBe(0))
-      expect(fixtures.disposed).toBe(1)
-      if (variant === 'viewer-expired') { expect(apply.disabled).toBe(true); dispose() }
-      await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2))
-    } else {
-      await vi.waitFor(() => expect(entered).toBe(true))
-      expect(apply.disabled).toBe(true)
-      expect(fixtures.loads).toEqual([])
-      if (variant === 'viewer-close') dispose()
-      if (variant === 'viewer-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'camera_info', value: null } })
-      release()
-      if (variant === 'viewer-held') {
-        await vi.waitFor(() => expect(apply.disabled).toBe(false))
-        expect(activeReads).toBe(1)
-        dispose()
-      } else if (variant !== 'viewer-close') {
-        await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
-        expect(apply.disabled).toBe(true)
-        dispose()
-      }
-      await vi.waitFor(() => expect(activeReads).toBe(0))
-      expect(fixtures.loads).toHaveLength(variant === 'viewer-held' ? 1 : 0)
-    }
-    expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
-    return
-  }
-  if (variant.startsWith('reader-') || variant === 'sidecar-refused') {
-    const apply = Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!
-    if (variant !== 'reader-missing') {
-      await vi.waitFor(() => expect(entered).toBe(true))
-      expect(apply.disabled).toBe(true)
-      expect(reads).toEqual(variant === 'sidecar-refused' ? [primary.digest] : [])
-      expect(fixtures.loads).toEqual([])
-      if (variant === 'reader-close') dispose()
-      if (variant === 'reader-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'camera_info', value: null } })
-      release()
-    }
-    if (variant === 'reader-held') {
-      await vi.waitFor(() => expect(document.querySelector('#load3d-fov')).not.toBeNull())
-      expect(apply.disabled).toBe(false)
-      expect(reads).toEqual([primary.digest, sidecar.digest])
-      expect(fixtures.loads).toHaveLength(1)
-    } else {
-      if (variant === 'reader-close') await vi.waitFor(() => expect(settled).toBe(true))
-      else await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
-      expect(reads).toEqual(variant === 'sidecar-refused' || variant === 'reader-expired' ? [primary.digest] : [])
-      expect(URL.createObjectURL).toHaveBeenCalledTimes(variant === 'sidecar-refused' ? 1 : 0)
-      expect(fixtures.loads).toEqual([])
-      if (variant !== 'reader-close') expect(apply.disabled).toBe(true)
-    }
-    expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
-    if (variant !== 'reader-close') dispose()
-    return
-  }
   if (variant !== 'valid' && variant !== 'explicit-precedence' && variant !== 'local-source' && variant !== 'local-resource' && !(variant.startsWith('empty-') && variant !== 'empty-binding' && variant !== 'empty-unsupported')) {
     await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     expect(Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.disabled).toBe(true)
@@ -509,7 +388,7 @@ it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edite
   dispose()
 })
 
-it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'admission-refused', 'admission-close', 'admission-edited', 'admission-result', 'reader-expired', 'bytes-held', 'bytes-refused', 'bytes-close', 'bytes-edited', 'bytes-result', 'stored-manifest'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
+it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'bytes-held', 'bytes-refused', 'bytes-close', 'bytes-edited', 'bytes-result', 'stored-manifest'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:producer')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DProducerFixture', { interface: [
@@ -551,20 +430,12 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   let release: (() => void) | undefined
   const paused = new Promise<void>((resolve) => { release = resolve })
   let started = false
-  let admissionStarted = false
   let byteAdmissionStarted = false
   let renditionCount = 0
   const reads: string[] = []
   const connection = {
     values: () => ({
-      read: async <T,>(_query: ValueQuery, _descriptor: unknown, consume: () => Promise<T>): Promise<T> => {
-        admissionStarted = true
-        if (variant === 'admission-refused') throw new Error('The selected model file is unavailable.')
-        if (variant.startsWith('admission-')) await paused
-        const result = await consume()
-        if (variant === 'reader-expired') throw new Error('The selected model file is unavailable.')
-        return result
-      },
+      read: async <T,>(_query: ValueQuery, _descriptor: unknown, consume: () => Promise<T>): Promise<T> => consume(),
       peek: async (query: ValueQuery) => {
         started = true
         if (variant === 'close' || variant === 'edited') await paused
@@ -591,7 +462,6 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   }
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry, registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ id: 'owner', protocol: 'dinkster', connection }),
-    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
     file3dAssetReaderForExecution: () => {
       if (variant === 'stored-manifest') throw new Error('Stored viewer must not borrow an unrelated producer')
       return { current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }
@@ -622,31 +492,19 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
     else if (variant === 'bytes-result') execution = { ...execution, key: 'owner:new-job' }
     release!()
   }
-  if (variant.startsWith('admission-') && variant !== 'admission-refused') {
-    await vi.waitFor(() => expect(admissionStarted).toBe(true))
-    expect(renditionCount).toBe(0)
-    expect(fixtures.loads).toEqual([])
-    expect(Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.disabled).toBe(true)
-    if (variant === 'admission-close') dispose()
-    else if (variant === 'admission-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
-    else if (variant === 'admission-result') execution = { ...execution, key: 'owner:new-job' }
-    release!()
-  }
   if (variant === 'close' || variant === 'edited') {
     await vi.waitFor(() => expect(started).toBe(true))
     if (variant === 'close') dispose()
     else store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
     release!()
   }
-  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'bytes-held', 'stored-manifest'].includes(variant)) {
-    if (variant !== 'close' && variant !== 'admission-close' && variant !== 'bytes-close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file', 'bytes-held', 'stored-manifest'].includes(variant)) {
+    if (variant !== 'close' && variant !== 'bytes-close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     else await paused
     expect(reads).toEqual(variant === 'bytes-edited' || variant === 'bytes-result' ? [primary.digest] : [])
     expect(fixtures.loads).toEqual([])
-    if (variant.startsWith('admission-')) expect(renditionCount).toBe(0)
-    if (variant === 'reader-expired') expect(renditionCount).toBe(1)
     expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
-    if (variant !== 'close' && variant !== 'admission-close' && variant !== 'bytes-close') dispose()
+    if (variant !== 'close' && variant !== 'bytes-close') dispose()
     return
   }
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('79'))

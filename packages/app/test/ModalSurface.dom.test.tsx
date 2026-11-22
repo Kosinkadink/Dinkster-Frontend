@@ -400,18 +400,19 @@ describe('ASSET widget modal integration', () => {
 
   it('does not commit a pending pick after cancellation', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    let accept!: () => void
-    mounted.retainPickerAssets.mockImplementationOnce(() => new Promise<void>((resolve) => { accept = resolve }))
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-    await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
+    let complete!: () => void
+    mounted.connection.listMountEntries.mockImplementationOnce(() => new Promise((resolve) => { complete = () => resolve({ entries: [] }) }))
+    mounted.unmount()
+    const unmount = render(() => <WidgetEditor app={mounted.app} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    await vi.waitFor(() => expect(complete).toBeTypeOf('function'))
     const cancel = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.toLowerCase() === 'cancel')!
     cancel.click()
     expect(mounted.close).toHaveBeenCalledOnce()
-    mounted.unmount()
-    accept()
+    complete()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    unmount()
   })
 
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>

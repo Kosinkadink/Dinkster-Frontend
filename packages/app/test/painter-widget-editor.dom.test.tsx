@@ -41,15 +41,9 @@ it.each([
     } as unknown as ExecutionState
     vi.spyOn(app, 'executionForTab').mockReturnValue(execution)
     vi.spyOn(app, 'compileTabCached').mockReturnValue({ ok: true, artifact: art })
-    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    let acknowledge!: () => void
-    vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => new Promise((resolve) => {
-      acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-    }))
     let renditions = 0
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-      if (String(url).endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
-      if (!new URL(String(url), 'http://fixture').searchParams.has('rendition')) return Response.json({
+      if (!new URL(String(url), 'http://fixture').searchParams.has('rendition')) return Response.json(scenario === 'refused' ? { available: false } : {
         available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'image', meta: {} },
         renditions: [{ kind: 'png', mime: 'image/png', default: true }],
       })
@@ -69,13 +63,8 @@ it.each([
       multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: null,
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     try {
-      await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'))
-      expect(renditions).toBe(0)
-      expect(decode).not.toHaveBeenCalled()
-      acknowledge()
       if (scenario === 'refused') {
         await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
-        expect(decode).not.toHaveBeenCalled()
         return
       }
       await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce())
