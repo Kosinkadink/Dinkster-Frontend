@@ -78,6 +78,7 @@ import {
   insetRowStack,
   layoutBoundaryNode,
   REGION_INDEX_SLOT,
+  TITLE_START,
   layoutNode,
   type BoundarySlotInfo,
   type LayoutRow,
@@ -2362,7 +2363,7 @@ function missingLayout(
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
-  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding
+  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {

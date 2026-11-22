@@ -237,12 +237,12 @@ async function bottomBadgePoint(page: Page, nodeId: string): Promise<{ x: number
     const vp = r.getViewport()
     const node = r.getScene().nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`no scene node '${nodeId}'`)
+    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.placement === 'below')
+    if (!tab) throw new Error(`no bottom tab on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    // Mirrors badgeRect() for placement 'below': the lane starts at the
-    // node's left edge on its bottom edge; 8,7 lands inside the first badge.
     return {
-      x: rect.left + (node.x + 8) * vp.scale + vp.x,
-      y: rect.top + (node.y + node.layout.height + 7) * vp.scale + vp.y,
+      x: rect.left + (tab.x + 8) * vp.scale + vp.x,
+      y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y,
     }
   }, nodeId)
 }

@@ -255,6 +255,8 @@ interface CanvasRowFrameProps {
   ref?: (element: HTMLDivElement) => void
   /** The flat-title node look moves the steppers inward, as the canvas does. */
   look?: 'original' | 'flat-title'
+  /** The caller scales the field with the canvas, zoomed in. */
+  zoomed?: boolean
 }
 
 /**
@@ -344,6 +346,7 @@ function CanvasRowFrame(
       data-side={props.side !== undefined}
       data-look={props.look ?? 'original'}
       data-focus={props.focus === true}
+      data-zoomed={props.zoomed === true}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
       <div
@@ -413,6 +416,7 @@ export function CanvasRowField(
       {...(props.onSideSize === undefined ? {} : { onSideSize: props.onSideSize })}
       {...(props.ref === undefined ? {} : { ref: props.ref })}
       {...(props.look === undefined ? {} : { look: props.look })}
+      {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
       steppers={props.onStep !== undefined}
     >
       <Show when={props.fill !== undefined}>

@@ -55,13 +55,6 @@ export async function compareCanvasFrames(
     ...defaultTokens,
     ...canvasTypePaintForTheme(theme),
     colors: canvasColorsForTheme(theme),
-    badgeLayout:
-      page === 'tabs' ||
-      page === 'tabs-content' ||
-      page === 'run-editable' ||
-      page === 'run-frozen'
-        ? ('tabs' as const)
-        : defaultTokens.badgeLayout,
   }
   const measurement = document.createElement('canvas').getContext('2d')!
   const measure: TextMeasurer = (text, role) => {

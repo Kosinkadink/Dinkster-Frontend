@@ -4,7 +4,7 @@
  * Real pointer/keyboard input against the live app; document assertions go
  * through the __dinksterTest bridge (commands -> DocumentStore -> doc).
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, subgraphMarkPoint, type Page } from './fixtures.js'
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
@@ -335,12 +335,12 @@ test('clicking a widget row opens the editor; Enter commits node.setValue', asyn
   expect(unchanged.graphs['g0']!.nodes['n0']!.values['width']).toBe(128)
 })
 
-test('double-clicking a subgraph instance drills in; breadcrumb navigates back', async ({ page }) => {
+test('double-clicking a subgraph instance\'s mark drills in; breadcrumb navigates back', async ({ page }) => {
   await page.getByTestId('tab-bar').locator('.tab', { hasText: 'Subgraph' }).click()
   await identityViewport(page)
 
-  const header = await pointOn(page, 'n0', { kind: 'header' })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'n0')
+  await page.mouse.dblclick(mark.x, mark.y)
 
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(page.getByTestId('graph-breadcrumb')).toContainText('Image source')
@@ -591,10 +591,9 @@ test('selection toolbox: mode selector and minimize act without dropping selecti
   doc = await activeDoc(page)
   expect(doc.graphs['g0']!.nodes['n0']!.mode).toBe('bypassed')
 
-  await page.mouse.click(...xy(await toolboxButtonPoint(page, 'core.minimize')))
-  doc = await activeDoc(page)
-  expect(doc.view.graphs['g0']!.nodes['n0']!.collapsed).toBe(true)
-  await expect(canvas).toHaveAttribute('data-selection', '1')
+  // Minimizing lives in the node's title bar, not the selection toolbar.
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons.map((entry) => entry.button.id)))
+    .not.toContain('core.minimize')
 
   // Empty-space click clears the selection and the toolbox with it.
   await page.mouse.click(700, 750)

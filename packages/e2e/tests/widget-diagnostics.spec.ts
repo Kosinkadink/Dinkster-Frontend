@@ -40,14 +40,13 @@ async function badgePoint(page: Page, nodeId: string, badgeId: string): Promise<
   return page.evaluate(({ nodeId, badgeId }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((item) => item.id === nodeId)!
-    const index = (renderer.getBadges()[nodeId] ?? []).findIndex((badge) => badge.id === badgeId)
-    if (index < 0) throw new Error(`no badge '${badgeId}' on '${nodeId}'`)
+    const tab = renderer.getNodeBadgeLayout(node).find((entry) => entry.badge.id === badgeId)
+    if (!tab) throw new Error(`no badge '${badgeId}' on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
-    // Mirrors badgeRect(): index 0 is rightmost, 22px inset, 18px stride.
     return {
-      x: rect.left + (node.x + node.layout.width - 22 + 7 - index * 18) * viewport.scale + viewport.x,
-      y: rect.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y,
+      x: rect.left + (tab.x + tab.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (tab.y + tab.height / 2) * viewport.scale + viewport.y,
     }
   }, { nodeId, badgeId })
 }
