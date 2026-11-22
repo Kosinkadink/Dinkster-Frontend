@@ -97,8 +97,6 @@ afterEach(() => {
 async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
-  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
   const tab = app.activeTab()!
@@ -599,8 +597,6 @@ describe('sourceDocument stamp on queue', () => {
     expect(registry.hash).toBe(backend.registry.get()!.hash)
     other.registry.set(registry)
     const upload = vi.spyOn(other.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
-    vi.spyOn(other.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     const submit = vi.spyOn(other.connection, 'submit').mockResolvedValue({
       ok: true, execution: { connection: other.id, prompt: asPromptId('second-stamp') },
     })

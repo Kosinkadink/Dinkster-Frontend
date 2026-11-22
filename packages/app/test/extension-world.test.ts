@@ -1,7 +1,7 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { buildDinksterRegistry, RetentionClient, type DinksterSubmitResult } from '@dinkster/client'
+import { buildDinksterRegistry, type DinksterSubmitResult } from '@dinkster/client'
 import { asConnectionId, asPromptId, createMenuRegistry, createSearchRegistry, createSignal, type EffectiveExtensionSnapshot, type ExtensionEvent, type ExtensionHostOptions, type FrontendContributionKind, type FrontendPrivilege, type NodeDecorationContribution, type VirtualNodeKind } from '@dinkster/core'
 import { createTextWidgetEditorExtensionRegistry, createWidgetRegistry, type TextWidgetEditorExtension } from '@dinkster/widgets'
 import { ExtensionWorld, type FrontendActivationContext } from '../src/extension-world.js'
@@ -290,8 +290,7 @@ describe('connection extension worlds', () => {
 
   it.each(['GET', 'POST'] as const)('confines %s queries to typed own-pack snapshot routes and tears them down', async (method) => {
     const { target, ui } = setup()
-    const retention = new RetentionClient('/a')
-    const world = new ExtensionWorld(asConnectionId('a'), digest, target, undefined, retention.fetch)
+    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
     Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { href: 'http://test/', origin: 'http://test' } })
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"count":4}', { headers: {
@@ -429,8 +428,6 @@ describe('connection extension worlds', () => {
     try {
       const tab = (await openNativeFixture(app))
       const backend = app.addBackend('/frozen', 'Frozen', false, 'dinkster')!
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
       const nodes = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes-comfy.json', import.meta.url), 'utf8'))
       const registry = buildDinksterRegistry(backend.id, nodes)
       const snapshot: EffectiveExtensionSnapshot = { format: 'dinkster.extension-snapshot', version: 1, frontendApi: '1.0.0', extensions: [] }
@@ -611,8 +608,6 @@ describe('submission-owned extension world lifetime', () => {
     const added = app.addBackend('/lease', 'Lease', false, 'dinkster', false)
     if (!added || added.protocol !== 'dinkster') throw new Error('expected native backend')
     backend = added
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     vi.spyOn(backend, 'refreshDiagnostics').mockImplementation(() => {})
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:source')
     await refresh('a')

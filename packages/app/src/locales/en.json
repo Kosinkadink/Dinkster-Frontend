@@ -1465,7 +1465,7 @@
   "storageSettings.title": "Produced asset storage",
   "storageSettings.description": "Global storage and size policy for the selected backend, not just this project. Byte totals are observations, not deletion eligibility.",
   "storageSettings.blocked": "Cleanup is blocked by the backend. Saving a limit does not enable cleanup.",
-  "storageSettings.ownerCompletenessUnknown": "The backend cannot confirm complete ownership for all clients.",
+  "storageSettings.ownerCompletenessUnknown": "The backend cannot confirm which files are in use.",
   "storageSettings.backendBlocked": "The backend reports: {reason}.",
   "storageSettings.clearing": "Clearing eligible assets...",
   "storageSettings.cleared": "Backend reports {bytes} bytes freed across {files} files.",
