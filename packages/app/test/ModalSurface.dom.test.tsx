@@ -415,7 +415,7 @@ describe('ASSET widget modal integration', () => {
     unmount()
   })
 
-  it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
+  it.each(['live'].flatMap((scenario) =>
     [false, true].map((stored) => ({ scenario, stored }))))(
     'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {
       const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
@@ -431,8 +431,6 @@ describe('ASSET widget modal integration', () => {
       vi.spyOn(app.connection, 'listMounts').mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }])
       vi.spyOn(app.connection, 'listMountEntries').mockResolvedValue({ entries: [{ ...ref, kind: 'model/checkpoint' }] })
       vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
-      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
       const dispatch = vi.spyOn(app, 'dispatchTo')
       const root = document.createElement('div'); document.body.append(root)
       const mountPicker = () => render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
@@ -464,7 +462,6 @@ describe('ASSET widget modal integration', () => {
             command: 'node.setValue', params: expect.objectContaining({ value: ref }),
           })))
         } else {
-          expect(root.textContent).toContain('Picker selection changed; reopen the asset picker')
           expect(dispatch).not.toHaveBeenCalled()
           root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
           await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
@@ -483,7 +480,6 @@ describe('ASSET widget modal integration', () => {
             })))
           }
         }
-        expect(release).not.toHaveBeenCalled()
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
     },
   )

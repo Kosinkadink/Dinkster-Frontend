@@ -19,8 +19,6 @@ describe('AppView document-owned previews', () => {
     const owner = app.addBackend('http://owner.test:3639', 'Execution owner', false, 'dinkster')!
     owner.registry.set({ ...app.registry.get()!, connection: owner.id })
     vi.spyOn(owner.connection.status, 'get').mockReturnValue('connected')
-    vi.spyOn(owner.connection, 'retainAssets').mockImplementation(async (holder, declaration) =>
-      ({ ...holder, ...declaration, revision: declaration.revision + 1 }))
     app.widgetRegistry.registerPreviewRenderer({ id: 'test.image', canRender: (mime) => mime === 'image/png', mediaKind: 'image', drawCompact: () => {} })
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-output-reveal', root: 'root',
