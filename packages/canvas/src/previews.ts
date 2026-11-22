@@ -123,10 +123,13 @@ export function minimizedStripContent(
 /**
  * True when a preview has something to open under its caption row: a
  * decoded picture, or a ready video, audio or 3D player the host mounts. A
- * pending or failed preview is only its caption row, which says so.
+ * pending or failed preview is only its caption row, which says so, except
+ * for an executed output whose host controls (paging through a list, the
+ * original's download) need the panel to stay.
  */
 export function previewHasPanel(preview: NodePreview): boolean {
-  return preview.status === undefined && (preview.image !== undefined || preview.src !== undefined)
+  return (preview.status === undefined && (preview.image !== undefined || preview.src !== undefined)) ||
+    (preview.count ?? 0) > 1 || preview.download !== undefined
 }
 
 export interface PreviewRect {

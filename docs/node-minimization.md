@@ -22,11 +22,14 @@ all of them. The toolbar's mode button opens the same **Active**, **Muted**, and
 A minimized node keeps the width it has when open and shows only its title
 bar; header badges stay inside that bar as they do on the open node. Its
 stored size remains unchanged and the height returns exactly when restored.
-Below the title bar it shows a one-row strip only while it has real content
-to show: a picture the canvas paints, such as a decoded image output or a 3D
-model's poster, or else the first line of a recorded text result. With
-nothing to show, a pending or unavailable preview, or a ready video or audio
-player, there is no strip and no label.
+Below the title bar it keeps the "Preview" caption row, folded, only while it
+has real content to show: a picture the canvas paints, such as a decoded image
+output or a 3D model's poster, shown as a small picture and its size, or else
+the start of the first line of a recorded text result. With nothing to show, a
+pending or unavailable preview, or a ready video or audio player, there is no
+second row and no label. Clicking the caption opens the picture under it at
+its open height without restoring the node; minimizing or restoring folds it
+again (see [In-node output previews](in-node-preview.md)).
 
 Editing rows, resize handles, individual pins, widget taps, data panels, and
 lens actions are hidden. Each side with one or more connections shows one

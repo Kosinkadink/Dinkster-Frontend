@@ -1748,15 +1748,16 @@ describe('node chrome paint on the live renderer', () => {
     expect(projectedLayout).not.toHaveProperty('textOutput')
   })
 
-  it('says loading, failed or unavailable in the caption row and names the list page of a picture', () => {
+  it('says loading, failed or unavailable in the caption row and keeps a list page\'s panel', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
     for (const [status, word] of [['loading', 'loading'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
-      const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({
-        [node.id]: { status, count: 3, index: 1 },
-      }))
+      const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status } }))
       expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
-      expect(calls.some((call) => call.method === 'fillText' && String(call.args[0]).includes('2/3'))).toBe(false)
+      // A page of a list output keeps its panel, so its paging controls stay.
+      const page = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status, count: 3, index: 1 } }))
+      expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], '2/3'))).toBe(true)
+      expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
     }
     const page = paintWith(scene, (renderer) => renderer.setNodePreviews({
       [node.id]: { image: {} as CanvasImageSource, width: 320, height: 240, count: 3, index: 1 },

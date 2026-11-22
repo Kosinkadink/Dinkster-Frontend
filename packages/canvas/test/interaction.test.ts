@@ -216,13 +216,13 @@ describe('preview caption row', () => {
     dragHarness.fire('pointerdown', x, y)
     dragHarness.fire('pointermove', x + 30, y + 30)
     dragHarness.fire('pointerup', x + 30, y + 30)
-    expect(dragHarness.dispatched.some((call) => call.command === 'view.setPreviewFolded')).toBe(false)
+    expect(JSON.stringify(dragHarness.dispatched)).not.toContain('view.setPreviewFolded')
     // "No picture yet", loading and failed captions have nothing to open.
     const pending = withRegion(false, false, 'pending')
     const pendingHarness = interactionHarness(pending.scene)
     pendingHarness.fire('pointerdown', x, y)
     pendingHarness.fire('pointerup', x, y)
-    expect(pendingHarness.dispatched.some((call) => call.command === 'view.setPreviewFolded')).toBe(false)
+    expect(pendingHarness.dispatched).toEqual([])
   })
 })
 

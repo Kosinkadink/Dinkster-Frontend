@@ -3769,6 +3769,9 @@ export class CanvasRenderer {
       }
       const panel = l.preview.compact === true ? undefined : splitPreviewRect(rect, t.previewCaptionHeight)
       const folded = l.preview.folded === true
+      const statusLabel = preview.statusMessage ?? (preview.status === 'failed'
+        ? 'failed'
+        : preview.status === 'unavailable' ? 'unavailable' : 'loading')
       if (panel !== undefined) {
         const mediaRect = panel.media
         ctx.fillStyle = t.colors.widgetBackground
@@ -3800,6 +3803,17 @@ export class CanvasRenderer {
             ? animationFrameAt(preview.animation, this.animationTimeMs)
             : undefined
           this.paintPreviewPicture(ctx, animated ?? preview.image, containRect(mediaRect, preview))
+        } else if (preview.status !== undefined && contentDetail) {
+          // A page of a list output that is loading or failed.
+          ctx.fillStyle = t.colors.label
+          ctx.font = `${t.fontSize}px ${t.fontFamily}`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          const alpha = ctx.globalAlpha
+          ctx.globalAlpha = alpha * canvasPaintTokens.preview.placeholderOpacity
+          ctx.fillText(fitText(ctx, statusLabel, Math.max(0, mediaRect.width - canvasPaintTokens.preview.labelPadding)),
+            mediaRect.x + mediaRect.width / 2, mediaRect.y + mediaRect.height / 2)
+          ctx.globalAlpha = alpha
         }
         // A ready video or audio player is DOM the host mounts over the media area.
       }
@@ -3812,14 +3826,11 @@ export class CanvasRenderer {
         const countLabel = (preview.count ?? 0) > 1
           ? `${(preview.index ?? 0) + 1}/${preview.count}`
           : undefined
-        const dimensionsLabel = Number.isFinite(preview.width) && (preview.width ?? 0) > 0 &&
+        const dimensionsLabel = preview.status === undefined && Number.isFinite(preview.width) && (preview.width ?? 0) > 0 &&
           Number.isFinite(preview.height) && (preview.height ?? 0) > 0
           ? `${Math.round(preview.width!)} x ${Math.round(preview.height!)}`
           : undefined
         const colorLabel = preview.colorTransform === undefined ? undefined : `Preview color: ${preview.colorTransform}`
-        const statusLabel = preview.statusMessage ?? (preview.status === 'failed'
-          ? 'failed'
-          : preview.status === 'unavailable' ? 'unavailable' : 'loading')
         this.paintPreviewCaption(ctx, panel?.caption ?? rect, {
           arrow: panel !== undefined ? 'open' : folded ? 'folded' : undefined,
           label: 'Preview',
