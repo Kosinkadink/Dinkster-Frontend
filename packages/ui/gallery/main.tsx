@@ -14,14 +14,18 @@ import {
   Bell,
   CircleAlert,
   LayoutList,
+  FolderOpen,
+  PanelLeft,
+  PanelBottom,
+  PanelRight,
   MousePointer,
-  Menu,
   Search,
   Square,
   Plus,
   Settings,
   Trash2,
   User,
+  Users,
 } from 'lucide-solid'
 import {
   ProductAbout,
@@ -30,6 +34,8 @@ import {
   ProductWindowAction,
   ProductWordmark,
   ProductAccountMenu,
+  ProductSignInControl,
+  ProductBrandMark,
   ProductCodeBlock,
   ProductCopyValue,
   ProductDisclosure,
@@ -948,6 +954,24 @@ function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
   const [brand, setBrand] = createSignal('menu')
+  const [projectName, setProjectName] = createSignal('Sample project')
+  const [account, setAccount] = createSignal('none')
+  const [visible, setVisible] = createSignal<Record<string, boolean>>({
+    'Left panel': true,
+    'Bottom panel': false,
+    'Right panel': true,
+    'Left bar': true,
+    'Status bar': true,
+  })
+  const panels = [
+    ['Left panel', PanelLeft],
+    ['Bottom panel', PanelBottom],
+    ['Right panel', PanelRight],
+  ] as const
+  const toggle = (label: string) => {
+    setVisible((value) => ({ ...value, [label]: !value[label] }))
+    setActivity(`${label} ${visible()[label] ? 'shown' : 'hidden'}`)
+  }
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -980,6 +1004,37 @@ function WindowToolbarGallery() {
             >
               <option value="menu">Plain menu</option>
               <option value="wordmark">Wordmark action</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Project name">
+          {(attributes) => (
+            <ProductTextInput
+              {...attributes}
+              value={projectName()}
+              onInput={(event) => setProjectName(event.currentTarget.value)}
+            />
+          )}
+        </ProductField>
+        <ProductField label="Account state">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={account()}
+              onChange={(event) => setAccount(event.currentTarget.value)}
+            >
+              <option value="none">No account control</option>
+              <option value="signed-out">Signed out</option>
+              <option value="signing-in">Signing in</option>
+              <option value="signing-in-no-url">
+                Signing in without local URL
+              </option>
+              <option value="sign-in-unavailable">
+                Sign in from engine machine
+              </option>
+              <option value="signed-in">Signed in</option>
+              <option value="signed-in-email">Email only</option>
+              <option value="signed-in-empty">No profile</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -1022,15 +1077,61 @@ function WindowToolbarGallery() {
                             ? 'QA services'
                             : 'Custom services'
                       }
+                      serviceKind={
+                        service === 'production' ? undefined : service
+                      }
                       qa={service === 'qa'}
                       development={service !== 'production'}
+                      account={
+                        <Show when={account() !== 'none'}>
+                          <Show
+                            when={account().startsWith('signed-in')}
+                            fallback={
+                              <ProductSignInControl
+                                pending={account().startsWith('signing-in')}
+                                unavailableReason={
+                                  account() === 'sign-in-unavailable'
+                                    ? 'Sign in from the computer that runs Dinkster.'
+                                    : ''
+                                }
+                                onSignIn={() => {
+                                  setActivity('Sign in opened')
+                                  setAccount('signing-in')
+                                }}
+                                onCancel={() => {
+                                  setAccount('signed-out')
+                                  setActivity('Sign-in cancelled')
+                                }}
+                                onOpenSignInPage={
+                                  account() === 'signing-in'
+                                    ? () => setActivity('Sign-in page opened')
+                                    : undefined
+                                }
+                              />
+                            }
+                          >
+                            <ProductAccountMenu
+                              name={
+                                account() === 'signed-in' ? 'Alex Rivers' : null
+                              }
+                              email={
+                                account() === 'signed-in-empty'
+                                  ? null
+                                  : 'alex@example.test'
+                              }
+                              onSignOut={() => setActivity('Signed out')}
+                            />
+                          </Show>
+                        </Show>
+                      }
                       brand={
                         <Show
                           when={brand() === 'wordmark'}
                           fallback={
                             <ProductMenu
                               label="Dinkster"
-                              icon={Menu}
+                              triggerName="Dinkster menu"
+                              icon={() => <ProductBrandMark />}
                               items={[
                                 {
                                   label: 'Projects',
@@ -1042,9 +1143,9 @@ function WindowToolbarGallery() {
                           }
                         >
                           <ProductWindowAction
-                            label="Dinkster"
+                            label="Dinkster menu"
                             labelContent={<ProductWordmark theme={theme} />}
-                            icon={Menu}
+                            icon={() => <ProductBrandMark />}
                             pending={state() === 'pending'}
                             onClick={() => setActivity('Dinkster opened')}
                           />
@@ -1058,8 +1159,50 @@ function WindowToolbarGallery() {
                           onClick={() => setActivity('Search opened')}
                         />
                       }
-                      actions={
+                      actions={(narrow) => (
                         <>
+                          <ProductMenu
+                            label="Customize layout"
+                            icon={Settings}
+                            items={[
+                              ...[
+                                ...(narrow()
+                                  ? panels.map(([label]) => label)
+                                  : []),
+                                'Left bar',
+                                'Status bar',
+                              ].map((label) => ({
+                                label,
+                                checked: visible()[label]!,
+                                onSelect: () => toggle(label),
+                              })),
+                              {
+                                label: 'Reset layout',
+                                onSelect: () => {
+                                  setVisible({
+                                    'Left panel': true,
+                                    'Bottom panel': false,
+                                    'Right panel': true,
+                                    'Left bar': true,
+                                    'Status bar': true,
+                                  })
+                                  setActivity('Layout reset')
+                                },
+                              },
+                            ]}
+                          />
+                          <Show when={!narrow()}>
+                            <For each={panels}>
+                              {([label, icon]) => (
+                                <ProductIconButton
+                                  label={label}
+                                  icon={icon}
+                                  aria-pressed={visible()[label]}
+                                  onClick={() => toggle(label)}
+                                />
+                              )}
+                            </For>
+                          </Show>
                           <Show when={state() !== 'idle'}>
                             <ProductWindowAction
                               label="Cancel run"
@@ -1069,26 +1212,26 @@ function WindowToolbarGallery() {
                               onClick={() => setActivity('Run cancelled')}
                             />
                           </Show>
-                          <For
-                            each={
-                              [
-                                ['Projects', LayoutList],
-                                ['Images', Plus],
-                                ['Collaboration', User],
-                                ['Toggle panels', Settings],
-                              ] as const
+                          <ProductWindowAction
+                            label={projectName()}
+                            labelContent={
+                              <span class="dinkster-window-project-label">
+                                <ProductIcon icon={FolderOpen} />
+                                <span class="dinkster-window-project-name">
+                                  {projectName()}
+                                </span>
+                              </span>
                             }
-                          >
-                            {([label, icon]) => (
-                              <ProductIconButton
-                                label={label}
-                                icon={icon}
-                                onClick={() => setActivity(`${label} opened`)}
-                              />
-                            )}
-                          </For>
+                            icon={FolderOpen}
+                            onClick={() => setActivity('Projects opened')}
+                          />
+                          <ProductIconButton
+                            label="Collaboration"
+                            icon={Users}
+                            onClick={() => setActivity('Collaboration opened')}
+                          />
                         </>
-                      }
+                      )}
                     />
                   </section>
                 )}
