@@ -255,6 +255,51 @@ describe('preview caption row', () => {
     pendingHarness.fire('pointerup', x + 40, bottom + 32)
     expect(JSON.stringify(pendingHarness.dispatched)).not.toContain('view.setNodeSize')
   })
+
+  it('steps a pressed bar 10 for a picture and one row for an open text result, and gives a folded text result no bar', () => {
+    const open = withRegion(false, false, 'panel')
+    const x = open.node.x + 30
+    const bottom = open.node.y + open.node.layout.height
+    const size = (height: number) => ({
+      command: 'view.setNodeSize',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, size: { width: open.node.layout.width, height } },
+    })
+    const picture = interactionHarness(open.scene)
+    picture.fire('pointerdown', x, bottom + 2)
+    picture.fire('pointerup', x, bottom + 2)
+    expect(picture.dispatched).toEqual([])
+    picture.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    picture.fireWindow('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
+    expect(picture.dispatched).toEqual([size(140 + 10), size(140 - 10)])
+    picture.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    picture.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(picture.dispatched).toHaveLength(2)
+
+    const { preview: _preview, ...layout } = open.node.layout
+    const withText = (folded: boolean) => {
+      const node = {
+        ...open.node,
+        layout: { ...layout, minHeight: 100, textOutput: { x: 10, y: 56, width: 80, height: folded ? 22 : 72, ...(folded ? { folded: true as const } : {}) } },
+      }
+      return { ...open.scene, nodes: [node, ...open.scene.nodes.slice(1)] } as Scene
+    }
+    const text = interactionHarness(withText(false))
+    text.fire('pointermove', x, bottom + 2)
+    expect(text.overlays.at(-1)).toMatchObject({ previewEdge: open.node.id })
+    text.fire('pointerdown', x, bottom + 2)
+    text.fire('pointerup', x, bottom + 2)
+    text.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(text.dispatched).toEqual([size(140 + defaultTokens.rowHeight)])
+
+    const foldedText = interactionHarness(withText(true))
+    foldedText.fire('pointermove', x, bottom + 2)
+    expect(foldedText.overlays.at(-1) ?? {}).not.toHaveProperty('previewEdge')
+    foldedText.fire('pointerdown', x, bottom + 2)
+    foldedText.fire('pointermove', x + 40, bottom + 32)
+    foldedText.fire('pointerup', x + 40, bottom + 32)
+    foldedText.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(JSON.stringify(foldedText.dispatched)).not.toContain('view.setNodeSize')
+  })
 })
 
 function interactionScene(): Scene {

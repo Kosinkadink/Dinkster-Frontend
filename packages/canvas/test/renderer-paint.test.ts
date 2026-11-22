@@ -1645,7 +1645,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(calls.some((call) => call.method === 'fillText' &&
       ['Preview', 'No preview', 'Loading', 'loading preview...'].includes(String(call.args[0])))).toBe(false)
     // A recorded text result is content: its folded caption row shows the
-    // start of its first line.
+    // start of its first line, upright and in the caption's quieter color.
     renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'first line\nsecond line' } })
     const withText = nodeOf(renderer.getScene(), minimizedSource.id)
     expect(withText.layout.width).toBe(160)
@@ -1653,7 +1653,8 @@ describe('node chrome paint on the live renderer', () => {
     calls.length = 0
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'Preview'))).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'first line'))).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'first line') &&
+      call.font === `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}` && call.fillStyle === defaultTokens.colors.valueMark)).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'second line'))).toBe(false)
     // The same preview entry turning into a decoded picture shows the folded caption.
     renderer.setNodePreviews({ [minimizedSource.id]: { image: {} as CanvasImageSource, width: 320, height: 240 } })

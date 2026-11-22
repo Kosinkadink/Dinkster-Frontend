@@ -842,14 +842,37 @@ describe('in-node preview region', () => {
 
 describe('in-node text output region', () => {
 
-  it('puts a caption row over one row for a one-line result, caps long results at six rows, and folds to the caption', () => {
+  it('shows at least two rows and at most six by default, and folds to the caption', () => {
     const base = doLayout([widget('w')])
     const caption = defaultTokens.previewCaptionHeight
-    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(caption + defaultTokens.rowHeight)
-    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(caption + defaultTokens.rowHeight * 6)
+    const row = defaultTokens.rowHeight
+    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(caption + row * 2)
+    expect(withTextOutputRegion(base, defaultTokens, 4).textOutput?.height).toBe(caption + row * 4)
+    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(caption + row * 6)
     const folded = withTextOutputRegion(base, defaultTokens, 20, true)
-    expect(folded.textOutput?.height).toBe(caption)
-    expect(folded.height).toBe(withTextOutputRegion(base, defaultTokens, 20).height - defaultTokens.rowHeight * 6)
+    expect(folded.textOutput).toMatchObject({ height: caption, folded: true })
+    expect(folded.height).toBe(withTextOutputRegion(base, defaultTokens, 20).height - row * 6)
+  })
+
+  it('takes the node height in whole rows, at least two, and keeps the text boxes', () => {
+    const base = doLayout([widget('prompt', { type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'STRING', options: { multiline: true } } }), widget('w')])
+    const caption = defaultTokens.previewCaptionHeight
+    const row = defaultTokens.rowHeight
+    const two = withTextOutputRegion(base, defaultTokens, 1)
+    // A node made two and a half rows taller shows two more whole rows.
+    const taller = withTextOutputRegion({ ...base, height: two.height + row * 2.5 }, defaultTokens, 1)
+    expect(taller.textOutput?.height).toBe(caption + row * 4)
+    expect(taller.height).toBe(two.height + row * 2)
+    expect(taller.rows).toEqual(two.rows)
+    // Sized shorter than two rows, it keeps two.
+    expect(withTextOutputRegion({ ...base, height: base.minHeight + 1 }, defaultTokens, 6).textOutput?.height).toBe(caption + row * 2)
+    expect(two.minHeight).toBe(two.height)
+    // Dragging the bar moves the edge by whole rows.
+    const dragged = projectNodeLayoutHeight(two, two.height + row * 1.5, defaultTokens)
+    expect(dragged.textOutput?.height).toBe(caption + row * 3)
+    expect(dragged.height).toBe(two.height + row)
+    expect(dragged.rows).toEqual(two.rows)
+    expect(projectNodeLayoutHeight(two, 0, defaultTokens).textOutput?.height).toBe(caption + row * 2)
   })
 
 })

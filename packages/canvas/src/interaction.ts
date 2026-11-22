@@ -67,7 +67,7 @@ import {
 import { hitTestBadge, SUBGRAPH_BADGE, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
 import { controllerChipContains } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
-import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 import { BOUNDARY_ADD_SLOT, clampTextBoxLines, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
@@ -892,6 +892,8 @@ export class InteractionController {
   /** Node whose preview bar (its bottom edge) is under the idle pointer. */
   private hoveredPreviewEdge: string | undefined
   private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  /** The node whose preview bar was pressed last; arrow keys step its height. */
+  private focusedPreviewEdge: string | undefined
   /** A box a double-click fitted to its text, with the height it had before. */
   private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
   private hoveredMinimize: string | undefined
@@ -987,6 +989,7 @@ export class InteractionController {
       if (e.code === 'Escape') {
         this.cancelGesture('escape')
         this.setFocusedTextEdge(undefined)
+        this.setFocusedPreviewEdge(undefined)
       }
       // A focused text box edge steps the box one line per arrow press, unless
       // keyboard focus has since moved to another control.
@@ -995,6 +998,10 @@ export class InteractionController {
           this.gesture.kind === 'idle' && !otherControl) {
         e.preventDefault()
         this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedPreviewEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepPreviewEdge(this.focusedPreviewEdge, e.key === 'ArrowDown')
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
@@ -1797,6 +1804,7 @@ export class InteractionController {
     )
     this.capturePointer(e)
     if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
+    this.setFocusedPreviewEdge(hit.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
 
     if (hit.kind === 'widget' && this.widgetRowAffordanceContains(hit)) {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
@@ -5060,7 +5068,35 @@ export class InteractionController {
   private activePreviewEdge(): string | undefined {
     const g = this.gesture
     if (g.kind === 'resize' && g.handle === 's') return g.nodeId
-    return this.hoveredPreviewEdge
+    return this.focusedPreviewEdge ?? this.hoveredPreviewEdge
+  }
+
+  private setFocusedPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.focusedPreviewEdge) return
+    this.focusedPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  /** Step the height of a node's open preview from its bar: a picture by `keyStep`, a text result by one row. */
+  private stepPreviewEdge(nodeId: string, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined || !previewEdgeShown(node)) {
+      this.setFocusedPreviewEdge(undefined)
+      return
+    }
+    const l = node.layout
+    const step = l.textOutput !== undefined ? this.renderer.getDesignTokens().rowHeight : canvasPaintTokens.node.previewEdge.keyStep
+    const height = Math.max(l.minHeight, l.height + (down ? step : -step))
+    if (height === l.height) return
+    this.host.dispatch({
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: Math.round(l.width), height: Math.round(height - (l.resizeHeightOffset ?? 0)) },
+      },
+    })
   }
 
   private setHoveredPreviewEdge(nodeId: string | undefined): void {

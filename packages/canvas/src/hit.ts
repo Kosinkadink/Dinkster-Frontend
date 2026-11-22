@@ -254,10 +254,13 @@ export function nodeResizeHandle(
 
 /**
  * True when a node's bottom edge carries the bar that sizes its open preview:
- * the preview has its picture area and the node is not minimized.
+ * the preview has its picture area, or its text result is open, and the node
+ * is not minimized.
  */
 export function previewEdgeShown(node: SceneNode): boolean {
-  return node.layout.minimized !== true && node.layout.preview !== undefined && node.layout.preview.compact !== true
+  const l = node.layout
+  if (l.minimized === true) return false
+  return l.preview !== undefined ? l.preview.compact !== true : l.textOutput !== undefined && l.textOutput.folded !== true
 }
 
 /** The text box whose bottom-edge band holds the point, if any. */

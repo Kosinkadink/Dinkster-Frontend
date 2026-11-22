@@ -21,7 +21,7 @@ import {
   type PortProblemMap,
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
-import { linkBounds, linkControlOffset, minimizeArrowRect } from './hit.js'
+import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
 import { projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
@@ -1498,12 +1498,14 @@ export class CanvasRenderer {
         return { ...node, layout: withFoldedPreviewRegion(baseLayout, this.tokens) }
       }
       if (preview === undefined && outputText !== undefined) {
+        // The text result takes the place of the caption row a node that
+        // can preview reserves before its first picture.
         return {
           ...node,
           layout: withTextOutputRegion(
-            baseLayout,
+            node.layout,
             this.tokens,
-            this.outputTextLineCount(baseLayout, outputText.text),
+            this.outputTextLineCount(node.layout, outputText.text),
             folded,
           ),
         }
@@ -3815,18 +3817,6 @@ export class CanvasRenderer {
           hovered: captionHovered && (panel !== undefined || folded),
         })
       }
-      if (panel !== undefined && l.minimized !== true && contentDetail) {
-        // The text box's bar, on the node's bottom edge: it sizes the open
-        // preview through the node's height.
-        const edge = canvasPaintTokens.widget.textBoxEdge
-        const hot = this.overlay.previewEdge === sceneNode.id
-        const barWidth = hot ? edge.hotWidth : edge.width
-        ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-        ctx.beginPath()
-        ctx.roundRect(node.x + (l.width - barWidth) / 2, node.y + l.height - canvasPaintTokens.node.previewEdge.barRise,
-          barWidth, edge.height, edge.radius)
-        ctx.fill()
-      }
     } else if (outputText !== undefined && l.textOutput !== undefined) {
       const rect = {
         x: node.x + l.textOutput.x,
@@ -3848,7 +3838,7 @@ export class CanvasRenderer {
           : outputText.estimate === true
             ? t.colors.companionEstimate
             : t.colors.companionValue
-      const folded = body.height <= 0
+      const folded = l.textOutput.folded === true
       if (!folded) {
         ctx.save()
         ctx.fillStyle = t.colors.widgetBackground
@@ -3860,8 +3850,9 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.clip()
         if (contentDetail) {
-          const visibleLines = Math.max(1, Math.min(canvasPaintTokens.preview.outputMaxLines, Math.round(body.height / t.rowHeight)))
-          const lineHeight = (body.height - padding * 2) / visibleLines
+          // Lines keep one rhythm, so a taller region only shows more of them.
+          const lineHeight = t.rowHeight - padding
+          const visibleLines = Math.max(1, Math.floor((body.height - padding * 2) / lineHeight))
           ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
           ctx.textAlign = 'left'
           ctx.textBaseline = 'middle'
@@ -3901,8 +3892,8 @@ export class CanvasRenderer {
           arrow: folded ? 'folded' : 'open',
           label: 'Preview',
           detail: folded ? lines.find((line) => line.trim().length > 0) ?? '' : `${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`,
-          detailColor: folded ? color : t.colors.valueMark,
-          detailFont: folded ? `italic ${t.fontSize}px ${t.fontFamily}` : smallFont,
+          detailColor: t.colors.valueMark,
+          detailFont: folded ? `${t.fontSize}px ${t.fontFamily}` : smallFont,
           hovered: captionHovered,
         })
       }
@@ -3914,6 +3905,18 @@ export class CanvasRenderer {
         width: l.preview.width,
         height: l.preview.height,
       }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
+    }
+    if (previewEdgeShown(node) && contentDetail) {
+      // The text box's bar, on the node's bottom edge: it sizes the open
+      // preview through the node's height.
+      const edge = canvasPaintTokens.widget.textBoxEdge
+      const hot = this.overlay.previewEdge === sceneNode.id
+      const barWidth = hot ? edge.hotWidth : edge.width
+      ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+      ctx.beginPath()
+      ctx.roundRect(node.x + (l.width - barWidth) / 2, node.y + l.height - canvasPaintTokens.node.previewEdge.barRise,
+        barWidth, edge.height, edge.radius)
+      ctx.fill()
     }
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'

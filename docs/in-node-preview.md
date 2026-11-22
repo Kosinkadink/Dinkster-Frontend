@@ -284,8 +284,12 @@ The node's bottom edge sizes the preview. While the preview is open, a short
 bar in the middle of that edge marks it, the same bar a text box has: it takes
 the accent color under the pointer and while dragged, and dragging anywhere
 along the edge between the corners changes only the node's height. The
-corners still resize both ways. A folded preview, a preview that is only its
-caption row, a text result and a minimized node have no bar. Multiline `core.text` rows keep their
+corners still resize both ways. Once pressed, the bar takes Arrow Up and Arrow
+Down: each press makes the picture 10 units shorter or taller, or an open text
+result one row, until Escape or a press elsewhere. A folded preview, a preview
+that is only its caption row, and a minimized node have no bar. An open text
+result has the same bar; it sizes the text region in whole rows, at least two.
+Multiline `core.text` rows keep their
 own heights in lines (see "Text box height" in `docs/widget-editors.md`), so
 the preview takes all of the node's resize surplus, down to its 40-unit floor
 plus the 22-unit caption. The caption-only row and the open preview map the same
@@ -339,10 +343,12 @@ would be ambiguous. The full value remains available in the Data lens.
 The result sits under the same "Preview" caption row as a picture, with the
 number of wrapped lines where a picture has its size; the row folds it the
 same way, and folded it shows the start of the first line in place of a
-picture.
-Text uses the same measured wrapping as multiline canvas text. A short result
-uses one row; wrapped results grow to their content and stop at six rows. When
-wrapping produces more rows, the final visible row is a `+N more` marker. A
+picture, upright and in the caption's quieter text color.
+Text uses the same measured wrapping as multiline canvas text. Without a size
+request the region fits the result, at least two rows and at most six. The
+node's bottom edge (see "Resizing") sizes it past that in whole rows, never
+below two; the text boxes keep their own heights. When the result has more
+rows than the region shows, the final visible row is a `+N more` marker. A
 live value that is no longer proven current after a document edit uses the
 existing stale companion vocabulary: semantic light blue text with a dotted
 underline. Frozen or currently proven values use the normal companion value

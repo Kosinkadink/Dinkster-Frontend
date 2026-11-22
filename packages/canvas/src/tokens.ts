@@ -121,13 +121,18 @@ export const canvasPaintTokens = {
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
+    /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
+    /** Rows an open text result shows at least. */
+    textOutputMinRows: 2,
     /**
      * The bar on the bottom edge of a node whose preview is open: the text
      * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
      * edge so it sits on the edge, and a band around the edge that drags it.
+     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
+     * result steps one row.
      */
-    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5 },
+    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
@@ -370,7 +375,6 @@ export const canvasPaintTokens = {
     provenancePosition: 0.25,
     metadataPosition: 0.75,
     outputPadding: canvasSemanticTokens.space[4],
-    outputMaxLines: 6,
     staleStroke: 1,
     staleUnderlineOffset: 1,
     /** The "Preview" caption row over a preview or text result. */
