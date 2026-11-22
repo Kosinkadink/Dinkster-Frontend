@@ -92,7 +92,12 @@
 .boundary-setting-value { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
 .boundary-setting-value > .product-text-input,
 .boundary-setting-value > .boundary-show-select { flex: 1 1 140px; min-width: 0; }
-.boundary-setting-value .boundary-number { width: 5.5rem; }
+.boundary-setting-value .boundary-default-number { flex: none; width: 9rem; }
+/* Limits are typed, so they drop the steppers to keep both on one line. */
+.boundary-setting-value .boundary-limit { flex: none; width: 4.75rem; }
+.boundary-limit .product-number-steppers { display: none; }
+.boundary-limit .product-number-field { text-align: right; font-variant-numeric: tabular-nums; }
+.boundary-limits-inside { flex-basis: 100%; }
 .boundary-default-text { min-width: 0; color: var(--dinkster-text-primary); overflow-wrap: anywhere; }
 .boundary-link {
   min-width: 0;

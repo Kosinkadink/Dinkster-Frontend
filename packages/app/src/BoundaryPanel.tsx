@@ -522,6 +522,14 @@ export function BoundaryPanel(props: { app: AppState }) {
     return { choices, unnamed: nameable.length < inputs.length }
   }
 
+  /** A row's problem in the panel's words; other derivation messages lose their graph-id prefix. */
+  const problemText = (d: Diagnostic): string => {
+    if (d.code === 'boundary.visibleBroken') return message('boundaryPanel.problem.visibleBroken')
+    if (d.code === 'boundary.limitsOutside') return message('boundaryPanel.problem.limitsOutside')
+    if (d.code === 'boundary.limitsNotNumber') return message('boundaryPanel.problem.limitsNotNumber')
+    return d.message.replace(/^\[[^\]]*\]\s*/u, '')
+  }
+
   const Setting = (settingProps: { label: string; for?: string; children: JSX.Element }) => (
     <div class="boundary-setting">
       <Show when={settingProps.for} fallback={<span class="boundary-setting-label">{settingProps.label}</span>}>
@@ -584,7 +592,7 @@ export function BoundaryPanel(props: { app: AppState }) {
         </Show>
       }>
         <ProductNumberInput
-          class="boundary-number"
+          class="boundary-default-number"
           testId="boundary-default-input"
           ariaLabel={message('boundaryPanel.default')}
           inputMode={kind() === 'INT' ? 'numeric' : 'decimal'}
@@ -715,7 +723,20 @@ export function BoundaryPanel(props: { app: AppState }) {
         </div>
         <For each={diagsFor(row().item)}>
           {(d) => (
-            <p class="boundary-message" data-tone="diagnostic" data-testid="boundary-diag" data-code={d.code} role="alert">{d.message}</p>
+            <div class="boundary-message" data-tone="diagnostic" data-testid="boundary-diag" data-code={d.code} role="alert">
+              <span>{problemText(d)}</span>
+              <Show when={d.code === 'boundary.limitsNotNumber'}>
+                <ProductButton
+                  type="button"
+                  size="compact"
+                  data-testid="boundary-clear-limits"
+                  disabled={editingDisabled()}
+                  onClick={() => void dispatch('boundary.setLimits', { itemId: id(), min: null, max: null }, rowKey(row()))}
+                >
+                  {message('boundaryPanel.problem.clearLimits')}
+                </ProductButton>
+              </Show>
+            </div>
           )}
         </For>
         <Show when={notice()?.key === rowKey(row())}>
@@ -795,7 +816,7 @@ export function BoundaryPanel(props: { app: AppState }) {
           {(inner) => (
             <Setting label={message('boundaryPanel.limits')}>
               <ProductNumberInput
-                class="boundary-number"
+                class="boundary-limit"
                 testId="boundary-limit-min"
                 inputMode="decimal"
                 ariaLabel={message('boundaryPanel.limits.lowest')}
@@ -805,7 +826,7 @@ export function BoundaryPanel(props: { app: AppState }) {
               />
               <span class="boundary-quiet">{message('boundaryPanel.limits.to')}</span>
               <ProductNumberInput
-                class="boundary-number"
+                class="boundary-limit"
                 testId="boundary-limit-max"
                 inputMode="decimal"
                 ariaLabel={message('boundaryPanel.limits.highest')}
@@ -813,7 +834,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                 disabled={editingDisabled()}
                 onCommit={(raw) => setLimit(row(), 'max', raw)}
               />
-              <span class="boundary-quiet">{message('boundaryPanel.limits.inside', {
+              <span class="boundary-quiet boundary-limits-inside">{message('boundaryPanel.limits.inside', {
                 min: formatBound(inner().min, message('boundaryPanel.limits.noLowest')),
                 max: formatBound(inner().max, message('boundaryPanel.limits.noHighest')),
               })}</span>

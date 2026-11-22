@@ -162,4 +162,19 @@ describe('boundary row settings', () => {
     expect(result.diagnostics.find((d) => d.code === 'boundary.limitsOutside')?.refs).toEqual([{ graphId: 'sub', portId: 'strength' }])
     expect(strength.widget?.options).toMatchObject({ min: 0.1, max: 0.5 })
   })
+
+  it('reports limits on a field that is no longer a number, and lets them be cleared', () => {
+    const textField: NodeSchema = schemaOf('Blend', [
+      { kind: 'input', id: 'image', type: IMAGE, optional: false },
+      { kind: 'input', id: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: true },
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } },
+      { kind: 'output', id: 'out', type: IMAGE },
+    ])
+    const resolve = (type: string) => type === 'Blend' ? textField : undefined
+    const store = storeFor(soften([item('image', 'image'), item('mask', 'mask'), item('strength', 'strength', { promoted: true, limits: { min: 0.1 } })]), resolve)
+    expect(derivedStrength(store.doc, resolve).result.diagnostics.some((d) => d.code === 'boundary.limitsNotNumber')).toBe(true)
+    expect(store.dispatch({ command: 'boundary.setLimits', params: { graphId: 'sub', itemId: 'strength', min: 0.2, max: null } }).diagnostics[0]?.code).toBe('boundary.limitsNotNumber')
+    expect(store.dispatch({ command: 'boundary.setLimits', params: { graphId: 'sub', itemId: 'strength', min: null, max: null } }).ok).toBe(true)
+    expect(rowOf(store.doc, 'strength').limits).toBeUndefined()
+  })
 })

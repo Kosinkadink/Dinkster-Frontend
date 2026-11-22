@@ -302,6 +302,7 @@ describe('BoundaryPanel rows and settings', () => {
     const problem = root.querySelector<HTMLElement>('[data-testid="boundary-diag"]')!
     expect(problem.getAttribute('role')).toBe('alert')
     expect(problem.dataset.code).toBe('boundary.visibleBroken')
+    expect(problem.textContent).toContain('reads an input that is no longer on the subgraph node')
     expect(root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-select"]')!.textContent).toBe('When linked(mask)')
     expect(app.boundaryFocus.get()?.item).toBe('strength')
     unmount()
@@ -421,8 +422,8 @@ describe('BoundaryPanel rows and settings', () => {
 
   it('shows one empty state when nothing is on the subgraph node', async () => {
     const { tab, root, unmount } = await mountPanel()
-    for (const [side, itemId, node] of [['inputs', 'image', 'n2'], ['inputs', 'image', 'n1'], ['inputs', 'mask', 'n1'], ['inputs', 'strength', 'n1'], ['inputs', 'mode', 'n1'], ['outputs', 'out', 'n1']]) {
-      expect(tab.store.dispatch({ command: 'boundary.unbind', params: { graphId: 'sub', side, itemId, node, port: itemId === 'image' ? 'image' : itemId } }).ok).toBe(true)
+    for (const [side, itemId, node] of [['inputs', 'image', 'n2'], ['inputs', 'image', 'n1'], ['inputs', 'mask', 'n1'], ['inputs', 'strength', 'n1'], ['inputs', 'mode', 'n1'], ['outputs', 'out', 'n1']] as const) {
+      expect(tab.store.dispatch({ command: 'boundary.unbind', params: { graphId: 'sub', side, itemId, node, port: itemId } }).ok).toBe(true)
     }
     const empty = root.querySelectorAll<HTMLElement>('[data-testid="boundary-empty"]')
     expect(empty).toHaveLength(1)

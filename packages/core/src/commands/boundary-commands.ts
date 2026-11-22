@@ -605,6 +605,8 @@ const boundarySetLimits: CommandDefinition = {
   id: 'boundary.setLimits',
   validateDispatch(doc, params, context) {
     if (!isObj(params) || typeof params.itemId !== 'string' || !isBound(params.min) || !isBound(params.max)) return []
+    // Clearing is always allowed, also once the inner field is no longer a number.
+    if (params.min === null && params.max === null) return []
     const def = graphOf(doc, params.graphId)
     const found = def && findItem(def, 'inputs', params.itemId)
     const schema = def && found ? derivedFor(doc, def, context) : undefined
