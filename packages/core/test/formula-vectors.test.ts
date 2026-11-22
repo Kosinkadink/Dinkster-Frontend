@@ -11,12 +11,13 @@ import {
   type FormulaScalar,
   type FormulaTableValue,
   type FormulaValue,
+  type FormulaValues,
   type Unknown,
 } from '../src/mirror/formula.js'
 
 // The engine checks the same file (Dinkster tests/fixtures/formula_v1.json),
 // so a formula gives the same answer in the editor and when a run is submitted.
-const VECTORS_SHA256 = '94d2c9539ba409e3708fc18e7c40310d57df6fdc5e02cf12f6258f799fc7020e'
+const VECTORS_SHA256 = '01491d32e4dd0d17ce33c2914b282e13a54fa89706b0b9cb1e87a4a924a68011'
 const vectorBytes = readFileSync(new URL('./fixtures/formula_v1.json', import.meta.url))
 
 type Encoded = Readonly<Record<string, unknown>>
@@ -33,16 +34,20 @@ interface VectorCase {
     readonly tables?: Readonly<Record<string, Encoded>>
     readonly derived?: Readonly<Record<string, string>>
     readonly in_member?: boolean
+    readonly in_on_edit?: boolean
   }
-  readonly values?: {
-    readonly values?: Readonly<Record<string, Encoded | 'unknown'>>
-    readonly linked?: Readonly<Record<string, boolean>>
-    readonly linked_types?: Readonly<Record<string, string | null>>
-    readonly group_sizes?: Readonly<Record<string, number>>
-    readonly member_index?: number | null
-    readonly member_key?: string | null
-    readonly facts?: readonly (readonly [string, string, Encoded])[]
-  }
+  readonly values?: EncodedValues
+}
+
+interface EncodedValues {
+  readonly values?: Readonly<Record<string, Encoded | 'unknown'>>
+  readonly linked?: Readonly<Record<string, boolean>>
+  readonly linked_types?: Readonly<Record<string, string | null>>
+  readonly group_sizes?: Readonly<Record<string, number>>
+  readonly member_index?: number | null
+  readonly member_key?: string | null
+  readonly facts?: readonly (readonly [string, string, Encoded])[]
+  readonly previous?: EncodedValues
 }
 
 function decode(data: Encoded): FormulaTableValue {
@@ -90,6 +95,24 @@ function show(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => (typeof item === 'bigint' ? `${item}n` : item))
 }
 
+function valuesOf(data: EncodedValues): FormulaValues {
+  return {
+    values: new Map<string, FormulaValue | Unknown>(
+      Object.entries(data.values ?? {}).map(([name, value]) => [
+        name,
+        value === 'unknown' ? UNKNOWN : (decode(value) as FormulaValue),
+      ]),
+    ),
+    linked: new Map(Object.entries(data.linked ?? {})),
+    linkedTypes: new Map(Object.entries(data.linked_types ?? {})),
+    groupSizes: new Map(Object.entries(data.group_sizes ?? {})),
+    memberIndex: data.member_index ?? null,
+    memberKey: data.member_key ?? null,
+    facts: new Map((data.facts ?? []).map(([fact, name, value]) => [`${fact}(${name})`, decode(value) as FormulaValue])),
+    ...(data.previous !== undefined ? { previous: valuesOf(data.previous) } : {}),
+  }
+}
+
 function run(testCase: VectorCase): string | undefined {
   const scopeData = testCase.scope ?? {}
   const scope = {
@@ -99,24 +122,9 @@ function run(testCase: VectorCase): string | undefined {
     tables: new Map(Object.entries(scopeData.tables ?? {}).map(([name, table]) => [name, decode(table)])),
     derived: new Map(Object.entries(scopeData.derived ?? {})),
     inMember: scopeData.in_member ?? false,
+    inOnEdit: scopeData.in_on_edit ?? false,
   }
-  const valuesData = testCase.values ?? {}
-  const values = {
-    values: new Map<string, FormulaValue | Unknown>(
-      Object.entries(valuesData.values ?? {}).map(([name, value]) => [
-        name,
-        value === 'unknown' ? UNKNOWN : (decode(value) as FormulaValue),
-      ]),
-    ),
-    linked: new Map(Object.entries(valuesData.linked ?? {})),
-    linkedTypes: new Map(Object.entries(valuesData.linked_types ?? {})),
-    groupSizes: new Map(Object.entries(valuesData.group_sizes ?? {})),
-    memberIndex: valuesData.member_index ?? null,
-    memberKey: valuesData.member_key ?? null,
-    facts: new Map(
-      (valuesData.facts ?? []).map(([fact, name, value]) => [`${fact}(${name})`, decode(value) as FormulaValue]),
-    ),
-  }
+  const values = valuesOf(testCase.values ?? {})
   const expected = testCase.outcome
   let formula: Formula
   try {

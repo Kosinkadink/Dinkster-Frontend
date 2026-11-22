@@ -78,6 +78,8 @@ export interface FormulaScope {
   readonly tables?: ReadonlyMap<string, FormulaTableValue>
   readonly derived?: ReadonlyMap<string, string>
   readonly inMember?: boolean
+  /** Allows `previous()`, in the formulas of steps applied with the user's own change of a field. */
+  readonly inOnEdit?: boolean
 }
 
 /** The state a formula is evaluated against. A missing name is unknown. */
@@ -90,6 +92,8 @@ export interface FormulaValues {
   readonly memberKey?: string | null
   /** Keyed by `fact(name)`, such as `fps(video)`. */
   readonly facts?: ReadonlyMap<string, FormulaValue>
+  /** The state before the user's change, for `previous()`; without it `previous()` is unknown. */
+  readonly previous?: FormulaValues
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +620,7 @@ const ARITY: Readonly<Record<string, readonly [number, number | null]>> = {
   index: [0, 0],
   key: [0, 0],
   known: [1, 1],
+  previous: [1, 1],
   ...Object.fromEntries(FORMULA_ASSET_FACTS.map((fact) => [fact, [1, 1] as const])),
 }
 const NAME_FACTS = new Set<string>(['linked', 'linked_type', ...FORMULA_ASSET_FACTS])
@@ -1102,6 +1107,7 @@ class Checker {
     private readonly derivedStack: readonly string[],
     private locals: ReadonlySet<string> = new Set(),
     private inComprehension = false,
+    private inPrevious = false,
   ) {}
 
   private count(n = 1): void {
@@ -1191,7 +1197,7 @@ class Checker {
     this.inComprehension = true
     this.visit(node.iterable)
     this.inComprehension = false
-    const inner = new Checker(this.scope, this.derivedStack, new Set([...this.locals, node.target]), true)
+    const inner = new Checker(this.scope, this.derivedStack, new Set([...this.locals, node.target]), true, this.inPrevious)
     inner.parts = this.parts + 1
     if (inner.parts > MAX_FORMULA_PARTS) refuse(`formula exceeds ${MAX_FORMULA_PARTS} parts`)
     inner.visit(node.element)
@@ -1212,6 +1218,17 @@ class Checker {
     this.count()
     if ((name === 'index' || name === 'key') && !this.scope.inMember) {
       refuse(`${name}() is only allowed inside a group member's rows`)
+    }
+    if (name === 'previous') {
+      if (!this.scope.inOnEdit) refuse("previous() is only allowed in a step applied with a field's change")
+      if (this.inPrevious) refuse('previous() cannot hold another previous()')
+      this.inPrevious = true
+      try {
+        this.visit(node.args[0]!)
+      } finally {
+        this.inPrevious = false
+      }
+      return
     }
     if (NAME_FACTS.has(name)) {
       const target = dotted(node.args[0]!)
@@ -1472,6 +1489,12 @@ class Evaluator {
       const value = name === 'index' ? this.values.memberIndex : this.values.memberKey
       if (value === undefined || value === null) throw STOP_UNKNOWN
       return typeof value === 'number' ? BigInt(value) : value
+    }
+    if (name === 'previous') {
+      if (this.values.previous === undefined) throw STOP_UNKNOWN
+      const before = new Evaluator(this.scope, this.values.previous, new Map())
+      for (const [local, value] of this.locals) before.locals.set(local, value)
+      return before.eval(node.args[0]!, formula)
     }
     if (name === 'known') {
       try {
