@@ -504,6 +504,8 @@ export interface WidgetPaintArgs {
   readonly companion?: CompanionDisplay
   /** Alpha before connected-row dimming, reserved for legible companion text. */
   readonly companionAlpha?: number
+  /** Alpha for the subgraph mark (row.subgraphMark), which a driven row does not dim. */
+  readonly markAlpha?: number
   /** Absolute content origin/size (inside node padding). */
   readonly x: number
   readonly y: number
@@ -889,6 +891,8 @@ export class CanvasRenderer {
   private connectedInputPins: ReadonlySet<string> = new Set()
   private connectedOutputPins: ReadonlySet<string> = new Set()
   private connectedWidgetTaps: ReadonlySet<string> = new Set()
+  /** Inputs driven only by a boundary input drawn without its wire. */
+  private wirelessBoundaryInputPins: ReadonlySet<string> = new Set()
   /** Like connectedInputPins but excluding boundary bindings (row inertness). */
   private valueDrivenInputPins: ReadonlySet<string> = new Set()
   /** Inner input (node id, input id) -> the value an Inputs panel field sends it. */
@@ -1200,6 +1204,11 @@ export class CanvasRenderer {
 
   getLensCapabilities(): RendererLensCapabilities {
     return this.lensCapabilities
+  }
+
+  /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
+  showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
+    return this.panelFieldValues.has(`${nodeId}\u0000${row.inputId}`) || this.companions[nodeId]?.[row.valueKey] !== undefined
   }
 
   getDesignTokens(): DesignTokens {
@@ -1967,6 +1976,11 @@ export class CanvasRenderer {
           return `${from.node}\u0000${from.input}`
         }),
     )
+    const wireless = new Set<string>()
+    for (const link of this.scene.links)
+      if (link.boundary === true && link.hidden === true && link.to.kind === 'port')
+        wireless.add(`${link.to.node}\u0000${portEndKey(link.to)}`)
+    this.wirelessBoundaryInputPins = wireless
     // Boundary bindings are excluded here: a bound SELECTOR row stays the
     // occurrence-local editor (edits route to the owning instance), so it
     // must not paint inert. Pins keep using the full set - visually the
@@ -3925,6 +3939,11 @@ export class CanvasRenderer {
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
           !isLegalTarget && !nodeHovered)
         continue
+      // A field driven by an input drawn without its wire shows no pin, even
+      // on a hovered or selected node, except as a drop target.
+      if (pin.widgetBacked && pin.direction === 'in' && !isLegalTarget &&
+        this.wirelessBoundaryInputPins.has(`${node.id}\u0000${pin.portId}`))
+        continue
       if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
         continue
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
@@ -4084,6 +4103,7 @@ export class CanvasRenderer {
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
+      ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
       x: node.x + row.inset,
       y: rowY,
       width: widgetWidth,
@@ -4960,7 +4980,9 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
-  const labelZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
+  // The subgraph mark before the name widens the name's share, as the painter lays it out.
+  const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
+  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven

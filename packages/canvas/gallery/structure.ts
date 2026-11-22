@@ -30,7 +30,38 @@ const blur: NodeSchema = {
       optional: false,
       widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
     },
+    {
+      kind: 'input',
+      id: 'strength',
+      type: { kind: 'concrete', name: 'FLOAT' },
+      optional: false,
+      widget: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 }, default: 0.5 },
+    },
     { kind: 'output', id: 'IMAGE', type: image },
+  ],
+}
+
+const feather = {
+  kind: 'input',
+  id: 'feather',
+  type: { kind: 'concrete', name: 'INT' },
+  optional: false,
+  widget: { widgetType: 'INT', options: { min: 0, max: 32 }, default: 2 },
+} as const
+const edge: NodeSchema = {
+  type: 'Edge',
+  displayName: 'Edge',
+  category: 'gallery',
+  source: 'v3',
+  isOutputNode: false,
+  items: [
+    {
+      kind: 'input',
+      id: 'edge',
+      type: { kind: 'concrete', name: 'COMBO' },
+      optional: false,
+      dynamic: { kind: 'dynamicCombo', options: [{ key: 'soft', inputs: [feather] }, { key: 'hard', inputs: [] }] },
+    },
   ],
 }
 
@@ -76,7 +107,7 @@ export function structuralGalleryScene(
             values: { radius: 8 },
             title: 'Alternative',
           },
-          sub: { id: 'sub', type: '#g1', values: { radius: 6 } },
+          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75, 'edge.[soft].feather': 3 }, dynamic: { edge: { selected: 'soft' } } },
           note: {
             id: 'note',
             type: 'dinkster.note',
@@ -149,7 +180,10 @@ export function structuralGalleryScene(
         id: 'g1',
         name: 'Soften',
         nextOrdinal: 2,
-        nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+        nodes: {
+          inner: { id: 'inner', type: 'Blur', values: {} },
+          edge: { id: 'edge', type: 'Edge', values: {}, dynamic: { edge: { selected: 'soft' } } },
+        },
         links: {},
         nets: {},
         reroutes: {},
@@ -163,6 +197,17 @@ export function structuralGalleryScene(
               id: 'radius',
               binds: { kind: 'port', node: 'inner', port: 'radius' },
               promoted: true,
+            },
+            {
+              id: 'strength',
+              binds: { kind: 'port', node: 'inner', port: 'strength' },
+              promoted: true,
+              wireHidden: true,
+            },
+            {
+              id: 'edge',
+              binds: { kind: 'dynamicCombo', node: 'edge', port: 'edge' },
+              wireHidden: true,
             },
           ],
           outputs: [
@@ -205,29 +250,32 @@ export function structuralGalleryScene(
           collapsedNets: ['net'],
           guideNets: ['net'],
         },
-        g1: { nodes: { inner: { position: { x: 350, y: 120 } } } },
+        g1: { nodes: { inner: { position: { x: 350, y: 120 } }, edge: { position: { x: 350, y: 240 } } } },
       },
     },
   }).document
   if (!document) throw new Error('Invalid structural gallery document')
   const schemas = new Map(
-    [blur, ...CORE_VIRTUAL_NODE_KINDS.map((kind) => kind.schema)].map(
+    [blur, edge, ...CORE_VIRTUAL_NODE_KINDS.map((kind) => kind.schema)].map(
       (schema) => [schema.type, schema],
     ),
   )
+  const resolve = documentResolver(document, (type) => schemas.get(type))
+  // The top level carries the occurrence view as the app does, so a subgraph
+  // node paints the values a run sends.
   if (!inside)
     return buildScene({
       document,
       graphId: 'g0',
-      resolve: (type) => schemas.get(type),
+      resolve,
       tokens,
       measure,
       widgetMeasure,
       renderVirtualNode: (node) => coreVirtualNodeKind(node.type)?.render(node),
+      occurrenceView: occurrenceDynamicView(document, resolve, [], 'g0'),
     })
   // Inside, the subgraph is entered through its node, as the app does: the
   // Inputs panel carries that node's radius, which the inner Blur shows.
-  const resolve = documentResolver(document, (type) => schemas.get(type))
   return buildScene({
     document,
     graphId: 'g1',

@@ -14,6 +14,7 @@ import { isPreviewExposed } from '../format/exposed-previews.js'
 import { netViewPositions } from '../format/net-views.js'
 import { asDynamicMemberId, asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
+import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 
@@ -1179,6 +1180,48 @@ const widgetExpose: MenuContribution = {
   },
 }
 
+/**
+ * Inside a subgraph, put a field on the subgraph node without a wire, or take
+ * it off again. A boundary wire has no menu of its own (boundary noodles are
+ * not hit-tested), so "Hide wire" lives here too.
+ */
+const widgetSubgraphNode: MenuContribution = {
+  id: 'core.widget.subgraphNode',
+  targets: ['widget'],
+  group: '85-expose',
+  resolve(ctx) {
+    if (ctx.target.kind !== 'widget') return []
+    const t = ctx.target
+    // Synthetic and forwarded rows have no field of this node to bind.
+    if (t.synthetic === true || t.owner !== undefined || t.address === undefined || ctx.graphId === ctx.doc.root) return []
+    const def = ctx.doc.graphs[ctx.graphId]
+    if (def?.nodes[t.nodeId] === undefined) return []
+    const target = portParams({ node: t.nodeId, port: t.address.port, members: t.address.members })
+    const state = boundaryFieldState(def, { node: asNodeId(target.node), port: asPortId(target.port), ...(target.members ? { members: target.members.map(asDynamicMemberId) } : {}) })
+    if (state.item === undefined) {
+      return state.driven ? [] : [{
+        id: 'core.widget.subgraphNode.show',
+        label: 'Show on subgraph node',
+        action: { kind: 'command', invocation: { command: 'boundary.showOnSubgraphNode', params: { graphId: ctx.graphId, ...target } } },
+      }]
+    }
+    if (state.field !== true) return []
+    const item = state.item
+    return [
+      {
+        id: 'core.widget.subgraphNode.remove',
+        label: 'Remove from subgraph node',
+        action: { kind: 'command', invocation: { command: 'boundary.unbind', params: { graphId: ctx.graphId, side: 'inputs', itemId: item.id, ...target } } },
+      },
+      ...(item.wireHidden === true ? [] : [{
+        id: 'core.widget.subgraphNode.hideWire',
+        label: 'Hide wire',
+        action: { kind: 'command' as const, invocation: { command: 'boundary.setWireHidden', params: { graphId: ctx.graphId, itemId: item.id, hidden: true } } },
+      }]),
+    ]
+  },
+}
+
 const nodePreviewExpose: MenuContribution = {
   id: 'core.node.preview.expose',
   targets: ['node'],
@@ -1246,6 +1289,7 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     groupDelete,
     sectionToggle,
     widgetExpose,
+    widgetSubgraphNode,
     nodePreviewExpose,
     canvasCreateSubgraph,
   ]

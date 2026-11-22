@@ -261,6 +261,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     }
   }
   c.optBool(v['promoted'], `${path}.promoted`)
+  if (v['wireHidden'] !== undefined && v['wireHidden'] !== true) c.fail(`${path}.wireHidden`, 'must be true when present')
   // A forwarded family's template always carries its widgets; 'promoted'
   // has no meaning there and canonical form allows only ONE spelling.
   const binds = v['binds']
