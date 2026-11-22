@@ -25,7 +25,7 @@
 
 import { isForwardingBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type Json, type NodeData } from '../format/document.js'
 import { asDynamicMemberId, asPortId, type NodeId, type PortRef } from '../ids.js'
-import { memberHopsOf, resolveBoundaryRoute, type BoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
+import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import { addressOfElabKey, elabKeyOf } from '../schema/elaborate.js'
 import type { NodeSchema } from '../schema/model.js'
 
@@ -122,7 +122,7 @@ export function projectEditableOptions(
       if (keys.has(key)) continue
       keys.add(key)
       projected.set(target.id, overlayPortDynamic(projected.get(target.id) ?? target.dynamic,
-        route.route, binding.port, { options }))
+        binding.port, { options }))
     }
   }
   return projected
@@ -510,28 +510,11 @@ export function overlayNodeDynamic(
   return apply(base, 0)
 }
 
-/**
- * Overlay authored port state at its exact member scope. Siblings and nested
- * member state are copied so projections onto one node compose in either order.
- */
+/** Overlay authored port state at its flattened id, keeping the state beside it. */
 export function overlayPortDynamic(
   base: Readonly<Record<string, DynamicPortState>> | undefined,
-  route: BoundaryRoute,
   constructPath: string,
   authored: Pick<DynamicPortState, 'selected' | 'options'>,
 ): Readonly<Record<string, DynamicPortState>> {
-  const members = memberHopsOf(route.hops)
-  const apply = (scope: Readonly<Record<string, DynamicPortState>> | undefined, depth: number): Record<string, DynamicPortState> => {
-    if (depth === members.length) return { ...scope, [constructPath]: { ...scope?.[constructPath], ...authored } }
-    const hop = members[depth]!
-    const state = scope?.[hop.familyPath] ?? {}
-    return {
-      ...scope,
-      [hop.familyPath]: {
-        ...state,
-        memberState: { ...state.memberState, [hop.member]: apply(state.memberState?.[hop.member], depth + 1) },
-      },
-    }
-  }
-  return apply(base, 0)
+  return { ...base, [constructPath]: { ...base?.[constructPath], ...authored } }
 }

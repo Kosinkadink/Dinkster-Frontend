@@ -42,7 +42,7 @@ import { editorScreenAnchor } from '../widget-editor-position.js'
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
-  return ed.outputDescriptors === undefined && ed.target.kind === 'input' &&
+  return ed.target.kind === 'input' &&
     ed.spec?.widgetType === 'STRING' && ed.multiline
 }
 

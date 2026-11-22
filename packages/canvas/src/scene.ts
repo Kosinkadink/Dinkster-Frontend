@@ -221,7 +221,6 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
     }
     case 'wildcard': return true
     case 'tuple': return left.elements.length === (right as typeof left).elements.length && left.elements.every((element, index) => sameTypeExpr(element, (right as typeof left).elements[index]!))
-    case 'family_tuple': return left.input === (right as typeof left).input
     case 'tuple_element': {
       const other = right as typeof left
       return left.input === other.input && left.index === other.index && (left.element === undefined ? other.element === undefined : other.element !== undefined && sameTypeExpr(left.element, other.element))
@@ -1406,22 +1405,11 @@ export function buildScene(input: BuildSceneInput): Scene {
       ? {
           ...baseLayout,
           rows: baseLayout.rows.map((baseRow) => {
-            const optionSourceOwner = baseRow.kind === 'widget' && baseRow.spec.optionSource !== undefined
-              ? familyOwnerFor(baseRow.spec.optionSource.inputFamily)
-              : undefined
             const optionsOwner = baseRow.kind === 'widget' ? optionsOwnerFor(baseRow) : undefined
             const menuRow = optionsOwner === undefined || baseRow.kind !== 'widget' ? baseRow : {
               ...baseRow, optionsTarget: { ...baseRow.optionsTarget!, ...optionsOwner },
             }
-            const row = optionSourceOwner === undefined ? menuRow : {
-              ...menuRow,
-              inputFamilyOwner: {
-                graphId: optionSourceOwner.graphId,
-                nodeId: optionSourceOwner.nodeId,
-                construct: optionSourceOwner.boundaryId,
-                memberIds: Object.fromEntries(optionSourceOwner.suffixMembers),
-              },
-            }
+            const row = menuRow
             const family = row.kind === 'widget' ? rowFamilyOwner(row) : row.kind === 'growth' ? familyOwnerFor(row.construct) : undefined
             const subtree = family !== undefined ? undefined : row.kind === 'widget' ? subtreeTarget(row.valueKey) : row.kind === 'growth' ? subtreeTarget(row.construct) : undefined
             if (subtree !== undefined && (row.kind === 'widget' || row.kind === 'growth')) {

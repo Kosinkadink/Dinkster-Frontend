@@ -116,7 +116,6 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
       return t.allowedTypes === undefined || t.allowedTypes.some((a) => typeMatchesToken(a, token))
     case 'tuple':
       return t.elements.some((element) => typeMatchesToken(element, token))
-    case 'family_tuple':
     case 'tuple_element':
       return false
     case 'concrete':
@@ -211,7 +210,6 @@ export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
   switch (type.kind) {
     case 'tuple':
       return type.elements.every(hasKnownLinkDropAnchorType)
-    case 'family_tuple':
     case 'tuple_element':
       return false
     case 'concrete':

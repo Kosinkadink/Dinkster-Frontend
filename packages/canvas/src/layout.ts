@@ -96,14 +96,6 @@ export interface DynamicAnnotations {
     /** Present only when an occurrence mutation planner can consume this route. */
     readonly socketed?: true
   }
-  /** Occurrence-local owner of a COMBO option source's input family. */
-  readonly inputFamilyOwner?: {
-    readonly graphId: string
-    readonly nodeId: string
-    readonly construct: string
-    /** Derived option value -> persisted member id on the owner. */
-    readonly memberIds: Readonly<Record<string, string>>
-  }
   /** DynamicSlot choice metadata used by connect gestures and pin menus. */
   readonly dynamicSlot?: {
     readonly construct: string
@@ -951,9 +943,10 @@ export function layoutNode(
           : {}),
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
+        // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: {
           construct: item.address.port,
-          ancestors: (item.ancestry ?? []).map((ancestor) => ({ construct: ancestor.construct, member: ancestor.member as string })),
+          ancestors: [],
         } } : {}),
         ...(selector !== undefined ? { selector } : {}),
         ...annotate(item),

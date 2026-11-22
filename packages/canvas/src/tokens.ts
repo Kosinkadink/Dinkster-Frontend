@@ -810,7 +810,6 @@ const typeExprLabelWith = (type: TypeExpr, aliases: Readonly<Record<string, stri
     case 'union': return type.names.map((name) => aliases[name] ?? name).join(' | ')
     case 'wildcard': return 'Any'
     case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, aliases)}`).join(', ')}>`
-    case 'family_tuple': return `tuple<${type.input}>`
     case 'tuple_element': return `${type.element === undefined ? type.input : typeExprLabelWith(type.element, aliases)}[${type.index}]`
     case 'variable':
       return type.allowedTypes !== undefined && type.allowedTypes.length > 0

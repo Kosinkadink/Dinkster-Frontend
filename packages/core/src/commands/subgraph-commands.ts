@@ -1527,7 +1527,7 @@ function validateFlattenDispatch(
   for (const [authoredType, schema] of Object.entries(snapshot)) {
     if (!boundAuthoredTypes.has(authoredType) || !isObj(schema as unknown as Json) ||
         typeof (schema as unknown as JsonObject).type !== 'string' ||
-        !Array.isArray((schema as unknown as JsonObject).items)) {
+        !Array.isArray((schema as unknown as JsonObject).body)) {
       return [err('params.invalid', 'subgraph.flatten: schema snapshot has invalid authored-type coverage')]
     }
   }

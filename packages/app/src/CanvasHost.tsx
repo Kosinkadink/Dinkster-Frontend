@@ -66,9 +66,6 @@ import {
   initialDynamicStateOf,
   documentResolver,
   elabOutputsOf,
-  outputDescriptorAssetOf,
-  outputDescriptorValueOf,
-  parseOutputDescriptors,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
   documentValueSourceResolver,
@@ -120,7 +117,6 @@ import {
   type WidgetSpec,
   type WidgetView,
   type WorkflowDocument,
-  type OutputDescriptorsSpec,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
@@ -5076,31 +5072,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
       const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
-      // TODO(#1134 question 7): no row opens the descriptor editor until the design thread answers.
-      const descriptors = undefined as OutputDescriptorsSpec | undefined
-      const descriptorRevision = tab.store.revision
-      const descriptorNode = tab.store.doc.graphs[graphId]?.nodes[nodeId]
-      const occurrenceValues = descriptors === undefined ? undefined : occurrenceDynamicView(
-        tab.store.doc, resolve, viewInstancePath(tab) ?? [], (viewInstancePath(tab)?.length ?? 0) === 0 ? graphId : tab.store.doc.root,
-      ).values.get(nodeId)
-      const descriptorValues = occurrenceValues ?? hit.node.node.values
-      const staleDescriptorLinks = descriptors === undefined ? [] : (() => {
-        const { probe: _probe, ...unprobed } = descriptors
-        const parsed = parseOutputDescriptors(unprobed, outputDescriptorValueOf(descriptors, descriptorValues))
-        if (!parsed.ok && !descriptors.fixedIds) return []
-        const descriptorIds = new Set([
-          ...(parsed.ok ? parsed.document.entries.map((entry) => entry.id) : []),
-          ...(descriptors.fixedIds ? descriptors.choices.map((choice) => choice.id) : []),
-        ])
-        const activeIds = new Set(hit.node.elaborated === undefined
-          ? []
-          : elabOutputsOf(hit.node.elaborated).map((output) => output.address.port))
-        return Object.values(tab.store.doc.graphs[graphId]?.links ?? {}).flatMap((link) =>
-          isPortEndpoint(link.from) && link.from.node === nodeId && descriptorIds.has(link.from.port) && !activeIds.has(link.from.port)
-            ? [{ linkId: link.id, outputId: link.from.port }]
-            : [])
-      })()
-
       if (roleEditor?.id === CURVE_EDITOR_KIND) {
         if (curveTarget) {
           props.app.openCurveEditor(curveTarget)
@@ -5156,7 +5127,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           valueKey: hit.row.valueKey,
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
           ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
-          ...(hit.row.inputFamilyOwner !== undefined ? { inputFamilyOwner: hit.row.inputFamilyOwner } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
@@ -5178,16 +5148,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
-        ...(descriptors !== undefined ? { outputDescriptors: {
-          spec: descriptors,
-          asset: outputDescriptorAssetOf(descriptors, descriptorValues),
-          staleLinks: staleDescriptorLinks,
-          isCurrent: () => tab.store.revision === descriptorRevision && tab.store.doc.graphs[graphId]?.nodes[nodeId] === descriptorNode,
-          onDisconnect: (linkId: string) => {
-            const current = props.app.activeTab()
-            if (current?.id === tab.id) props.app.dispatchTo(current, { command: 'link.disconnect', params: { graphId, linkId } })
-          },
-        } } : {}),
         ...(viewInstancePath(tab) === undefined ? {} : { instancePath: viewInstancePath(tab)! }),
         ...(widgetView?.editorUi === undefined ? {} : {
           hostUi: {

@@ -41,7 +41,7 @@ import {
   type OptionRow,
 } from '../schema/model.js'
 import { applyUse, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from '../schema/body.js'
-import { elaborateInterface, elabInputsOf, elabOutputsOf } from '../schema/elaborate.js'
+import { EMPTY_CONNECTIVITY, elaborateInterface, elabInputsOf, elabOutputsOf } from '../schema/elaborate.js'
 import {
   FORMAT_VERSION,
   type ControllerMode,
@@ -478,9 +478,22 @@ const decodePositionalFamilyWidgets = (
 }
 
 /** A row that takes positions in ComfyUI's ordered widget stream. */
+/**
+ * The top-level rows in positional widget order. A save mount was appended
+ * after the node's original widgets, so it takes the last position even
+ * where the body draws it beside the filename prefix.
+ */
+const positionalRowsOf = (schema: NodeSchema): PlacedRow[] => {
+  const rows = placedRows(schema.body)
+  const mount = (row: PlacedRow): boolean => row.kind === 'input' && row.widget?.widgetType === 'MOUNT'
+  return [...rows.filter((row) => !mount(row)), ...rows.filter(mount)]
+}
+
 const takesPositions = (row: PlacedRow): boolean =>
   !(row.kind === 'input' && row.type.kind === 'concrete' && row.type.name === 'RESOLUTION_PREVIEW') &&
-  (row.kind === 'choice' || row.kind === 'group' || (row.kind === 'input' && row.widget !== undefined && row.forceInput !== true))
+  (row.kind === 'choice' || (row.kind === 'input' && row.widget !== undefined && row.forceInput !== true) ||
+    // A group of outputs or pins has no widgets to take positions.
+    (row.kind === 'group' && placedRows(memberRowsOf(row)).some((item) => isBox(item) || takesPositions(item))))
 
 /**
  * Decode ComfyUI's ordered widget stream without elaborating a partial node.
@@ -531,6 +544,7 @@ function decodePositionalWidgets(
     }
 
     if (row.kind === 'group') {
+      if (!takesPositions(row)) continue
       const members = (state.dynamic[key] as { readonly members?: readonly string[] } | undefined)?.members
       if (members === undefined) {
         state.stopped = true
@@ -1594,7 +1608,9 @@ function importLitegraphGraph(
       const families = activeGroups(placedRows(schema.body), dynamic)
       const discovered = discoverGroupMembers(n.inputs ?? [], families, targetedSlots)
       for (const [familyPath, members] of discovered.order) {
-        dynamic[familyPath] = importedGroupState(families.find((family) => family.path === familyPath)!.group, members)
+        const { group } = families.find((family) => family.path === familyPath)!
+        // A count group's members follow its count; it stores no member list.
+        if (typeof group.grows === 'string') dynamic[familyPath] = importedGroupState(group, members)
       }
     }
 
@@ -1639,18 +1655,11 @@ function importLitegraphGraph(
       const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
       if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
         typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
-        const positional = placedRows(schema.body).filter(takesPositions)
-        const [prefix, format, codec, mount] = positional
-        // filename_prefix and mount share one line of the body.
-        const sideBySide = allRowsOf(schema.body).some((row) => row.kind === 'row' &&
-          row.rows.some((item) => item.kind === 'input' && item.id === 'filename_prefix') &&
-          row.rows.some((item) => item.kind === 'input' && item.id === 'mount'))
+        const [prefix, format, codec, mount, ...rest] = positionalRowsOf(schema).filter(takesPositions)
         const layoutMatches = prefix?.kind === 'input' && prefix.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
           prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined &&
-          format?.kind === 'choice' && format.id === 'format' && codec?.id === 'codec' &&
-          (positional.length === 3 || positional.length === 4 && mount?.kind === 'input' && mount.id === 'mount' && mount.optional &&
-            mount.type.kind === 'concrete' && mount.type.name === 'STRING' && mount.widget !== undefined &&
-            mount.widget.controller === undefined && sideBySide)
+          format?.kind === 'choice' && format.id === 'format' && codec?.id === 'codec' && rest.length === 0 &&
+          (mount === undefined || mount.kind === 'input' && mount.id === 'mount' && mount.optional && mount.widget?.controller === undefined)
         const branch = layoutMatches && format?.kind === 'choice' && format.leader === undefined
           ? format.options.find((option) => option.key === raw[1]) : undefined
         const nestedCodec = branch === undefined || format?.kind !== 'choice'
@@ -1669,7 +1678,7 @@ function importLitegraphGraph(
         }
       }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
-      decodePositionalWidgets(placedRows(schema.body), raw, state, '', `node ${n.id} ('${n.type}')`, diags)
+      decodePositionalWidgets(positionalRowsOf(schema), raw, state, '', `node ${n.id} ('${n.type}')`, diags)
       if (state.index < raw.length) {
         diags.push(imp('warning', 'import.widgets.excess', `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`))
         ext['importer.excessWidgetValues'] = raw.slice(state.index) as Json
@@ -1731,7 +1740,9 @@ function importLitegraphGraph(
       }
 
       for (const [familyPath, members] of discovered.order) {
-        dynamic[familyPath] = importedGroupState(families.find((family) => family.path === familyPath)!.group, members)
+        const { group } = families.find((family) => family.path === familyPath)!
+        // A count group's members follow its count; it stores no member list.
+        if (typeof group.grows === 'string') dynamic[familyPath] = importedGroupState(group, members)
       }
       if (schema.additionalInputs !== undefined) {
         const declared = elabInputsOf(elaborateInterface(schema, { values, dynamic }))
@@ -1758,10 +1769,20 @@ function importLitegraphGraph(
     for (const wire of wires.values()) if (wire.fromNode === n.id) linkedOutputSlots.add(wire.fromSlot)
     for (const entry of ueLinks) if (entry.upstream === n.id) linkedOutputSlots.add(entry.upstreamSlot)
     const outputEndpoints = new Map<number, JsonObject>()
-    // Member outputs of groups exist as the imported state elaborates them.
-    const memberOutputs = new Set(schema === undefined
+    // Member outputs of groups exist as the imported state elaborates them,
+    // with its wired inputs: a count read from a wire is not known, and an
+    // elaboration that fails makes no members.
+    const wiredInputs = new Set((n.inputs ?? []).flatMap((input, slot) => {
+      const name = input.widget?.name ?? input.name
+      return targetedSlots.has(slot) && typeof name === 'string' ? [name] : []
+    }))
+    const memberElaboration = schema === undefined ? undefined : elaborateInterface(schema, { values, dynamic }, {
+      ...EMPTY_CONNECTIVITY, isInputConnected: (port) => wiredInputs.has(port),
+    })
+    const memberOutputs = new Set(memberElaboration === undefined ||
+      memberElaboration.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
       ? []
-      : elabOutputsOf(elaborateInterface(schema, { values, dynamic }))
+      : elabOutputsOf(memberElaboration)
           .filter((output) => output.wireable !== false && output.address.port.includes('.'))
           .map((output) => output.address.port))
     for (const slot of linkedOutputSlots) {

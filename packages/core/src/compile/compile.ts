@@ -2986,7 +2986,7 @@ function compileImpl(
         ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional })),
         ...fn.elab.outputs.map((item, i) => ({ kind: 'output' as const, id: `output_${i}`, type: item.spec.type })),
       ]
-      const schema = { ...resolveNode(fn.graphId, fn.node)!, items }
+      const schema = { ...resolveNode(fn.graphId, fn.node)!, body: items }
       const projectedInputs = fn.elab.inputs.flatMap((input, i) => {
         const type = nativeInputType(fn, elabKeyOf(input.address))
         return type ? [{ type, to: { node: fn.node.id, port: `input_${i}` as PortRef['port'] } }] : []

@@ -18,7 +18,6 @@ import {
   type HostUiProviderV1,
   type Json,
   type MaterializeFrame,
-  type OutputDescriptorsSpec,
   type SourceFilenameSpec,
   type TypeExpr,
   type WidgetSpec,
@@ -27,7 +26,6 @@ import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canva
 import type { AppState, Tab } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
-import { OutputDescriptorEditor } from './OutputDescriptorEditor.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
 import { useAppMessage } from './locale.js'
@@ -60,13 +58,6 @@ export type EditorTarget =
         readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
         readonly owner?: DynamicEditOwner
         readonly materialize?: readonly MaterializeFrame[]
-      }
-      /** Occurrence-local owner of a COMBO option source's input family. */
-      readonly inputFamilyOwner?: {
-        readonly graphId: string
-        readonly nodeId: string
-        readonly construct: string
-        readonly memberIds: Readonly<Record<string, string>>
       }
       /** DynamicCombo selector row: commit via dynamic.selectOption instead. */
       readonly selector?: {
@@ -123,13 +114,6 @@ export interface WidgetEditorState {
   readonly initial: Json | undefined
   /** A known-missing stored ref must not issue an initial preview byte read. */
   readonly missingAssetDigest?: string
-  readonly outputDescriptors?: {
-    readonly spec: OutputDescriptorsSpec
-    readonly asset: unknown
-    readonly staleLinks: readonly { readonly linkId: string; readonly outputId: string }[]
-    readonly isCurrent: () => boolean
-    readonly onDisconnect: (linkId: string) => void
-  }
   readonly instancePath?: readonly string[]
   /** Host-decoded declarative editor supplied by the resolved WidgetView. */
   readonly hostUi?: {
@@ -400,22 +384,6 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       header={EditorHeader}
       popoverStyle={popoverStyle}
     />
-  ) : ed.outputDescriptors !== undefined ? (
-    <div ref={bindPopover} class="widget-editor floating-surface widget-editor-popover output-descriptor-popover" data-testid="widget-editor" role="dialog" aria-label="Edit output descriptors" style={popoverStyle}>
-      <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
-      <OutputDescriptorEditor
-        spec={ed.outputDescriptors.spec}
-        initial={ed.initial}
-        asset={ed.outputDescriptors.asset}
-        staleLinks={ed.outputDescriptors.staleLinks}
-        app={props.app}
-        tab={ed.tab}
-        isCurrent={ed.outputDescriptors.isCurrent}
-        onDisconnect={ed.outputDescriptors.onDisconnect}
-        onCommit={commitEditorValue}
-        onClose={close}
-      />
-    </div>
   ) : null
 
   return (

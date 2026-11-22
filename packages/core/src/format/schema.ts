@@ -485,7 +485,6 @@ export const WORKFLOW_SCHEMA = {
         { type: 'object', required: ['kind', 'templateId'], properties: { kind: { const: 'variable' }, templateId: { type: 'string', minLength: 1 }, allowedTypes: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
         { type: 'object', required: ['kind', 'element'], properties: { kind: { enum: ['list', 'asset', 'stream'] }, element: { $ref: '#/$defs/typeExpr' } } },
         { type: 'object', required: ['kind', 'elements'], properties: { kind: { const: 'tuple' }, elements: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
-        { type: 'object', required: ['kind', 'input'], properties: { kind: { const: 'family_tuple' }, input: { type: 'string', minLength: 1 } } },
         { type: 'object', required: ['kind', 'index'], properties: { kind: { const: 'tuple_element' }, input: { type: 'string' }, element: { $ref: '#/$defs/typeExpr' }, index: { type: ['string', 'number'] } } },
       ],
     },

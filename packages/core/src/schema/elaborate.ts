@@ -482,6 +482,19 @@ export function elaborateInterface(
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
   const emittedOutputs = new Set<string>()
+  // A dormant census visits every option and variant, so a row they share, or
+  // a row id two variants both declare, is emitted once per visit. Only rows
+  // in the chosen interface must have unique ids.
+  const activeInputs = new Set<string>()
+  const activeOutputs = new Set<string>()
+  const claim = (emitted: Set<string>, active: Set<string>, path: string, scope: Scope): boolean => {
+    if (!scope.dormant) {
+      if (active.has(path)) return false
+      active.add(path)
+    }
+    emitted.add(path)
+    return true
+  }
   const readState = new Set<string>()
   const tables = formulaTablesOf(schema.tables)
   const derived = new Map(Object.entries(schema.derived ?? {}))
@@ -600,11 +613,10 @@ export function elaborateInterface(
   })
 
   const emitInput = (row: InputSpec, path: string, scope: Scope, label?: string, extra: Partial<ElaboratedInput> = {}): void => {
-    if (emittedInputs.has(path)) {
+    if (!claim(emittedInputs, activeInputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
     }
-    emittedInputs.add(path)
     let spec: InputSpec = {
       ...row,
       id: path,
@@ -619,28 +631,6 @@ export function elaborateInterface(
       const stored = stateOf(path)?.options
       if (stored !== undefined) spec = { ...spec, widget: { ...widget, options: { ...widget.options, options: stored } } }
     }
-    const source = widget?.optionSource
-    if (widget !== undefined && source !== undefined) {
-      const group = `${scope.prefix}${source.inputFamily}`
-      const state = stateOf(group)
-      const members = state?.members ?? []
-      const labels = members.map((member) => state?.memberLabels?.[member] ?? member)
-      const duplicate = new Set(labels.filter((label, index) => labels.indexOf(label) !== index))
-      spec = {
-        ...spec,
-        widget: {
-          ...widget,
-          optionSource: { inputFamily: group },
-          options: {
-            ...widget.options,
-            options: members.map((member, index) => ({
-              value: member,
-              label: duplicate.has(labels[index]!) ? `${labels[index]} (${member})` : labels[index]!,
-            })),
-          },
-        },
-      }
-    }
     push({
       kind: 'input',
       address: { port: path },
@@ -652,11 +642,10 @@ export function elaborateInterface(
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
-    if (emittedOutputs.has(path)) {
+    if (!claim(emittedOutputs, activeOutputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected output namespace collision at '${path}'`)
       return
     }
-    emittedOutputs.add(path)
     push({
       kind: 'output',
       address: { port: path },
@@ -1034,11 +1023,10 @@ export function elaborateInterface(
         ...(row.hidden ? { hidden: true as const } : {}),
         ...(literalText(row.tooltip) !== undefined ? { tooltip: literalText(row.tooltip)! } : {}),
       }
-      if (emittedInputs.has(path)) {
+      if (!claim(emittedInputs, activeInputs, path, scope)) {
         exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
         return
       }
-      emittedInputs.add(path)
       push({
         kind: 'input',
         address: { port: path },
@@ -1063,6 +1051,8 @@ export function elaborateInterface(
       rows(option.rows, {
         ...scope,
         prefix: `${path}.`,
+        // A hidden choice hides its option's rows too; they are still stored and run.
+        hidden: scope.hidden || row.hidden === true,
         dormant: scope.dormant || !active,
         origin: { kind: 'branch', construct: path, option: option.key },
         shared,
@@ -1121,11 +1111,11 @@ export function elaborateInterface(
     }
     const inRun = !scope.ghost && !scope.dormant
     if (variant !== undefined && inRun) choices[path] = variant.key
-    if (variant !== undefined || row.required || view || census) {
+    if (variant !== undefined || row.required || view || census || linked(path)) {
       emitInput(
         { ...base, type: variant?.type ?? base.type, optional: variant === undefined ? !row.required : false },
         path,
-        variant === undefined && !census ? { ...scope, dormant: true } : scope,
+        variant === undefined && !census && !linked(path) ? { ...scope, dormant: true } : scope,
         undefined,
         {
           origin: {
@@ -1139,7 +1129,11 @@ export function elaborateInterface(
       )
     }
     if (variant !== undefined) dependents([...row.rows, ...variant.rows], variant.key, false)
-    else if (census) for (const item of row.variants) dependents([...row.rows, ...item.rows], item.key, true)
+    if (census) {
+      for (const item of row.variants) {
+        if (item !== variant) dependents([...(variant === undefined ? row.rows : []), ...item.rows], item.key, true)
+      }
+    }
   }
 
   /** The description stored under the row's own id, and one row per entry. */
@@ -1235,14 +1229,6 @@ export function elaborateInterface(
   }
 
   const project = (type: TypeExpr): TypeExpr => {
-    if (type.kind === 'family_tuple') {
-      return {
-        kind: 'tuple',
-        elements: elabInputsOf({ items })
-          .filter((input) => input.apiName !== undefined && input.origin.kind === 'member' && input.origin.construct === type.input)
-          .map((input) => input.spec.type),
-      }
-    }
     if (type.kind === 'tuple_element') {
       const input = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
       const element = type.element ?? (input?.kind === 'input' ? input.spec.type : undefined)

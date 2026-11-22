@@ -8,10 +8,12 @@ import {
   elabKeyOf,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
+import { memberKeyAt } from '../schema/body.js'
 import {
   cardinalityOf,
   inputsOf,
   outputsOf,
+  scopeRowsOf,
   type NodeSchema,
   type TypeExpr,
 } from '../schema/model.js'
@@ -104,11 +106,15 @@ export function convertLitegraphListConsumers(
       string,
       Mutable,
     ][]) {
+      // The helper feeds the concat node's first list member.
+      const concat = localResolve('std.list.concat')
+      const lists = concat && scopeRowsOf(concat.body).find((row) => row.kind === 'group' && row.id === 'lists')
+      const firstList = lists?.kind === 'group' && lists.value?.kind === 'input' ? memberKeyAt(lists.keys, 0) : undefined
       if (
         node['type'] === 'EndLoop' &&
         (node['mode'] === undefined || node['mode'] === 'active') &&
         !flattened.has(id) &&
-        localResolve('std.list.concat')
+        firstList !== undefined
       ) {
         const output = incomingTo(id).find(
           (link) => link['to']['port'] === 'output_value',
@@ -125,7 +131,7 @@ export function convertLitegraphListConsumers(
                 id: 'body',
                 type: 'std.list.concat',
                 values: {},
-                dynamic: { lists: { members: ['m0'], seq: 1 } },
+                dynamic: { lists: { members: [firstList], seq: 1 } },
               },
             },
             links: {},
@@ -139,8 +145,7 @@ export function convertLitegraphListConsumers(
                   binds: {
                     kind: 'port',
                     node: 'body',
-                    port: 'lists.lists',
-                    members: ['m0'],
+                    port: `lists.${firstList}`,
                   },
                 },
               ],

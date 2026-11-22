@@ -121,7 +121,6 @@ function checkTypeExpr(c: ShapeChecker, v: unknown, path: string): void {
     case 'tuple':
       if (c.arr(v['elements'], `${path}.elements`)) v['elements'].forEach((type, i) => checkTypeExpr(c, type, `${path}.elements[${i}]`))
       return
-    case 'family_tuple': c.str(v['input'], `${path}.input`, { nonEmpty: true }); return
     case 'tuple_element':
       c.optStr(v['input'], `${path}.input`)
       if (v['element'] !== undefined) checkTypeExpr(c, v['element'], `${path}.element`)

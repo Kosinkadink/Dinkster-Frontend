@@ -342,7 +342,6 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
     case 'stream':
       return { kind: w.kind, element: typeExprFromDinksterWire(w.element) }
     case 'tuple':
-    case 'family_tuple':
     case 'tuple_element':
       return wireType(wire, 'type')
     default:
@@ -480,11 +479,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'optionSource', 'editableOptions'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'editableOptions'], where, diags)
       if (descriptor['editableOptions'] !== undefined && typeof descriptor['editableOptions'] !== 'boolean') {
         throw new Error(`${where}.editableOptions must be a boolean`)
       }
-      if (descriptor['editableOptions'] === true && (descriptor['remote'] !== undefined || descriptor['optionSource'] !== undefined)) {
+      if (descriptor['editableOptions'] === true && descriptor['remote'] !== undefined) {
         throw new Error(`${where}.editableOptions cannot have another option source`)
       }
       const options = descriptor['options']
@@ -506,19 +505,8 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote.refreshButton must be a boolean`)
         }
       }
-      const optionSource = descriptor['optionSource']
-      if (optionSource !== undefined) {
-        if (typeof optionSource !== 'object' || optionSource === null || Array.isArray(optionSource)) {
-          throw new Error(`${where}.optionSource must be an object`)
-        }
-        const source = optionSource as Record<string, unknown>
-        checkWidgetFields(source, ['inputFamily'], `${where}.optionSource`, diags)
-        if (typeof source['inputFamily'] !== 'string' || source['inputFamily'] === '') {
-          throw new Error(`${where}.optionSource.inputFamily must be a non-empty string`)
-        }
-      }
-      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && optionSource === undefined && descriptor['editableOptions'] !== true) {
-        throw new Error(`${where} requires options, remote, or optionSource`)
+      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
+        throw new Error(`${where} requires options or remote`)
       }
       return
     }
@@ -771,7 +759,6 @@ function widgetFor(
       remote?: unknown
       labelOn?: unknown
       labelOff?: unknown
-      optionSource?: unknown
       editableOptions?: unknown
       min?: unknown
       max?: unknown
@@ -932,19 +919,7 @@ function widgetFor(
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
-      let optionSource: WidgetSpec['optionSource']
-      if (descriptor.optionSource !== undefined) {
-        const source = descriptor.optionSource as Record<string, unknown>
-        if (
-          typeof descriptor.optionSource === 'object' &&
-          descriptor.optionSource !== null &&
-          typeof source['inputFamily'] === 'string' &&
-          source['inputFamily'] !== ''
-        ) {
-          optionSource = { inputFamily: source['inputFamily'] }
-        }
-      }
-      if (options === undefined && remote === undefined && optionSource === undefined && descriptor.editableOptions !== true) {
+      if (options === undefined && remote === undefined && descriptor.editableOptions !== true) {
         diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
       } else {
         return {
@@ -952,7 +927,6 @@ function widgetFor(
           options: options !== undefined ? { options } : {},
           ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
           ...(remote !== undefined ? { remote } : {}),
-          ...(optionSource !== undefined ? { optionSource } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       }
@@ -1388,8 +1362,6 @@ function wireType(value: unknown, where: string): TypeExpr {
       if (!Array.isArray(type['elements'])) throw new Error(`${where}.elements must be an array`)
       return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
     }
-    case 'family_tuple':
-      return { kind: 'family_tuple', input: wireSegment(type['input'], `${where}.input`) }
     case 'tuple_element': {
       const input = type['input'] === undefined ? undefined : wireSegment(type['input'], `${where}.input`)
       const element = type['element'] === undefined ? undefined : wireType(type['element'], `${where}.element`)
@@ -2008,12 +1980,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     const decodedInputs = new Map(inputsOf(baseSchema).map((item) => [item.id, item]))
     const decodedOutputs = outputsOf(baseSchema)
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
-      if (type.kind === 'family_tuple') {
-        const family = scopeRowsOf(baseSchema.body).find((row) => row.kind === 'group' && row.id === type.input)
-        if (!output || family?.kind !== 'group' || !family.independentTypes || family.value === undefined) {
-          throw new Error('family_tuple requires an independent group of values and an output declaration')
-        }
-      } else if (type.kind === 'tuple_element') {
+      if (type.kind === 'tuple_element') {
         const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
         const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined
         if (!output || (type.input !== undefined && source === undefined)) throw new Error('tuple_element requires a tuple input of the node and an output declaration')

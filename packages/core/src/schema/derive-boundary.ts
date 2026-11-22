@@ -263,7 +263,15 @@ export function resolveBoundaryRoute(
       switch (row.kind) {
         case 'input':
         case 'output':
-          if (last) found = { side: row.kind, topItem: top, hops, terminal: { kind: 'port', slot: { ...row, id: full } } }
+          if (last) {
+            const route: BoundaryRoute = { side: row.kind, topItem: top, hops, terminal: { kind: 'port', slot: { ...row, id: full } } }
+            // An input and an output may share an id; keep looking for the expected side.
+            if (expectedSide !== undefined && row.kind !== expectedSide) {
+              found ??= route
+              continue
+            }
+            found = route
+          }
           break
         case 'group':
           if (last) {

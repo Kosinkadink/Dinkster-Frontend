@@ -36,6 +36,7 @@ import {
   valueKeyOf,
   type Connectivity,
   type ElaboratedInput,
+  type ElaboratedInterface,
 } from '../schema/elaborate.js'
 import { applyUse, defaultValuesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from '../schema/body.js'
 import {
@@ -95,7 +96,7 @@ export interface NodeReplacePlan {
   readonly values: Readonly<Record<string, Json>>
   /** Complete target dynamic state when a rule maps choices or input families. */
   readonly dynamic?: Readonly<Record<string, DynamicPortState>>
-  /** Source node and incoming topology read by copied input-family mappings. */
+  /** Source node and incoming topology read by copied group mappings. */
   readonly sourceStateGuard?: string
   /** Exact target schemas used to validate selected dynamic constructs. */
   readonly targetSchemaGuards?: ReadonlyArray<{
@@ -526,6 +527,18 @@ const familyDynamicState = (
 }
 
 /** A group of output values on the node's top scope. */
+/** The member keys of a top-level group, in order, as an elaboration made them; undefined with none. */
+const groupMembersOf = (elaborated: ElaboratedInterface, path: string): readonly string[] | undefined => {
+  const keys: string[] = []
+  for (const item of elaborated.items) {
+    if (item.kind !== 'input' && item.kind !== 'output') continue
+    const origin = item.ancestry?.find((ancestor) => ancestor.construct === path)
+    if (origin === undefined || origin.ghost === true) continue
+    if (!keys.includes(origin.member)) keys.push(origin.member as string)
+  }
+  return keys.length > 0 ? keys : undefined
+}
+
 const outputFamilyOf = (schema: NodeSchema, id: string): GroupSpec | undefined => {
   const group = topGroupOf(schema, id)
   return group?.value?.kind === 'output' ? group : undefined
@@ -555,7 +568,8 @@ interface TargetAddress {
 }
 
 interface TargetOutputAddress extends TargetAddress {
-  readonly members?: readonly string[]
+  /** A member of a target group of outputs, named by a members mapping. */
+  readonly member?: true
 }
 
 /**
@@ -1624,12 +1638,12 @@ function planReplacementForCase(
         )
         continue
       }
-      // Without the source's schema, the node's own stored state elaborates
-      // against the target, whose group has the same id.
+      // Without the source's schema, the members are those the target makes
+      // from the mapped values.
       const elaborated = sourceSchema === undefined
-        ? elaborateInterface(target, node, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+        ? elaborateInterface(target, { values, dynamic }, EMPTY_CONNECTIVITY, { promoteGhosts: false })
         : sourceInterface()
-      const sourceMembers = elaborated?.outputMembers?.[sourceSchema === undefined ? targetFamilyId : mapping.sourceFamily]
+      const sourceMembers = elaborated && groupMembersOf(elaborated, sourceSchema === undefined ? targetFamilyId : mapping.sourceFamily)
       if (
         elaborated === undefined ||
         elaborated.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
@@ -1676,6 +1690,7 @@ function planReplacementForCase(
           nodeId,
           port: `${targetFamilyId}.${member.suffix}`,
           schema: target,
+          member: true,
         })
       }
     }
@@ -1761,7 +1776,7 @@ function planReplacementForCase(
     }
     if (plannedTarget.nodeId !== nodeId) continue
     for (const [family, expected] of expectedTargetFamilies) {
-      const actual = elaborated.outputMembers?.[family]
+      const actual = groupMembersOf(elaborated, family)
       if (
         actual === undefined ||
         actual.length !== expected.length ||
@@ -1843,7 +1858,7 @@ function planReplacementForCase(
       )
       return
     }
-    if (side === 'output' && 'members' in to && to.members !== undefined) {
+    if (side === 'output' && 'member' in to && to.member === true) {
       errors.push(
         diag('error', 'replace.boundary.dynamicTarget', `replace: ${label} would move to a dynamic output member; detach the binding first`),
       )
@@ -1920,14 +1935,13 @@ function planReplacementForCase(
       dropLinks.push(...linkIds)
       continue
     }
-    if (to.nodeId !== nodeId || to.port !== output || to.members !== undefined)
+    if (to.nodeId !== nodeId || to.port !== output || to.member === true)
       for (const linkId of linkIds)
         outputRewires.push({
           link: linkId,
           port: to.port,
           ...(to.nodeId !== nodeId ? { node: to.nodeId } : {}),
-          ...(to.members !== undefined ? { members: to.members } : {}),
-          ...(to.members !== undefined ? { fromPort: output } : {}),
+          ...(to.member === true ? { fromPort: output } : {}),
         })
   }
   const preservedMemberLinks = new Set<string>(preservedMemberInputLinks)
@@ -2040,14 +2054,13 @@ function planReplacementForCase(
       dropNets.push(...netIds)
       continue
     }
-    if (to.nodeId !== nodeId || to.port !== output || to.members !== undefined)
+    if (to.nodeId !== nodeId || to.port !== output || to.member === true)
       for (const netId of netIds)
         netSourceRewires.push({
           net: netId,
           port: to.port,
           ...(to.nodeId !== nodeId ? { node: to.nodeId } : {}),
-          ...(to.members !== undefined ? { members: to.members } : {}),
-          ...(to.members !== undefined ? { fromPort: output } : {}),
+          ...(to.member === true ? { fromPort: output } : {}),
         })
   }
   const preservedMemberNets = new Set<string>()
@@ -2239,7 +2252,9 @@ function planReplacementForCase(
       caseIndex,
       values,
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
-      ...(Object.values(matched.inputFamilies ?? {}).some((mapping) => mapping.kind === 'copy')
+      // Copied groups read the source's stored state and wiring, such as a count.
+      ...([...Object.values(matched.inputFamilies ?? {}), ...Object.values(matched.outputFamilies ?? {})]
+        .some((mapping) => mapping.kind === 'copy')
         ? { sourceStateGuard: replacementSourceStateHash(def, node) }
         : {}),
       ...(hasTargetChoiceState ? { targetSchemaGuards } : {}),
