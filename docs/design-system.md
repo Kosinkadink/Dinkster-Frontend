@@ -4,6 +4,21 @@
 
 `ProductResourceUsage` draws a card's memory segments and the last two minutes of usage in the shared gallery's Resource usage page. Callers supply measured values, labels, units and timestamps. Missing segments and limits stay absent. History is positioned by elapsed time, not by sample index, and samples outside the current two-minute window are omitted. A compact variant reduces graph height when several cards share a panel. The legend and accessible SVG description expose the same numbers without relying on color.
 
+## Logo artwork
+
+The logo and wordmark use outlined vector contours from
+`branding/sources/dinkster-d.svg` and `letter-contours.svg`, assembled into
+`Dinkster_Master.svg`. Both accent bands are coral; cyan and the theme-specific
+lettering colors are unchanged. D outward corners use radius 24, the inward
+stem junction uses 38.4, and outward letter corners use 2.47. The k has a flat
+stem foot with its descending leg below the baseline. All sizes use the same
+artwork, without small-icon cuts or pixel edits. Interface yellow stays in
+the palette; it is not used by the logo.
+
+Build and export commands are in `branding/README.md`. Header, boot, About,
+gallery, website and account-page wordmarks consume those shared exports;
+Desktop takes the published frontend bundle's platform icons.
+
 ## Browser icons
 
 Browser tabs use the approved colored D in `branding/favicon/`. Its square
