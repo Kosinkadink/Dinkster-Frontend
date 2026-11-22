@@ -135,7 +135,6 @@ const isMoveFamilyKind = (kind: Gesture['kind']): boolean =>
   kind === 'group-resize' ||
   kind === 'resize'
 
-/** Whole lines a text box shows now, counting any resize surplus it was given. */
 /** The command that stores a widget row's new value where the row's value lives. */
 const rowValueCommand = (row: Extract<LayoutRow, { kind: 'widget' }>, graphId: string, nodeId: string, value: Json): CommandInvocation =>
   row.valueSourceOwner !== undefined
@@ -147,6 +146,7 @@ const rowValueCommand = (row: Extract<LayoutRow, { kind: 'widget' }>, graphId: s
       value,
     } }
 
+/** Whole lines a text box shows now, counting any resize surplus it was given. */
 const visibleTextBoxLines = (row: Extract<LayoutRow, { kind: 'widget' }>, tokens: DesignTokens): number =>
   Math.max(row.rows, Math.floor((row.height - multilineWidgetHeight(0, tokens)) / tokens.multilineText.lineHeight))
 

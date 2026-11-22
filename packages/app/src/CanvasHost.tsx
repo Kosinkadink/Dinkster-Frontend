@@ -3054,7 +3054,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           badge,
         })
       },
-      onValueSourceActivate: (vs) => openValueSourceEditor(vs),
+      // While a subgraph node is entered, its value through a source is
+      // edited on the Inputs panel, not on the pill.
+      onValueSourceActivate: (vs) => { if (vs.arriving === undefined) openValueSourceEditor(vs) },
       onValueSourceBadgeClick: (vs, rect) => {
         closePalette()
         setEditor(undefined)

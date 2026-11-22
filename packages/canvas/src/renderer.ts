@@ -1980,35 +1980,38 @@ export class CanvasRenderer {
         }),
     )
     // A field on the Inputs panel sends its value down its wire, so the inner
-    // field shows that value arriving rather than its own dormant one.
+    // field shows that value arriving rather than its own dormant one. A
+    // value source the entered node sends its value through does the same.
     const panelFieldValues = new Map<string, Json>()
     const panel = this.scene.boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
-    // Inner inputs each panel field reaches, directly or through reroutes.
-    const reached: Array<{ item: string; to: Extract<SceneLinkEnd, { kind: 'port' }> }> = []
-    const viaReroute = new Map<string, string>()
-    let pending = panel === undefined ? [] : this.scene.links.flatMap((link) =>
-      link.from.kind === 'boundary' && link.from.side === 'inputs' ? [{ item: link.from.item, to: link.to }] : [])
+    const sentValue = (from: SceneLinkEnd): Json | undefined => {
+      if (from.kind === 'valueSource') return this.scene.valueSources.find((vs) => vs.id === from.valueSource)?.arriving?.value
+      if (panel === undefined || from.kind !== 'boundary' || from.side !== 'inputs') return undefined
+      const key = panel.fields!.heads[from.item]
+      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
+      // A dropdown that leads options stays the inner node's editor of the
+      // occurrence's choice, as a selector row bound to the boundary does.
+      if (row?.kind !== 'widget' || row.selector !== undefined) return undefined
+      const wired = panel.fields!.wired
+      return Object.hasOwn(wired, row.valueKey) ? wired[row.valueKey]!.value
+        : panel.fields!.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
+    }
+    // Inner inputs each sent value reaches, directly or through reroutes.
+    const viaReroute = new Set<string>()
+    let pending = this.scene.links.flatMap((link) => {
+      const value = sentValue(link.from)
+      return value === undefined ? [] : [{ value, to: link.to }]
+    })
     while (pending.length > 0) {
       const next: typeof pending = []
-      for (const { item, to } of pending) {
-        if (to.kind === 'port') reached.push({ item, to })
+      for (const { value, to } of pending) {
+        if (to.kind === 'port') panelFieldValues.set(`${to.node}\u0000${portEndKey(to)}`, value)
         else if (to.kind === 'reroute' && !viaReroute.has(to.reroute)) {
-          viaReroute.set(to.reroute, item)
-          for (const link of this.scene.links) if (link.from.kind === 'reroute' && link.from.reroute === to.reroute) next.push({ item, to: link.to })
+          viaReroute.add(to.reroute)
+          for (const link of this.scene.links) if (link.from.kind === 'reroute' && link.from.reroute === to.reroute) next.push({ value, to: link.to })
         }
       }
       pending = next
-    }
-    for (const { item, to } of reached) {
-      const key = panel!.fields!.heads[item]
-      const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
-      // A dropdown that leads options stays the inner node's editor of the
-      // occurrence's choice, as a selector row bound to the boundary does.
-      if (row?.kind !== 'widget' || row.selector !== undefined) continue
-      const wired = panel!.fields!.wired
-      const value: Json | undefined = Object.hasOwn(wired, row.valueKey) ? wired[row.valueKey]!.value
-        : panel!.fields!.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
-      if (value !== undefined) panelFieldValues.set(`${to.node}\u0000${portEndKey(to)}`, value)
     }
     this.panelFieldValues = panelFieldValues
   }
@@ -4525,13 +4528,20 @@ export class CanvasRenderer {
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       const titleX = x + t.padX
+      const alpha = ctx.globalAlpha
+      // A value the entered subgraph node sends reads like any arriving
+      // value: a dimmed label and the value in the companion style.
+      if (vs.arriving !== undefined) ctx.globalAlpha = alpha * canvasPaintTokens.widget.connectedOpacity
       ctx.fillStyle = t.colors.label
       ctx.fillText(vs.title, titleX, y + vs.height / 2 + paint.baselineOffset, Math.max(0, textRight - titleX))
       const titleW = ctx.measureText(vs.title).width
+      ctx.globalAlpha = alpha
       const valueX = titleX + titleW + paint.valueGap
       if (valueX < textRight) {
-        ctx.fillStyle = t.colors.value
+        if (vs.arriving !== undefined) ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
+        ctx.fillStyle = vs.arriving !== undefined ? t.colors.companionValue : t.colors.value
         ctx.fillText(vs.valueText, valueX, y + vs.height / 2 + paint.baselineOffset, textRight - valueX)
+        ctx.font = `${t.fontSize}px ${t.fontFamily}`
       }
       ctx.textBaseline = 'alphabetic'
 

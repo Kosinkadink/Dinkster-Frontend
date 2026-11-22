@@ -4268,8 +4268,8 @@ describe('Inputs panel fields', () => {
       view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } }, g2: { nodes: {} } } },
     }).document as WorkflowDocument
     const store = new DocumentStore(doc, coreCommandRegistry())
-    /** Entered along `path` (none: from no node), the field's value, then the value after one plus press. */
-    const press = (path: readonly string[]): readonly [unknown, CommandInvocation] => {
+    /** Entered along `path` (none: from no node): the field's value and the value its pill shows arriving, after one plus press. */
+    const press = (path: readonly string[]): readonly [unknown, CommandInvocation, unknown] => {
       const resolve = documentResolver(store.doc, (type) => type === 'Blur' ? blur : undefined)
       const scene = buildScene({
         document: store.doc, graphId: 'g1', resolve, tokens: defaultTokens,
@@ -4290,23 +4290,25 @@ describe('Inputs panel fields', () => {
       expect(harness.dispatched).toHaveLength(1)
       const invocation = harness.dispatched[0] as CommandInvocation
       expect(store.dispatch(invocation).ok).toBe(true)
-      return [panel.fields!.node.values['strength'], invocation]
+      return [panel.fields!.node.values['strength'], invocation, scene.valueSources.find((vs) => vs.id === 's0')?.arriving?.value]
     }
     const source = () => store.doc.graphs['g1']!.valueSources!['s0']!.value
     const value = (graph: string, node: string, key: string) => store.doc.graphs[graph]!.nodes[node]!.values[key]
 
-    expect(press(['set'])[0]).toBe(6)
+    // The pill shows the value the entered node sends, as an arriving value.
+    expect(press(['set'])).toEqual([6, expect.anything(), 6])
     expect(value('g0', 'set', 'strength')).toBe(7)
-    expect(press(['unset'])[0]).toBe(3)
+    expect(press(['unset'])).toEqual([3, expect.anything(), 3])
     expect(value('g0', 'unset', 'strength')).toBe(4)
     // One level down, the outer node that promotes the input owns its value.
-    expect(press(['outer', 'mid'])[0]).toBe(20)
+    expect(press(['outer', 'mid'])).toEqual([20, expect.anything(), 20])
     expect(value('g0', 'outer', 'amount')).toBe(21)
     expect(value('g2', 'mid', 'strength')).toBe(9)
     expect(source()).toBe(3)
     // From no node the field is the source's own value, its default.
-    const [shown, invocation] = press([])
+    const [shown, invocation, arriving] = press([])
     expect(shown).toBe(3)
+    expect(arriving).toBeUndefined()
     expect(invocation.command).toBe('valueSource.setValue')
     expect(source()).toBe(4)
     expect(store.undo()).toBe(true)

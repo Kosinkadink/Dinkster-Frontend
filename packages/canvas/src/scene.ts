@@ -495,6 +495,12 @@ export interface SceneValueSource {
   readonly specState: 'declared' | 'derived' | 'raw'
   /** Derivation reported conflicts (badge renders as a warning). */
   readonly conflict: boolean
+  /**
+   * While a subgraph node is entered, the value it sends through this
+   * source, which the Inputs panel edits. The pill shows it dimmed and is
+   * not edited there.
+   */
+  readonly arriving?: { readonly value: Json }
 }
 
 export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
@@ -1631,6 +1637,31 @@ export function buildScene(input: BuildSceneInput): Scene {
     byId.set(node.id, sceneNode)
   }
 
+  // The subgraph node the editor came in through, and the graph it sits in.
+  let ownerNode: NodeData | undefined
+  let ownerGraph: GraphDef | undefined
+  if (input.occurrence !== undefined) {
+    ownerGraph = input.document.graphs[input.document.root]
+    for (const hop of input.occurrence.owner.instancePath) {
+      const hopNode = ownerGraph?.nodes[hop]
+      ownerGraph = hopNode?.type.startsWith('#') ? input.document.graphs[hopNode.type.slice(1)] : undefined
+    }
+    ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
+  }
+  // While a node is entered, a value source that node shows as a field sends
+  // the node's value (or the outer owner's), else its own.
+  const sentSourceValues = new Map<string, Json>()
+  if (ownerNode !== undefined) {
+    for (const item of def.boundary?.inputs ?? []) {
+      const source = item.binds.kind === 'valueSource' && item.promoted === true ? def.valueSources?.[item.binds.valueSource] : undefined
+      if (source === undefined) continue
+      const occurrence = input.occurrenceView?.valueSources?.get(source.id)
+      const value = occurrence !== undefined ? occurrence.value
+        : Object.hasOwn(ownerNode.values, item.id) ? ownerNode.values[item.id] : undefined
+      sentSourceValues.set(source.id, value !== undefined ? value : source.value)
+    }
+  }
+
   // Value sources: compact literal pills. Semantics from GraphDef, geometry
   // from view state (fallback stack for imports that lost positions), the
   // effective spec derived fresh every build - NEVER stored (hazard P1).
@@ -1644,7 +1675,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
-    const valueText = valueSourceValueText(vs.value)
+    const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
+    const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
     const width = Math.min(
       input.tokens.nodeMaxAutoWidth,
       Math.max(
@@ -1672,6 +1704,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(typeName !== undefined ? { typeName } : {}),
       specState: vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw',
       conflict: effective.diagnostics.length > 0,
+      ...(sent !== undefined ? { arriving: sent } : {}),
     }
     valueSources.push(sceneSource)
     valueSourceById.set(vs.id, sceneSource)
@@ -2033,17 +2066,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     const derivedInputs = derived ? inputsOf(derived) : []
     const derivedOutputs = derived ? outputsOf(derived) : []
 
-    let ownerNode: NodeData | undefined
-    let ownerGraph: GraphDef | undefined
-    if (input.occurrence !== undefined) {
-      ownerGraph = input.document.graphs[input.document.root]
-      for (const hop of input.occurrence.owner.instancePath) {
-        const hopNode = ownerGraph?.nodes[hop]
-        ownerGraph = hopNode?.type.startsWith('#') ? input.document.graphs[hopNode.type.slice(1)] : undefined
-      }
-      ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
-    }
-
     // Field rows: each input the subgraph node outside shows as a field
     // shows as the same field here. Its value is the one the inner node
     // receives in this occurrence (the entered node's value, else the
@@ -2062,10 +2084,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         const source = def.valueSources?.[binds.valueSource]
         if (source === undefined) continue
         const occurrence = input.occurrenceView?.valueSources?.get(source.id)
-        const value = occurrence !== undefined ? occurrence.value
-          : ownerNode !== undefined && Object.hasOwn(ownerNode.values, item.id) ? ownerNode.values[item.id] : undefined
         const controller = occurrence !== undefined ? occurrence.controller : ownerNode?.controllers?.[item.id]
-        fieldValues[item.id] = value ?? source.value
+        fieldValues[item.id] = sentSourceValues.has(source.id) ? sentSourceValues.get(source.id)! : source.value
         if (controller !== undefined) fieldControllers[item.id] = controller
         fieldOwners.set(item.id, occurrence?.owner ?? (ownerNode !== undefined && ownerGraph !== undefined
           ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
