@@ -34,8 +34,6 @@ const boot = async (page: Page): Promise<void> => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
   await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
-    .some((problem) => problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(false)
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
@@ -183,9 +181,7 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 const emptyVisualBackend = async (route: Route): Promise<void> => {
   const path = new URL(route.request().url()).pathname
-  if (path.endsWith('/api/library/retention-clients')) {
-    await route.fulfill({ status: 404 })
-  } else if (path.endsWith('/api/nodes')) {
+  if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
       dinkster: { version: 'visual-fixture', schemaWire: 1 },
@@ -222,8 +218,6 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { packs: [], installed: [], extra: [], unknown: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
-  } else if (path.includes('/api/library/retentions/document/') || path.includes('/api/library/retentions/preview/')) {
-    await route.fallback()
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
   }
@@ -452,8 +446,6 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
 test('HTTP metadata errors expose shell status and panel retries', async ({ page }) => {
   let recover = false
   await page.route('**/offline-visual/api/**', async (route) => {
-    if (new URL(route.request().url()).pathname.endsWith('/api/library/retention-clients'))
-      return route.fulfill({ status: 404 })
     if (!recover) return route.fulfill({ status: 503, body: 'Metadata fixture unavailable' })
     await emptyVisualBackend(route)
   })
@@ -1044,7 +1036,7 @@ test('Region iteration states keep unavailable, loading and retained refusal exp
   for (const [state, text] of [
     ['empty', 'No retained iteration activity is available for this region.'],
     ['no-outputs', 'This body node has no inspectable outputs.'],
-    ['unavailable', 'The execution owner is unavailable.'],
+    ['unavailable', 'The execution backend is unavailable.'],
     ['loading', 'Loading retained value...'],
     ['refused', 'This intermediate is no longer retained.'],
   ] as const) {
@@ -1156,21 +1148,26 @@ test('Asset selection instructions stay readable for the rail and single or mult
         const componentPath = '/src/editors/AssetWidgetEditor.tsx'
         const { AssetWidgetEditor } = await import(componentPath)
         const singleType = { kind: 'concrete', name: 'ASSET' }
+        const tab = { store: { doc: {}, revision: 0 } }
+        const backend = { id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
+          status: { subscribe: () => () => {} },
+          listMounts: async () => [],
+          listLocalAssets: async () => ({ assets: [] }),
+          checkAssetAvailability: async () => [],
+          onMountsChanged: () => () => {},
+          fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
+          fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
+        } }
         dispose = render(() => AssetWidgetEditor({
           app: {
-            backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
-              listMounts: async () => [],
-              listLocalAssets: async () => ({ assets: [] }),
-              checkAssetAvailability: async () => [],
-              onMountsChanged: () => () => {},
-              fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
-              fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
-            } }),
+            backendForTab: () => backend,
+            registryForTab: () => undefined,
+            tabs: { get: () => [tab] },
             dispatchTo: () => { host.dataset['committed'] = 'true' },
             widgetRegistry: { kind: () => undefined },
           },
           ed: {
-            tab: {}, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
+            tab, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
             label: 'Reference file', spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
             declaredType: mode === 'multiple' ? { kind: 'list', element: singleType } : singleType,
             multiline: false, rect: { x: 20, y: 20, width: 180, height: 24 }, initial: mode === 'multiple' ? [] : null,

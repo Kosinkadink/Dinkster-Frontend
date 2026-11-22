@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 test.use({ hasTouch: true })
 
@@ -80,7 +80,7 @@ async function targetNativeBackend(page: Page): Promise<void> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const opened = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{

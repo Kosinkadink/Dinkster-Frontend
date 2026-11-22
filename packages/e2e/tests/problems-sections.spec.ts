@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 test.use({ seedWorkflows: false })
@@ -7,7 +7,7 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
@@ -55,7 +55,7 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{

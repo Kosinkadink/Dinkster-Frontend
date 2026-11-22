@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, nativeTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, nativeTest as documentTest, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const fanoutProofDir = process.env['DINKSTER_CONTROLLER_FANOUT_PROOF_DIR']
 if (fanoutProofDir) mkdirSync(fanoutProofDir, { recursive: true })
@@ -62,15 +62,14 @@ const state = (page: Page) => page.evaluate(() => {
 test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   const mockControllerDispatch = testInfo.annotations.some((annotation) => annotation.type === 'mock-controller-dispatch')
   if (mockControllerDispatch) {
-    await page.route('**/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
-      ? route.fallback() : route.fulfill({ status: 503, json: {} }))
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 1 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     return
   }
   const mockLegacyDiscovery = testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')
@@ -82,7 +81,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   if (!seedWorkflows) return
   await page.evaluate(() => {
     const test = window.__dinksterTest! as any

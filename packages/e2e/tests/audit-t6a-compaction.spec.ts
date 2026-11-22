@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-t6a-proof'
 
@@ -67,7 +67,7 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
     const test = window.__dinksterTest!

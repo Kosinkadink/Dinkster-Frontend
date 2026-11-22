@@ -85,39 +85,24 @@ Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.
 
-Native asset pickers confirm an independent complete owner for validated selections
-on open and before publishing a newly selected reference or starting its server
-preview. Apply stays disabled during initial admission and after refusal until a
-selection is admitted; Cancel remains available. Picks are processed
-in invocation order; Apply is disabled while a pick is pending. Refusal preserves
-the previous selection and reports the failure inline. Removing or clearing a
-selection also admits its replacement inventory. After publication, the previous
-locally admitted owner retires only after its in-flight body reads finish, while
-independent owners remain untouched. Cancel discards the local
-draft without releasing acknowledged owners. The staged selection keeps its
-acknowledged reader across a planned stream resume and a semantically equivalent
-registry replacement. Any real change to the complete admission catalog, including
-an unrelated node's schema or widget fields, invalidates that reader; locale-only
-labels do not. A changed project, document, revision, connection generation,
-backend, or closed session also refuses further staging and Apply until the picker
-is reopened. Apply still confirms the document command separately. This does not
-enable backend cleanup eligibility.
+Native asset pickers stage validated references directly, without recording a
+file list or waiting for cleanup checks. Apply commits the staged selection as
+a document command; Cancel leaves the stored value unchanged. A changed
+project, document, revision, backend or closed session prevents a stale
+selection from being applied until the picker is reopened.
 
 Missing model selections say "Not on disk" and explain that download is offered
 when the workflow runs. The picker does not start downloads or show a disabled
 download control. Download approval belongs to the pre-run approval dialog;
 local matching, selection, Cancel and Undo retain their usual behavior.
 
-The registered audio-recording editor uses the same independent ownership
-before replacing its draft or fetching playback bytes for a saved recording.
-While acknowledgement is pending, Use asset stays disabled and Cancel remains
-available. A refused recording keeps the previous draft and the local clip for
-retry; an acknowledged recording still needs Use asset to change the document.
+The audio-recording editor uploads a saved recording and stages the returned
+reference for playback. Use asset changes the document; Cancel does not. A
+failed upload keeps the previous draft and the local clip for retry.
 
 Selected-image and recorded-audio preview byte reads are cancelled when their
-preview is replaced, removed or closed. Late results are still ignored if a
-transport completes after cancellation. Cancellation alone does not retire asset owners or
-prove that queued model posters and other consumers have finished reading.
+preview is replaced, removed or closed. Late results are ignored if a
+transport completes after cancellation.
 Closing Painter or Load3d also cancels pending saved-source byte reads,
 including verified digests and granted local bindings. Load3d uses the same
 signal for its primary model and named sidecars; stale results remain refused.
@@ -144,10 +129,9 @@ uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
 dialog leaves the stored value unchanged. Camera errors retain the browser's
 named error (for example NotFoundError when no camera is available).
-A captured draft and its preview wait for independent complete asset admission.
-Replacement keeps the previous draft and owner until acknowledgment and
-publication; failed or obsolete admission leaves that draft unchanged. Closing
-the dialog revokes its local preview URL but does not release its retained owner.
+A captured frame is staged after its upload completes, without cleanup checks.
+A failed upload leaves the prior draft unchanged. Closing the dialog revokes
+its local preview URL.
 With capture_on_queue enabled, queue captures and saves a fresh frame for each
 included camera before submitting. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
