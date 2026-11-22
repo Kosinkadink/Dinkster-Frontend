@@ -169,7 +169,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
   boundary:
-    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires.",
+    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength is shown on the node without a wire and carries the subgraph icon.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',

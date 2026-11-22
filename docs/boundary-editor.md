@@ -68,6 +68,34 @@ subgraph is dimmed and not editable, and shows the arriving value when the
 document fixes it. A frozen run view shows the values that run used and
 edits nothing.
 
+## Showing a field on the subgraph node
+
+Inside a subgraph, the right-click menu of a field on an inner node offers
+**Show on subgraph node**. It adds a boundary input bound to that field,
+at the end of the inputs and in one undo step, and the subgraph node
+outside shows it as a field with a pin, starting from the inner field's
+value. No wire is drawn inside: the Inputs panel row is a field without a
+pin, and the inner field shows the entered node's value dimmed, as a wired
+one does. A dropdown that leads options is shown through its options
+binding. The entry is not offered in the top-level workflow, on a field
+a wire or another input already drives, or on a field the subgraph node cannot show
+(a member of a forwarded group, a construct, a row with no stored value).
+
+On a field already on the subgraph node the entry reads **Remove from
+subgraph node** and removes that input. A field whose wire is drawn also
+offers **Hide wire**, which keeps the input and every node's value.
+Dragging a wire from the Inputs panel to a field also puts the field on the
+subgraph node; dragging one to a field shown without a wire draws its wire
+again and keeps the same input. Whether the wire is drawn is stored with the
+input in the document, so a shared session and every later opening agree;
+it never changes what runs.
+
+A field shown without a wire carries the cyan subgraph icon before its name,
+on the inner node and on its Inputs panel row; a field whose wire is drawn
+and the subgraph node outside carry none. Hovering the icon names the input
+("On the subgraph node as strength"); clicking it opens the Boundary panel
+with that input selected.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become
