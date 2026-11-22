@@ -284,7 +284,7 @@ export interface SceneBoundaryNode {
   readonly fields?: {
     readonly node: NodeData
     /** Rows wired outside the subgraph: dimmed and not editable, with the arriving value when the document fixes it. */
-    readonly wired: ReadonlyMap<string, Json | undefined>
+    readonly wired: Readonly<Record<string, { readonly value?: Json }>>
   }
 }
 
@@ -2027,9 +2027,13 @@ export function buildScene(input: BuildSceneInput): Scene {
       const port = binds.port as string
       const values = input.occurrenceView?.values?.get(inner.id) ?? inner.values
       const controllers = input.occurrenceView?.controllers?.get(inner.id) ?? inner.controllers
-      if (Object.hasOwn(values, port)) fieldValues[item.id] = values[port]!
-      if (controllers !== undefined && Object.hasOwn(controllers, port)) fieldControllers[item.id] = controllers[port]!
       const owner = input.occurrenceView?.valueOwners?.get(inner.id)?.get(port)
+      // Without the occurrence's owner the entered node's own value is shown,
+      // because that node is where an edit is written.
+      const entered = owner === undefined && ownerNode !== undefined && Object.hasOwn(ownerNode.values, item.id)
+      if (entered) fieldValues[item.id] = ownerNode!.values[item.id]!
+      else if (Object.hasOwn(values, port)) fieldValues[item.id] = values[port]!
+      if (controllers !== undefined && Object.hasOwn(controllers, port)) fieldControllers[item.id] = controllers[port]!
       fieldOwners.set(item.id, owner ?? (ownerNode !== undefined && ownerGraph !== undefined
         ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
         : { graphId: def.id, nodeId: inner.id, valueKey: port }))
@@ -2042,25 +2046,34 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>>()
     if (derived !== undefined && fieldOwners.size > 0) {
+      // The entered node's chosen views, so a field drawn as a slider there
+      // is a slider here too.
+      const views = ownerNode !== undefined && ownerGraph !== undefined
+        ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]?.views
+        : undefined
       const outside = layoutNode(derived, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+        ...(views !== undefined ? { widgetRepresentations: views } : {}),
       })
       for (const row of outside.rows) {
         const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
-        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.address.members !== undefined) continue
+        // Rows whose options are edited on the node (editable choices,
+        // family members) stay pins: those edits target the node itself.
+        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.address.members !== undefined ||
+          row.optionsTarget !== undefined || row.inputFamilyOwner !== undefined) continue
         outsideRows.set(row.inputId, { ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } })
       }
     }
     // A value the owner receives by a wire outside the subgraph is not
     // edited here; a document literal on that wire is shown instead.
-    const wiredFields = new Map<string, Json | undefined>()
+    const wiredFields: Record<string, { value?: Json }> = {}
     const drivenByGraph = new Map<string, ReturnType<typeof companionSourcesOf>>()
     for (const [itemId, owner] of fieldOwners) {
       const graph = input.document.graphs[owner.graphId]
       if (!outsideRows.has(itemId) || owner.graphId === def.id || graph === undefined) continue
       if (!drivenByGraph.has(graph.id)) drivenByGraph.set(graph.id, companionSourcesOf(graph, undefined, undefined, input.resolve))
       const driven = drivenByGraph.get(graph.id)!.get(owner.nodeId)?.get(owner.valueKey)
-      if (driven !== undefined) wiredFields.set(itemId, driven.kind === 'literal' ? driven.value : undefined)
+      if (driven !== undefined) wiredFields[itemId] = driven.kind === 'literal' ? { value: driven.value } : {}
     }
     const fieldsSubtitle = outsideRows.size === 0
       ? undefined

@@ -325,7 +325,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       const face = boundaryFieldNode(bnode)
       for (const row of l.rows) {
         // A field wired outside the subgraph is not edited here: it is body.
-        if (row.kind === 'widget' && face !== undefined && !bnode.fields!.wired.has(row.valueKey)) {
+        if (row.kind === 'widget' && face !== undefined && !Object.hasOwn(bnode.fields!.wired, row.valueKey)) {
           const ry = bnode.y + row.y
           const width = row.width ?? l.width - row.inset * 2
           if (wy < ry || wy > ry + row.height || wx < bnode.x + row.inset || wx > bnode.x + row.inset + width) continue
