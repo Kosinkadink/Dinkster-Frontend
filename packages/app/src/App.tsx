@@ -40,7 +40,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import Menu from 'lucide-solid/icons/menu'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
@@ -440,6 +440,7 @@ export function App(props: {
   const tabs = useSignal(app.tabs)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
+  const tabResultClears = useSignal(app.clearedTabResults)
   const collabTabs = useSignal(app.collabTabs)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
@@ -716,6 +717,26 @@ export function App(props: {
     if (!pending || !pendingCloseStillCurrent(pending)) return
     requestTabClose(pending, true)
   }
+
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
+  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+    const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
+    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+      setPendingCloseOthers(others)
+      return
+    }
+    for (const other of others) requestTabClose(other, false)
+  }
+  const confirmCloseOthers = (): void => {
+    const pending = pendingCloseOthers()
+    setPendingCloseOthers(undefined)
+    if (!pending || !pending.every(pendingCloseStillCurrent)) return
+    for (const tab of pending) requestTabClose(tab, false)
+  }
+  createEffect(() => {
+    const pending = pendingCloseOthers()
+    if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
+  })
 
   const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
@@ -2369,6 +2390,11 @@ export function App(props: {
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            runState={(tab) => {
+              executions()
+              tabResultClears()
+              return app.tabRunState(tab)
+            }}
             isDirty={(tab) => dirtyTabs().has(tab.id)}
             isFrozen={(tab) => tab.execution !== undefined}
             isShared={(tab) => collabTabs().has(tab.id)}
@@ -2385,6 +2411,17 @@ export function App(props: {
             }}
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
+            onRename={(tab, title) => app.renameTab(tab.id, title)}
+            onDuplicate={(tab) => {
+              void app.duplicateTab(tab.id).then((copy) => {
+                if (!copy) return
+                updateSplitLayout((layout) => {
+                  const source = findGroup(layout, p.groupId)
+                  return source ? moveTabToGroup(layout, copy.id, p.groupId, source.tabIds.indexOf(tab.id) + 1) : layout
+                })
+              })
+            }}
+            onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
             canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
@@ -2408,6 +2445,15 @@ export function App(props: {
               : undefined}
             canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
+            targets={backends()}
+            targetId={(tab) => {
+              tabTargets()
+              return app.backendForTab(tab).id
+            }}
+            onSetTarget={(tab, id) => {
+              const backend = backends().find((candidate) => candidate.id === id)
+              if (backend) app.setTabTarget(tab.id, backend.id)
+            }}
             previews={(tab) => tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
               if (tab.execution !== undefined) return
@@ -2605,12 +2651,31 @@ export function App(props: {
               <p>{message('shell.close.confirm', { title: pending.title })}</p>
               <ProductActionFooter>
                 <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <ProductButton variant="danger" type="button" onClick={confirmPendingClose}>{message('shell.close.discard')}</ProductButton>
+                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
               </ProductActionFooter>
             </div>
           </ModalSurface>
         )}
       </Show>
+      <Show when={pendingCloseOthers()} keyed>{(pending) => (
+        <ModalSurface
+          title={message('shell.workflowTabs.closeOthers')}
+          ariaLabel={message('shell.workflowTabs.closeOthers')}
+          modalId="close-other-tabs"
+          testId="close-other-tabs-dialog"
+          closeLabel={message('shell.close.cancel')}
+          onRequestClose={() => setPendingCloseOthers(undefined)}
+        >
+          <div class="close-tab-confirm">
+            <p>{message('shell.close.othersConfirm')}</p>
+            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
+            <ProductActionFooter>
+              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
+              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
+            </ProductActionFooter>
+          </div>
+        </ModalSurface>
+      )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
         brand={
