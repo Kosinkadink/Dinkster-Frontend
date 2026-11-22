@@ -6,7 +6,7 @@
  * file owns "given those flags, the right pixels get the right color".
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, documentResolver, loadDocument, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
 import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
@@ -310,6 +310,56 @@ const typedLensLink = (
   x2,
   y2,
   typeName,
+})
+
+describe('subgraph field values', () => {
+  it('paints the compiled values on a bare scene, inheriting unset option fields and retaining instance overrides', () => {
+    const gain: InputSpec = {
+      kind: 'input', id: 'gain', type: typed('INT'), optional: true,
+      widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 },
+    }
+    const schema: NodeSchema = {
+      type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
+      items: [gain, {
+        kind: 'input', id: 'mode', type: typed('COMBO'), optional: true,
+        dynamic: { kind: 'dynamicCombo', options: [{ key: 'soft', inputs: [gain] }] },
+      }],
+    }
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'inherited-fields', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 10, links: {}, nets: {}, reroutes: {}, nodes: {
+          inherited: { id: 'inherited', type: '#body', values: {} },
+          overridden: { id: 'overridden', type: '#body', values: { plain: 7, 'choice.[soft].gain': 9 } },
+        } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 10, links: {}, nets: {}, reroutes: {}, nodes: {
+          leaf: { id: 'leaf', type: 'Modal', values: { gain: 4, 'mode.[soft].gain': 3 }, dynamic: { mode: { selected: 'soft' } } },
+        }, boundary: { inputs: [
+          { id: 'plain', promoted: true, binds: { kind: 'port', node: 'leaf', port: 'gain' } },
+          { id: 'choice', binds: { kind: 'dynamicCombo', node: 'leaf', port: 'mode' } },
+        ], outputs: [] } },
+      },
+      view: { graphs: { root: { nodes: {
+        inherited: { position: { x: 40, y: 40 } },
+        overridden: { position: { x: 400, y: 40 } },
+      } } } },
+    }).document!
+    const resolve = documentResolver(doc, (type) => type === schema.type ? schema : undefined)
+    const compiled = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error('Compile failed')
+    const scene = buildScene({ document: doc, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const [id, plain, option] of [['inherited', 4, 3], ['overridden', 7, 9]] as const) {
+      expect(compiled.artifact.prompt[`${id}.leaf`]!.inputs).toMatchObject({ gain: plain, 'mode.gain': option })
+      const calls = paint({ ...scene, nodes: scene.nodes.filter((node) => node.id === id) })
+      const text = calls.filter((call) => call.method === 'fillText').map((call) => call.args[0])
+      expect(text).toContain(String(option))
+      const node = scene.nodes.find((node) => node.id === id)!
+      const plainRow = node.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'plain')!
+      expect(plainRow.kind === 'widget' ? node.node.values['plain'] ?? plainRow.spec.default : undefined).toBe(plain)
+    }
+    expect(doc.graphs['root']!.nodes['inherited']!.values).toEqual({})
+  })
 })
 
 describe('viewport animation', () => {
