@@ -18,7 +18,7 @@ export function withMaterializeFrames(
           params: {
             graphId,
             nodeId,
-            frames: frames.map((frame) => ({ construct: frame.construct, members: [...frame.members] })),
+            frames: frames.map((frame) => ({ ...frame, members: [...frame.members] })),
           },
         },
         { command: action.command, params: action.params },

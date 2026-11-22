@@ -465,7 +465,7 @@ export function linkSpliceInvocations(
   if (!input || !output) return []
   const materialize = (target: NonNullable<typeof input>): CommandInvocation[] => target.materialize ? [{
     command: 'dynamic.materialize',
-    params: { graphId, nodeId, frames: target.materialize.map((frame) => ({ construct: frame.construct, members: [...frame.members] })) },
+    params: { graphId, nodeId, frames: target.materialize.map((frame) => ({ ...frame, members: [...frame.members] })) },
   }] : []
   const inputEnd = { node: nodeId, port: input.port }
   const outputEnd = { node: nodeId, port: output.port }
@@ -490,7 +490,7 @@ export function rerouteDropInvocations(
   if (!from || !to) return []
   return [
     { command: 'reroute.add', params: { graphId, position } },
-    ...(drop.fixedMaterialize ? [{ command: 'dynamic.materialize', params: { graphId, nodeId: drop.fixedMaterialize.nodeId, frames: drop.fixedMaterialize.frames.map((frame) => ({ construct: frame.construct, members: [...frame.members] })) } } as CommandInvocation] : []),
+    ...(drop.fixedMaterialize ? [{ command: 'dynamic.materialize', params: { graphId, nodeId: drop.fixedMaterialize.nodeId, frames: drop.fixedMaterialize.frames.map((frame) => ({ ...frame, members: [...frame.members] })) } } as CommandInvocation] : []),
     { command: 'link.connect', params: { graphId, from, to } },
   ]
 }
@@ -516,12 +516,12 @@ export function linkDropInvocations(
   const to = drop.seeking === 'in' ? newEnd : drop.fixedInto
   if (from === undefined || to === undefined) return []
   const out: CommandInvocation[] = []
-  const materializeOf = (owner: string, frames: readonly { construct: string; members: readonly string[] }[]): CommandInvocation => ({
+  const materializeOf = (owner: string, frames: readonly { construct: string; members: readonly string[]; seq?: number }[]): CommandInvocation => ({
     command: 'dynamic.materialize',
     params: {
       graphId,
       nodeId: owner,
-      frames: frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+      frames: frames.map((f) => ({ ...f, members: [...f.members] })),
     },
   })
   if (drop.fixedMaterialize !== undefined) {

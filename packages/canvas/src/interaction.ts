@@ -346,7 +346,7 @@ function withMaterialize(
           params: {
             graphId,
             nodeId: s.nodeId,
-            frames: s.frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+            frames: s.frames.map((f) => ({ ...f, members: [...f.members] })),
           },
         })),
         { command: action.command, params: action.params },
@@ -376,7 +376,7 @@ function composeBatch(
       params: {
         graphId,
         nodeId: s.nodeId,
-        frames: s.frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+        frames: s.frames.map((f) => ({ ...f, members: [...f.members] })),
       },
     })),
     ...ops.map((op) => ({ command: op.command, params: op.params })),
@@ -3414,7 +3414,7 @@ export class InteractionController {
             params: {
               graphId: scene.graphId,
               nodeId: g.hit.node.id,
-              frames: g.hit.row.frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+              frames: g.hit.row.frames.map((f) => ({ ...f, members: [...f.members] })),
             },
           })
         }

@@ -444,7 +444,7 @@ describe('reviewed fixes', () => {
       seeking: 'in', anchorType: { kind: 'concrete', name: 'comfy.MASK' }, anchorX: 0, anchorY: 0,
       fixedFrom: { node: 'source', port: 'mask' },
     }, 'g0', 'batch', batch)).toEqual([
-      { command: 'dynamic.materialize', params: { graphId: 'g0', nodeId: 'batch', frames: [{ construct: 'values', members: ['value1'] }] } },
+      { command: 'dynamic.materialize', params: { graphId: 'g0', nodeId: 'batch', frames: [{ construct: 'values', members: ['value1'], seq: 1 }] } },
       { command: 'link.connect', params: { graphId: 'g0', from: { node: 'source', port: 'mask' }, to: { node: 'batch', port: 'values.value1' } } },
     ])
     expect(linkDropInvocations({
