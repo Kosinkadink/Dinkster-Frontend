@@ -124,6 +124,7 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
+import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -3168,6 +3169,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!tab || tab.execution) return
         const item = previewExposureItem(tab, node)
         if (item?.action.kind === 'command') props.app.dispatchTo(tab, item.action.invocation)
+      },
+      onSubgraphMarkActivate: (item) => {
+        const tab = activeTab()
+        if (!tab) return
+        props.tooltips?.hide()
+        props.app.boundaryFocus.set({ tabId: tab.id, graphId: currentGraphId(tab), item })
+        const zone = panelDockZone(props.app.panels, props.app.dock, 'boundary')
+        if (zone !== undefined) setPanelOpen(props.app.panels, props.app.dock, 'boundary', zone, true)
       },
       onControllerActivate: (hit, screenX, screenY) => {
         const tab = activeTab()

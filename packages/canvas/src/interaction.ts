@@ -62,6 +62,7 @@ import {
 } from '@dinkster/core'
 import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
 import { controllerChipContains } from './controller-chip.js'
+import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -430,6 +431,8 @@ export interface InteractionHost {
   onPreviewSurfaceAffordanceActivate?(node: SceneNode): void
   /** Click on an after-generate icon chip; the host owns its DOM menu. */
   onControllerActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on the subgraph mark before a field's name (row.subgraphMark): `item` is its boundary input. */
+  onSubgraphMarkActivate?(item: string): void
   /** Double-click on a subgraph instance node. */
   onOpenSubgraph?(node: SceneNode): void
   /** Double-click on empty canvas: open the add-node palette here. */
@@ -515,6 +518,7 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'subgraphMark'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'reroute'; readonly hit: Extract<Hit, { kind: 'reroute' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'link'; readonly hit: Extract<Hit, { kind: 'link' }>; readonly x: number; readonly y: number }
@@ -3015,6 +3019,14 @@ export class InteractionController {
     return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
   }
 
+  /** Same square the painter draws the mark in (subgraphMarkRect). */
+  private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
+    if (hit.row.subgraphMark === undefined) return false
+    const tokens = this.renderer.getDesignTokens()
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row))
+    return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
+  }
+
   private widgetRowAffordanceContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const capabilities = this.renderer.getLensCapabilities?.()
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
@@ -3117,12 +3129,15 @@ export class InteractionController {
       : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
+    const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit)
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
         ? { kind: 'badge', hit: badge, x: clientX, y: clientY }
       : controllerChip
         ? { kind: 'controller', hit, x: clientX, y: clientY }
+      : subgraphMark
+        ? { kind: 'subgraphMark', hit, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
@@ -3462,6 +3477,10 @@ export class InteractionController {
           // Boundary bindings on a SELECTOR row forward the construct, not a
           // value: the row stays the occurrence-local editor (edits route to
           // the owning instance), so only real links make it inert.
+          if (this.subgraphMarkContains(g.hit)) {
+            this.host.onSubgraphMarkActivate?.(g.hit.row.subgraphMark!.item)
+            return
+          }
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
           const connected = scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,

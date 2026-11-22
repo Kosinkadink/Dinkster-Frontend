@@ -2944,6 +2944,12 @@ export class AppState {
    * the Context panel. Undefined while no widget editor is open.
    */
   readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
+  /**
+   * The boundary input the Boundary panel shows selected, set by a click on
+   * a field's subgraph mark. Session state, never serialized.
+   */
+  readonly boundaryFocus: Signal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined> =
+    createSignal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined>(undefined)
 
   /** Default backend's schema registry (single-backend code path). */
   readonly registry: Signal<SchemaRegistry | undefined>

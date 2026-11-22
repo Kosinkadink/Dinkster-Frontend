@@ -8,7 +8,8 @@ import {
   asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
   type CommandInvocation, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
-import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
+import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
+import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
@@ -63,6 +64,7 @@ function interactionHarness(
     getBadges: () => badges,
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
+    showsArrivingValue: () => false,
     getOverlay: () => overlay,
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
@@ -4005,6 +4007,35 @@ describe('a wire dragged from the Inputs panel to a field', () => {
     expect(wired.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
       .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, undefined]])
     expect(markOf(blurNode(wired).layout.rows)).toBeUndefined()
+  })
+
+  it('names the row when the mark is hovered and selects it when the mark is clicked', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'blur', port: 'radius' } })
+    const scene = sceneOf(store.doc)
+    const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget')! as Extract<LayoutRow, { kind: 'widget' }>
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, false)
+    const markX = panel.x + row.inset + mark.x + mark.size / 2
+    const rowY = panel.y + row.y + mark.y + mark.size / 2
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+
+    harness.fire('pointermove', markX, rowY)
+    expect(hovers.at(-1)?.kind).toBe('subgraphMark')
+    harness.fire('pointerdown', markX, rowY)
+    harness.fire('pointerup', markX, rowY)
+    expect(activated).toEqual(['radius'])
+    expect(harness.dispatched).toEqual([])
+
+    // The rest of the row stays the field: hovering its name is not the mark.
+    harness.fire('pointermove', markX + mark.size * 2, rowY)
+    expect(hovers.at(-1)?.kind).toBe('widget')
   })
 })
 

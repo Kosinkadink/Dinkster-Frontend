@@ -1149,6 +1149,11 @@ export class CanvasRenderer {
     return this.lensCapabilities
   }
 
+  /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
+  showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
+    return this.panelFieldValues.has(`${nodeId}\u0000${row.inputId}`) || this.companions[nodeId]?.[row.valueKey] !== undefined
+  }
+
   getDesignTokens(): DesignTokens {
     return this.tokens
   }

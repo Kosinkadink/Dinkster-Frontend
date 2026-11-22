@@ -30,6 +30,13 @@ const blur: NodeSchema = {
       optional: false,
       widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
     },
+    {
+      kind: 'input',
+      id: 'strength',
+      type: { kind: 'concrete', name: 'FLOAT' },
+      optional: false,
+      widget: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 }, default: 0.5 },
+    },
     { kind: 'output', id: 'IMAGE', type: image },
   ],
 }
@@ -76,7 +83,7 @@ export function structuralGalleryScene(
             values: { radius: 8 },
             title: 'Alternative',
           },
-          sub: { id: 'sub', type: '#g1', values: { radius: 6 } },
+          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75 } },
           note: {
             id: 'note',
             type: 'dinkster.note',
@@ -163,6 +170,12 @@ export function structuralGalleryScene(
               id: 'radius',
               binds: { kind: 'port', node: 'inner', port: 'radius' },
               promoted: true,
+            },
+            {
+              id: 'strength',
+              binds: { kind: 'port', node: 'inner', port: 'strength' },
+              promoted: true,
+              wireHidden: true,
             },
           ],
           outputs: [
