@@ -6,7 +6,7 @@ import { DocumentStore } from '../src/commands/store.js'
 import type { BoundaryBinding, OccurrenceTopology, PortBoundaryBinding, WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { validateDocumentShape } from '../src/format/validate.js'
-import { asGraphDefId, asDynamicMemberId, asLineageId, asLinkId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 
 type Mutable = Record<string, unknown>
@@ -93,8 +93,7 @@ function baseDocument(): WorkflowDocument {
             from: { node: asNodeId('source'), port: asPortId('out') },
             to: {
               node: asNodeId('sink'),
-              port: asPortId('items.value'),
-              members: [asDynamicMemberId('m0')],
+              port: asPortId('items.m0.value'),
             },
           },
         },
@@ -285,8 +284,8 @@ describe('occurrence topology semantic invariants fail closed', () => {
     ['owner no longer a subgraph', 'doc.occurrenceTopology.ownerMissing', () => mutateTopology((top, doc) => { ((((doc['graphs'] as Mutable)['shell'] as Mutable)['nodes'] as Mutable)['i'] as Mutable)['type'] = 'Ordinary' })],
     ['body graph mismatch', 'doc.occurrenceTopology.bodyMismatch', () => mutateTopology((top) => { top['bodyGraph'] = 'shell' })],
     ['body endpoint missing node', 'doc.occurrenceTopology.endpointDangling', () => mutateTopology((top) => { (((top['links'] as Mutable)['l0'] as Mutable)['from'] as Mutable)['endpoint'] = { node: 'missing', port: 'out' } })],
-    ['body endpoint removed member', 'doc.dynamic.memberMissing', () => mutateTopology((top) => { (((top['links'] as Mutable)['l1'] as Mutable)['to'] as Mutable)['endpoint'] = { node: 'sink', port: 'items.value', members: ['missing'] } })],
-    ['body endpoint projected NUL member', 'doc.occurrenceTopology.projectedId', () => mutateTopology((top) => { (((top['links'] as Mutable)['l1'] as Mutable)['to'] as Mutable)['endpoint'] = { node: 'sink', port: 'items.value', members: ['\u0000m0'] } })],
+    ['body endpoint removed member', 'doc.dynamic.memberMissing', () => mutateTopology((top) => { (((top['links'] as Mutable)['l1'] as Mutable)['to'] as Mutable)['endpoint'] = { node: 'sink', port: 'items.missing.value' } })],
+    ['body endpoint projected NUL member', 'doc.occurrenceTopology.projectedId', () => mutateTopology((top) => { (((top['links'] as Mutable)['l1'] as Mutable)['to'] as Mutable)['endpoint'] = { node: 'sink', port: 'items.\u0000m0.value' } })],
     ['boundary occurrence is a sibling', 'doc.occurrenceTopology.boundaryOccurrence', () => mutateTopology((top) => { (((top['links'] as Mutable)['l0'] as Mutable)['to'] as Mutable)['occurrence'] = { instancePath: [], node: 'sibling' } })],
     ['route graph drift', 'doc.occurrenceTopology.routeInvalid', () => mutateTopology((top) => { (((((top['links'] as Mutable)['l0'] as Mutable)['to'] as Mutable)['route'] as Mutable[])[0] as Mutable)['graph'] = 'body' })],
     ['route boundary drift', 'doc.occurrenceTopology.routeInvalid', () => mutateTopology((top) => { (((((top['links'] as Mutable)['l0'] as Mutable)['to'] as Mutable)['route'] as Mutable[])[0] as Mutable)['boundaryId'] = 'out' })],

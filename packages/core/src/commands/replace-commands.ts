@@ -23,7 +23,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import { isComboValue } from '../schema/combo-options.js'
 import { isNodeBoundaryBinding, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
-import { asDynamicMemberId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
+import { asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition } from './contract.js'
 import {
@@ -54,39 +54,24 @@ const isRewire = (v: Json): v is JsonObject & { link: string; port: string; node
   typeof v.port === 'string' && v.port.length > 0 &&
   (v.node === undefined || (typeof v.node === 'string' && v.node.length > 0))
 const STRUCTURAL_ID = /^[A-Za-z0-9_-]+$/
-const isMemberPath = (v: Json | undefined): v is string[] =>
-  Array.isArray(v) && v.length === 1 && v.every((member) => typeof member === 'string' && STRUCTURAL_ID.test(member))
-const sameMembers = (actual: readonly string[] | undefined, expected: readonly string[] | undefined): boolean =>
-  actual !== undefined && expected !== undefined &&
-  actual.length === expected.length && actual.every((member, index) => member === expected[index])
 const isLinkRewire = (v: Json): v is JsonObject & {
   link: string
   port: string
   node?: string
-  members?: string[]
   fromPort?: string
-  fromMembers?: string[]
 } =>
   isRewire(v) &&
-  (v.members === undefined || isMemberPath(v.members)) &&
-  (v.fromPort === undefined || (typeof v.fromPort === 'string' && v.fromPort.length > 0)) &&
-  (v.fromMembers === undefined || isMemberPath(v.fromMembers)) &&
-  (v.fromMembers === undefined || v.fromPort !== undefined)
+  (v.fromPort === undefined || (typeof v.fromPort === 'string' && v.fromPort.length > 0))
 const isNetRewire = (v: Json): v is JsonObject & {
   net: string
   port: string
   node?: string
-  members?: string[]
   fromPort?: string
-  fromMembers?: string[]
 } =>
   isObj(v) && typeof v.net === 'string' && v.net.length > 0 &&
   typeof v.port === 'string' && v.port.length > 0 &&
   (v.node === undefined || (typeof v.node === 'string' && v.node.length > 0)) &&
-  (v.members === undefined || isMemberPath(v.members)) &&
-  (v.fromPort === undefined || (typeof v.fromPort === 'string' && v.fromPort.length > 0)) &&
-  (v.fromMembers === undefined || isMemberPath(v.fromMembers)) &&
-  (v.fromMembers === undefined || v.fromPort !== undefined)
+  (v.fromPort === undefined || (typeof v.fromPort === 'string' && v.fromPort.length > 0))
 const isTapGuard = (v: Json): v is JsonObject & { link: string; tap: string } =>
   isObj(v) && typeof v.link === 'string' && v.link.length > 0 &&
   typeof v.tap === 'string' && v.tap.length > 0
@@ -122,15 +107,12 @@ const isBoundaryRewire = (v: Json): v is JsonObject & { item: string; side: 'inp
   (v.side === 'input' || v.side === 'output') &&
   typeof v.fromPort === 'string' &&
   typeof v.port === 'string' &&
-  (v.fromMembers === undefined || isMemberPath(v.fromMembers)) &&
-  (v.members === undefined || isMemberPath(v.members)) &&
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number')
 const isBoundaryGuard = (v: Json): v is JsonObject & { item: string; side: 'input' | 'output'; port: string; alsoIndex?: number; promoted?: boolean } =>
   isObj(v) &&
   typeof v.item === 'string' &&
   (v.side === 'input' || v.side === 'output') &&
   typeof v.port === 'string' &&
-  (v.members === undefined || isMemberPath(v.members)) &&
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number') &&
   (v.promoted === undefined || typeof v.promoted === 'boolean')
 const CONTROLLER_MODES = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
@@ -435,12 +417,7 @@ const nodeReplace: CommandDefinition = {
     for (const r of p.inputRewires) {
       const link = def.links[r.link]
       if (!link || !isPortEndpoint(link.to) || link.to.node !== p.nodeId ||
-          (r.fromPort === undefined
-            ? link.to.members !== undefined
-            : link.to.port !== r.fromPort ||
-              (r.fromMembers === undefined
-                ? link.to.members !== undefined
-                : !sameMembers(link.to.members, r.fromMembers))))
+          (r.fromPort !== undefined && link.to.port !== r.fromPort))
         return [err('replace.stale', `node.replace: link '${r.link}' no longer feeds the planned input of node '${p.nodeId}'`)]
     }
     for (const r of p.outputRewires) {
@@ -449,12 +426,7 @@ const nodeReplace: CommandDefinition = {
         !link ||
         !isPortEndpoint(link.from) ||
         link.from.node !== p.nodeId ||
-        (r.fromPort === undefined
-          ? link.from.members !== undefined
-          : link.from.port !== r.fromPort ||
-            (r.fromMembers === undefined
-              ? link.from.members !== undefined
-              : !sameMembers(link.from.members, r.fromMembers)))
+        (r.fromPort !== undefined && link.from.port !== r.fromPort)
       )
         return [err('replace.stale', `node.replace: link '${r.link}' no longer leaves the planned output of node '${p.nodeId}'`)]
     }
@@ -480,12 +452,7 @@ const nodeReplace: CommandDefinition = {
       if (
         !net ||
         net.source.node !== p.nodeId ||
-        (r.fromPort === undefined
-          ? net.source.members !== undefined
-          : net.source.port !== r.fromPort ||
-            (r.fromMembers === undefined
-              ? net.source.members !== undefined
-              : !sameMembers(net.source.members, r.fromMembers)))
+        (r.fromPort !== undefined && net.source.port !== r.fromPort)
       )
         return [err('replace.stale', `node.replace: net '${r.net}' is no longer sourced from the planned output of '${p.nodeId}'`)]
     }
@@ -502,15 +469,14 @@ const nodeReplace: CommandDefinition = {
     for (const id of p.dropNets) {
       if (!def.nets[id]) return [err('replace.stale', `node.replace: net '${id}' is gone`)]
     }
-    // Boundary rewires must still bind THIS node at the exact planned
-    // port/member address; a changed boundary makes the plan stale.
+    // Boundary rewires must still bind THIS node at the exact planned port;
+    // a changed boundary makes the plan stale.
     const boundaryRewires = (p.boundaryRewires ?? []) as NonNullable<NodeReplacePlan['boundaryRewires']>
     for (const r of boundaryRewires) {
       const items = r.side === 'input' ? def.boundary?.inputs : def.boundary?.outputs
       const item = items?.find((i) => i.id === r.item)
       const b = r.alsoIndex === undefined ? item?.binds : item?.alsoBinds?.[r.alsoIndex]
-      if (!b || b.kind !== 'port' || b.node !== p.nodeId ||
-          (r.fromMembers === undefined ? b.members !== undefined : !sameMembers(b.members, r.fromMembers)))
+      if (!b || b.kind !== 'port' || b.node !== p.nodeId)
         return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' no longer binds the planned port of '${p.nodeId}'`)]
       if (b.port !== r.fromPort)
         return [err('replace.stale', `node.replace: boundary ${r.side} '${r.item}' now binds '${p.nodeId}.${b.port}', not the planned '${p.nodeId}.${r.fromPort}'`)]
@@ -525,26 +491,24 @@ const nodeReplace: CommandDefinition = {
       // JSON tuple encoding: injective for ANY component strings (raw
       // separator chars in an id/port can never collide two entries).
       const guardKey = (g: NonNullable<NodeReplacePlan['boundaryGuard']>[number]): string =>
-        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true, g.members ?? null])
+        JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true])
       const stale = err('replace.stale', `node.replace: the subgraph boundary bindings of '${p.nodeId}' changed since planning`)
       const current: string[] = []
       for (const item of def.boundary?.inputs ?? []) {
         if (item.binds.node === p.nodeId) {
           if (item.binds.kind !== 'port') return [stale]
           current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
-            ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
             ...(item.promoted === true ? { promoted: true } : {}) }))
         }
         for (const [i, a] of (item.alsoBinds ?? []).entries()) {
           if (a.node !== p.nodeId) continue
           if (a.kind !== 'port') return [stale]
-          current.push(guardKey({ item: item.id, side: 'input', port: a.port, alsoIndex: i,
-            ...(a.members === undefined ? {} : { members: a.members }) }))
+          current.push(guardKey({ item: item.id, side: 'input', port: a.port, alsoIndex: i }))
         }
       }
       for (const item of def.boundary?.outputs ?? []) {
         if (item.binds.node === p.nodeId) {
-          if (item.binds.kind !== 'port' || item.binds.members !== undefined) return [stale]
+          if (item.binds.kind !== 'port') return [stale]
           current.push(guardKey({ item: item.id, side: 'output', port: item.binds.port }))
         }
       }
@@ -598,20 +562,12 @@ const nodeReplace: CommandDefinition = {
 
     // -- Connections ----------------------------------------------------------
     for (const r of p.inputRewires) {
-      const currentTo = def.links[r.link]!.to
       if (r.node !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'to', 'node'], r.node)
       tx.set(['graphs', graphId, 'links', r.link, 'to', 'port'], r.port)
-      if (r.members !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'to', 'members'], r.members)
-      else if (isPortEndpoint(currentTo) && currentTo.members !== undefined)
-        tx.remove(['graphs', graphId, 'links', r.link, 'to', 'members'])
     }
     for (const r of p.outputRewires) {
-      const currentFrom = def.links[r.link]!.from
       if (r.node !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'from', 'node'], r.node)
       tx.set(['graphs', graphId, 'links', r.link, 'from', 'port'], r.port)
-      if (r.members !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'from', 'members'], r.members)
-      else if (isPortEndpoint(currentFrom) && currentFrom.members !== undefined)
-        tx.remove(['graphs', graphId, 'links', r.link, 'from', 'members'])
     }
     for (const r of p.tapRewires ?? []) {
       if (r.node !== undefined) tx.set(['graphs', graphId, 'links', r.link, 'from', 'node'], r.node)
@@ -624,9 +580,6 @@ const nodeReplace: CommandDefinition = {
     for (const r of p.netSourceRewires) {
       if (r.node !== undefined) tx.set(['graphs', graphId, 'nets', r.net, 'source', 'node'], r.node)
       tx.set(['graphs', graphId, 'nets', r.net, 'source', 'port'], r.port)
-      if (r.members !== undefined) tx.set(['graphs', graphId, 'nets', r.net, 'source', 'members'], r.members)
-      else if (def.nets[r.net]!.source.members !== undefined)
-        tx.remove(['graphs', graphId, 'nets', r.net, 'source', 'members'])
     }
     for (const s of netSinkUpdates) {
       const before = tx.current.graphs[graphId]!.nets[s.net]!.sinks
@@ -724,16 +677,12 @@ const nodeReplace: CommandDefinition = {
         const alsoBinds = item.alsoBinds !== undefined ? [...item.alsoBinds] : undefined
         for (const r of mine) {
           if (r.alsoIndex === undefined && isNodeBoundaryBinding(binds) && binds.kind !== 'widgetTap') {
-            const { members: _members, ...binding } = binds
-            binds = { ...binding, port: asPortId(r.port),
-              ...(r.members === undefined ? {} : { members: r.members.map(asDynamicMemberId) }) }
+            binds = { ...binds, port: asPortId(r.port) }
           }
           else if (r.alsoIndex !== undefined && alsoBinds?.[r.alsoIndex] !== undefined) {
             const current = alsoBinds[r.alsoIndex]!
             if (isNodeBoundaryBinding(current) && current.kind !== 'widgetTap') {
-              const { members: _members, ...binding } = current
-              alsoBinds[r.alsoIndex] = { ...binding, port: asPortId(r.port),
-                ...(r.members === undefined ? {} : { members: r.members.map(asDynamicMemberId) }) }
+              alsoBinds[r.alsoIndex] = { ...current, port: asPortId(r.port) }
             }
           }
         }

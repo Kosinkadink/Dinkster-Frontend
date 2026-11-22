@@ -171,12 +171,10 @@ export function deriveGlslMirrorBindings(
       if (item.apiName === undefined) continue
       const kind = uniformKindOf(item)
       const name = uniformNameOf(item)
-      // The uniform naming contract is by declared leaf id; a member-bearing
-      // address, an unmapped type, a nested id, or two inputs claiming the
-      // same uniform have no sound binding, so the node estimates nothing
-      // rather than guessing.
-      if (kind === undefined || name === undefined || usedNames.has(name) ||
-          (item.address.members?.length ?? 0) > 0) {
+      // The uniform naming contract is by declared leaf id; an unmapped type,
+      // a nested id, or two inputs claiming the same uniform have no sound
+      // binding, so the node estimates nothing rather than guessing.
+      if (kind === undefined || name === undefined || usedNames.has(name)) {
         resolvable = false
         break
       }
@@ -186,7 +184,6 @@ export function deriveGlslMirrorBindings(
       const key = portRefKey({
         node: node.id,
         port: asPortId(item.address.port),
-        ...(item.address.members ? { members: item.address.members } : {}),
       })
       const driver = index.inputDriverOf.get(key)
 
@@ -219,9 +216,7 @@ export function deriveGlslMirrorBindings(
           value = def.valueSources?.[trace.id]?.value
         } else if (trace.kind === 'tapValue') {
           const upstream = inputsOfNode(trace.node)
-          const tapped = upstream?.find(
-            (i) => (i.address.members?.length ?? 0) === 0 && i.address.port === trace.input,
-          )
+          const tapped = upstream?.find((i) => i.address.port === trace.input)
           const upstreamNode = def.nodes[trace.node]
           if (tapped && upstreamNode) value = residentValueOf(upstreamNode.values, tapped)
         }

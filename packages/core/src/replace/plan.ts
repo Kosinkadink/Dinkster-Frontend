@@ -26,7 +26,7 @@ import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
 import type { BoundaryBinding, DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
-import { asDynamicMemberId, asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { normalizedComboOptions } from '../schema/combo-options.js'
 import {
   buildGraphConnectivity,
@@ -117,9 +117,7 @@ export interface NodeReplacePlan {
     readonly link: string
     readonly port: string
     readonly node?: string
-    readonly members?: readonly string[]
     readonly fromPort?: string
-    readonly fromMembers?: readonly string[]
   }>
   /** Historical per-input view choices that follow active migrated inputs. */
   readonly inputViewRewires?: ReadonlyArray<{ readonly fromInput: string; readonly input: string }>
@@ -130,9 +128,7 @@ export interface NodeReplacePlan {
     readonly link: string
     readonly port: string
     readonly node?: string
-    readonly members?: readonly string[]
     readonly fromPort?: string
-    readonly fromMembers?: readonly string[]
   }>
   /** Widget-tap sources whose target widget path or node changes. */
   readonly tapRewires?: ReadonlyArray<{
@@ -152,9 +148,7 @@ export interface NodeReplacePlan {
     readonly net: string
     readonly port: string
     readonly node?: string
-    readonly members?: readonly string[]
     readonly fromPort?: string
-    readonly fromMembers?: readonly string[]
   }>
   /** Complete replacement sink arrays for nets whose sinks change. */
   readonly netSinks: ReadonlyArray<{ readonly net: string; readonly sinks: readonly PortRef[] }>
@@ -178,9 +172,7 @@ export interface NodeReplacePlan {
     readonly side: 'input' | 'output'
     /** The port the binding held when the plan was computed (stale check). */
     readonly fromPort: string
-    readonly fromMembers?: readonly string[]
     readonly port: string
-    readonly members?: readonly string[]
     readonly alsoIndex?: number
   }>
   /**
@@ -196,7 +188,6 @@ export interface NodeReplacePlan {
     readonly item: string
     readonly side: 'input' | 'output'
     readonly port: string
-    readonly members?: readonly string[]
     readonly alsoIndex?: number
     readonly promoted?: boolean
   }>
@@ -254,16 +245,10 @@ interface SourceState {
   readonly memberLinksOut: ReadonlyMap<string, readonly string[]>
   /** Top-level output-family endpoint -> sourced net ids. */
   readonly memberNetsOut: ReadonlyMap<string, readonly string[]>
-  /** Links entering a dynamic member remain unsupported. */
-  readonly memberLinksIn: ReadonlySet<string>
   /** Every link using member endpoint ancestry, including unsupported nesting. */
   readonly memberLinks: readonly string[]
-  /** Links and nets whose member output end uses the historical member list form. */
-  readonly listedMemberEnds: ReadonlySet<string>
   /** Nets sourced from any member output of this node. */
   readonly memberNets: readonly string[]
-  /** Nets with a member-addressed sink on this node - sink always dropped. */
-  readonly memberSinkNets: readonly string[]
 }
 
 const memberOutputKey = (family: string, suffix: string): string => JSON.stringify([family, suffix])
@@ -289,33 +274,19 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
   const netsOut = new Map<string, string[]>()
   const memberLinksOut = new Map<string, string[]>()
   const memberNetsOut = new Map<string, string[]>()
-  const memberLinksIn = new Set<string>()
   const memberLinks: string[] = []
   const memberNets: string[] = []
-  const memberSinkNets: string[] = []
-  const listedMemberEnds = new Set<string>()
   const push = (m: Map<string, string[]>, key: string, id: string): void => {
     const list = m.get(key)
     if (list) list.push(id)
     else m.set(key, [id])
   }
   for (const link of Object.values(def.links)) {
-    if (isPortEndpoint(link.to) && link.to.node === node.id) {
-      if (link.to.members !== undefined) {
-        memberLinks.push(link.id)
-        memberLinksIn.add(link.id)
-      }
-      else push(linksIn, link.to.port, link.id)
-    }
+    if (isPortEndpoint(link.to) && link.to.node === node.id) push(linksIn, link.to.port, link.id)
     if (isPortEndpoint(link.from) && link.from.node === node.id) {
       const flat = flatMemberOutput(link.from.port)
-      if (link.from.members !== undefined) {
-        if (!memberLinks.includes(link.id)) memberLinks.push(link.id)
-        listedMemberEnds.add(link.id)
-        if (link.from.members.length === 1)
-          push(memberLinksOut, memberOutputKey(link.from.port, link.from.members[0]!), link.id)
-      } else if (flat !== undefined) {
-        if (!memberLinks.includes(link.id)) memberLinks.push(link.id)
+      if (flat !== undefined) {
+        memberLinks.push(link.id)
         if (flat !== 'nested') push(memberLinksOut, memberOutputKey(flat.family, flat.suffix), link.id)
       } else push(linksOut, link.from.port, link.id)
     }
@@ -327,12 +298,7 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
   for (const net of Object.values(def.nets)) {
     if (net.source.node === node.id) {
       const flat = flatMemberOutput(net.source.port)
-      if (net.source.members !== undefined) {
-        memberNets.push(net.id)
-        listedMemberEnds.add(net.id)
-        if (net.source.members.length === 1)
-          push(memberNetsOut, memberOutputKey(net.source.port, net.source.members[0]!), net.id)
-      } else if (flat !== undefined) {
+      if (flat !== undefined) {
         memberNets.push(net.id)
         if (flat !== 'nested') push(memberNetsOut, memberOutputKey(flat.family, flat.suffix), net.id)
       }
@@ -340,8 +306,7 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
     }
     for (const sink of net.sinks) {
       if (sink.node !== node.id) continue
-      if (sink.members !== undefined) memberSinkNets.push(net.id)
-      else push(netsIn, sink.port, net.id)
+      push(netsIn, sink.port, net.id)
     }
   }
   return {
@@ -354,11 +319,8 @@ const sourceStateOf = (def: GraphDef, node: NodeData): SourceState => {
     netsOut,
     memberLinksOut,
     memberNetsOut,
-    memberLinksIn,
     memberLinks,
-    listedMemberEnds,
     memberNets,
-    memberSinkNets,
   }
 }
 
@@ -486,8 +448,6 @@ interface InputFamily {
   readonly id: string
   readonly group: GroupSpec
   readonly template: readonly InputSpec[]
-  /** Canonical graph port of a historical family whose members were addressed by member list. */
-  readonly memberPort?: string
 }
 
 const inputFamilyOf = (schema: NodeSchema, id: string): InputFamily | undefined => {
@@ -690,24 +650,16 @@ function planReplacementForCase(
     ),
   )
   const historicalFamilyMembers = new Map<InputFamilyMapping, readonly string[]>()
-  const historicalMemberPorts = new Set<InputFamilyMapping>()
   for (const candidate of rule.migration === undefined ? [] : rule.cases) {
     for (const mapping of Object.values(candidate.inputFamilies ?? {})) {
       if (mapping.kind !== 'copy' || mapping.memberIds !== 'targetPositions' || mapping.sourceTemplate === undefined ||
           !migrationHistoricalFamilies.has(mapping.sourceFamily)) continue
-      const endpoints = [
+      const inputPorts = [
         ...Object.values(def.links).flatMap((link) => isPortEndpoint(link.to) ? [link.to] : []),
         ...Object.values(def.nets).flatMap((net) => net.sinks),
         ...(def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
-          .flatMap((binding) => binding.kind === 'port' ? [{ node: binding.node, port: binding.port,
-            ...(binding.members === undefined ? {} : { members: binding.members }) }] : []),
-      ].filter((endpoint) => endpoint.node === nodeId)
-      const inputPorts = endpoints.flatMap((endpoint) => {
-        if (endpoint.members === undefined) return [endpoint.port]
-        if (endpoint.port !== mapping.sourceTemplate!.memberPort || endpoint.members.length !== 1) return []
-        historicalMemberPorts.add(mapping)
-        return [`${mapping.sourceFamily}.${endpoint.members[0]!}`]
-      })
+          .flatMap((binding) => binding.kind === 'port' ? [binding] : []),
+      ].filter((endpoint) => endpoint.node === nodeId).map((endpoint) => endpoint.port as string)
       historicalFamilyMembers.set(mapping, memberKeysEvidenced(
         mapping.sourceFamily,
         node.dynamic?.[mapping.sourceFamily]?.members ?? [],
@@ -763,7 +715,6 @@ function planReplacementForCase(
     }
     for (const input of elabInputsOf(sourceElaboration)) {
       if (
-        input.address.members !== undefined ||
         !isComboWidgetInput(input.spec) ||
         input.spec.widget === undefined ||
         input.spec.widget.remote !== undefined
@@ -967,7 +918,7 @@ function planReplacementForCase(
     targetFamily: InputFamily
     members: readonly string[]
     sourceMembers?: readonly string[]
-    sourceFamily?: { readonly id: string; readonly inputs: readonly string[]; readonly memberPort?: string }
+    sourceFamily?: { readonly id: string; readonly inputs: readonly string[] }
   }>()
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
     const familyAddress = targetAddress(targetFamilyId)
@@ -986,7 +937,7 @@ function planReplacementForCase(
     }
 
     let members: readonly string[]
-    let sourceFamily: { readonly id: string; readonly inputs: readonly string[]; readonly memberPort?: string } | undefined
+    let sourceFamily: { readonly id: string; readonly inputs: readonly string[] } | undefined
     let sourceFamilyState: DynamicPortState | undefined
     if (mapping.kind === 'copy') {
       const declaredFamily = sourceSchema === undefined
@@ -996,8 +947,7 @@ function planReplacementForCase(
       if (historical !== undefined && sourceSchema !== undefined && (
         declaredFamily === undefined ||
         declaredFamily.template.length !== historical.inputs.length ||
-        declaredFamily.template.some((input, index) => input.id !== historical.inputs[index]) ||
-        declaredFamily.memberPort !== historical.memberPort
+        declaredFamily.template.some((input, index) => input.id !== historical.inputs[index])
       )) {
         errors.push(diag(
           'error',
@@ -1010,11 +960,7 @@ function planReplacementForCase(
         ? { id: mapping.sourceFamily, ...historical }
         : declaredFamily === undefined
           ? undefined
-          : {
-              id: declaredFamily.id,
-              inputs: declaredFamily.template.map((input) => input.id),
-              ...(declaredFamily.memberPort !== undefined ? { memberPort: declaredFamily.memberPort } : {}),
-            }
+          : { id: declaredFamily.id, inputs: declaredFamily.template.map((input) => input.id) }
       if (sourceFamily === undefined) {
         errors.push(
           diag(
@@ -1040,8 +986,7 @@ function planReplacementForCase(
           const position = keyPosition(keys, member)
           return position !== undefined && position < memberLimitOf(targetFamily.group) && memberKeyAt(keys, position) === member
         })
-        retainMemberIds = mapping.sourceFamily === familyAddress.port && canonicalMembers &&
-          !(historicalMemberPorts.has(mapping) && sourceFamily?.memberPort !== targetFamily.memberPort)
+        retainMemberIds = mapping.sourceFamily === familyAddress.port && canonicalMembers
         if (!retainMemberIds) migrationEvidence = true
       }
       if (!retainMemberIds) members = sourceMembers.map((_, index) => memberKeyAt(keys, index) ?? '')
@@ -1108,8 +1053,7 @@ function planReplacementForCase(
     const connectivity: Connectivity = connectedPorts.size === 0
       ? EMPTY_CONNECTIVITY
       : {
-          isInputConnected: (port, members) =>
-            (members === undefined || members.length === 0) && connectedPorts.has(port),
+          isInputConnected: (port) => connectedPorts.has(port),
           isOutputConnected: () => false,
           inputPorts: () => [...connectedPorts],
         }
@@ -1212,8 +1156,6 @@ function planReplacementForCase(
   }
   const inputRewires: NodeReplacePlan['inputRewires'][number][] = []
   const netSinkMoves = new Map<string, { fromPort: string; to: TargetAddress }[]>()
-  const preservedMemberInputLinks = new Set<string>()
-  const preservedMemberInputNetSinks = new Set<string>()
   const memberInputNetMoves = new Map<string, { from: PortRef; to: PortRef }[]>()
   const inputEndpointMoves: { from: PortRef; to: PortRef; target: TargetAddress }[] = []
   /** Source inputs whose CONNECTION a mapping consumed (moves are exclusive). */
@@ -1427,32 +1369,6 @@ function planReplacementForCase(
       const copied = mapping as Extract<InputFamilyMapping, { kind: 'copy' }>
       for (const [index, member] of members.entries()) {
         const sourceMember = sourceMembers![index]!
-        if (
-          copied.memberIds === undefined
-          && sourceFamily?.memberPort !== undefined
-          && targetFamily.memberPort === sourceFamily.memberPort
-          && familyAddress.nodeId === nodeId
-        ) {
-          for (const link of Object.values(def.links)) {
-            if (
-              isPortEndpoint(link.to)
-              && link.to.node === nodeId
-              && link.to.port === sourceFamily.memberPort
-              && link.to.members?.length === 1
-              && link.to.members[0] === member
-            ) preservedMemberInputLinks.add(link.id)
-          }
-          for (const net of Object.values(def.nets)) {
-            for (const sink of net.sinks) {
-              if (
-                sink.node === nodeId
-                && sink.port === sourceFamily.memberPort
-                && sink.members?.length === 1
-                && sink.members[0] === member
-              ) preservedMemberInputNetSinks.add(JSON.stringify([net.id, sink.port, sink.members]))
-            }
-          }
-        }
         applyFamilyMember(familyAddress, targetFamily, member, copied.inputs, (source) => {
           if (sourceFamily!.inputs.includes(source.input)) {
             const memberPath = `${sourceFamily!.id}.${sourceMember}`
@@ -1473,30 +1389,21 @@ function planReplacementForCase(
             const sourceInput = sourceFamily!.inputs.length === 1 ? memberPath : `${memberPath}.${input}`
             const destination = connectionMoves.get(sourceInput)
             if (destination === undefined) continue
-            const from: PortRef = sourceFamily!.memberPort === undefined
-              ? { node: asNodeId(nodeId), port: asPortId(sourceInput) }
-              : { node: asNodeId(nodeId), port: asPortId(sourceFamily!.memberPort), members: [asDynamicMemberId(sourceMember)] }
-            const to: PortRef = {
-              node: asNodeId(destination.nodeId), port: asPortId(targetFamily.memberPort ?? destination.port),
-              ...(targetFamily.memberPort === undefined ? {} : { members: [asDynamicMemberId(member)] }),
-            }
+            const from: PortRef = { node: asNodeId(nodeId), port: asPortId(sourceInput) }
+            const to: PortRef = { node: asNodeId(destination.nodeId), port: asPortId(destination.port) }
             inputEndpointMoves.push({ from, to, target: destination })
             for (const link of Object.values(def.links)) {
               if (!isPortEndpoint(link.to) || !samePortRef(link.to, from)) continue
               const rewire = { link: link.id, port: to.port,
                 ...(to.node === nodeId ? {} : { node: to.node }),
-                ...(to.members === undefined ? {} : { members: to.members }),
-                fromPort: from.port, ...(from.members === undefined ? {} : { fromMembers: from.members }),
+                fromPort: from.port,
               }
               const existing = inputRewires.findIndex((entry) => entry.link === link.id)
               if (existing < 0) inputRewires.push(rewire)
               else inputRewires[existing] = rewire
-              if (from.members !== undefined) preservedMemberInputLinks.add(link.id)
             }
             for (const net of Object.values(def.nets)) {
               if (!net.sinks.some((sink) => samePortRef(sink, from))) continue
-              if (from.members !== undefined)
-                preservedMemberInputNetSinks.add(JSON.stringify([net.id, from.port, from.members]))
               const moves = memberInputNetMoves.get(net.id) ?? []
               moves.push({ from, to })
               memberInputNetMoves.set(net.id, moves)
@@ -1739,8 +1646,7 @@ function planReplacementForCase(
       if (internal.to.node === plannedTarget.nodeId) connectedInputs.add(internal.to.port)
     }
     const connectivity: Connectivity = {
-      isInputConnected: (port, members) =>
-        (members === undefined || members.length === 0) && connectedInputs.has(port),
+      isInputConnected: (port) => connectedInputs.has(port),
       isOutputConnected: () => false,
     }
     const elaborated = elaborateInterface(
@@ -1782,7 +1688,7 @@ function planReplacementForCase(
 
   // -- Boundary bindings: follow the mapping exactly like link endpoints -----
   // The node id survives replacement, so a binding whose port is preserved
-  // under the same id needs nothing. Fixed members follow their endpoints. An
+  // under the same id needs nothing. A member's binding follows its member. An
   // unmapped binding is an error, never a silent external interface change.
   const boundaryRewires: NonNullable<NodeReplacePlan['boundaryRewires']>[number][] = []
   const migrateBinding = (side: 'input' | 'output', itemId: string, b: BoundaryBinding, alsoIndex?: number): void => {
@@ -1790,7 +1696,7 @@ function planReplacementForCase(
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
     const memberMove = side === 'input' && b.kind === 'port'
       ? inputEndpointMoves.find((move) => samePortRef(move.from, b)) : undefined
-    if (b.kind !== 'port' || (b.members !== undefined && memberMove === undefined)) {
+    if (b.kind !== 'port') {
       errors.push(
         diag('error', 'replace.boundary.dynamic', `${label}: replacement cannot map the dynamic binding to '${nodeId}'`),
       )
@@ -1803,8 +1709,6 @@ function planReplacementForCase(
       }
       if (!samePortRef(memberMove.from, memberMove.to)) boundaryRewires.push({
         item: itemId, side, fromPort: b.port, port: memberMove.to.port,
-        ...(b.members === undefined ? {} : { fromMembers: b.members }),
-        ...(memberMove.to.members === undefined ? {} : { members: memberMove.to.members }),
         ...(alsoIndex === undefined ? {} : { alsoIndex }),
       })
       return
@@ -1850,18 +1754,16 @@ function planReplacementForCase(
   for (const item of def.boundary?.inputs ?? []) {
     if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port,
-        ...(item.binds.members === undefined ? {} : { members: item.binds.members }),
         ...(item.promoted === true ? { promoted: true } : {}) })
     }
     item.alsoBinds?.forEach((a, i) => {
       if (a.node === nodeId && a.kind === 'port') {
-        boundaryGuard.push({ item: item.id, side: 'input', port: a.port, alsoIndex: i,
-          ...(a.members === undefined ? {} : { members: a.members }) })
+        boundaryGuard.push({ item: item.id, side: 'input', port: a.port, alsoIndex: i })
       }
     })
   }
   for (const item of def.boundary?.outputs ?? []) {
-    if (item.binds.node === nodeId && item.binds.kind === 'port' && item.binds.members === undefined) {
+    if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'output', port: item.binds.port })
     }
   }
@@ -1870,9 +1772,7 @@ function planReplacementForCase(
     link: string
     port: string
     node?: string
-    members?: readonly string[]
     fromPort?: string
-    fromMembers?: readonly string[]
   }[] = []
   const tapRewires: { link: string; tap: string; fromTap?: string; node?: string }[] = []
   const tapGuards: { link: string; tap: string }[] = []
@@ -1880,9 +1780,7 @@ function planReplacementForCase(
     net: string
     port: string
     node?: string
-    members?: readonly string[]
     fromPort?: string
-    fromMembers?: readonly string[]
   }[] = []
   const dropNets: string[] = []
   for (const [output, linkIds] of state.linksOut) {
@@ -1903,7 +1801,7 @@ function planReplacementForCase(
           ...(to.member === true ? { fromPort: output } : {}),
         })
   }
-  const preservedMemberLinks = new Set<string>(preservedMemberInputLinks)
+  const preservedMemberLinks = new Set<string>()
   for (const [key, linkIds] of state.memberLinksOut) {
     const { family, suffix } = memberOutputAddress(key)
     const mapping = sourceFamilyToTarget.get(family)
@@ -1915,13 +1813,8 @@ function planReplacementForCase(
       continue
     }
     for (const linkId of linkIds) {
-      if (state.memberLinksIn.has(linkId)) continue
       preservedMemberLinks.add(linkId)
-      outputRewires.push({
-        link: linkId,
-        port: `${mapping.target.port}.${suffix}`,
-        ...(state.listedMemberEnds.has(linkId) ? { fromPort: family, fromMembers: [suffix] } : { fromPort: `${family}.${suffix}` }),
-      })
+      outputRewires.push({ link: linkId, port: `${mapping.target.port}.${suffix}`, fromPort: `${family}.${suffix}` })
     }
   }
   const droppedMemberLinks = state.memberLinks.filter((linkId) => !preservedMemberLinks.has(linkId))
@@ -2035,11 +1928,7 @@ function planReplacementForCase(
     }
     for (const netId of netIds) {
       preservedMemberNets.add(netId)
-      netSourceRewires.push({
-        net: netId,
-        port: `${mapping.target.port}.${suffix}`,
-        ...(state.listedMemberEnds.has(netId) ? { fromPort: family, fromMembers: [suffix] } : { fromPort: `${family}.${suffix}` }),
-      })
+      netSourceRewires.push({ net: netId, port: `${mapping.target.port}.${suffix}`, fromPort: `${family}.${suffix}` })
     }
   }
   const droppedMemberNets = state.memberNets.filter((netId) => !preservedMemberNets.has(netId))
@@ -2075,19 +1964,6 @@ function planReplacementForCase(
   for (const [input, netIds] of state.netsIn) {
     if (droppedSinkPorts.has(input)) for (const id of netIds) touchedNets.add(id)
   }
-  const droppedMemberSinkNets = state.memberSinkNets.filter((netId) => {
-    const net = def.nets[netId]
-    return net?.sinks.some((sink) =>
-      sink.node === nodeId
-      && sink.members !== undefined
-      && !preservedMemberInputNetSinks.has(JSON.stringify([netId, sink.port, sink.members]))) ?? false
-  })
-  if (droppedMemberSinkNets.length > 0) {
-    warnings.push(
-      diag('warning', 'replace.dynamic.dropped', `replace: ${droppedMemberSinkNets.length} net(s) have unmapped dynamic-member sinks that will be removed`),
-    )
-    for (const id of droppedMemberSinkNets) touchedNets.add(id)
-  }
   for (const netId of touchedNets) {
     const net = def.nets[netId]
     if (!net || dropNets.includes(netId)) continue
@@ -2104,15 +1980,6 @@ function planReplacementForCase(
         sinks.push(memberMove.to)
         edits.push({ net: netId, from: sink, to: memberMove.to })
         continue
-      }
-      if (sink.members !== undefined) {
-        if (preservedMemberInputNetSinks.has(JSON.stringify([netId, sink.port, sink.members]))) {
-          sinks.push(sink)
-          edits.push({ net: netId, from: sink, to: sink })
-          continue
-        }
-        edits.push({ net: netId, from: sink })
-        continue // dynamic member sink: dropped
       }
       const move = moves.find((m) => m.fromPort === sink.port)
       if (move) {

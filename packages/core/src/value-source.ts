@@ -20,7 +20,6 @@ import { rerouteSuccessorsOf, selectorSuccessorsOf, type RerouteIndex } from './
 import {
   buildGraphConnectivity,
   elabInputsOf,
-  elabKeyOf,
   elaborateInterface,
 } from './schema/elaborate.js'
 import { atomNamesOf } from './schema/type-relations.js'
@@ -227,16 +226,14 @@ export function effectiveValueSourceSpec(
     if (!node) return undefined
     const connectivity = (connectivityLazy ??= buildGraphConnectivity(def))(node.id)
     const items = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
-    const key = elabKeyOf({ port: ref.port, ...(ref.members !== undefined ? { members: ref.members } : {}) })
-    return elabInputsOf(items).find((i) => i.spec.id === key)?.spec
+    return elabInputsOf(items).find((i) => i.spec.id === ref.port)?.spec
   }
   const consumerInputs: { ref: PortRef; input: InputSpec }[] = []
   for (const ref of consumers) {
     const node = def.nodes[ref.node]
     const schema = node ? resolve(node.type) : undefined
     const input = schema
-      ? (ref.members === undefined ? inputsOf(schema).find((i) => i.id === ref.port) : undefined) ??
-        elaboratedInputOf(schema, ref)
+      ? inputsOf(schema).find((i) => i.id === ref.port) ?? elaboratedInputOf(schema, ref)
       : undefined
     if (!input) continue // dangling/unknown: structural validation owns that report
     consumerInputs.push({ ref, input })

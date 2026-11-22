@@ -8,7 +8,7 @@ import { InteractionController, connectivityRangeSelection, resizedNodeBounds, t
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -1613,14 +1613,14 @@ describe('modifier parity across link endpoint kinds', () => {
     scene.selectors = []
     scene.nodes[1].layout.pins = [
       {
-        portId: portEndKey({ port: 'pairs.image', members: ['m0'] as any }),
-        address: { port: 'pairs.image', members: ['m0'] }, direction: 'in', y: 22, type: FLOAT,
+        portId: 'pairs.m0.image',
+        address: { port: 'pairs.m0.image' }, direction: 'in', y: 22, type: FLOAT,
       },
     ]
     scene.links = [{
       id: 'boundary:inputs:value', boundary: true,
       from: { kind: 'boundary', side: 'inputs', item: 'value' },
-      to: { kind: 'port', node: 'n2', port: 'pairs.image', members: ['m0'] },
+      to: { kind: 'port', node: 'n2', port: 'pairs.m0.image' },
       x1: 0, y1: 32, x2: 200, y2: 32,
     }]
 
@@ -1635,7 +1635,7 @@ describe('modifier parity across link endpoint kinds', () => {
           command: 'boundary.unbind',
           params: {
             graphId: 'g0', side: 'inputs', itemId: 'value',
-            node: 'n2', port: 'pairs.image', members: ['m0'],
+            node: 'n2', port: 'pairs.m0.image',
           },
         },
         { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n2' } },
@@ -2832,16 +2832,16 @@ describe('group resizing', () => {
 describe('numeric widget steppers', () => {
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
-    scene.nodes[0].layout.rows[0].valueKey = 'weights.w#rebased'
+    scene.nodes[0].layout.rows[0].valueKey = 'weights.w.rebased'
     scene.nodes[0].layout.rows[0].familyOwner = {
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: 'forwarded.w#member',
+      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: 'forwarded.w.member',
     }
     const harness = interactionHarness(scene)
     harness.fire('pointerdown', 100, 35)
     harness.fire('pointerup', 100, 35)
     expect(harness.dispatched).toEqual([{
       command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'instance', inputId: 'forwarded.w#member', value: 0.3 },
+      params: { graphId: 'g0', nodeId: 'instance', inputId: 'forwarded.w.member', value: 0.3 },
     }])
   })
 

@@ -48,16 +48,14 @@ const pinConnectionKey = (
   nodeId: string,
   direction: 'in' | 'out',
   port: string,
-  members: readonly unknown[] | undefined,
   kind: 'port' | 'widgetTap' | 'boundary' = 'port',
-): string => JSON.stringify([kind, nodeId, direction, port, members ?? []])
+): string => JSON.stringify([kind, nodeId, direction, port])
 
 const pinConnectionKeyOf = (nodeId: string, pin: PinLayout, boundary = false): string =>
   pinConnectionKey(
     nodeId,
     pin.direction,
     pin.address.port,
-    pin.address.members,
     boundary ? 'boundary' : pin.widgetTap === true ? 'widgetTap' : 'port',
   )
 
@@ -135,11 +133,11 @@ const endpointName = (
 ): string => {
   if (end.kind === 'port') {
     const node = nodes.get(end.node)
-    const port = pinNames.get(pinConnectionKey(end.node, direction, end.port, end.members)) ?? end.port
+    const port = pinNames.get(pinConnectionKey(end.node, direction, end.port)) ?? end.port
     return `${node?.layout.title ?? end.node}.${port}`
   }
   if (end.kind === 'widgetTap') {
-    const input = pinNames.get(pinConnectionKey(end.node, 'out', end.input, undefined, 'widgetTap')) ?? end.input
+    const input = pinNames.get(pinConnectionKey(end.node, 'out', end.input, 'widgetTap')) ?? end.input
     return `${nodes.get(end.node)?.layout.title ?? end.node}.${input}`
   }
   if (end.kind === 'reroute') return reroutes.get(end.reroute) ?? `reroute ${end.reroute}`
@@ -149,14 +147,14 @@ const endpointName = (
     return end.candidate === undefined ? title : `${title}.${end.candidate}`
   }
   const id = boundarySceneId(end.side)
-  const port = pinNames.get(pinConnectionKey(id, direction, end.item, undefined, 'boundary')) ?? end.item
+  const port = pinNames.get(pinConnectionKey(id, direction, end.item, 'boundary')) ?? end.item
   return `${end.side} boundary.${port}`
 }
 
 const endpointConnectionKey = (end: SceneLinkEnd, direction: 'in' | 'out'): string | undefined => {
-  if (end.kind === 'port') return pinConnectionKey(end.node, direction, end.port, end.members)
-  if (end.kind === 'widgetTap') return pinConnectionKey(end.node, 'out', end.input, undefined, 'widgetTap')
-  if (end.kind === 'boundary') return pinConnectionKey(boundarySceneId(end.side), direction, end.item, undefined, 'boundary')
+  if (end.kind === 'port') return pinConnectionKey(end.node, direction, end.port)
+  if (end.kind === 'widgetTap') return pinConnectionKey(end.node, 'out', end.input, 'widgetTap')
+  if (end.kind === 'boundary') return pinConnectionKey(boundarySceneId(end.side), direction, end.item, 'boundary')
   return undefined
 }
 
@@ -196,7 +194,6 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       stub.nodeId,
       stub.role === 'source' ? 'out' : 'in',
       stub.portId,
-      stub.members,
     ))
   }
   for (const group of scene.groups) {

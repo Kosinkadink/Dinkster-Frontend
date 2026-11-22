@@ -2,7 +2,6 @@ import { boundaryBindingKey, suppressedDeliveryKey, type BoundaryRouteLeg, type 
 import { asNodeId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { elabKeyOf } from '../schema/elaborate.js'
 import { boundaryOutputFanOutProblems, projectEditableOptions } from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 
@@ -98,7 +97,7 @@ export function occurrenceDynamicView(
     const childOwner = { instancePath: traversedPath.map(asNodeId), node: asNodeId(hop) }
     const suppressed = new Set((doc.occurrenceTopologies?.[occurrenceKey(childOwner)]?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
     for (const evidence of instanceEvidence) for (const item of child.boundary.inputs) {
-      if (evidence.ref.port !== item.id || evidence.ref.members !== undefined) continue
+      if (evidence.ref.port !== item.id) continue
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'port') continue
         const leg = evidence.route?.[0]
@@ -118,7 +117,7 @@ export function occurrenceDynamicView(
         if (!target || !schema) continue
         const route = resolveBoundaryRoute(schema, binding, 'input')
         if (!route.ok || route.route.terminal.kind !== 'port') continue
-        const valueKey = binding.members?.length ? elabKeyOf(binding) : binding.port as string
+        const valueKey = binding.port as string
         let targetOwners = childValueOwners.get(binding.node)
         if (!targetOwners) childValueOwners.set(binding.node, (targetOwners = new Map()))
         if (!targetOwners.has(valueKey)) targetOwners.set(valueKey, owner)

@@ -12,24 +12,15 @@ import type { NodeMode, PreviewMode } from '../format/document.js'
 import { isExposed } from '../format/exposed.js'
 import { isPreviewExposed } from '../format/exposed-previews.js'
 import { netViewPositions } from '../format/net-views.js'
-import { asDynamicMemberId, asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 
-/**
- * Menu-target port -> command PortRef params. The single place that maps a
- * clicked pin/stub to command identity, so dynamic member ids are never
- * silently dropped (hazard N6).
- */
-const portParams = (p: {
-  node: string
-  port: string
-  members?: readonly string[] | undefined
-}): { node: string; port: string; members?: string[] } => ({
+/** Menu-target port -> command PortRef params: the node and flattened port id. */
+const portParams = (p: { node: string; port: string }): { node: string; port: string } => ({
   node: p.node,
   port: p.port,
-  ...(p.members !== undefined && p.members.length > 0 ? { members: [...p.members] } : {}),
 })
 
 const NODE_MODES: readonly { mode: NodeMode; label: string; icon: string; command?: string }[] = [
@@ -744,7 +735,7 @@ const pinPromoteToNet: MenuContribution = {
       {
         id: 'core.pin.promoteToNet',
         label: 'Promote to named net...',
-        action: { kind: 'host', action: 'promoteToNet', params: { source: portParams({ node: t.nodeId, port: t.portId, members: t.members }) } },
+        action: { kind: 'host', action: 'promoteToNet', params: { source: portParams({ node: t.nodeId, port: t.portId }) } },
       },
     ]
   },
@@ -760,11 +751,10 @@ const pinConnectToNet: MenuContribution = {
     const t = ctx.target
     const def = ctx.doc.graphs[ctx.graphId]
     if (!def) return []
-    const to = portParams({ node: t.nodeId, port: t.portId, members: t.members })
+    const to = portParams({ node: t.nodeId, port: t.portId })
     const toRef: PortRef = {
       node: asNodeId(t.nodeId),
       port: asPortId(t.portId),
-      ...(t.members !== undefined && t.members.length > 0 ? { members: t.members.map(asDynamicMemberId) } : {}),
     }
     return Object.values(def.nets)
       .filter((net) => net.source.node !== t.nodeId) // self-loop: not offered
@@ -855,9 +845,6 @@ const netStubResetPosition: MenuContribution = {
     const to: PortRef = {
       node: asNodeId(t.nodeId),
       port: asPortId(t.portId),
-      ...(t.members !== undefined && t.members.length > 0
-        ? { members: t.members.map(asDynamicMemberId) }
-        : {}),
     }
     const authored = netViewPositions(ctx.doc, ctx.graphId).some((view) =>
       view.netId === t.netId &&
@@ -876,7 +863,7 @@ const netStubResetPosition: MenuContribution = {
               netId: t.netId,
               role: t.role,
               ...(t.role === 'sink'
-                ? { to: portParams({ node: t.nodeId, port: t.portId, members: t.members }) }
+                ? { to: portParams({ node: t.nodeId, port: t.portId }) }
                 : {}),
             },
           },
@@ -900,7 +887,7 @@ const netStubDisconnect: MenuContribution = {
         label: 'Disconnect this input',
         action: {
           kind: 'command',
-          invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId, members: t.members }) } },
+          invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId }) } },
         },
       },
     ]

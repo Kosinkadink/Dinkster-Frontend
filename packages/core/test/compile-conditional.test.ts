@@ -46,14 +46,14 @@ const schemas: Record<string, NodeSchema> = {
 }
 const resolve = (type: string) => schemas[type]
 
-type End = [node: string, port: string, members?: string[]]
+type End = [node: string, port: string]
 type NodeSpec = { type: string; values?: Record<string, unknown>; dynamic?: Record<string, unknown> }
 type GraphSpec = {
   nodes: Record<string, NodeSpec>
   links?: [from: End, to: End][]
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
-const end = (e: End) => ({ node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) })
+const end = (e: End) => ({ node: e[0], port: e[1] })
 const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => ({
   format: 'dinkster-workflow',
   formatVersion: 1,

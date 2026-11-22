@@ -232,9 +232,6 @@ export function resolveBoundaryRoute(
     return { ok: false, code: 'boundary.tapRoute', message: `widget tap '${binding.tap}' is not a port or family route` }
   }
   const path = binding.port as string
-  if ((binding.members?.length ?? 0) > 0) {
-    return { ok: false, code: 'boundary.memberPath', message: `port '${path}' carries member ids; a member is part of the flattened id` }
-  }
   const segs = path.split('.')
   let found: BoundaryRoute | undefined
   let problem: { code: string; message: string } | undefined
@@ -402,13 +399,13 @@ export function deriveBoundarySchema(
       if (binding.viaReroute === undefined) return [binding]
       const targets = rerouteInputTargets(graph, binding.viaReroute)
       if (binding.kind !== 'port' || !targets?.length ||
-          !targets.some((target) => target.node === binding.node && portAddressKey(target.port, target.members) === portAddressKey(binding.port, binding.members)) ||
+          !targets.some((target) => target.node === binding.node && portAddressKey(target.port) === portAddressKey(binding.port)) ||
           Object.values(graph.links).some((link) => 'reroute' in link.to && link.to.reroute === binding.viaReroute)) {
         fail('boundary.reroute', `boundary input '${item.id}' has an invalid or internally driven junction attachment`)
         return []
       }
       const { viaReroute: _via, ...authority } = binding
-      return [authority, ...targets.filter((target) => target.node !== binding.node || portAddressKey(target.port, target.members) !== portAddressKey(binding.port, binding.members))
+      return [authority, ...targets.filter((target) => target.node !== binding.node || portAddressKey(target.port) !== portAddressKey(binding.port))
         .map((target) => ({ kind: 'port' as const, ...target }))]
     })
     const { alsoBinds: _also, ...single } = item
@@ -453,12 +450,12 @@ export function deriveBoundarySchema(
 
   /** Link existence on an inner node's input, by flattened id. */
   const isInternallyConnected = (b: PortBoundaryBinding, port: string): boolean => {
-    const key = portAddressKey(port, b.members)
+    const key = portAddressKey(port)
     for (const link of Object.values(def.links)) {
-      if (isPortEndpoint(link.to) && link.to.node === b.node && portAddressKey(link.to.port, link.to.members) === key) return true
+      if (isPortEndpoint(link.to) && link.to.node === b.node && portAddressKey(link.to.port) === key) return true
     }
     for (const net of Object.values(def.nets)) {
-      if (net.sinks.some((s) => s.node === b.node && portAddressKey(s.port, s.members) === key)) return true
+      if (net.sinks.some((s) => s.node === b.node && portAddressKey(s.port) === key)) return true
     }
     return false
   }
@@ -534,8 +531,8 @@ export function deriveBoundarySchema(
   const routeFor = (item: BoundaryItem, side: 'input' | 'output'): { node: NodeData; route: BoundaryRoute } | undefined =>
     routeForBinding(item.binds, `boundary ${side} '${item.id}'`, side)
 
-  /** Fan-out duplicate key: full target address (node, port, member path). */
-  const targetKeyOf = (b: PortBoundaryBinding): string => JSON.stringify([b.node, b.port, b.members ?? []])
+  /** Fan-out duplicate key: full target address (node, port). */
+  const targetKeyOf = (b: PortBoundaryBinding): string => JSON.stringify([b.node, b.port])
 
   const displayNameOf = (
     item: BoundaryItem,
@@ -608,7 +605,7 @@ export function deriveBoundarySchema(
         }
         const key = targetKeyOf(b)
         if (seenTargets.has(key)) {
-          fail('boundary.duplicateBind', `${describe} repeats target '${b.node}/${b.port}'${b.members ? ` member '${b.members.join('.')}'` : ''}`)
+          fail('boundary.duplicateBind', `${describe} repeats target '${b.node}/${b.port}'`)
           fanoutOk = false
           continue
         }

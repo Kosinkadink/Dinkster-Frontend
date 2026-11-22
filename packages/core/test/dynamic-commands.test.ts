@@ -14,7 +14,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { asDynamicMemberId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
 import {
   elabInputsOf,
   elaborateInterface,
@@ -483,7 +483,7 @@ describe('dynamic.compact', () => {
       id: 'g0',
       nodes: { src: node('src'), n1: node('n1', { dynamic: state }) },
       links: {
-        l1: { id: asLinkId('l1'), from: port('src', 'out'), to: { ...port('n1', 'images.item'), members: [asDynamicMemberId('m1')] } },
+        l1: { id: asLinkId('l1'), from: port('src', 'out'), to: port('n1', 'images.m1') },
       },
     })
     const store = makeStore(doc({ g0: g }))
@@ -516,7 +516,7 @@ describe('dynamic.compact', () => {
         } }) },
         links: {
           l1: { id: asLinkId('l1'), from: port('src', 'out'),
-            to: { ...port('n1', 'images.item'), members: [asDynamicMemberId('m1')] } },
+            to: port('n1', 'images.m1') },
         },
       }),
     }))
@@ -579,7 +579,7 @@ describe('dynamic.compact', () => {
   })
 
   it('keeps members referenced by stored values', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: state, values: { 'images.item#m2': 4 } }) } }) }))
+    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: state, values: { 'images.m2': 4 } }) } }) }))
     store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m2'], seq: 3 } })
   })
@@ -588,14 +588,14 @@ describe('dynamic.compact', () => {
     const g = graph({
       id: 'g0',
       nodes: { n1: node('n1', { dynamic: state }), dst: node('dst') },
-      nets: { net1: { id: asNetId('net1'), name: 'n', source: { ...port('n1', 'images.item'), members: [asDynamicMemberId('m0')] }, sinks: [port('dst', 'in')] } },
+      nets: { net1: { id: asNetId('net1'), name: 'n', source: port('n1', 'images.m0'), sinks: [port('dst', 'in')] } },
     })
     const store = makeStore(doc({ g0: g }))
     store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m0'], seq: 3 } })
   })
 
-  it('keeps wire-15 path-encoded members referenced by links and nets', () => {
+  it('keeps members referenced by the flattened ids of links and nets', () => {
     const g = graph({
       id: 'g0',
       nodes: { src: node('src'), n1: node('n1', { dynamic: state }), dst: node('dst') },
@@ -611,7 +611,7 @@ describe('dynamic.compact', () => {
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m1', 'm2'], seq: 3 } })
   })
 
-  it('keeps every family scope referenced by a flattened nested wire-15 path', () => {
+  it('keeps every group a nested flattened id lies within', () => {
     const dynamic = {
       outer: { members: ['root', 'unused'], seq: 2 },
       'outer.root.inner': { members: ['child', 'unused'], seq: 2 },
@@ -631,7 +631,7 @@ describe('dynamic.compact', () => {
     })
   })
 
-  it('keeps wire-15 members referenced by flat/nested values and flattened choices', () => {
+  it('keeps members referenced by flat/nested values and flattened choices', () => {
     const dynamic = {
       outer: { members: ['root', 'unused'], seq: 2 },
       'outer.root.inner': { members: ['child', 'unused'], seq: 2 },
@@ -660,7 +660,7 @@ describe('dynamic.compact', () => {
     const g = graph({
       id: 'g0',
       nodes: { n1: node('n1', { dynamic: state }) },
-      boundary: { inputs: [{ id: 'in', binds: { kind: 'port', ...port('n1', 'images.item'), members: [asDynamicMemberId('m1')] } }], outputs: [] },
+      boundary: { inputs: [{ id: 'in', binds: { kind: 'port', ...port('n1', 'images.m1') } }], outputs: [] },
     })
     const store = makeStore(doc({ g0: g }))
     store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })

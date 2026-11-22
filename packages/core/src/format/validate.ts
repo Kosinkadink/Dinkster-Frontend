@@ -91,14 +91,6 @@ function checkPortRef(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   c.str(v['node'], `${path}.node`, { nonEmpty: true })
   c.str(v['port'], `${path}.port`, { nonEmpty: true })
-  // Retired pre-release scalar; loadDocument canonicalizes it away before
-  // validation, so its presence here means the pipeline was bypassed.
-  if (v['member'] !== undefined) c.fail(`${path}.member`, "retired field; use 'members' (member-id path, outermost first)")
-  // Member-id path (outermost first). Canonical: present iff non-empty.
-  if (v['members'] !== undefined && c.arr(v['members'], `${path}.members`)) {
-    if (v['members'].length === 0) c.fail(`${path}.members`, 'must be non-empty when present (omit for static ports)')
-    v['members'].forEach((m, i) => c.str(m, `${path}.members[${i}]`, { nonEmpty: true }))
-  }
 }
 
 function checkTypeExpr(c: ShapeChecker, v: unknown, path: string): void {
@@ -137,7 +129,7 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   if (kind === 'unbound' || kind === 'valueSource') {
     if (kind === 'valueSource') c.str(binding['valueSource'], `${path}.valueSource`, { nonEmpty: true })
     checkTypeExpr(c, binding['type'], `${path}.type`)
-    for (const field of ['node', 'port', 'tap', 'members', 'viaReroute']) {
+    for (const field of ['node', 'port', 'tap', 'viaReroute']) {
       if (binding[field] !== undefined) c.fail(`${path}.${field}`, `invalid on kind '${kind}'`)
     }
     return
@@ -150,7 +142,6 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
     c.str(binding['node'], `${path}.node`, { nonEmpty: true })
     c.str(binding['tap'], `${path}.tap`, { nonEmpty: true })
     if (binding['port'] !== undefined) c.fail(`${path}.port`, "invalid on kind 'widgetTap'")
-    if (binding['members'] !== undefined) c.fail(`${path}.members`, "invalid on kind 'widgetTap'")
     return
   }
   checkPortRef(c, v, path)
@@ -200,8 +191,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
         if (typeof b !== 'object' || b === null) return undefined
         const o = b as Record<string, unknown>
         if (typeof o['node'] !== 'string' || typeof o['port'] !== 'string') return undefined
-        const members = Array.isArray(o['members']) ? o['members'].join('.') : ''
-        return `${o['node']}\u0000${o['port']}\u0000${members}`
+        return `${o['node']}\u0000${o['port']}`
       }
       const seen = new Set<string>()
       const primaryKey = targetKey(primary)
@@ -213,7 +203,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
         }
         const key = targetKey(b)
         if (key === undefined) return
-        if (seen.has(key)) c.fail(`${path}.alsoBinds[${i}]`, 'duplicate fan-out target (same node/port/members as the primary or a previous entry)')
+        if (seen.has(key)) c.fail(`${path}.alsoBinds[${i}]`, 'duplicate fan-out target (same node/port as the primary or a previous entry)')
         seen.add(key)
       })
     }
@@ -380,13 +370,6 @@ function checkOccurrenceEndpoint(
   checkOccurrenceRef(c, v['occurrence'], `${path}.occurrence`)
   if (c.obj(v['address'], `${path}.address`)) {
     c.str(v['address']['port'], `${path}.address.port`, { nonEmpty: true })
-    const members = v['address']['members']
-    if (members !== undefined && c.arr(members, `${path}.address.members`)) {
-      if (members.length === 0)
-        c.fail(`${path}.address.members`, 'must be non-empty when present')
-      members.forEach((member, index) =>
-        c.str(member, `${path}.address.members[${index}]`, { nonEmpty: true }))
-    }
   }
   checkBoundaryRoute(c, v['route'], `${path}.route`)
 }

@@ -19,7 +19,7 @@ import {
   type TypeExpr,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { buildScene, portEndKey, type Scene, type SceneLinkEnd } from '../src/scene.js'
+import { buildScene, type Scene, type SceneLinkEnd } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -192,8 +192,8 @@ const expectNoDanglingEndpoints = (scene: Scene): void => {
       const node = nodeOf(scene, e.node)
       const direction = e === link.from ? 'out' : 'in'
       expect(
-        node.layout.pins.some((p) => p.direction === direction && p.portId === portEndKey(e)),
-        `link ${link.id}: ${direction} pin ${portEndKey(e)} on ${e.node}`,
+        node.layout.pins.some((p) => p.direction === direction && p.portId === e.port),
+        `link ${link.id}: ${direction} pin ${e.port} on ${e.node}`,
       ).toBe(true)
     }
   }
@@ -282,9 +282,9 @@ describe('coexistence: every construct renders in one scene', () => {
     // The delivery stays a scene link, flagged hidden so tags paint instead.
     expect(scene.links.filter((l) => l.netId === 'n1').map((l) => l.hidden)).toEqual([true])
     const stubs = scene.netStubs.filter((s) => s.netId === 'n1')
-    expect(stubs.map((s) => [s.role, s.nodeId, s.members] as const).sort()).toEqual([
-      ['sink', 'inst', undefined],
-      ['source', 'src2', undefined],
+    expect(stubs.map((s) => [s.role, s.nodeId] as const).sort()).toEqual([
+      ['sink', 'inst'],
+      ['source', 'src2'],
     ])
     for (const stub of stubs) expect(stub.name).toBe('feed')
     // Everything else survives the view change untouched.

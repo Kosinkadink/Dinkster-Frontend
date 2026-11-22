@@ -69,8 +69,8 @@ import { scopeRowsOf } from './model.js'
  * by design.
  */
 export interface Connectivity {
-  isInputConnected(port: string, members?: readonly string[]): boolean
-  isOutputConnected(port: string, members?: readonly string[]): boolean
+  isInputConnected(port: string): boolean
+  isOutputConnected(port: string): boolean
   /** Enumerable document input ports with a link or net endpoint. */
   inputPorts?(): readonly string[]
 }
@@ -88,8 +88,7 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
   const inputs = new Map<NodeId, Set<string>>()
   const outputs = new Map<NodeId, Set<string>>()
   const inputPorts = new Map<NodeId, Set<string>>()
-  const producerKey = (kind: 'port' | 'tap', port: string, members?: readonly string[]): string =>
-    JSON.stringify([kind, port, members ?? []])
+  const producerKey = (kind: 'port' | 'tap', port: string): string => JSON.stringify([kind, port])
   const add = (map: Map<NodeId, Set<string>>, node: NodeId, key: string): void => {
     let set = map.get(node)
     if (!set) map.set(node, (set = new Set()))
@@ -97,22 +96,22 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
   }
   for (const link of Object.values(def.links)) {
     if (isPortEndpoint(link.from))
-      add(outputs, link.from.node, producerKey('port', link.from.port, link.from.members))
+      add(outputs, link.from.node, producerKey('port', link.from.port))
     else if (
       isExactWidgetTapRef(link.from) &&
       def.nodes[link.from.node] !== undefined
     )
       add(outputs, link.from.node, producerKey('tap', link.from.tap))
     if (isPortEndpoint(link.to)) {
-      add(inputs, link.to.node, portAddressKey(link.to.port, link.to.members))
-      if (link.to.members === undefined || link.to.members.length === 0) add(inputPorts, link.to.node, link.to.port)
+      add(inputs, link.to.node, portAddressKey(link.to.port))
+      add(inputPorts, link.to.node, link.to.port)
     }
   }
   for (const net of Object.values(def.nets)) {
-    add(outputs, net.source.node, producerKey('port', net.source.port, net.source.members))
+    add(outputs, net.source.node, producerKey('port', net.source.port))
     for (const sink of net.sinks) {
-      add(inputs, sink.node, portAddressKey(sink.port, sink.members))
-      if (sink.members === undefined || sink.members.length === 0) add(inputPorts, sink.node, sink.port)
+      add(inputs, sink.node, portAddressKey(sink.port))
+      add(inputPorts, sink.node, sink.port)
     }
   }
   const cache = new Map<NodeId, Connectivity>()
@@ -123,10 +122,9 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
     const outs = outputs.get(node)
     if (!ins && !outs) return EMPTY_CONNECTIVITY
     c = {
-      isInputConnected: (port, members) => ins?.has(portAddressKey(port, members)) ?? false,
-      isOutputConnected: (port, members) =>
-        outs?.has(producerKey('port', port, members)) === true ||
-        ((members === undefined || members.length === 0) && outs?.has(producerKey('tap', port)) === true),
+      isInputConnected: (port) => ins?.has(portAddressKey(port)) ?? false,
+      isOutputConnected: (port) =>
+        outs?.has(producerKey('port', port)) === true || outs?.has(producerKey('tap', port)) === true,
       inputPorts: () => [...(inputPorts.get(node) ?? [])],
     }
     cache.set(node, c)
@@ -140,33 +138,11 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
 
 /**
  * Document-identity address of an elaborated port: what PortRef stores.
- * `port` is the flattened id. `members` is never set by elaboration; it
- * remains in the type for subgraph boundary addresses.
+ * `port` is the flattened id; it also keys the port's stored value, its
+ * layout row and its pin.
  */
 export interface PortAddress {
   readonly port: string
-  readonly members?: readonly DynamicMemberId[]
-}
-
-/**
- * Unique string key of an address (map keys, layout row ids). For an
- * elaborated port it is the flattened id itself. Components are minimally
- * escaped ('%' then '#') so the packing stays injective.
- */
-const escapeElabSeg = (s: string): string => s.replace(/%/g, '%25').replace(/#/g, '%23')
-
-export const elabKeyOf = (a: PortAddress): string =>
-  a.members === undefined || a.members.length === 0
-    ? escapeElabSeg(a.port)
-    : [a.port, ...a.members].map(escapeElabSeg).join('#')
-
-/** Decode a canonical value key, optionally including memberless inputs. */
-export const addressOfElabKey = (key: string, includeMemberless = false): PortAddress | undefined => {
-  const unescape = (s: string): string => s.replace(/%23/g, '#').replace(/%25/g, '%')
-  const parts = key.split('#').map(unescape)
-  if (parts.length < 2 && !includeMemberless) return undefined
-  const address: PortAddress = { port: parts[0]!, ...(parts.length > 1 ? { members: parts.slice(1) as DynamicMemberId[] } : {}) }
-  return elabKeyOf(address) === key ? address : undefined
 }
 
 /**

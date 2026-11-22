@@ -227,7 +227,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
             ? {
                 node: hit.link.to.node,
                 port: hit.link.to.port,
-                ...(hit.link.to.members !== undefined ? { members: hit.link.to.members } : {}),
               }
             : hit.link.to.kind === 'reroute'
               ? { reroute: hit.link.to.reroute }
@@ -258,7 +257,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         kind: 'pin',
         nodeId: hit.node.id,
         portId: hit.pin.address.port,
-        ...(hit.pin.address.members !== undefined ? { members: hit.pin.address.members } : {}),
         direction: hit.direction,
       }
     case 'widgetTap':
@@ -288,7 +286,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         role: hit.stub.role,
         nodeId: hit.stub.nodeId,
         portId: hit.stub.portId,
-        ...(hit.stub.members !== undefined ? { members: hit.stub.members } : {}),
       }
     case 'group-header':
     case 'group-resize':

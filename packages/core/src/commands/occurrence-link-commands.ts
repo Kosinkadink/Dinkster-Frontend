@@ -36,17 +36,15 @@ function validLinkEndpoint(value: Json | undefined): boolean {
     return exactKeys(value, ['selector'], ['candidate']) && nonEmptyString(value.selector) &&
       (value.candidate === undefined || nonEmptyString(value.candidate))
   if (value.tap !== undefined) return exactKeys(value, ['node', 'tap']) && nonEmptyString(value.node) && nonEmptyString(value.tap)
-  return exactKeys(value, ['node', 'port'], ['kind', 'members']) && (value.kind === undefined || value.kind === 'port') &&
-    nonEmptyString(value.node) && nonEmptyString(value.port) &&
-    (value.members === undefined || stringArray(value.members, false))
+  return exactKeys(value, ['node', 'port'], ['kind']) && (value.kind === undefined || value.kind === 'port') &&
+    nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validBinding(value: Json | undefined): boolean {
   if (isObj(value) && value.kind === 'valueSource')
     return exactKeys(value, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(value).length === 0
-  return isObj(value) && exactKeys(value, ['kind', 'node', 'port'], ['members']) &&
-    value.kind === 'port' && nonEmptyString(value.node) && nonEmptyString(value.port) &&
-    (value.members === undefined || stringArray(value.members, false))
+  return isObj(value) && exactKeys(value, ['kind', 'node', 'port']) &&
+    value.kind === 'port' && nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validRoute(value: Json | undefined): boolean {
@@ -60,8 +58,7 @@ function validOccurrenceEndpoint(value: Json | undefined): boolean {
   if (value.kind === 'body') return exactKeys(value, ['kind', 'endpoint']) && validLinkEndpoint(value.endpoint)
   return value.kind === 'boundary' && exactKeys(value, ['kind', 'occurrence', 'address', 'route']) &&
     ownerFromJson(value.occurrence) !== undefined && isObj(value.address) &&
-    exactKeys(value.address, ['port'], ['members']) && nonEmptyString(value.address.port) &&
-    (value.address.members === undefined || stringArray(value.address.members, false)) && validRoute(value.route)
+    exactKeys(value.address, ['port']) && nonEmptyString(value.address.port) && validRoute(value.route)
 }
 
 function validParentDelivery(value: Json | undefined): boolean {
@@ -158,7 +155,7 @@ const planEndpoint = (endpoint: ResolvedOccurrenceEndpoint): OccurrenceLinkPlanE
 const identityKey = (identity: EffectiveLinkIdentity): string => canonicalJson(identity)
 const isRegionIndexSource = (endpoint: OccurrenceLinkEndpoint): boolean =>
   endpoint.kind === 'body' && isPortEndpoint(endpoint.endpoint) &&
-  endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index' && endpoint.endpoint.members === undefined
+  endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index'
 const identityOwnedBy = (identity: EffectiveLinkIdentity, owner: OccurrenceRef): boolean =>
   identity.kind !== 'occurrence' || occurrenceKey(identity.owner) === occurrenceKey(owner)
 
@@ -195,8 +192,7 @@ function materializedDocument(
     if (!schema) return undefined
     const elaborated = elaborateInterface(schema, node)
     const candidates = side === 'from' ? elabOutputsOf(elaborated) : elabInputsOf(elaborated)
-    const offered = candidates.find((item) => item.address.port === endpoint.address.port &&
-      canonicalJson(item.address.members ?? null) === canonicalJson(endpoint.address.members ?? null))
+    const offered = candidates.find((item) => item.address.port === endpoint.address.port)
     const frames = offered && materializeFramesOf(elaborated.items, offered)
     if (!frames) continue
     const applied = applyMaterializeFrames(node.dynamic ?? {}, frames)

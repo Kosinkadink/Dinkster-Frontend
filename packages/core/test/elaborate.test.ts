@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
-import { asDynamicMemberId, asNodeId } from '../src/ids.js'
+import { asNodeId } from '../src/ids.js'
 import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from '../src/schema/elaborate.js'
 import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
@@ -909,12 +909,12 @@ describe('groups of outputs', () => {
 
 describe('buildGraphConnectivity', () => {
 
-  it('indexes links and nets once, member-aware, ignoring reroute endpoints', () => {
+  it('indexes links and nets once by flattened id, ignoring reroute endpoints', () => {
     const def = {
       id: 'g0',
       nodes: {},
       links: {
-        l0: { id: 'l0', from: { node: 'a', port: 'out0' }, to: { node: 'b', port: 'images.item', members: ['m1'] } },
+        l0: { id: 'l0', from: { node: 'a', port: 'out0' }, to: { node: 'b', port: 'images.m1' } },
         l1: { id: 'l1', from: { node: 'a', port: 'out0' }, to: { reroute: 'r0' } },
         l2: { id: 'l2', from: { reroute: 'r0' }, to: { node: 'b', port: 'model' } },
       },
@@ -926,8 +926,8 @@ describe('buildGraphConnectivity', () => {
     } as unknown as GraphDef
     const facts = buildGraphConnectivity(def)
     const b = facts(asNodeId('b'))
-    expect(b.isInputConnected('images.item', [asDynamicMemberId('m1')])).toBe(true)
-    expect(b.isInputConnected('images.item')).toBe(false) // member-addressed, not family-wide
+    expect(b.isInputConnected('images.m1')).toBe(true)
+    expect(b.isInputConnected('images.m0')).toBe(false) // one member, not the whole group
     expect(b.isInputConnected('model')).toBe(true) // reroute-driven links still land on the input
     expect(b.isInputConnected('vae')).toBe(true) // net sinks count
     expect(facts(asNodeId('a')).isOutputConnected('out0')).toBe(true)

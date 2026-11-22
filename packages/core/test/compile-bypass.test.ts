@@ -98,12 +98,12 @@ const resolve = (type: string): NodeSchema | undefined => schemas[type]
 // -- Document builder (links may reference reroutes/value sources) -----------
 
 type End =
-  | { node: string; port: string; members?: string[] }
+  | { node: string; port: string }
   | { reroute: string }
   | { valueSource: string }
   | { selector: string; candidate?: string }
   | { node: string; tap: string }
-const P = (node: string, port: string, members?: string[]): End => ({ node, port, ...(members ? { members } : {}) })
+const P = (node: string, port: string): End => ({ node, port })
 
 interface BNode {
   type: string

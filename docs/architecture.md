@@ -1632,14 +1632,14 @@ The filtering and visual semantics are explicit:
   block execution.
 
 An anchor carrying `port` additionally projects to the exact elaborated input
-pin id (`port#member` for dynamic members). The renderer receives only the
+pin id (the flattened id, for dynamic members too). The renderer receives only the
 resolved per-port severity, never diagnostics: red denotes error, theme orange
 denotes an execution-blocking warning, and badge amber denotes an advisory.
 Error wins when several diagnostics share a pin. A diagnosed widget-backed pin
 reveals even when it would normally wait for selection/hover, and the ring is
 painted outside its ordinary typed body; selection/hover remain independent.
 Compile artifacts record `inputSources` provenance from every backend wire
-`apiName` to its exact source `PortRef`, including dynamic members and omitted
+`apiName` to its exact source `PortRef`, including dynamic member rows and omitted
 required inputs. Native `inputId` and legacy `extra_info.input_name`
 submit-validation diagnostics resolve through this map alongside occurrence
 provenance, so they use the same path as compile diagnostics rather than a

@@ -30,7 +30,7 @@
  *      TARGETS always do (candidates consume, the output produces), at most
  *      one link drives each candidate, and reroute/selector driver chains
  *      (over ALL candidates, since policy can change) are acyclic
- *  I12 member-addressed link/net endpoints name persisted dynamic members;
+ *  I12 link/net endpoints inside a group member name persisted members;
  *      stale links cannot recreate sockets removed by explicit compaction
  */
 
@@ -146,8 +146,7 @@ function endpointIdentityContainsNul(endpoint: LinkEndpoint): boolean {
     return containsNul(endpoint.selector) ||
       (endpoint.candidate !== undefined && containsNul(endpoint.candidate))
   if (isWidgetTapRef(endpoint)) return containsNul(endpoint.node) || containsNul(endpoint.tap)
-  return containsNul(endpoint.node) || containsNul(endpoint.port) ||
-    endpoint.members?.some(containsNul) === true
+  return containsNul(endpoint.node) || containsNul(endpoint.port)
 }
 
 function occurrenceRefContainsNul(ref: OccurrenceRef): boolean {
@@ -163,8 +162,7 @@ function routeContainsNul(route: readonly BoundaryRouteLeg[]): boolean {
     (leg.binding.kind === 'widgetTap'
       ? containsNul(leg.binding.tap)
       : containsNul(leg.binding.port) ||
-        (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute)) ||
-        leg.binding.members?.some(containsNul) === true))))
+        (leg.binding.viaReroute !== undefined && containsNul(leg.binding.viaReroute))))))
 }
 
 function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolean {
@@ -172,7 +170,6 @@ function occurrenceEndpointContainsNul(endpoint: OccurrenceLinkEndpoint): boolea
     ? endpointIdentityContainsNul(endpoint.endpoint)
     : occurrenceRefContainsNul(endpoint.occurrence) ||
       containsNul(endpoint.address.port) ||
-      endpoint.address.members?.some(containsNul) === true ||
       routeContainsNul(endpoint.route)
 }
 
@@ -205,7 +202,7 @@ export function routeMatchesOwnerChain(
   chain: readonly ResolvedOccurrenceHop[],
   startIndex: number,
   side: 'from' | 'to',
-  initialAddress: { readonly port: string; readonly members?: readonly string[] },
+  initialAddress: { readonly port: string },
   route: readonly BoundaryRouteLeg[],
 ): boolean {
   if (route.length !== chain.length - startIndex) return false
@@ -241,7 +238,7 @@ export function routeMatchesOwnerChain(
     if (offset + 1 < route.length) {
       const nextHop = chain[startIndex + offset + 1]!
       if (binding.kind === 'widgetTap' || binding.node !== nextHop.ref.node) return false
-      address = { port: binding.port, ...(binding.members ? { members: binding.members } : {}) }
+      address = { port: binding.port }
     }
   }
   return true
@@ -399,7 +396,7 @@ function checkOccurrenceTopologies(doc: WorkflowDocument, diags: Diagnostic[]): 
         if (endpoint.kind === 'body') {
           if (side === 'from' && isPortEndpoint(endpoint.endpoint) &&
               endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index' &&
-              endpoint.endpoint.members === undefined && chain[chain.length - 1]!.node.region !== undefined) continue
+              chain[chain.length - 1]!.node.region !== undefined) continue
           checkOccurrenceBodyEndpoint(body, endpoint.endpoint, side, `${where} link '${link.id}' ${side}`, diags)
           continue
         }

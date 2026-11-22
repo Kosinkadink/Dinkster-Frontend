@@ -81,7 +81,6 @@ export type InputFamilyMapping =
       /** Full historical template, independent of the current source schema. */
       readonly sourceTemplate?: {
         readonly inputs: readonly string[]
-        readonly memberPort?: string
       }
       /** Target template-local input id -> source template-local mapping. */
       readonly inputs: Readonly<Record<string, MappingSource>>
@@ -240,12 +239,10 @@ const isInputFamilyMapping = (v: unknown): v is InputFamilyMapping => {
       const template = v.sourceTemplate
       if (
         !isObj(template) ||
-        Object.keys(template).some((key) => key !== 'inputs' && key !== 'memberPort') ||
+        Object.keys(template).some((key) => key !== 'inputs') ||
         !Array.isArray(template.inputs) || template.inputs.length === 0 ||
         template.inputs.some((id) => typeof id !== 'string' || !STRUCTURAL_ID.test(id)) ||
         new Set(template.inputs).size !== template.inputs.length ||
-        (template.memberPort !== undefined &&
-          (typeof template.memberPort !== 'string' || !isDynamicPath(template.memberPort) || template.inputs.length !== 1)) ||
         !isObj(v.inputs)
       ) return false
       const inputs = template.inputs

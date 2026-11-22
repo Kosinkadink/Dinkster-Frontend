@@ -29,7 +29,6 @@ import { projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, wi
 import {
   boundarySceneId,
   GROUP_HEADER_HEIGHT,
-  portEndKey,
   REROUTE_RADIUS,
   REROUTE_SOCKET_OFFSET,
   REROUTE_SOCKET_RADIUS,
@@ -1338,7 +1337,7 @@ export class CanvasRenderer {
       const pin = end.kind === 'widgetTap'
         ? node?.layout.pins.find((candidate) => candidate.widgetTap === true && candidate.address.port === end.input)
         : node?.layout.pins.find((candidate) =>
-            candidate.direction === direction && candidate.portId === portEndKey(end) && candidate.widgetTap !== true,
+            candidate.direction === direction && candidate.portId === end.port && candidate.widgetTap !== true,
           )
       if (node === undefined || pin === undefined) return fallback
       return { x: direction === 'out' ? node.x + node.layout.width : node.x, y: node.y + pin.y }
@@ -1351,7 +1350,7 @@ export class CanvasRenderer {
     const netStubs = scene.netStubs.map((stub) => {
       const node = byId.get(stub.nodeId)
       const direction = stub.role === 'source' ? 'out' : 'in'
-      const key = portEndKey({ port: stub.portId, ...(stub.members === undefined ? {} : { members: stub.members }) })
+      const key = stub.portId
       const pin = node?.layout.pins.find((candidate) =>
         candidate.direction === direction && candidate.portId === key && candidate.widgetTap !== true,
       )
@@ -1710,14 +1709,11 @@ export class CanvasRenderer {
           .filter((link) => link.to.kind === 'port')
           .map((link) => {
           const to = link.to as Extract<SceneLinkEnd, { kind: 'port' }>
-          return `${to.node}\u0000${portEndKey(to)}`
+          return `${to.node}\u0000${to.port}`
         }),
         ...this.scene.netStubs
           .filter((stub) => stub.role === 'sink')
-          .map((stub) => `${stub.nodeId}\u0000${portEndKey({
-            port: stub.portId,
-            ...(stub.members === undefined ? {} : { members: stub.members }),
-          })}`),
+          .map((stub) => `${stub.nodeId}\u0000${stub.portId}`),
       ],
     )
     this.connectedOutputPins = new Set(
@@ -1727,15 +1723,12 @@ export class CanvasRenderer {
           .map((link) => {
           const from = link.from as Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' }>
           return from.kind === 'port'
-            ? `${from.node}\u0000${portEndKey(from)}`
+            ? `${from.node}\u0000${from.port}`
             : `${from.node}\u0000${from.input}`
         }),
         ...this.scene.netStubs
           .filter((stub) => stub.role === 'source')
-          .map((stub) => `${stub.nodeId}\u0000${portEndKey({
-            port: stub.portId,
-            ...(stub.members === undefined ? {} : { members: stub.members }),
-          })}`),
+          .map((stub) => `${stub.nodeId}\u0000${stub.portId}`),
       ],
     )
     this.connectedWidgetTaps = new Set(
@@ -1755,7 +1748,7 @@ export class CanvasRenderer {
         .filter((link) => link.boundary !== true && link.to.kind === 'port')
         .map((link) => {
           const to = link.to as Extract<SceneLinkEnd, { kind: 'port' }>
-          return `${to.node}\u0000${portEndKey(to)}`
+          return `${to.node}\u0000${to.port}`
         }),
     )
   }
@@ -2909,7 +2902,7 @@ export class CanvasRenderer {
     const pin = end.kind === 'widgetTap'
       ? node?.layout.pins.find((candidate) => candidate.widgetTap === true && candidate.address.port === end.input)
       : node?.layout.pins.find((candidate) =>
-          candidate.direction === direction && candidate.portId === portEndKey(end) && candidate.widgetTap !== true,
+          candidate.direction === direction && candidate.portId === end.port && candidate.widgetTap !== true,
         )
     if (pin === undefined) return { x: fallbackX, y: fallbackY }
     return {

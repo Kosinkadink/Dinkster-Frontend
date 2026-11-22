@@ -17,8 +17,8 @@
  * members, min-fill, trailing ghosts, combo selectors/branches, and slot
  * dependents all render through ONE path, subgraph instances included
  * (they resolve to boundary-derived schemas through documentResolver).
- * Row/pin ids are ELAB KEYS (elabKeyOf packing, unique per node); document
- * identity travels separately as `address` so gestures never parse keys.
+ * Row/pin ids are the rows' flattened ids (unique per node); document
+ * identity also travels as `address` for command params.
  * Ghost rows carry `materialize` frames: the UI batches dynamic.materialize
  * with whatever action lands on the ghost (hazard N3).
  *
@@ -64,8 +64,8 @@ export interface DynamicEditOwner {
 
 /**
  * Dynamic-family annotations shared by port slots, widget rows, and pins.
- * `portId`/`inputId` are elab keys (unique per node, presentation/lookup);
- * `address` is document identity ({port, members}) for command params.
+ * `portId`/`inputId` are flattened ids (unique per node, presentation/lookup);
+ * `address` is document identity ({port}) for command params.
  */
 export interface DynamicAnnotations {
   readonly address: PortAddress
@@ -860,10 +860,10 @@ export function layoutNode(
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
         })
       }
-      // A connected widget tap (the producer affordance of a memberless
-      // widget input) keeps its anchor too - otherwise collapsing the
-      // section silently drops the outgoing noodle from the scene.
-      if (widget && !spec.forceInput && item.address.members === undefined && isConnected('out', spec.id)) {
+      // A connected widget tap (the producer affordance of a widget input)
+      // keeps its anchor too - otherwise collapsing the section silently
+      // drops the outgoing noodle from the scene.
+      if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: section!, portId: spec.id, direction: 'out', type: spec.type, widgetTap: true,
           ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
@@ -1085,13 +1085,12 @@ export function layoutNode(
         ...(w.optional ? { optional: true as const } : {}),
         widgetBacked: true as const,
       })
-      // A static memberless widget can also produce its effective value. The
-      // duplicate right-edge anchor deliberately shares the input's elab key.
-      if (w.address.members === undefined)
-        pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
-          ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
-        })
+      // A widget can also produce its effective value. The duplicate
+      // right-edge anchor deliberately shares the input's flattened id.
+      pins.push({
+        ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
+        ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
+      })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
         advancedBounds.bottom = Math.max(advancedBounds.bottom, y + height)
       }

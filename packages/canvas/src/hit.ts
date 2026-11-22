@@ -55,7 +55,7 @@ export type Hit =
   | {
       readonly kind: 'pin'
       readonly node: SceneNode
-      /** Elab key (view lookup). Document identity is pin.address. */
+      /** Flattened port id (view lookup). Document identity is pin.address. */
       readonly portId: string
       readonly direction: 'in' | 'out'
       /** Pin center, world coords. */

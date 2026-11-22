@@ -63,8 +63,7 @@ const portItem = (id: string): BoundaryItem => ({
   binds: {
     kind: 'port',
     node: asNodeId('n1'),
-    port: asPortId('items.tag'),
-    members: [asNodeId('m0') as unknown as never],
+    port: asPortId('items.m0.tag'),
   },
 })
 
@@ -215,7 +214,6 @@ describe('boundary item lifecycle commands', () => {
     for (const params of [
       { graphId: 'sub', side: 'inputs', node: 'n1', tap: 'value' },
       { graphId: 'sub', side: 'outputs', node: 'n1', tap: 'value', port: 'value' },
-      { graphId: 'sub', side: 'outputs', node: 'n1', tap: 'value', members: ['m0'] },
     ]) {
       const outcome = store.dispatch({ command: 'boundary.addItem', params })
       expect(outcome.ok).toBe(false)

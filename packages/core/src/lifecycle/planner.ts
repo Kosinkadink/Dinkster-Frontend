@@ -35,7 +35,7 @@ import { canonicalJson, sha256Hex } from '../compile/hash.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
-import { DEFAULT_ELAB_BUDGET, elabKeyOf, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
+import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { matchBoundaryItem } from '../compile/crossing.js'
@@ -86,7 +86,6 @@ export interface FlattenBoundaryStateRoute {
 
 export interface FlattenPortAddress {
   readonly port: string
-  readonly members?: readonly string[]
 }
 
 export interface FlattenEnclosingBindingRewrite {
@@ -117,7 +116,7 @@ export interface FlattenRefusedStatePlan {
     readonly side?: 'input' | 'output'
     readonly boundaryId?: string
     readonly key?: string
-    readonly address?: { readonly port: string; readonly members?: readonly string[] }
+    readonly address?: FlattenPortAddress
   }
 }
 
@@ -202,7 +201,7 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
   const evidence: FlattenStoredPortEvidence[] = []
   const add = (ref: PortRef, side: 'input' | 'output', use: 'link' | 'net' | 'enclosing'): void => {
     if (ref.node !== nodeId) return
-    evidence.push({ key: elabKeyOf({ port: ref.port, ...(ref.members !== undefined ? { members: ref.members } : {}) }), side, use })
+    evidence.push({ key: ref.port, side, use })
   }
   for (const link of Object.values(parent.links).sort((a, b) => compareStrings(a.id, b.id))) {
     if (isPortEndpoint(link.from)) add(link.from, 'output', 'link')
@@ -218,7 +217,7 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.node !== nodeId) continue
         if (binding.kind === 'widgetTap') continue
-        add({ node: binding.node, port: binding.port, ...(binding.members !== undefined ? { members: binding.members } : {}) }, side, 'enclosing')
+        add({ node: binding.node, port: binding.port }, side, 'enclosing')
       }
     }
   }
@@ -436,7 +435,7 @@ function planFlattenState(
         : primarySlot.widget?.controllerInitial ?? (primarySlot.widget?.controller !== undefined ? 'randomize' : undefined)
     for (const binding of targets) {
       const target = nodes.get(binding.node as string)
-      if (target === undefined || binding.kind !== 'port' || (binding.members?.length ?? 0) > 0) {
+      if (target === undefined || binding.kind !== 'port') {
         fail('subgraph.flatten.stateUnresolved', `promoted boundary '${item.id}' cannot map to one plain target`, 'input', item.id)
         continue
       }
@@ -1050,7 +1049,7 @@ function endpointKey(endpoint: LinkEndpoint): string {
   if (isValueSourceRef(endpoint)) return canonicalJson(['valueSource', endpoint.valueSource])
   if (isSelectorRef(endpoint)) return canonicalJson(['selector', endpoint.selector, endpoint.candidate ?? null])
   if (isWidgetTapRef(endpoint)) return canonicalJson(['tap', endpoint.node, endpoint.tap])
-  return canonicalJson(['port', endpoint.node, endpoint.port, endpoint.members ?? []])
+  return canonicalJson(['port', endpoint.node, endpoint.port])
 }
 
 function refusalForLink(
@@ -1078,7 +1077,6 @@ function refusalForLink(
 const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' | 'valueSource' }>): PortRef => ({
   node: binding.node,
   port: binding.port,
-  ...(binding.members !== undefined ? { members: binding.members } : {}),
 })
 
 const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef | ValueSourceRef => {

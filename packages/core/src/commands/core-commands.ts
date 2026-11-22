@@ -27,7 +27,7 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elabInputsOf, elaborateInterface, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
 import { groupAllocationFloor } from '../group-alloc.js'
-import { asDynamicMemberId, asNodeId, asPortId, asSelectorId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, asSelectorId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { allocateOne, graphAllocator } from './alloc.js'
 import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateSelectorCycle, wouldCreateTapCycle } from '../reroute.js'
@@ -64,9 +64,7 @@ interface PortRefJson extends JsonObject {
 const isPortRef = (v: Json | undefined): v is PortRefJson =>
   isObj(v) &&
   typeof v.node === 'string' &&
-  typeof v.port === 'string' &&
-  (v.members === undefined ||
-    (Array.isArray(v.members) && v.members.length > 0 && v.members.every((m) => typeof m === 'string' && m.length > 0)))
+  typeof v.port === 'string'
 
 interface RerouteRefJson extends JsonObject {
   readonly reroute: string
@@ -151,9 +149,6 @@ function endpointError(
 const toPortRef = (e: PortRefJson): PortRef => ({
   node: asNodeId(e.node),
   port: asPortId(e.port),
-  ...(Array.isArray(e.members) && e.members.length > 0
-    ? { members: e.members.map((m) => asDynamicMemberId(m as string)) }
-    : {}),
 })
 
 /** Normalize a params endpoint to the document shape (drops stray fields). */

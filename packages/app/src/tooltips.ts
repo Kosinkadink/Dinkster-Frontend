@@ -152,7 +152,7 @@ const outputSummary = (region: RegionContract): string => {
 const portSpecOf = (schema: NodeSchema | undefined, node: NodeData, side: 'input' | 'output', port: string): InputSpec | OutputSpec | undefined => {
   if (schema === undefined) return undefined
   const item = elaborateInterface(schema, node).items.find((candidate) =>
-    candidate.kind === side && candidate.address.port === port && candidate.address.members === undefined)
+    candidate.kind === side && candidate.address.port === port)
   return item?.kind === 'input' || item?.kind === 'output' ? item.spec : undefined
 }
 

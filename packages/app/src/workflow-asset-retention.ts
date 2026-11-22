@@ -472,7 +472,7 @@ function censusWorkflowAssetRoots(
             const node = graph.nodes[consumer.node]
             const schema = node === undefined ? undefined : schemas(graph.id, node)
             const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === consumer.port)
-            if (consumer.members !== undefined || input === undefined) complete = false
+            if (input === undefined) complete = false
             else valueRoots(source.value, input.type)
           }
         }

@@ -19,7 +19,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type BoundaryRouteLeg, type ControllerMode, type DynamicPortState, type GraphDef, type GraphViewState, type GroupViewState, type Json, type JsonObject, type LinkData, type NamedNetData, type NodeData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SelectorData, type SuppressedDelivery, type ValueSourceData, type WorkflowDocument } from '../format/document.js'
 import { validateBoundaryBindingShape, validateGraphDefShape, validateGraphViewShape } from '../format/validate.js'
-import { actorCursorOf, asDynamicMemberId, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, asSelectorCandidateId, asSelectorId, asValueSourceId, formatAllocatedId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, occurrenceKey, portRefKey, sameEndpoint, type LinkEndpoint, type OccurrenceRef, type PortRef, type WidgetTapRef } from '../ids.js'
+import { actorCursorOf, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, asSelectorCandidateId, asSelectorId, asValueSourceId, formatAllocatedId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, occurrenceKey, portRefKey, sameEndpoint, type LinkEndpoint, type OccurrenceRef, type PortRef, type WidgetTapRef } from '../ids.js'
 import { EXPOSED_EXT_KEY, parseExposedEntry } from '../format/exposed.js'
 import { EXPOSED_PREVIEWS_EXT_KEY, parseExposedPreviewEntry } from '../format/exposed-previews.js'
 import { APP_LAYOUT_EXT_KEY, localizeAppLayoutJson, removeAppLayoutGraphRefs } from '../format/app-layout.js'
@@ -256,7 +256,7 @@ function bindingAsEndpoint(binding: BoundaryBinding): LinkEndpoint {
   if (!isNodeBoundaryBinding(binding)) throw new Error('unbound boundary has no endpoint')
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
-    : { node: binding.node, port: binding.port, ...(binding.members !== undefined ? { members: binding.members } : {}) }
+    : { node: binding.node, port: binding.port }
 }
 
 function endpointKey(endpoint: LinkEndpoint): string {
@@ -264,7 +264,7 @@ function endpointKey(endpoint: LinkEndpoint): string {
   if (isValueSourceRef(endpoint)) return canonicalJson(['valueSource', endpoint.valueSource])
   if (isSelectorRef(endpoint)) return canonicalJson(['selector', endpoint.selector, endpoint.candidate ?? null])
   if (isWidgetTapRef(endpoint)) return canonicalJson(['tap', endpoint.node, endpoint.tap])
-  return canonicalJson(['port', endpoint.node, endpoint.port, endpoint.members ?? []])
+  return canonicalJson(['port', endpoint.node, endpoint.port])
 }
 
 function parentPort(nodeId: string, port: string): PortRef {
@@ -287,13 +287,7 @@ function inputLinkForGroup(group: InputCutGroup, links: readonly LinkData[]): Li
 
 function portRefFromJson(value: Json): PortRef | undefined {
   if (!isObj(value) || typeof value.node !== 'string' || typeof value.port !== 'string') return undefined
-  if (value.members !== undefined && (!Array.isArray(value.members) || value.members.length === 0 ||
-      !value.members.every((member) => typeof member === 'string' && member.length > 0))) return undefined
-  return {
-    node: asNodeId(value.node),
-    port: value.port as PortRef['port'],
-    ...(Array.isArray(value.members) ? { members: value.members.map((member) => asDynamicMemberId(member as string)) } : {}),
-  }
+  return { node: asNodeId(value.node), port: value.port as PortRef['port'] }
 }
 
 function rewriteEnclosingInput(
@@ -1052,9 +1046,8 @@ function flattenBoundaryTargets(
   nodeIds: ReadonlyMap<string, string>,
   rerouteIds: ReadonlyMap<string, string>,
   valueSourceIds: ReadonlyMap<string, string>,
-): readonly BoundaryBinding[] | undefined {
+): readonly BoundaryBinding[] {
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
-  if (bindings.some((binding) => binding.kind === 'port' && (binding.members?.length ?? 0) > 0)) return undefined
   return bindings.map((binding) => remapBinding(binding, nodeIds, rerouteIds, valueSourceIds))
 }
 
@@ -1063,7 +1056,6 @@ function portFromBinding(binding: BoundaryBinding): PortRef {
   return {
     node: binding.node,
     port: binding.port,
-    ...(binding.members !== undefined ? { members: binding.members } : {}),
   }
 }
 
@@ -1156,9 +1148,7 @@ function flattenStatePlanFromJson(
         (value.refusal.boundaryId !== undefined && (typeof value.refusal.boundaryId !== 'string' || value.refusal.side === undefined)) ||
         (value.refusal.key !== undefined && typeof value.refusal.key !== 'string') ||
         (value.refusal.address !== undefined && (!isObj(value.refusal.address) ||
-          !exactKeys(value.refusal.address, ['port'], ['members']) || typeof value.refusal.address.port !== 'string' || value.refusal.address.port.length === 0 ||
-          (value.refusal.address.members !== undefined && (!Array.isArray(value.refusal.address.members) ||
-            !value.refusal.address.members.every((member) => typeof member === 'string' && member.length > 0)))))) return undefined
+          !exactKeys(value.refusal.address, ['port']) || typeof value.refusal.address.port !== 'string' || value.refusal.address.port.length === 0))) return undefined
     return value as unknown as FlattenStatePlan
   }
   if (!exactKeys(value, ['version', 'status', 'source', 'nodes', 'routes', 'enclosingRewrites']) ||
@@ -1167,19 +1157,16 @@ function flattenStatePlanFromJson(
   for (const [index, entry] of value.nodes.entries()) {
     if (!snapshot(entry) || !isObj(entry) || entry.node !== nodeIds[index] || entry.type !== body.nodes[nodeIds[index]!]!.type) return undefined
   }
-  const strings = (entry: Json | undefined): entry is string[] => Array.isArray(entry) &&
-    entry.every((item) => typeof item === 'string' && item.length > 0)
   const binding = (entry: Json | undefined): boolean => isObj(entry) && (
     entry.kind === 'valueSource'
       ? exactKeys(entry, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(entry).length === 0
       : entry.kind === 'widgetTap'
       ? exactKeys(entry, ['kind', 'node', 'tap']) && typeof entry.node === 'string' &&
         typeof entry.tap === 'string' && entry.tap.length > 0
-      : exactKeys(entry, ['kind', 'node', 'port'], ['members', 'viaReroute']) &&
+      : exactKeys(entry, ['kind', 'node', 'port'], ['viaReroute']) &&
         entry.kind === 'port' && typeof entry.node === 'string' &&
         typeof entry.port === 'string' && entry.port.length > 0 &&
-        (entry.members === undefined || strings(entry.members)) &&
-        (entry.viaReroute === undefined || entry.members === undefined &&
+        (entry.viaReroute === undefined ||
           typeof entry.viaReroute === 'string' && entry.viaReroute.length > 0)
   )
   const expected = [
@@ -1219,22 +1206,7 @@ function flattenBodySelection(body: GraphDef, view: GraphViewState | undefined):
   })
 }
 
-function flattenMaterializedIdentitiesContainNul(statePlan: Extract<FlattenStatePlan, { status: 'ready' }>): boolean {
-  const hasNul = (value: string): boolean => value.includes(String.fromCharCode(0))
-  for (const rewrite of statePlan.enclosingRewrites) {
-    if (rewrite.before.members?.some(hasNul) === true || rewrite.after.some((binding) => binding.members?.some(hasNul) === true)) return true
-  }
-  return false
-}
-
-function stagedFlattenIdentitiesContainNul(
-  statePlan: Extract<FlattenStatePlan, { status: 'ready' }>,
-  staged: GraphDef,
-  body: GraphDef,
-  nodeIds: ReadonlyMap<string, string>,
-  clonedLinkIds: ReadonlySet<string>,
-  clonedNetIds: ReadonlySet<string>,
-): boolean {
+function stagedFlattenIdentitiesContainNul(statePlan: Extract<FlattenStatePlan, { status: 'ready' }>): boolean {
   const hasNul = (value: string): boolean => value.includes(String.fromCharCode(0))
   const sourceNodes = new Map(statePlan.source.bodyNodes.map((node) => [node.node, node]))
   const changedDynamicHasNul = (
@@ -1262,40 +1234,6 @@ function stagedFlattenIdentitiesContainNul(
     for (const key of new Set([...Object.keys(source.controllers ?? {}), ...Object.keys(node.controllers ?? {})])) {
       if ((!Object.hasOwn(source.controllers ?? {}, key) || !Object.hasOwn(node.controllers ?? {}, key) ||
           source.controllers?.[key] !== node.controllers?.[key]) && hasNul(key)) return true
-    }
-  }
-  const sourcePortKeys = new Set<string>()
-  const rememberSourcePort = (ref: PortRef): void => {
-    sourcePortKeys.add(JSON.stringify([ref.node, ref.port, ref.members ?? []]))
-  }
-  for (const link of Object.values(body.links)) {
-    if (isPortEndpoint(link.from)) rememberSourcePort(link.from)
-    if (isPortEndpoint(link.to)) rememberSourcePort(link.to)
-  }
-  for (const net of Object.values(body.nets)) {
-    rememberSourcePort(net.source)
-    for (const sink of net.sinks) rememberSourcePort(sink)
-  }
-  const sourceNodeByClone = new Map([...nodeIds].map(([source, clone]) => [clone, source]))
-  const portHasNul = (ref: PortRef, allowSourceIdentity: boolean): boolean => {
-    if (ref.members?.some(hasNul) !== true) return false
-    const sourceNode = sourceNodeByClone.get(ref.node)
-    return !allowSourceIdentity || sourceNode === undefined ||
-      !sourcePortKeys.has(JSON.stringify([sourceNode, ref.port, ref.members]))
-  }
-  for (const [id, link] of Object.entries(staged.links)) {
-    const allowSourceIdentity = clonedLinkIds.has(id)
-    if (isPortEndpoint(link.from) && portHasNul(link.from, allowSourceIdentity) ||
-        isPortEndpoint(link.to) && portHasNul(link.to, allowSourceIdentity)) return true
-  }
-  for (const [id, net] of Object.entries(staged.nets)) {
-    const allowSourceIdentity = clonedNetIds.has(id)
-    if (portHasNul(net.source, allowSourceIdentity) ||
-        net.sinks.some((sink) => portHasNul(sink, allowSourceIdentity))) return true
-  }
-  for (const item of [...(staged.boundary?.inputs ?? []), ...(staged.boundary?.outputs ?? [])]) {
-    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-      if (isNodeBoundaryBinding(binding) && sourceNodeByClone.has(binding.node) && binding.members?.some(hasNul) === true) return true
     }
   }
   return false
@@ -1621,9 +1559,6 @@ const subgraphFlatten: CommandDefinition = {
     if (statePlan.status === 'refused') {
       return [lifecycleError(statePlan.refusal.code, `subgraph.flatten: ${statePlan.refusal.message}`, graphId, instancePath, nodeId)]
     }
-    if (flattenMaterializedIdentitiesContainNul(statePlan)) {
-      return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: persisted family materialization produced a NUL identity', graphId, instancePath, nodeId)]
-    }
     if (hasSelectedModePanelBinding(doc, graphId, canonicalizeLifecycleSelection({ nodeIds: [nodeId] }))) {
       return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', 'subgraph.flatten: a durable mode-panel binding targets the occurrence', graphId, instancePath, nodeId)]
     }
@@ -1748,7 +1683,7 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     const ids: ExtractIdMaps = { nodes: nodeIds, reroutes: rerouteIds, valueSources: valueSourceIds, selectors: selectorIds, candidates: candidateIds }
-    const targetsFor = (item: BoundaryItem): readonly BoundaryBinding[] | undefined =>
+    const targetsFor = (item: BoundaryItem): readonly BoundaryBinding[] =>
       flattenBoundaryTargets(item, nodeIds, rerouteIds, valueSourceIds)
 
     const literalDrivers = new Map<string, LinkEndpoint>()
@@ -1860,7 +1795,7 @@ const subgraphFlatten: CommandDefinition = {
         }
         from = endpointFromBinding(targets[0]!)
       } else if (isWidgetTapRef(from) && from.node === nodeId) {
-        const target = targetsFor(boundaryInputs.get(from.tap)!)?.[0]
+        const target = targetsFor(boundaryInputs.get(from.tap)!)[0]
         if (target === undefined || !isNodeBoundaryBinding(target) || target.kind === 'widgetTap') {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: tap '${from.tap}' has no materialized target`, graphId, instancePath, nodeId)]
         }
@@ -1922,8 +1857,8 @@ const subgraphFlatten: CommandDefinition = {
     const nets: Record<string, NamedNetData> = {}
     const netSourceRemap = new Map<string, PortRef>()
     const netSinkRemap = new Map<string, readonly PortRef[]>()
-    const occurrenceSinkKey = (netId: string, sink: { readonly port: string; readonly members?: readonly string[] }): string =>
-      JSON.stringify([netId, sink.port, sink.members ?? []])
+    const occurrenceSinkKey = (netId: string, sink: { readonly port: string }): string =>
+      JSON.stringify([netId, sink.port])
     for (const [id, net] of Object.entries(parent.nets)) {
       if (occurrencePlan !== undefined && net.source.node === nodeId) continue
       let source = net.source
@@ -2122,14 +2057,7 @@ const subgraphFlatten: CommandDefinition = {
         ? { occurrenceTopologies: remainingTopologies }
         : {}),
     }
-    if (stagedFlattenIdentitiesContainNul(
-      statePlan,
-      stagedParent,
-      body,
-      nodeIds,
-      new Set(bodyLinkIds.values()),
-      new Set(clonedNetIds.values()),
-    )) {
+    if (stagedFlattenIdentitiesContainNul(statePlan)) {
       return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: staged materialization produced a NUL identity', graphId, instancePath, nodeId)]
     }
     const stagedErrors = checkDocument(staged).filter((diagnostic) => diagnostic.severity === 'error')

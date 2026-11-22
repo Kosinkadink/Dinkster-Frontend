@@ -581,18 +581,10 @@ const dynSchemas: Record<string, NodeSchema> = {
   // Schema-level id collisions: the compiler must reject, never overwrite.
   DupIn: dynSchemaOf('DupIn', [dynInput('x'), dynInput('x')]),
   DupOut: dynSchemaOf('DupOut', [dynOutput('y'), dynOutput('y')]),
-  // Static ids containing '#'/'%': elaborated spec.id is escaped, but the
-  // document keys values by the RAW schema id.
+  // Static ids containing '#'/'%': the document keys values by the raw id.
   Odd: dynSchemaOf('Odd', [
     dynInput('a#b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
     dynInput('c%d', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-  ]),
-  // One input's RAW id equals another's ESCAPED elaborated id ('a#b'
-  // elaborates to spec.id 'a%23b'). Value keys are RAW for statics, so both
-  // route unambiguously - this pins that no spec.id-keyed lookup shadows it.
-  OddClash: dynSchemaOf('OddClash', [
-    dynInput('a#b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-    dynInput('a%23b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
   ]),
   ExactInteger: dynSchemaOf('ExactInteger', [
     dynInput('seed', {
@@ -714,7 +706,7 @@ type DynNode = {
   mode?: 'active' | 'muted' | 'bypassed'
 }
 type DynEnd =
-  | [node: string, port: string, members?: string[]]
+  | [node: string, port: string]
   | { reroute: string }
   | { node: string; tap: string }
   | { valueSource: string }
@@ -734,7 +726,7 @@ const dynDoc = (parts: {
   }>
 }): WorkflowDocument => {
   const end = (e: DynEnd) => Array.isArray(e)
-    ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) }
+    ? { node: e[0], port: e[1] }
     : e
   const defOf = (
     id: string,

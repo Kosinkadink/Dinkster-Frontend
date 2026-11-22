@@ -76,7 +76,7 @@ const resolve = (type: string) => schemas[type]
 // Document builder (same shape as compile-forwarding.test.ts)
 // ---------------------------------------------------------------------------
 
-type End = [node: string, port: string, members?: string[]] | { reroute: string } | { valueSource: string }
+type End = [node: string, port: string] | { reroute: string } | { valueSource: string }
 type NodeSpec = {
   type: string
   values?: Record<string, unknown>
@@ -92,7 +92,7 @@ type GraphSpec = {
 }
 
 const end = (e: End): unknown =>
-  Array.isArray(e) ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) } : e
+  Array.isArray(e) ? { node: e[0], port: e[1] } : e
 
 const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
   const defs: Record<string, unknown> = {}
@@ -174,8 +174,7 @@ const defOf = (nodes: Record<string, NodeSpec>, boundary: { inputs?: unknown[]; 
     boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] },
   })
 
-const bind = (node: string, port: string, members?: string[]) =>
-  ({ kind: 'port', node, port, ...(members ? { members } : {}) }) as const
+const bind = (node: string, port: string) => ({ kind: 'port', node, port }) as const
 
 // ---------------------------------------------------------------------------
 // Format shape validation
@@ -423,8 +422,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
   const itemOf = (store: DocumentStore): BoundaryItem =>
     (store.doc.graphs['sub'] as GraphDef).boundary!.inputs[0]!
 
-  const params = (node: string, port = 'in', members?: string[]) =>
-    ({ graphId: 'sub', itemId: 'in', node, port, ...(members ? { members } : {}) })
+  const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
   it('addBinding appends a target and undo restores the exact previous state', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in') })

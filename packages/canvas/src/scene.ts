@@ -17,7 +17,6 @@ import {
   documentNodeResolver,
   documentValueSourceResolver,
   effectiveOccurrenceTopology,
-  elabKeyOf,
   elaborateInterface,
   hasPreviewSurface,
   inputsOf,
@@ -46,7 +45,6 @@ import {
   type CommandInvocation,
   type Diagnostic,
   type DynamicPortState,
-  type DynamicMemberId,
   type ElaboratedInterface,
   type EffectiveValueSourceSpec,
   type EffectiveLinkIdentity,
@@ -283,8 +281,6 @@ export type SceneLinkEnd =
       readonly kind: 'port'
       readonly node: string
       readonly port: string
-      /** Dynamic-family member path (document identity, mirrors PortRef). */
-      readonly members?: readonly DynamicMemberId[]
     }
   | { readonly kind: 'reroute'; readonly reroute: string }
   | { readonly kind: 'valueSource'; readonly valueSource: string }
@@ -293,13 +289,6 @@ export type SceneLinkEnd =
   | { readonly kind: 'selector'; readonly selector: string; readonly candidate?: string }
   /** A boundary pseudo-node pin; `item` is the boundary item id (opaque - never split). */
   | { readonly kind: 'boundary'; readonly side: 'inputs' | 'outputs'; readonly item: string }
-
-/** The elab key a port end's pin is laid out under (pins are keyed by elab key). */
-export const portEndKey = (end: {
-  port: string
-  members?: readonly DynamicMemberId[]
-}): string =>
-  elabKeyOf({ port: end.port, ...(end.members !== undefined ? { members: end.members } : {}) })
 
 export const netDeliveryLinkId = (netId: string, sinkIndex: number): string => `${netId}:${sinkIndex}`
 
@@ -569,8 +558,6 @@ export interface SceneNetStub {
   readonly mismatch?: true
   readonly nodeId: string
   readonly portId: string
-  /** Dynamic-family member path (document identity, mirrors PortRef). */
-  readonly members?: readonly DynamicMemberId[]
   /** Pin center the tag points at, world coords. */
   readonly pinX: number
   readonly pinY: number
@@ -599,7 +586,7 @@ export const NET_STUB_HEIGHT = canvasPaintTokens.net.height
 export const NET_STUB_PAD_X = canvasPaintTokens.net.paddingX
 
 export const netStubId = (netId: string, role: 'source' | 'sink', ref: PortRef): string =>
-  JSON.stringify(['netView', netId, role, ref.node, ref.port, ref.members ?? []])
+  JSON.stringify(['netView', netId, role, ref.node, ref.port])
 
 /**
  * A visual group rectangle (view state passed through verbatim). Groups have
@@ -749,7 +736,7 @@ function projectedTypeConstraints(
     if (solved === undefined) return []
     return traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph)).flatMap((trace) => {
       if (trace.kind !== 'output') return []
-      const type = solved.result.portTypeOf(trace.ref.node, 'output', elabKeyOf(trace.ref))
+      const type = solved.result.portTypeOf(trace.ref.node, 'output', trace.ref.port)
       return type === undefined ? [] : [{
         type: projectTypeThroughRegionInputs(document, link, type),
         to: link.to.endpoint as PortRef,
@@ -799,29 +786,25 @@ function projectedTypeConstraints(
     for (const link of effective?.projectedParentLinks ?? []) {
       if (link.from.graphId === graph.id && isPortEndpoint(link.from.endpoint)) {
         const keys = projectedOutputKeys.get(link.from.endpoint.node) ?? new Set<string>()
-        keys.add(portEndKey(link.from.endpoint))
+        keys.add(link.from.endpoint.port)
         projectedOutputKeys.set(link.from.endpoint.node, keys)
       }
       if (link.to.graphId === graph.id && isPortEndpoint(link.to.endpoint)) {
         const keys = projectedInputKeys.get(link.to.endpoint.node) ?? new Set<string>()
-        keys.add(portEndKey(link.to.endpoint))
+        keys.add(link.to.endpoint.port)
         projectedInputKeys.set(link.to.endpoint.node, keys)
-        if (link.to.endpoint.members === undefined || link.to.endpoint.members.length === 0) {
-          const ports = projectedInputPortKeys.get(link.to.endpoint.node) ?? new Set<string>()
-          ports.add(link.to.endpoint.port)
-          projectedInputPortKeys.set(link.to.endpoint.node, ports)
-        }
+        const ports = projectedInputPortKeys.get(link.to.endpoint.node) ?? new Set<string>()
+        ports.add(link.to.endpoint.port)
+        projectedInputPortKeys.set(link.to.endpoint.node, ports)
       }
     }
     const connectivityOf = (nodeId: import('@dinkster/core').NodeId) => {
       const base = baseConnectivity(nodeId)
       return {
-        isInputConnected: (port: string, members?: readonly string[]) =>
-          projectedInputKeys.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members === undefined ? {} : { members: members as readonly DynamicMemberId[] }) })) ||
-          base.isInputConnected(port, members),
-        isOutputConnected: (port: string, members?: readonly string[]) =>
-          projectedOutputKeys.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members === undefined ? {} : { members: members as readonly DynamicMemberId[] }) })) ||
-          base.isOutputConnected(port, members),
+        isInputConnected: (port: string) =>
+          projectedInputKeys.get(nodeId)?.has(port) || base.isInputConnected(port),
+        isOutputConnected: (port: string) =>
+          projectedOutputKeys.get(nodeId)?.has(port) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPortKeys.get(nodeId) ?? [])])],
       }
     }
@@ -1072,13 +1055,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   const guideNets = new Set((graphView?.guideNets ?? []).filter((netId) => collapsedNets.has(netId)))
   const authoredNetViews = netViewPositions(input.document, input.graphId)
 
-  // Connected ports by node id (links + named nets), keyed over ELAB KEYS:
+  // Connected ports by node id (links + named nets), keyed by flattened id:
   // collapsed sections keep pins for these so their noodles never dangle.
   const connectedByNode = new Map<string, Set<string>>()
   const markConnected = (ref: PortRef, direction: 'in' | 'out'): void => {
     let set = connectedByNode.get(ref.node)
     if (!set) connectedByNode.set(ref.node, (set = new Set()))
-    set.add(connectedPortKey(direction, portEndKey(ref)))
+    set.add(connectedPortKey(direction, ref.port))
   }
   const structuralLinks = effective === undefined
     ? Object.values(def.links).map((link) => ({ from: { endpoint: link.from }, to: { endpoint: link.to } }))
@@ -1088,8 +1071,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const toEndpoint = 'endpoint' in link.to ? link.to.endpoint : link.to
     if (isPortEndpoint(fromEndpoint)) markConnected(fromEndpoint, 'out')
     // A widget tap is a producer connection too: the tap's input must keep
-    // its right-edge anchor inside a collapsed section (taps are memberless,
-    // so the elab key is the bare port).
+    // its right-edge anchor inside a collapsed section.
     else if (isWidgetTapRef(fromEndpoint)) {
       let set = connectedByNode.get(fromEndpoint.node)
       if (!set) connectedByNode.set(fromEndpoint.node, (set = new Set()))
@@ -1108,12 +1090,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     for (const item of def.boundary.inputs) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
-          markConnected({ node: b.node, port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) }, 'in')
+          markConnected({ node: b.node, port: b.port }, 'in')
       }
     }
     for (const item of def.boundary.outputs) {
       if (item.binds.kind === 'port')
-        markConnected({ node: item.binds.node, port: item.binds.port, ...(item.binds.members !== undefined ? { members: item.binds.members } : {}) }, 'out')
+        markConnected({ node: item.binds.node, port: item.binds.port }, 'out')
       else if (item.binds.kind === 'widgetTap') {
         let set = connectedByNode.get(item.binds.node)
         if (!set) connectedByNode.set(item.binds.node, (set = new Set()))
@@ -1161,29 +1143,25 @@ export function buildScene(input: BuildSceneInput): Scene {
   for (const link of effective?.projectedParentLinks ?? []) {
     if (link.from.graphId === def.id && isPortEndpoint(link.from.endpoint)) {
       const set = projectedOutputs.get(link.from.endpoint.node) ?? new Set<string>()
-      set.add(portEndKey(link.from.endpoint))
+      set.add(link.from.endpoint.port)
       projectedOutputs.set(link.from.endpoint.node, set)
     }
     if (link.to.graphId === def.id && isPortEndpoint(link.to.endpoint)) {
       const set = projectedInputs.get(link.to.endpoint.node) ?? new Set<string>()
-      set.add(portEndKey(link.to.endpoint))
+      set.add(link.to.endpoint.port)
       projectedInputs.set(link.to.endpoint.node, set)
-      if (link.to.endpoint.members === undefined || link.to.endpoint.members.length === 0) {
-        const ports = projectedInputPorts.get(link.to.endpoint.node) ?? new Set<string>()
-        ports.add(link.to.endpoint.port)
-        projectedInputPorts.set(link.to.endpoint.node, ports)
-      }
+      const ports = projectedInputPorts.get(link.to.endpoint.node) ?? new Set<string>()
+      ports.add(link.to.endpoint.port)
+      projectedInputPorts.set(link.to.endpoint.node, ports)
     }
   }
   const connectivityOf = (nodeId: import('@dinkster/core').NodeId) => {
     const base = baseConnectivityOf(nodeId)
     return {
-      isInputConnected: (port: string, members?: readonly string[]) =>
-        projectedInputs.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members !== undefined ? { members: members as readonly DynamicMemberId[] } : {}) })) ||
-        base.isInputConnected(port, members),
-      isOutputConnected: (port: string, members?: readonly string[]) =>
-        projectedOutputs.get(nodeId)?.has(portEndKey({ port: asPortId(port), ...(members !== undefined ? { members: members as readonly DynamicMemberId[] } : {}) })) ||
-        base.isOutputConnected(port, members),
+      isInputConnected: (port: string) =>
+        projectedInputs.get(nodeId)?.has(port) || base.isInputConnected(port),
+      isOutputConnected: (port: string) =>
+        projectedOutputs.get(nodeId)?.has(port) || base.isOutputConnected(port),
       inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
     }
   }
@@ -1248,7 +1226,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   const warnedPins = new Set<string>()
   for (const d of solverDiagnostics) {
     const ref = d.anchor?.port
-    if (ref !== undefined) warnedPins.add(`${ref.node}\u0000${elabKeyOf(ref)}`)
+    if (ref !== undefined) warnedPins.add(`${ref.node}\u0000${ref.port}`)
   }
 
   const nodes: SceneNode[] = []
@@ -1348,7 +1326,7 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? matchVariableOf(pin.type)
                 : undefined
             const matchConstraint = matchConstraintOf(pin.type)
-            const warn = warnedPins.has(`${node.id}\u0000${elabKeyOf(pin.address)}`)
+            const warn = warnedPins.has(`${node.id}\u0000${pin.address.port}`)
             if (matchVariable === undefined) {
               return {
                 ...pin,
@@ -1373,7 +1351,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           // still mark their pin so the red ring appears where the user acts.
           ...rawLayout,
           pins: rawLayout.pins.map((pin) =>
-            warnedPins.has(`${node.id}\u0000${elabKeyOf(pin.address)}`) ? { ...pin, warn: true as const } : pin,
+            warnedPins.has(`${node.id}\u0000${pin.address.port}`) ? { ...pin, warn: true as const } : pin,
           ),
         }
     const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
@@ -1453,7 +1431,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   let rerouteFallbackY = 0
   const outputTypeName = (ref: PortRef): string | undefined => {
     const producer = byId.get(ref.node)
-    const key = portEndKey(ref)
+    const key = ref.port
     // Real output only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would color off the widget row.
     const pin = producer?.layout.pins.find((p) => p.direction === 'out' && p.portId === key && p.widgetTap !== true)
@@ -1506,7 +1484,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     for (const t of traceEndpointAll(def, from, rerouteIndex)) {
       if (t.kind !== 'output') continue
       const producer = byId.get(t.ref.node)
-      const key = portEndKey(t.ref)
+      const key = t.ref.port
       if (producer?.layout.pins.some((p) => p.direction === 'out' && p.portId === key && p.maybeAbsent === true)) return true
     }
     return false
@@ -1610,7 +1588,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       } : undefined
     }
     const node = byId.get(end.node)
-    const key = portEndKey(end)
+    const key = end.port
     // Real port only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would anchor the noodle on the widget row
     // when a real output uses the same id (LoadImage 'image').
@@ -1623,7 +1601,6 @@ export function buildScene(input: BuildSceneInput): Scene {
         kind: 'port',
         node: end.node,
         port: end.port,
-        ...(end.members !== undefined ? { members: end.members } : {}),
       },
       type: pin.type,
     }
@@ -1733,7 +1710,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const node = byId.get(ref.node)
       if (!node) return
       const direction = role === 'source' ? 'out' : 'in'
-      const key = portEndKey(ref)
+      const key = ref.port
       // Real port only (nets never source from widget taps; see pin lookup
       // guards elsewhere for the same-id tap/output collision).
       const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
@@ -1759,7 +1736,6 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(mismatch ? { mismatch: true as const } : {}),
         nodeId: ref.node,
         portId: ref.port,
-        ...(ref.members !== undefined ? { members: ref.members } : {}),
         pinX,
         pinY,
         x: geometry === undefined ? fallbackX : geometry.kind === 'offset' ? node.x + geometry.x : geometry.x,
@@ -1887,7 +1863,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const regionIndexPin = inputsLayout.pins.find((pin) => pin.regionIndex === true)
     if (regionIndexPin !== undefined) {
       for (const c of connections) {
-        if (!isPortEndpoint(c.from) || c.from.node !== DINKSTER_REGION_PSEUDO_NODE || c.from.port !== 'index' || c.from.members !== undefined) continue
+        if (!isPortEndpoint(c.from) || c.from.node !== DINKSTER_REGION_PSEUDO_NODE || c.from.port !== 'index') continue
         const to = endPoint(c.to, 'in')
         if (!to || to.end.kind === 'valueSource') continue
         links.push({
@@ -1936,9 +1912,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         kind: 'port',
         node: binds.node,
         port: binds.port,
-        ...(binds.members !== undefined ? { members: binds.members } : {}),
       }
-      const key = portEndKey({ port: binds.port, ...(binds.members !== undefined ? { members: binds.members } : {}) })
+      const key = binds.port
       // Real port only: excludes the same-id widget tap pin (see the
       // endpoint resolver above).
       const pin = node.layout.pins.find((p) => p.direction === direction && p.portId === key && p.widgetTap !== true)
@@ -2021,7 +1996,6 @@ export function buildScene(input: BuildSceneInput): Scene {
           ? tracedTypeName({
               node: item.binds.node,
               port: item.binds.port,
-              ...(item.binds.members !== undefined ? { members: item.binds.members } : {}),
             })
           : item.binds.kind === 'widgetTap'
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
@@ -2078,7 +2052,7 @@ export function buildScene(input: BuildSceneInput): Scene {
  * Connections the DOCUMENT proves a node has, used when its schema cannot be
  * resolved: every link/net/boundary endpoint touching the node yields a port
  * (or widget tap) so the unresolved node keeps its pins and every visible
- * noodle stays attached. Keyed/deduped by elab key, document order.
+ * noodle stays attached. Keyed/deduped by flattened port id, document order.
  */
 function missingConnections(
   def: GraphDef,
@@ -2088,7 +2062,7 @@ function missingConnections(
   const outs = new Map<string, PortRef>()
   const taps = new Set<string>()
   const mark = (map: Map<string, PortRef>, ref: PortRef): void => {
-    if (ref.node === nodeId && !map.has(portEndKey(ref))) map.set(portEndKey(ref), ref)
+    if (ref.node === nodeId && !map.has(ref.port)) map.set(ref.port, ref)
   }
   for (const link of Object.values(def.links)) {
     if (isPortEndpoint(link.from)) mark(outs, link.from)
@@ -2102,12 +2076,12 @@ function missingConnections(
   if (def.boundary) {
     for (const item of def.boundary.inputs) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (b.kind === 'port') mark(ins, { node: b.node, port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) })
+        if (b.kind === 'port') mark(ins, { node: b.node, port: b.port })
       }
     }
     for (const item of def.boundary.outputs) {
       const b = item.binds
-      if (b.kind === 'port') mark(outs, { node: b.node, port: b.port, ...(b.members !== undefined ? { members: b.members } : {}) })
+      if (b.kind === 'port') mark(outs, { node: b.node, port: b.port })
       else if (b.kind === 'widgetTap' && b.node === nodeId) taps.add(b.tap)
     }
   }
@@ -2139,8 +2113,6 @@ function missingLayout(
   const titleRenamed = node.title !== undefined && node.title !== node.type
   const title = node.title ?? node.type
   const unknownType = { kind: 'wildcard' } as const
-  const labelOf = (ref: PortRef): string =>
-    ref.members !== undefined ? `${ref.port}.${ref.members.join('.')}` : ref.port
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
@@ -2152,16 +2124,16 @@ function missingLayout(
     const outRef = connections.outputs[i]
     const height = tokens.rowHeight
     const input = inRef === undefined ? undefined : {
-      portId: portEndKey(inRef),
-      label: labelOf(inRef),
+      portId: inRef.port,
+      label: inRef.port,
       type: unknownType,
-      address: { port: inRef.port, ...(inRef.members !== undefined ? { members: inRef.members } : {}) },
+      address: { port: inRef.port },
     }
     const output = outRef === undefined ? undefined : {
-      portId: portEndKey(outRef),
-      label: labelOf(outRef),
+      portId: outRef.port,
+      label: outRef.port,
       type: unknownType,
-      address: { port: outRef.port, ...(outRef.members !== undefined ? { members: outRef.members } : {}) },
+      address: { port: outRef.port },
       index: i,
     }
     rows.push({ kind: 'ports', y, height, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) })

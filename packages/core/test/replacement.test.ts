@@ -14,7 +14,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { netViewPositions } from '../src/format/net-views.js'
-import { asDynamicMemberId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { isReplacementRule, type ReplacementRule } from '../src/replace/model.js'
 import { planReplacement, REPLACEMENT_MIGRATION_ARCHIVE_EXT_KEY, type NodeReplacePlan } from '../src/replace/plan.js'
@@ -29,11 +29,6 @@ import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
-const mport = (node: string, portId: string, member: string) => ({
-  node: asNodeId(node),
-  port: asPortId(portId),
-  members: [asDynamicMemberId(member)],
-})
 
 const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
@@ -563,12 +558,9 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
-  // A flat source (its one template input named as the family, wire ends
-  // carrying a member list) exists only in historical documents, so it is
-  // read through a same-type migration's source template.
-  it.each([false, true].flatMap((flat) => [false, true].flatMap((named) =>
-    (flat ? [true] : [false, true]).map((sameType) => ({ flat, named, sameType })),
-  )))('maps authored family order to canonical target positions (flat=$flat, named=$named, sameType=$sameType)', ({ flat, named, sameType }) => {
+  it.each([false, true].flatMap((named) =>
+    [false, true].map((sameType) => ({ named, sameType })),
+  ))('maps authored family order to canonical target positions (named=$named, sameType=$sameType)', ({ named, sameType }) => {
     const oldMembers = ['oldB', 'oldA', 'oldC']
     const newMembers = named ? ['head', 'middle', 'tail'] : ['item0', 'item1', 'item2']
     const source = schemaOf('OrderedOld', [{ ...familyInput('source', oldMembers), minMembers: 0 }])
@@ -579,7 +571,7 @@ describe('input family replacement', () => {
       optionalAfterMinimum: true,
     }])
     const resolver = (type: string) => type === targetType ? target : type === 'OrderedOld' ? source : resolve(type)
-    const oldEndpoint = (member: string) => flat ? mport('old', 'source.source', member) : port('old', `source.${member}`)
+    const oldEndpoint = (member: string) => port('old', `source.${member}`)
     const newEndpoint = (member: string) => port('old', `target.${member}`)
     const original = doc({ g0: graph({ id: 'g0', nodes: {
       src: node('src', 'Producer'), dst: node('dst', 'Consumer'),
@@ -593,7 +585,7 @@ describe('input family replacement', () => {
       ...(sameType ? { migration: { historicalInputs: ['source.oldB', 'source.oldA', 'source.oldC'] } } : {}),
       cases: [{ to: targetType, inputFamilies: {
       target: { kind: 'copy', sourceFamily: 'source', memberIds: 'targetPositions',
-        ...(sameType ? { sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'source.source' } : {}) } } : {}),
+        ...(sameType ? { sourceTemplate: { inputs: ['value'] } } : {}),
         inputs: { value: { kind: 'copy', input: 'value' } } },
     } }] } satisfies ReplacementRule
     expect(isReplacementRule(rule)).toBe(true)

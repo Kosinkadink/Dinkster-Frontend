@@ -37,7 +37,7 @@ export interface DinksterClipboardEnvelope {
  * same-name net in the destination graph is compatible without schema
  * access. `source.node` may name a node OUTSIDE the copy (sink-only copy);
  * paste then merges into the destination's same-name net when that net's
- * source has the same node type, port, and member path.
+ * source has the same node type and port.
  *
  * `view` carries a manually placed tag's offset from its owning node's
  * top-left, so pasted tags keep their authored placement relative to the
@@ -48,14 +48,12 @@ export interface ClipboardNetRecord {
   readonly source: {
     readonly node: string
     readonly port: string
-    readonly members?: readonly string[]
     readonly nodeType: string
     readonly view?: { readonly x: number; readonly y: number }
   }
   readonly sinks: readonly {
     readonly node: string
     readonly port: string
-    readonly members?: readonly string[]
     readonly view?: { readonly x: number; readonly y: number }
   }[]
 }
@@ -67,7 +65,6 @@ export interface ExternalIncomingStub {
     readonly node: string
     readonly nodeType: string
     readonly port: string
-    readonly members?: readonly string[]
     readonly tap?: never
   } | {
     readonly graph: string
@@ -76,13 +73,11 @@ export interface ExternalIncomingStub {
     readonly nodeType: string
     readonly tap: string
     readonly port?: never
-    readonly members?: never
   }
   readonly target: {
     readonly node: string
     readonly nodeType: string
     readonly port: string
-    readonly members?: readonly string[]
   }
 }
 
@@ -96,31 +91,27 @@ function validEndpoint(value: unknown): value is LinkEndpoint {
   if (typeof value.reroute === 'string') return true
   if (typeof value.node !== 'string') return false
   if (typeof value.tap === 'string') return true
-  return typeof value.port === 'string' &&
-    (value.members === undefined || (Array.isArray(value.members) && value.members.length > 0 && value.members.every((member) => typeof member === 'string' && member.length > 0)))
+  return typeof value.port === 'string'
 }
-
-const validMembers = (value: unknown): value is readonly string[] | undefined =>
-  value === undefined || (Array.isArray(value) && value.length > 0 && value.every((member) => typeof member === 'string' && member.length > 0))
 
 function validStub(value: unknown): value is ExternalIncomingStub {
   if (!object(value) || !object(value.source) || !object(value.target)) return false
-  const portSource = typeof value.source.port === 'string' && value.source.tap === undefined && validMembers(value.source.members)
-  const tapSource = typeof value.source.tap === 'string' && value.source.port === undefined && value.source.members === undefined
+  const portSource = typeof value.source.port === 'string' && value.source.tap === undefined
+  const tapSource = typeof value.source.tap === 'string' && value.source.port === undefined
   return typeof value.source.graph === 'string' && typeof value.source.node === 'string' &&
     typeof value.source.lineage === 'string' && typeof value.source.nodeType === 'string' &&
     (portSource || tapSource) &&
     typeof value.target.node === 'string' && typeof value.target.nodeType === 'string' &&
-    typeof value.target.port === 'string' && validMembers(value.target.members)
+    typeof value.target.port === 'string'
 }
 
 function validPositionedView(value: unknown): value is Record<string, unknown> {
   return object(value) && object(value.position) && finite(value.position.x) && finite(value.position.y)
 }
 
-const validNetEndpoint = (value: unknown): value is { node: string; port: string; members?: readonly string[] } =>
+const validNetEndpoint = (value: unknown): value is { node: string; port: string } =>
   object(value) && typeof value.node === 'string' && value.node.length > 0 &&
-  typeof value.port === 'string' && value.port.length > 0 && validMembers(value.members) &&
+  typeof value.port === 'string' && value.port.length > 0 &&
   (value.view === undefined || (object(value.view) && finite(value.view.x) && finite(value.view.y)))
 
 function validNetRecord(value: unknown): value is ClipboardNetRecord {
@@ -395,7 +386,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     const names = value.nets.map((record) => record.name.trim().toLowerCase())
     if (new Set(names).size !== names.length) return undefined
     for (const record of value.nets) {
-      const refs = record.sinks.map((sink) => JSON.stringify([sink.node, sink.port, sink.members ?? []]))
+      const refs = record.sinks.map((sink) => JSON.stringify([sink.node, sink.port]))
       if (new Set(refs).size !== refs.length) return undefined
     }
     nets.push(...(value.nets as unknown as Json[]))
@@ -507,14 +498,13 @@ export function serializeSelection(
     if (entry.geometry.kind !== 'offset') continue
     const key = entry.role === 'source'
       ? JSON.stringify([entry.netId, 'source'])
-      : JSON.stringify([entry.netId, 'sink', entry.to.node, entry.to.port, entry.to.members ?? []])
+      : JSON.stringify([entry.netId, 'sink', entry.to.node, entry.to.port])
     tagOffsets.set(key, { x: entry.geometry.x, y: entry.geometry.y })
   }
   const netEndpoint = (netId: string, ref: PortRef): Json => {
-    const view = tagOffsets.get(JSON.stringify([netId, 'sink', ref.node, ref.port, ref.members ?? []]))
+    const view = tagOffsets.get(JSON.stringify([netId, 'sink', ref.node, ref.port]))
     return {
       node: ref.node, port: ref.port,
-      ...(ref.members !== undefined ? { members: [...ref.members] } : {}),
       ...(view !== undefined ? { view } : {}),
     }
   }
@@ -528,7 +518,6 @@ export function serializeSelection(
       name: net.name,
       source: {
         node: net.source.node, port: net.source.port,
-        ...(net.source.members !== undefined ? { members: [...net.source.members] } : {}),
         nodeType: sourceNode.type,
         ...(sourceView !== undefined ? { view: sourceView } : {}),
       },
@@ -556,11 +545,10 @@ export function serializeSelection(
           graph: graphId, lineage: doc.lineage, node: link.from.node, nodeType: source.type,
           ...(isWidgetTapRef(link.from)
             ? { tap: link.from.tap }
-            : { port: link.from.port, ...(link.from.members !== undefined ? { members: [...link.from.members] } : {}) }),
+            : { port: link.from.port }),
         },
         target: {
           node: link.to.node, nodeType: target.type, port: link.to.port,
-          ...(link.to.members !== undefined ? { members: [...link.to.members] } : {}),
         },
       }]
     }),
@@ -569,10 +557,6 @@ export function serializeSelection(
     ...(hasDefinitions ? { definitions } : {}),
   }
 }
-
-/** Structural identity of member paths (undefined == empty == static). */
-const membersEqual = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean =>
-  (a?.length ?? 0) === (b?.length ?? 0) && (a ?? []).every((member, i) => member === b![i])
 
 interface DefinitionPastePlan {
   readonly ids: ReadonlyMap<string, string>
@@ -707,8 +691,8 @@ type NetPasteAction =
  *   name collision auto-renames with the first free `name_2`, `name_3`, ...
  *   suffix, case-insensitive per docs/architecture.md).
  * - Sink-only copy: merge the copied sinks into the destination's same-name
- *   net when that net's source is compatible (same node type, port, and
- *   member path). Otherwise recreate from the recorded source when it still
+ *   net when that net's source is compatible (same node type and port).
+ *   Otherwise recreate from the recorded source when it still
  *   resolves in this graph (auto-renamed on a name collision); when it does
  *   not resolve, the membership is dropped and the nodes paste unconnected.
  */
@@ -739,8 +723,7 @@ function resolveNetPastes(
       const existingSourceNode = graph.nodes[existing.source.node]
       const compatible = existingSourceNode !== undefined &&
         existingSourceNode.type === sourceNodeType &&
-        existing.source.port === record.source.port &&
-        membersEqual(existing.source.members, record.source.members)
+        existing.source.port === record.source.port
       if (compatible) return { kind: 'merge', record, netId: existing.id }
     }
     const recordedSource = graph.nodes[record.source.node]
@@ -751,8 +734,7 @@ function resolveNetPastes(
   })
 }
 
-const addressKey = (node: string, port: string, members: readonly string[] | undefined): string =>
-  JSON.stringify([node, port, members ?? []])
+const addressKey = (node: string, port: string): string => JSON.stringify([node, port])
 
 /**
  * Validate v2 incoming stubs against the current graph without materializing
@@ -776,14 +758,14 @@ function validExternalIncoming(
   const occupied = new Set<string>()
   for (const raw of envelope.links) {
     const link = raw as unknown as LinkData
-    if (isPortEndpoint(link.to) && copied.has(link.to.node)) occupied.add(addressKey(link.to.node, link.to.port, link.to.members))
+    if (isPortEndpoint(link.to) && copied.has(link.to.node)) occupied.add(addressKey(link.to.node, link.to.port))
   }
   for (const stub of envelope.externalIncoming ?? []) {
-    const key = addressKey(stub.target.node, stub.target.port, stub.target.members)
+    const key = addressKey(stub.target.node, stub.target.port)
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   return (envelope.externalIncoming ?? []).filter((stub) => {
-    const targetKey = addressKey(stub.target.node, stub.target.port, stub.target.members)
+    const targetKey = addressKey(stub.target.node, stub.target.port)
     if (stub.source.graph !== graphId || stub.source.lineage !== doc.lineage || envelope.scope?.lineage !== doc.lineage ||
       envelope.scope.graph !== graphId || copied.has(stub.source.node) || occupied.has(targetKey) || accept?.(stub) === false) return false
     const source = graph.nodes[stub.source.node]
@@ -793,9 +775,7 @@ function validExternalIncoming(
     const tapSource = 'tap' in stub.source
     const sourceAddress = tapSource ? undefined : resolveDynamicAddress(stub.source, source.dynamic)
     const targetAddress = resolveDynamicAddress(stub.target, target.dynamic as GraphDef['nodes'][string]['dynamic'])
-    return (tapSource || sourceAddress?.kind !== 'missing') && targetAddress.kind !== 'missing' &&
-      (tapSource || stub.source.members === undefined || sourceAddress?.kind === 'resolved') &&
-      (stub.target.members === undefined || targetAddress.kind === 'resolved')
+    return (tapSource || sourceAddress?.kind !== 'missing') && targetAddress.kind !== 'missing'
   })
 }
 
@@ -1033,7 +1013,7 @@ function materialize(
     if (!from || !to) continue
     const id = alloc.mint('l')
     linkMap.set(link.id, id)
-    if (isPortEndpoint(to)) drivenInputs.add(addressKey(to.node, to.port, to.members))
+    if (isPortEndpoint(to)) drivenInputs.add(addressKey(to.node, to.port))
     tx.set(['graphs', graphId, 'links', id], { ...link, id, from, to } as unknown as Json)
   }
   for (const stub of externalIncoming) {
@@ -1044,13 +1024,11 @@ function materialize(
       ? { node: stub.source.node, tap: stub.source.tap }
       : {
           node: stub.source.node, port: stub.source.port,
-          ...(stub.source.members !== undefined ? { members: stub.source.members } : {}),
         }
     const to = {
       node: target, port: stub.target.port,
-      ...(stub.target.members !== undefined ? { members: stub.target.members } : {}),
     }
-    drivenInputs.add(addressKey(target, stub.target.port, stub.target.members))
+    drivenInputs.add(addressKey(target, stub.target.port))
     tx.set(['graphs', graphId, 'links', id], { id, from, to } as unknown as Json)
   }
   // Net membership: merge compatible sink-only collisions into the existing
@@ -1065,14 +1043,13 @@ function materialize(
     const placedSinks = action.record.sinks.flatMap((sink): { ref: PortRef; view?: { x: number; y: number } }[] => {
       const node = nodeMap.get(sink.node)
       if (node === undefined) return []
-      const key = addressKey(node, sink.port, sink.members)
+      const key = addressKey(node, sink.port)
       if (drivenInputs.has(key) || claimedInputs.has(key)) return []
       claimedInputs.add(key)
       return [{
         ref: {
           node, port: sink.port,
-          ...(sink.members !== undefined ? { members: sink.members } : {}),
-        } as unknown as PortRef,
+          } as unknown as PortRef,
         ...(sink.view !== undefined ? { view: sink.view } : {}),
       }]
     })
@@ -1098,7 +1075,6 @@ function materialize(
       name: action.name,
       source: {
         node: sourceNode, port: action.record.source.port,
-        ...(action.record.source.members !== undefined ? { members: action.record.source.members } : {}),
       },
       sinks,
     } as unknown as Json)

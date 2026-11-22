@@ -333,9 +333,8 @@ const clipboardScopes = new Map<string, {
   readonly sources: ReadonlyMap<string, GraphDef['nodes'][string]>
   readonly endpointTypes: ReadonlyMap<string, string>
 }>()
-const clipboardEndpointKey = (
-  kind: 'input' | 'output' | 'tap', node: string, port: string, members: readonly string[] | undefined,
-): string => JSON.stringify([kind, node, port, members ?? []])
+const clipboardEndpointKey = (kind: 'input' | 'output' | 'tap', node: string, port: string): string =>
+  JSON.stringify([kind, node, port])
 
 export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, string> => {
   const result = new Map<string, string>()
@@ -347,11 +346,11 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true && pin.staticWidgetTap === true && (pin.address.members?.length ?? 0) === 0)
-          result.set(clipboardEndpointKey('tap', node.id, pin.address.port, undefined), JSON.stringify(pin.type))
+        if (node.missingSchema !== true && pin.staticWidgetTap === true)
+          result.set(clipboardEndpointKey('tap', node.id, pin.address.port), JSON.stringify(pin.type))
         continue
       }
-      result.set(clipboardEndpointKey(pin.direction === 'in' ? 'input' : 'output', node.id, pin.address.port, pin.address.members), JSON.stringify(pin.type))
+      result.set(clipboardEndpointKey(pin.direction === 'in' ? 'input' : 'output', node.id, pin.address.port), JSON.stringify(pin.type))
     }
   }
   return result
@@ -490,8 +489,8 @@ export function linkSpliceInvocations(
     command: 'dynamic.materialize',
     params: { graphId, nodeId, frames: target.materialize.map((frame) => ({ construct: frame.construct, members: [...frame.members] })) },
   }] : []
-  const inputEnd = { node: nodeId, port: input.port, ...(input.members ? { members: [...input.members] } : {}) }
-  const outputEnd = { node: nodeId, port: output.port, ...(output.members ? { members: [...output.members] } : {}) }
+  const inputEnd = { node: nodeId, port: input.port }
+  const outputEnd = { node: nodeId, port: output.port }
   return [
     { command: 'link.disconnect', params: { graphId, linkId: splice.linkId } },
     ...materialize(input),
@@ -534,7 +533,6 @@ export function linkDropInvocations(
   const newEnd = {
     node: nodeId,
     port: target.port,
-    ...(target.members !== undefined ? { members: [...target.members] } : {}),
   }
   const from = drop.seeking === 'in' ? drop.fixedFrom : newEnd
   const to = drop.seeking === 'in' ? newEnd : drop.fixedInto
@@ -903,7 +901,7 @@ export function selectionDeleteInvocation(args: {
   const selectedNetViews = [...(args.selectedNetViews ?? [])]
   const deletedNodes = new Set(nodeIds)
   const linkIds: string[] = []
-  const netSinks: { node: string; port: string; members?: string[] }[] = []
+  const netSinks: { node: string; port: string }[] = []
   const boundaryOps: { command: string; params: JsonObject }[] = []
   const freedNodes = new Set<string>()
   for (const id of selectedLinks) {
@@ -919,7 +917,6 @@ export function selectionDeleteInvocation(args: {
         params: {
           graphId, side: link.from.side, itemId: link.from.item,
           node: link.to.node, port: link.to.port,
-          ...(link.to.members !== undefined ? { members: [...link.to.members] } : {}),
         },
       })
       freedNodes.add(link.to.node)
@@ -930,7 +927,6 @@ export function selectionDeleteInvocation(args: {
         params: {
           graphId, side: link.to.side, itemId: link.to.item,
           node: link.from.node, port: link.from.port,
-          ...(link.from.members !== undefined ? { members: [...link.from.members] } : {}),
         },
       })
     } else if (link.to.kind === 'boundary' && link.from.kind === 'widgetTap') {
@@ -945,7 +941,6 @@ export function selectionDeleteInvocation(args: {
     } else if (link.netId !== undefined && link.to.kind === 'port') {
       netSinks.push({
         node: link.to.node, port: link.to.port,
-        ...(link.to.members !== undefined ? { members: [...link.to.members] } : {}),
       })
       freedNodes.add(link.to.node)
     } else {
@@ -981,8 +976,7 @@ export function selectionDeleteInvocation(args: {
   }
   const graphDeletesSink = (stub: SceneNetStub): boolean =>
     deletedNodes.has(stub.nodeId) || netSinks.some((sink) =>
-      sink.node === stub.nodeId && sink.port === stub.portId &&
-      JSON.stringify(sink.members ?? []) === JSON.stringify(stub.members ?? []),
+      sink.node === stub.nodeId && sink.port === stub.portId,
     )
   const invocations: { command: string; params: JsonObject }[] = [
     ...(hasDeleteItems ? [{
@@ -1002,11 +996,7 @@ export function selectionDeleteInvocation(args: {
             command: 'net.disconnectInput',
             params: {
               graphId,
-              to: {
-                node: stub.nodeId,
-                port: stub.portId,
-                ...(stub.members === undefined ? {} : { members: [...stub.members] }),
-              },
+              to: { node: stub.nodeId, port: stub.portId },
             } as JsonObject,
           }]
         : [],
@@ -2024,8 +2014,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly x: number
     readonly y: number
     readonly mode: 'create' | 'rename'
-    /** create: the output being promoted (structural: port + member path). */
-    readonly source?: { readonly node: string; readonly port: string; readonly members?: readonly string[] }
+    /** create: the output being promoted. */
+    readonly source?: { readonly node: string; readonly port: string }
     /** rename: the net being renamed. */
     readonly netId?: string
     readonly initial: string
@@ -2048,7 +2038,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           source: {
             node: p.source.node,
             port: p.source.port,
-            ...(p.source.members !== undefined ? { members: [...p.source.members] } : {}),
           },
         },
       })
@@ -2622,8 +2611,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const e = end as JsonObject
       if (typeof e['node'] !== 'string' || typeof e['port'] !== 'string') return undefined
       return renderer.getScene().nodes.find((node) => node.id === e['node'])?.layout.pins.find((pin) =>
-        pin.direction === direction && pin.address.port === e['port'] &&
-        JSON.stringify(pin.address.members ?? []) === JSON.stringify(e['members'] ?? []),
+        pin.direction === direction && pin.address.port === e['port'],
       )
     }
     const specializeFreshConnect = (invocation: CommandInvocation): CommandInvocation => {
@@ -3266,7 +3254,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const ref = {
               node: asNodeId(target.hit.node.id),
               port: asPortId(target.hit.pin.address.port),
-              ...(target.hit.pin.address.members !== undefined ? { members: target.hit.pin.address.members } : {}),
             }
             const diagnostics = scene.diagnostics.filter((diagnostic) => {
               if (!diagnostic.anchor?.port || !samePortRef(diagnostic.anchor.port, ref)) return false
@@ -3784,17 +3771,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!source || typeof source !== 'object' || Array.isArray(source)) return
         const node = (source as JsonObject)['node']
         const port = (source as JsonObject)['port']
-        const members = (source as JsonObject)['members']
         if (typeof node !== 'string' || typeof port !== 'string') return
-        const memberPath =
-          Array.isArray(members) && members.every((x): x is string => typeof x === 'string')
-            ? members
-            : undefined
         setNetPrompt({
           x: m.x,
           y: m.y,
           mode: 'create',
-          source: { node, port, ...(memberPath !== undefined ? { members: memberPath } : {}) },
+          source: { node, port },
           initial: '',
         })
       },
@@ -5784,9 +5766,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const sourceKey = clipboardEndpointKey(
               'tap' in stub.source ? 'tap' : 'output', stub.source.node,
               'tap' in stub.source ? stub.source.tap : stub.source.port,
-              'tap' in stub.source ? undefined : stub.source.members,
             )
-            const targetKey = clipboardEndpointKey('input', stub.target.node, stub.target.port, stub.target.members)
+            const targetKey = clipboardEndpointKey('input', stub.target.node, stub.target.port)
             const currentTypes = clipboardSceneEndpointTypes(scene)
             return scope?.tab === tab && scope.graphId === graphId &&
               scope.sources.get(stub.source.node) === tab.store.doc.graphs[graphId]?.nodes[stub.source.node] &&

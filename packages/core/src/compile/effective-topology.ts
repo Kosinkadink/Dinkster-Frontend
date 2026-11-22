@@ -97,23 +97,6 @@ export function occurrenceEndpointReferencesDefinition(
 const portsOverlap = (a: string, b: string): boolean =>
   a === b || b.startsWith(`${a}.`) || a.startsWith(`${b}.`)
 
-/**
- * Whether two member-path qualifications can address the same family row.
- * A missing/empty path means the whole family and stays conservative;
- * two explicit paths collide only when one is a prefix of the other.
- * Occurrence-allocated member ids never reuse definition-persisted ids,
- * so disjoint explicit paths are genuinely different rows.
- */
-const memberPathsMayCollide = (
-  a: readonly (string | undefined)[] | undefined,
-  b: readonly (string | undefined)[] | undefined,
-): boolean => {
-  if (a === undefined || a.length === 0 || b === undefined || b.length === 0) return true
-  const shared = Math.min(a.length, b.length)
-  for (let i = 0; i < shared; i++) if (a[i] !== b[i]) return false
-  return true
-}
-
 export function occurrenceBoundaryTargets(
   document: WorkflowDocument,
   endpoint: OccurrenceLinkEndpoint,
@@ -128,15 +111,13 @@ export function occurrenceBoundaryTargets(
     parent = childId === undefined ? undefined : document.graphs[childId]
   }
   if (parent?.id === graphId && endpoint.occurrence.node === target.node &&
-      portsOverlap(endpoint.address.port, target.port) &&
-      memberPathsMayCollide(endpoint.address.members, target.members)) return true
+      portsOverlap(endpoint.address.port, target.port)) return true
   // Each route leg addresses the inner row its binding names; the
   // occurrence address does not carry through a 'port' binding.
   for (const leg of endpoint.route) {
     if (leg.binding.kind === 'widgetTap') continue
     if (leg.graph === graphId && leg.binding.node === target.node &&
-        portsOverlap(leg.binding.port, target.port) &&
-        memberPathsMayCollide(leg.binding.members ?? [], target.members)) return true
+        portsOverlap(leg.binding.port, target.port)) return true
   }
   return false
 }
@@ -206,7 +187,7 @@ function resolveOccurrenceEndpoint(
   const source = { kind: 'occurrence' as const, owner, endpoint }
   if (endpoint.kind === 'body') {
     if (isPortEndpoint(endpoint.endpoint) && endpoint.endpoint.node === '$region') {
-      if (side !== 'from' || endpoint.endpoint.port !== 'index' || endpoint.endpoint.members !== undefined ||
+      if (side !== 'from' || endpoint.endpoint.port !== 'index' ||
           resolveOwner(document, owner)?.node.region === undefined) {
         diagnostics.push(diag('error', 'compile', 'occurrence.topology.regionIndex', "'$region.index' is a source only inside its immediate region occurrence"))
         return undefined
@@ -318,7 +299,7 @@ function projectedEndpoints(
   diagnostics: Diagnostic[],
 ): { readonly endpoint: ResolvedOccurrenceEndpoint; readonly route: readonly BoundaryRouteLeg[] }[] {
   const items = side === 'from' ? at.bodyGraph.boundary?.outputs : at.bodyGraph.boundary?.inputs
-  const candidates = items?.filter((item) => endpoint.port === item.id && endpoint.members === undefined) ?? []
+  const candidates = items?.filter((item) => endpoint.port === item.id) ?? []
   if (candidates.length !== 1) return []
   const item = candidates[0]!
   const bindings = [item.binds, ...(item.alsoBinds ?? [])]
@@ -329,7 +310,7 @@ function projectedEndpoints(
     const route = [{ graph: at.bodyGraph.id, boundaryId: item.id, binding }]
     const occurrenceEndpoint: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: owner,
-      address: { port: endpoint.port, ...(endpoint.members ? { members: endpoint.members } : {}) },
+      address: { port: endpoint.port },
       route,
     }
     const target = resolveOccurrenceEndpoint(document, owner, at.bodyGraph, occurrenceEndpoint, side, diagnostics)
@@ -471,7 +452,7 @@ function buildEffectiveOccurrenceTopology(
     ])
     const validationLinks = Object.fromEntries(links.filter((link) =>
       !(isPortEndpoint(link.from.endpoint) && link.from.endpoint.node === '$region' &&
-        link.from.endpoint.port === 'index' && link.from.endpoint.members === undefined),
+        link.from.endpoint.port === 'index'),
     ).map((link, index) => {
       let id = `__effective_validation_${index}`
       while (occupied.has(id)) id += '_'
@@ -498,17 +479,15 @@ function buildEffectiveOccurrenceTopology(
     const recordProjected = (map: Map<NodeId, Set<string>>, ref: PortRef): void => {
       let addresses = map.get(ref.node)
       if (!addresses) map.set(ref.node, (addresses = new Set()))
-      addresses.add(portAddressKey(ref.port, ref.members))
+      addresses.add(portAddressKey(ref.port))
     }
     for (const link of projectedParentLinks) {
       if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) recordProjected(projectedOutputs, link.from.endpoint)
       if (link.to.graphId === at.bodyGraph.id && isPortEndpoint(link.to.endpoint)) {
         recordProjected(projectedInputs, link.to.endpoint)
-        if (link.to.endpoint.members === undefined || link.to.endpoint.members.length === 0) {
-          let ports = projectedInputPorts.get(link.to.endpoint.node)
-          if (!ports) projectedInputPorts.set(link.to.endpoint.node, (ports = new Set()))
-          ports.add(link.to.endpoint.port)
-        }
+        let ports = projectedInputPorts.get(link.to.endpoint.node)
+        if (!ports) projectedInputPorts.set(link.to.endpoint.node, (ports = new Set()))
+        ports.add(link.to.endpoint.port)
       }
     }
     const connectivity = (nodeId: NodeId): Connectivity => {
@@ -517,8 +496,8 @@ function buildEffectiveOccurrenceTopology(
       const outputs = projectedOutputs.get(nodeId)
       if (!inputs && !outputs) return base
       return {
-        isInputConnected: (port, members) => inputs?.has(portAddressKey(port, members)) || base.isInputConnected(port, members),
-        isOutputConnected: (port, members) => outputs?.has(portAddressKey(port, members)) || base.isOutputConnected(port, members),
+        isInputConnected: (port) => inputs?.has(portAddressKey(port)) || base.isInputConnected(port),
+        isOutputConnected: (port) => outputs?.has(portAddressKey(port)) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
       }
     }
@@ -534,16 +513,16 @@ function buildEffectiveOccurrenceTopology(
       const state = node && values && { values, ...(dynamic ? { dynamic } : {}), ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}) }
       const elaborated = schema && state && elaborateInterface(schema, state, connectivity(nodeId), { promoteGhosts: false, nodeId })
       const result = {
-        inputs: new Set(elaborated ? elabInputsOf(elaborated).map((input) => portAddressKey(input.address.port, input.address.members)) : []),
-        outputs: new Set(elaborated ? elabOutputsOf(elaborated).map((output) => portAddressKey(output.address.port, output.address.members)) : []),
+        inputs: new Set(elaborated ? elabInputsOf(elaborated).map((input) => portAddressKey(input.address.port)) : []),
+        outputs: new Set(elaborated ? elabOutputsOf(elaborated).map((output) => portAddressKey(output.address.port)) : []),
       }
       ports.set(nodeId, result)
       return result
     }
     const validatePort = (endpoint: ResolvedOccurrenceEndpoint, side: 'source' | 'target'): void => {
       if (!isPortEndpoint(endpoint.endpoint) || endpoint.graphId !== at.bodyGraph.id) return
-      if (side === 'source' && endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index' && endpoint.endpoint.members === undefined) return
-      const key = portAddressKey(endpoint.endpoint.port, endpoint.endpoint.members)
+      if (side === 'source' && endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index') return
+      const key = portAddressKey(endpoint.endpoint.port)
       const available = portsFor(endpoint.endpoint.node)
       const expected = side === 'source' ? available.outputs : available.inputs
       const opposite = side === 'source' ? available.inputs : available.outputs

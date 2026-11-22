@@ -116,7 +116,7 @@ describe('workflow document runtime validation', () => {
           },
           suppressedDeliveries: [
             { kind: 'link', linkId: 'l3' },
-            { kind: 'netSink', netId: 'net4', to: { node: 'n2', port: 'input.input', members: ['m0'] } },
+            { kind: 'netSink', netId: 'net4', to: { node: 'n2', port: 'input.m0' } },
             {
               kind: 'projectedLeg',
               delivery: { kind: 'link', graph: 'g0', linkId: 'l3' },
@@ -198,7 +198,6 @@ describe('workflow document runtime validation', () => {
     for (const malformed of [
       withTap('inputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }),
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed', port: 'seed' }),
-      withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed', members: ['m0'] }),
       withTap('outputs', { kind: 'port', node: 'n0', port: 'seed', tap: 'seed' }),
       withTap('outputs', { kind: 'family', node: 'n0', port: 'seed', tap: 'seed' }),
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }, { promoted: true }),

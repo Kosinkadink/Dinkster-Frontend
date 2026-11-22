@@ -1,7 +1,6 @@
 import {
   documentResolver,
   diagnosticBlocksExecution,
-  elabKeyOf,
   inputsOf,
   outputsOf,
   subgraphDefIdOf,
@@ -166,7 +165,7 @@ export function deriveProblemProjection(args: {
       const qualifiedPortOnly = occurrence === undefined &&
         args.document?.graphs[args.graphId]?.nodes[port.node] !== undefined
       if (exactOccurrence || qualifiedPortOnly) {
-        const portId = elabKeyOf({ port: port.port, ...(port.members === undefined ? {} : { members: port.members }) })
+        const portId = port.port
         const nodePorts = (ports[port.node] ??= {})
         const current = nodePorts[portId]
         if (current === undefined || rank[kind] > rank[current]) nodePorts[portId] = kind

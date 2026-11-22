@@ -301,7 +301,7 @@ describe('document-time selector branch display', () => {
     expect(branchState({})).toMatchObject({ on_false: 'normal', on_true: 'normal' })
   })
 
-  it('projects selector branches by raw port identity when elaborated ids are escaped', () => {
+  it('projects selector branches by raw port identity for ids containing # and %', () => {
     const schema: NodeSchema = {
       ...schemaOf([input('branch#false'), input('branch%23false'), output('result')]),
       selector: {

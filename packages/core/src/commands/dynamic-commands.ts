@@ -23,7 +23,7 @@ import type { DynamicPortState, GraphDef, Json, JsonObject, WorkflowDocument } f
 import { resolveDynamicAddress } from '../format/document.js'
 import type { CommandDefinition } from './contract.js'
 import { isPortEndpoint, MAX_MEMBER_ORDINAL } from '../ids.js'
-import { addressOfElabKey, DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
+import { DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { allNodesOf, storeStartChoices } from './start-choices.js'
 
@@ -311,9 +311,10 @@ const dynamicSpecializeSlot: CommandDefinition = {
 // dynamic.compact {graphId, nodeId}
 // ---------------------------------------------------------------------------
 
-interface Address {
-  readonly port: string
-  readonly members: readonly string[]
+/** A group, by its flattened id, and one of its members that something references. */
+interface MemberReference {
+  readonly construct: string
+  readonly member: string
 }
 
 const portIsWithin = (port: string, construct: string): boolean =>
@@ -321,12 +322,13 @@ const portIsWithin = (port: string, construct: string): boolean =>
 
 /**
  * Drop every member of every group that no reference names. Each group's
- * state sits at its flattened id, so a reference keeps a member when its
- * port lies within the group and its first member id is that member.
+ * state sits at its flattened id, so a reference keeps a member when the
+ * reference's group is this group or lies within it and the reference names
+ * that member key.
  */
 function compactScope(
   scope: Readonly<Record<string, DynamicPortState>>,
-  references: readonly Address[],
+  references: readonly MemberReference[],
 ): Record<string, DynamicPortState> {
   const result: Record<string, DynamicPortState> = {}
   for (const [construct, state] of Object.entries(scope)) {
@@ -338,7 +340,7 @@ function compactScope(
     const members: string[] = []
     const memberLabels: Record<string, string> = {}
     for (const member of state.members) {
-      if (!references.some((ref) => portIsWithin(ref.port, construct) && ref.members[0] === member)) continue
+      if (!references.some((ref) => portIsWithin(ref.construct, construct) && ref.member === member)) continue
       members.push(member)
       if (state.memberLabels?.[member] !== undefined) memberLabels[member] = state.memberLabels[member]!
     }
@@ -370,12 +372,11 @@ const dynamicCompact: CommandDefinition = {
     if (checkDocument(doc).some((diagnostic) =>
       diagnostic.code.startsWith('doc.occurrenceTopology.') || diagnostic.code === 'doc.dynamic.memberMissing')) return []
 
-    const references: Address[] = []
-    const add = (ref: { readonly node: string; readonly port: string; readonly members?: readonly string[] }): boolean => {
-      if (ref.node !== params.nodeId) return true
+    const references: MemberReference[] = []
+    const add = (ref: { readonly node: string; readonly port: string }): void => {
+      if (ref.node !== params.nodeId) return
       const resolved = resolveDynamicAddress(ref, node.dynamic)
       if (resolved.kind === 'resolved') references.push(...resolved.references)
-      return resolved.kind === 'resolved' || ref.members === undefined
     }
     for (const link of Object.values(def.links)) {
       if (isPortEndpoint(link.from)) add(link.from)
@@ -405,8 +406,7 @@ const dynamicCompact: CommandDefinition = {
       for (const link of Object.values(topology.links)) {
         for (const endpoint of [link.from, link.to]) {
           if (endpoint.kind === 'body') {
-            if (topology.bodyGraph === params.graphId && isPortEndpoint(endpoint.endpoint) && !add(endpoint.endpoint))
-              unresolvedOverlay = true
+            if (topology.bodyGraph === params.graphId && isPortEndpoint(endpoint.endpoint)) add(endpoint.endpoint)
             continue
           }
           let endpointParent = doc.graphs[doc.root]
@@ -424,11 +424,7 @@ const dynamicCompact: CommandDefinition = {
             continue
           }
           if (endpointParent.id === params.graphId && endpoint.occurrence.node === params.nodeId) {
-            if (!add({
-              node: endpoint.occurrence.node,
-              port: endpoint.address.port,
-              ...(endpoint.address.members ? { members: endpoint.address.members } : {}),
-            })) unresolvedOverlay = true
+            add({ node: endpoint.occurrence.node, port: endpoint.address.port })
           }
         }
       }
@@ -441,13 +437,8 @@ const dynamicCompact: CommandDefinition = {
       }
     }
     for (const key of Object.keys(node.values)) {
-      const address = addressOfElabKey(key)
-      if (address?.members !== undefined) {
-        references.push({ port: address.port, members: address.members })
-      } else {
-        const resolved = resolveDynamicAddress({ port: key }, node.dynamic)
-        if (resolved.kind === 'resolved') references.push(...resolved.references)
-      }
+      const resolved = resolveDynamicAddress({ port: key }, node.dynamic)
+      if (resolved.kind === 'resolved') references.push(...resolved.references)
     }
     // A chosen key or an authored menu stored at a flattened id under a
     // member is member-owned evidence even when no link or value is present,

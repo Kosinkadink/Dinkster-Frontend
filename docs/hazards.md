@@ -279,8 +279,7 @@ are what keep it that way.
 A boundary item binds one inner input or output by its flattened id
 ([Node body](node-body.md)). Forwarding a whole group, choice or type choice
 is refused (`boundary.familyBind` at derive time, `compile.port.unknownInput`
-or `compile.port.unknownOutput` at compile time), and a binding that
-carries member ids is refused (`boundary.memberPath`). Member and choice state
+or `compile.port.unknownOutput` at compile time). Member and choice state
 therefore lives only on the inner node inside the definition, shared by all
 instances like every other definition edit.
 
@@ -371,7 +370,7 @@ stable.
 ### N1. Identity is the flattened id; ordering lives in ONE place
 
 A row's flattened id is its stored value key, link port and run input name;
-elaboration never sets `PortRef.members`. A group's stored `members` list is
+a `PortRef` is the node and that id, nothing more. A group's stored `members` list is
 the sole ordering source, and the node's dynamic state is keyed by flattened
 id, never by array index (an array-index patch changes meaning when an
 earlier member is removed). A stored member key comes from the group's

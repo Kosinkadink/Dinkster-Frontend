@@ -100,10 +100,7 @@ function resolveRow(
   const item = elabInputsOf(elaborated).find((i) => i.spec.id === entry.inputId)
   if (!item) return { kind: 'stale', entry, reason: `input '${entry.inputId}' no longer exists` }
   const valueKey = valueKeyOf(item)
-  const linked = connectivity.isInputConnected(
-    item.address.port as string,
-    item.address.members as readonly string[] | undefined,
-  )
+  const linked = connectivity.isInputConnected(item.address.port as string)
   const spec = item.spec.widget
   const stored = node.values[valueKey]
   const value = item.derivedValue ?? stored ?? (spec ? effectiveWidgetDefault(spec) : undefined)

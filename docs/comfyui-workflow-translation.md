@@ -48,11 +48,10 @@ invalid or out-of-range counts refuse planning, and later count or endpoint
 changes invalidate the plan. When present, the predecessor schema also
 validates the source family and its count input. Input-family copies still
 require the source template layout: a copy rule may declare
-`sourceTemplate: {inputs: [all historical template-local IDs], memberPort?: "flat.port"}`
+`sourceTemplate: {inputs: [all historical template-local IDs]}`
 when the predecessor schema is absent. The full ordered list distinguishes
 single-input members from grouped paths even if only one input is mapped.
-`memberPort` explicitly identifies a flat-prefix port with member IDs and is
-valid only for a single-input template. An available predecessor must agree
+Any other `sourceTemplate` field refuses the rule. An available predecessor must agree
 with this declaration; same-type migrations instead use the authored
 historical template, not the current schema. Omitted declarations retain
 schema-based planning. Copies preserve stored member order and controller

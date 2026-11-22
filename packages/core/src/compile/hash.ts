@@ -288,7 +288,6 @@ const semanticBoundaryBinding = (binding: BoundaryBinding): Json => binding.kind
       kind: binding.kind,
       node: binding.node,
       port: binding.port,
-      ...(binding.members ? { members: binding.members } : {}),
       ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
     } as unknown as Json
 

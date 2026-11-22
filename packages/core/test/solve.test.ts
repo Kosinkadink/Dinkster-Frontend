@@ -139,7 +139,7 @@ const tupleGet = parseDinksterSchema('std.tuple.get', {
 
 /** Assemble a GraphDef literal tersely (branded ids make literals noisy). */
 type TestEndpoint =
-  | [string, string, string?]
+  | [string, string]
   | { reroute: string }
   | { valueSource: string }
   | { selector: string; candidate?: string }
@@ -147,14 +147,14 @@ type TestEndpoint =
 const defOf = (parts: {
   nodes: Record<string, { type: string; values?: Record<string, unknown>; dynamic?: Record<string, { members?: string[]; selected?: string }> }>
   links?: Record<string, { from: TestEndpoint; to: TestEndpoint }>
-  nets?: Record<string, { source: [string, string]; sinks: [string, string, string?][] }>
+  nets?: Record<string, { source: [string, string]; sinks: [string, string][] }>
   reroutes?: string[]
   /** Selector id -> candidate ids (policy: fixed on the first). */
   selectors?: Record<string, string[]>
 }): GraphDef => {
   const end = (e: TestEndpoint): unknown =>
     Array.isArray(e)
-      ? { node: e[0], port: e[1], ...(e[2] !== undefined ? { members: [e[2]] } : {}) }
+      ? { node: e[0], port: e[1] }
       : 'widgetTap' in e
         ? { node: e.widgetTap[0], tap: e.widgetTap[1] }
         : e

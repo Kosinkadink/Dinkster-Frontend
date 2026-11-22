@@ -60,7 +60,6 @@ import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
   elabInputsOf,
-  elabKeyOf,
   elabOutputsOf,
   elaborateInterface,
   type Connectivity,
@@ -118,7 +117,7 @@ export interface SolveResult {
    * (resolved -> concrete, ambiguous -> union, otherwise the declared
    * expression). Undefined when the node/port is not elaborated.
    */
-  portTypeOf(node: NodeId, side: 'input' | 'output', elabKey: string): TypeExpr | undefined
+  portTypeOf(node: NodeId, side: 'input' | 'output', port: string): TypeExpr | undefined
   /** Verdicts for consumer-delivering links (structural feeds absent). */
   readonly linkVerdicts: ReadonlyMap<LinkId, EdgeVerdict>
   /** Verdicts per named-net sink, keyed by netSinkKey(). */
@@ -298,7 +297,7 @@ export function solveGraphTypes(
   const netSinkVerdicts = new Map<string, EdgeVerdict>()
   const vars = new VarStore()
 
-  // -- 1. Elaborate every resolvable node once; index port types by elabKey.
+  // -- 1. Elaborate every resolvable node once; index port types by flattened id.
   // Absence metadata rides along: which outputs may deliberately emit no
   // value, and which inputs declare on_absent='fail' - the edge walk below
   // warns where they meet (legal, but worth surfacing: solve.maybeAbsent).
@@ -328,7 +327,7 @@ export function solveGraphTypes(
     }[] = []
     for (const item of elabInputsOf(e)) {
       options.onWork?.('port')
-      const key = elabKeyOf(item.address)
+      const key = item.address.port
       inputs.set(key, item.spec.type)
       if (item.spec.acceptsList) {
         let set = wholeListInputs.get(node.id)
@@ -344,7 +343,6 @@ export function solveGraphTypes(
           const ref = {
             node: node.id,
             port: asPortId(item.address.port),
-            ...(item.address.members ? { members: item.address.members } : {}),
           }
           specializedSlots.push({
             node: node.id,
@@ -368,7 +366,7 @@ export function solveGraphTypes(
     }
     for (const item of elabOutputsOf(e)) {
       options.onWork?.('port')
-      const key = elabKeyOf(item.address)
+      const key = item.address.port
       outputs.set(key, item.spec.type)
       if (item.spec.optional) {
         let set = optionalOutputs.get(node.id)
@@ -405,7 +403,7 @@ export function solveGraphTypes(
   const typeAt = (ref: PortRef, side: 'input' | 'output'): TypeExpr | undefined => {
     const entry = portTypes.get(ref.node)
     if (!entry) return undefined
-    const key = elabKeyOf({ port: ref.port, ...(ref.members !== undefined ? { members: ref.members } : {}) })
+    const key = ref.port
     return (side === 'input' ? entry.inputs : entry.outputs).get(key)
   }
 
@@ -456,7 +454,7 @@ export function solveGraphTypes(
     type.kind !== 'list' &&
     from !== undefined &&
     cardinalityOf(from) === 'list' &&
-    wholeListInputs.get(to.node)?.has(elabKeyOf(to))
+    wholeListInputs.get(to.node)?.has(to.port)
       ? { kind: 'list', element: type }
       : type
 
@@ -477,7 +475,7 @@ export function solveGraphTypes(
         // The node elaborated but this port does not currently exist
         // (inactive branch, removed member, renamed schema port).
         diagnostics.push(
-          diag('info', 'schema', 'solve.portMissing', `${missing.node}.${elabKeyOf(missing)}: connected port is unavailable`, {
+          diag('info', 'schema', 'solve.portMissing', `${missing.node}.${missing.port}: connected port is unavailable`, {
             anchor: source.kind === 'link' ? { link: source.id, port: missing } : { port: missing },
           }),
         )
@@ -489,8 +487,8 @@ export function solveGraphTypes(
     // fail-policy input is LEGAL - the type verdict is untouched - but worth
     // surfacing before the run fails at runtime. Keyed to the traced REAL
     // producer, so the warning survives reroute chains.
-    const fromKey = elabKeyOf({ port: from.port, ...(from.members !== undefined ? { members: from.members } : {}) })
-    const toKey = elabKeyOf({ port: to.port, ...(to.members !== undefined ? { members: to.members } : {}) })
+    const fromKey = from.port
+    const toKey = to.port
     if (fromSide === 'output' && optionalOutputs.get(from.node)?.has(fromKey) && failInputs.get(to.node)?.has(toKey)) {
       diagnostics.push(
         diag('warning', 'schema', 'solve.maybeAbsent', `${to.node}.${to.port}: required value comes from optional output ${from.node}.${from.port}`, {
@@ -743,7 +741,7 @@ export function solveGraphTypes(
     if (toType === undefined) {
       if (portTypes.has(projected.to.node)) {
         diagnostics.push(
-          diag('info', 'schema', 'solve.portMissing', `${projected.to.node}.${elabKeyOf(projected.to)}: connected port is unavailable`, {
+          diag('info', 'schema', 'solve.portMissing', `${projected.to.node}.${projected.to.port}: connected port is unavailable`, {
             anchor: { port: projected.to },
           }),
         )
@@ -844,20 +842,20 @@ export function solveGraphTypes(
     }
   }
   for (const slot of specializedSlots) {
-    const slotKey = elabKeyOf(slot.ref)
+    const slotKey = slot.ref.port
     for (const link of Object.values(def.links) as LinkData[]) {
-      if (isPortEndpoint(link.to) && link.to.node === slot.node && elabKeyOf(link.to) === slotKey) checkProducer(slot, link.from)
+      if (isPortEndpoint(link.to) && link.to.node === slot.node && link.to.port === slotKey) checkProducer(slot, link.from)
     }
     for (const net of Object.values(def.nets)) {
-      if (net.sinks.some((sink) => sink.node === slot.node && elabKeyOf(sink) === slotKey)) checkProducer(slot, net.source)
+      if (net.sinks.some((sink) => sink.node === slot.node && sink.port === slotKey)) checkProducer(slot, net.source)
     }
   }
 
   return {
     resolutionOf: (node, templateId) => vars.resolutionOf(varKeyOf(node, templateId)),
-    portTypeOf: (node, side, elabKey) => {
+    portTypeOf: (node, side, port) => {
       const entry = portTypes.get(node)
-      const declared = entry ? (side === 'input' ? entry.inputs : entry.outputs).get(elabKey) : undefined
+      const declared = entry ? (side === 'input' ? entry.inputs : entry.outputs).get(port) : undefined
       return declared === undefined ? undefined : substitute(declared, node)
     },
     linkVerdicts,

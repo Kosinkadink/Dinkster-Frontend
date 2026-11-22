@@ -33,7 +33,7 @@ export function projectEditableOptions(
       const route = schema && resolveBoundaryRoute(schema, binding, 'input')
       if (!target || !route?.ok || route.route.terminal.kind !== 'port' ||
         route.route.terminal.slot.kind !== 'input' || !route.route.terminal.slot.widget?.editableOptions) continue
-      const key = JSON.stringify([binding.port, binding.members])
+      const key = binding.port
       let keys = claimed.get(target.id)
       if (!keys) claimed.set(target.id, (keys = new Set()))
       if (keys.has(key)) continue
@@ -51,7 +51,6 @@ export function projectEditableOptions(
 
 export interface BoundaryAddr {
   readonly port: string
-  readonly members?: readonly string[]
 }
 
 export type BoundaryMatch =
@@ -60,18 +59,18 @@ export type BoundaryMatch =
 
 /**
  * Select THE boundary item an instance-side address refers to: the address
- * is exactly the item's id, with no member path (the INSTANCE-side port is a
- * plain static port even when its inner binding targets a group member).
+ * is exactly the item's id (the INSTANCE-side port is a plain static port
+ * even when its inner binding targets a group member row).
  * Every candidate is enumerated and exactly one must fit.
  */
 export function matchBoundaryItem(items: readonly BoundaryItem[], addr: BoundaryAddr): BoundaryMatch {
-  const candidates = items.filter((i) => addr.port === i.id && addr.members === undefined)
+  const candidates = items.filter((i) => addr.port === i.id)
   if (candidates.length === 1) return { ok: true, item: candidates[0]! }
   if (candidates.length === 0) {
     return {
       ok: false,
       code: 'missing',
-      message: `no boundary item matches '${addr.port}'${addr.members ? ` member '${addr.members.join('.')}'` : ''}`,
+      message: `no boundary item matches '${addr.port}'`,
     }
   }
   return {

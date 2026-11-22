@@ -23,10 +23,9 @@ const createLocalSession: typeof createRawLocalSession = (doc, commands, options
     ...options,
   })
 
-const port = (node: string, id: string, members?: readonly string[]): PortRef => ({
+const port = (node: string, id: string): PortRef => ({
   node: node as never,
   port: id as never,
-  ...(members !== undefined ? { members: members as never } : {}),
 })
 
 const link = (id: string, from: LinkEndpoint, to: LinkEndpoint): LinkData => ({ id: id as never, from, to })
@@ -1139,7 +1138,7 @@ describe('subgraph.extract L4 structural and view completion', () => {
       },
       links: {
         tapIn: link('tapIn', { node: 'outside' as never, tap: 'widget' as never }, port('a', 'tapInput')),
-        memberIn: link('memberIn', port('outside', 'member'), port('a', 'family.child.leaf', ['m9', 'name-a'])),
+        memberIn: link('memberIn', port('outside', 'member'), port('a', 'family.m9.nested.name-a.leaf')),
         valueFeed: link('valueFeed', { valueSource: 'literal' as never }, port('a', 'literal')),
         routeDriver: link('routeDriver', port('a', 'out'), { reroute: 'route' as never }),
         routeConsumer: link('routeConsumer', { reroute: 'route' as never }, port('b', 'in')),
@@ -1211,7 +1210,7 @@ describe('subgraph.extract L4 structural and view completion', () => {
     expect(Object.values(session.doc.graphs.g0!.links).map((edge) => edge.from)).toContainEqual({ valueSource: 'v3' })
     expect(Object.values(session.doc.graphs.g0!.links).map((edge) => edge.to)).toContainEqual({ selector: 's4', candidate: 'c6' })
     expect(session.doc.graphs.g0!.boundary!.inputs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ binds: expect.objectContaining({ node: 'n0', port: 'family.child.leaf', members: ['m9', 'name-a'] }) }),
+      expect.objectContaining({ binds: expect.objectContaining({ node: 'n0', port: 'family.m9.nested.name-a.leaf' }) }),
       expect.objectContaining({ binds: expect.objectContaining({ node: 'n0', port: 'tapInput' }) }),
     ]))
     expect(session.doc.view.graphs.g0).toMatchObject({

@@ -68,7 +68,7 @@ const resolve = (type: string) => schemas[type]
 // ---------------------------------------------------------------------------
 
 type End =
-  | [node: string, port: string, members?: string[]]
+  | [node: string, port: string]
   | { reroute: string }
   | { valueSource: string }
   | { node: string; tap: string }
@@ -88,7 +88,7 @@ type GraphSpec = {
 }
 
 const end = (e: End): unknown =>
-  Array.isArray(e) ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) } : e
+  Array.isArray(e) ? { node: e[0], port: e[1] } : e
 
 const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
   const defs: Record<string, unknown> = {}

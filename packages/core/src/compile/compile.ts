@@ -6,10 +6,10 @@
  * - Runtime node id = occurrenceKey(): source node id for root nodes ('n1'),
  *   instance-path-qualified inside subgraph instances ('n0.n0').
  * - The compiler reasons over elaborated interfaces: values and links
- *   resolve by document identity ({port, members} / elaborated key), the
- *   prompt is keyed by elaborated apiName (positional wire names for family
- *   members - compiler OUTPUT, never identity). Static nodes are unchanged:
- *   apiName = elaborated key = schema input id.
+ *   resolve by document identity (the flattened port id), the prompt is
+ *   keyed by elaborated apiName (positional wire names for group members -
+ *   compiler OUTPUT, never identity). Static nodes are unchanged:
+ *   apiName = flattened id = schema input id.
  * - Links lower to [producerRuntimeId, outputIndex] (index = producer's
  *   position among its non-ghost elaborated outputs; compiler OUTPUT only).
  * - Subgraph instances flatten away. Boundary ports resolve through to the
@@ -75,7 +75,6 @@ import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boun
 import {
   buildGraphConnectivity,
   elabInputsOf,
-  elabKeyOf,
   elabOutputsOf,
   elaborateInterface,
   valueKeyOf,
@@ -322,19 +321,15 @@ interface NodeElab {
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
   /**
    * PERSISTED value key -> input: the key under which a document stores this
-   * input's value. For top-level static inputs that is the RAW schema id
-   * (what migration and static commands write - it may contain '#'/'%' that
-   * the elaborated spec.id escapes, 'x#y' -> 'x%23y'); for dynamic-derived
-   * inputs (member/branch/selector/slot/dependent) it is the elaborated
-   * spec.id. ONE map, so a raw static id colliding with another input's
-   * elaborated id is a detectable duplicate, never a silent mis-route.
+   * input's value, its flattened id. A collision between two inputs is a
+   * detectable duplicate, never a silent mis-route.
    */
   readonly inputsByValueKey: ReadonlyMap<string, ElaboratedInput>
-  /** portAddressKey(port, members) -> input (for link/bind targets). */
+  /** portAddressKey(port) -> input (for link/bind targets). */
   readonly inputsByAddr: ReadonlyMap<string, ElaboratedInput>
-  /** portAddressKey(port, members) -> output, wireable or not. */
+  /** portAddressKey(port) -> output, wireable or not. */
   readonly outputsByAddr: ReadonlyMap<string, ElaboratedOutput>
-  /** portAddressKey(port, members) -> wire index (wireable outputs only). */
+  /** portAddressKey(port) -> wire index (wireable outputs only). */
   readonly outputIndexByAddr: ReadonlyMap<string, number>
 }
 
@@ -343,19 +338,18 @@ const hasSyntheticAncestor = (ancestry?: readonly { readonly synthetic?: boolean
   ancestry?.some((a) => a.synthetic) ?? false
 
 /**
- * Dynamic-scoped value keys (member `#`, branch `.[`, or any dotted path -
- * static input ids never contain '.') may be DORMANT by design: inactive
+ * Dynamic-scoped value keys (any dotted path - static input ids never
+ * contain '.') may be DORMANT by design: inactive
  * combo branches, hidden DynamicSlot dependents, and removed members keep
  * their values so switching back restores them. Never warn about those;
  * only a plain top-level key matching no input is junk worth flagging.
  */
-const isDynamicScopedValueKey = (key: string): boolean =>
-  key.includes('#') || key.includes('.')
+const isDynamicScopedValueKey = (key: string): boolean => key.includes('.')
 
 interface ResolvedNodeInput {
   readonly runtimeId: string
-  /** Elaborated key (= spec.id): the FlatNode.inputs staging key. */
-  readonly elabKey: string
+  /** The input's flattened id (= spec.id): the FlatNode.inputs staging key. */
+  readonly inputId: string
   readonly input: ElaboratedInput
 }
 type ResolvedInput = ResolvedNodeInput | {
@@ -504,8 +498,8 @@ function compileImpl(
     if (widget?.controller !== 'after_generate') return
     let byInput = controllerSources.get(target.runtimeId)
     if (!byInput) controllerSources.set(target.runtimeId, (byInput = new Map()))
-    let sources = byInput.get(target.elabKey)
-    if (!sources) byInput.set(target.elabKey, (sources = []))
+    let sources = byInput.get(target.inputId)
+    if (!sources) byInput.set(target.inputId, (sources = []))
     if (sources.some((candidate) =>
       candidate.source.graph === source.graph &&
       candidate.source.occurrence.node === source.occurrence.node &&
@@ -738,13 +732,13 @@ function compileImpl(
     ins: readonly ProjectedAddress[] | undefined,
   ): Connectivity => {
     if (!ins?.length) return base
-    const inKeys = new Set(ins.map(({ address }) => portAddressKey(address.port, address.members)))
+    const inKeys = new Set(ins.map(({ address }) => portAddressKey(address.port)))
     return {
-      isInputConnected: (p, m) => inKeys.has(portAddressKey(p, m)) || base.isInputConnected(p, m),
+      isInputConnected: (p) => inKeys.has(portAddressKey(p)) || base.isInputConnected(p),
       isOutputConnected: base.isOutputConnected,
       inputPorts: () => [
         ...(base.inputPorts?.() ?? []),
-        ...ins.map(({ address }) => address).filter((address) => address.members === undefined || address.members.length === 0).map((address) => address.port),
+        ...ins.map(({ address }) => address.port),
       ],
     }
   }
@@ -840,13 +834,9 @@ function compileImpl(
     const inputsByAddr = new Map<string, ElaboratedInput>()
     const apiNames = new Set<string>()
     for (const i of inputs) {
-      const addr = portAddressKey(i.address.port, i.address.members)
+      const addr = portAddressKey(i.address.port)
       if (inputsByAddr.has(addr)) dup('compile.interface.duplicatePort', `input '${i.spec.id}'`)
       inputsByAddr.set(addr, i)
-      // Top-level static inputs persist values under the RAW schema id (which
-      // '#'/'%' escaping may differ from spec.id); everything dynamic-derived
-      // persists under elaborated identity. A collision across the two (a raw
-      // 'a%23b' vs an escaped 'a#b') is a genuinely ambiguous document key.
       const valueKey = valueKeyOf(i)
       if (inputsByValueKey.has(valueKey)) dup('compile.interface.duplicateValueKey', `value key '${valueKey}'`)
       inputsByValueKey.set(valueKey, i)
@@ -863,7 +853,7 @@ function compileImpl(
     const outputIndexByAddr = new Map<string, number>()
     let outputIndex = 0
     for (const o of outputs) {
-      const addr = portAddressKey(o.address.port, o.address.members)
+      const addr = portAddressKey(o.address.port)
       if (outputsByAddr.has(addr)) dup('compile.interface.duplicatePort', `output '${o.spec.id}'`)
       outputsByAddr.set(addr, o)
       if (o.wireable !== false) outputIndexByAddr.set(addr, outputIndex++)
@@ -918,13 +908,13 @@ function compileImpl(
         }
         const ctx = occCtxByPath.get(pathKey(path))
         const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-        const input = elab.inputsByAddr.get(portAddressKey(ref.port, ref.members))
+        const input = elab.inputsByAddr.get(portAddressKey(ref.port))
         if (!input || input.apiName === undefined) {
-          sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no wireable input '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+          sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no wireable input '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
           return undefined
         }
         if (routeIsSuppressed(path, delivery, boundaryRoute)) return []
-        return [{ runtimeId: regionRuntimeId, elabKey: input.spec.id, input }]
+        return [{ runtimeId: regionRuntimeId, inputId: input.spec.id, input }]
       }
       const child = graphOf(childId)
       // Boundary item selection goes through the ONE matcher (crossing.ts).
@@ -937,7 +927,7 @@ function compileImpl(
           ambiguous ? 'compile.boundary.ambiguousAddress' : 'compile.boundary.missingInput',
           ambiguous && !match.ok
             ? `subgraph '${childId}': ${match.message}`
-            : `subgraph '${childId}' has no boundary input '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`,
+            : `subgraph '${childId}' has no boundary input '${ref.port}'`,
           { anchor: anchorOf(path, node.id) },
         ))
         return undefined
@@ -987,9 +977,9 @@ function compileImpl(
     }
     const ctx = occCtxByPath.get(pathKey(path))
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-    const input = elab.inputsByAddr.get(portAddressKey(ref.port, ref.members))
+    const input = elab.inputsByAddr.get(portAddressKey(ref.port))
     if (!input) {
-      sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no input '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+      sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no input '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
     if (input.apiName === undefined) {
@@ -1014,7 +1004,7 @@ function compileImpl(
       return undefined
     }
     if (routeIsSuppressed(path, delivery, boundaryRoute)) return []
-    return [{ runtimeId: occurrenceKey({ instancePath: path, node: node.id }), elabKey: input.spec.id, input }]
+    return [{ runtimeId: occurrenceKey({ instancePath: path, node: node.id }), inputId: input.spec.id, input }]
   }
 
   function resolveOutputPort(
@@ -1049,10 +1039,10 @@ function compileImpl(
         }
         const ctx = occCtxByPath.get(pathKey(path))
         const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-        const addr = portAddressKey(ref.port, ref.members)
+        const addr = portAddressKey(ref.port)
         const outputIndex = elab.outputIndexByAddr.get(addr)
         if (outputIndex === undefined) {
-          sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no wireable output '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+          sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no wireable output '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
           return undefined
         }
         return { runtimeId: regionRuntimeId, outputIndex }
@@ -1068,7 +1058,7 @@ function compileImpl(
           ambiguous ? 'compile.boundary.ambiguousAddress' : 'compile.boundary.missingOutput',
           ambiguous && !match.ok
             ? `subgraph '${childId}': ${match.message}`
-            : `subgraph '${childId}' has no boundary output '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`,
+            : `subgraph '${childId}' has no boundary output '${ref.port}'`,
           { anchor: anchorOf(path, node.id) },
         ))
         return undefined
@@ -1115,10 +1105,10 @@ function compileImpl(
     }
     const ctx = occCtxByPath.get(pathKey(path))
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-    const addr = portAddressKey(ref.port, ref.members)
+    const addr = portAddressKey(ref.port)
     const output = elab.outputsByAddr.get(addr)
     if (!output) {
-      sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no output '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+      sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no output '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
     if (hasSyntheticAncestor(output.ancestry)) {
@@ -1284,7 +1274,7 @@ function compileImpl(
       if (!byAddr.has(addrKey)) byAddr.set(addrKey, from)
     }
     for (const connection of topologyFor(path, defId)) {
-      if (isPortEndpoint(connection.to)) record(connection.to.node, portAddressKey(connection.to.port, connection.to.members), connection.from)
+      if (isPortEndpoint(connection.to)) record(connection.to.node, portAddressKey(connection.to.port), connection.from)
     }
     inputDriverCache.set(key, built)
     return built
@@ -1313,7 +1303,7 @@ function compileImpl(
     let curPath = path
     let curDefId = defId
     let curNode = node
-    let curAddrKey = portAddressKey(address.port, address.members)
+    let curAddrKey = portAddressKey(address.port)
     for (;;) {
       const drv = inputDriverIndexFor(curPath, curDefId as GraphDefId).get(curNode)?.get(curAddrKey)
       if (drv) return { endpoint: drv, path: curPath, defId: curDefId }
@@ -1323,7 +1313,7 @@ function compileImpl(
         (i) => [i.binds, ...(i.alsoBinds ?? [])].some(
           (b) => b.kind === 'port'
             && b.node === curNode
-            && portAddressKey(b.port, b.members) === curAddrKey,
+            && portAddressKey(b.port) === curAddrKey,
         ),
       )
       if (!item) return undefined
@@ -1334,7 +1324,7 @@ function compileImpl(
       curPath = parentPath
       curDefId = parentCtx.defId
       curNode = instanceNode
-      curAddrKey = portAddressKey(item.id, undefined)
+      curAddrKey = portAddressKey(item.id)
     }
   }
 
@@ -1376,7 +1366,7 @@ function compileImpl(
     if (!node || !schema) return undefined
     const ctx = occCtxByPath.get(pathKey(at.path))
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(at.defId, node, schema)
-    const address = portAddressKey(at.ref.port, at.ref.members)
+    const address = portAddressKey(at.ref.port)
     const output = elab.outputsByAddr.get(address)
     const outputIndex = elab.outputIndexByAddr.get(address)
     if (!output || outputIndex === undefined) return undefined
@@ -1412,7 +1402,7 @@ function compileImpl(
   ): readonly BypassTrace[] {
     const result = traverseRoutedProjection<RouteAt, SelectedBypassHop, BypassTrace>(start, projection, {
       key: (at) => at.kind === 'bypass'
-        ? JSON.stringify(['bypass', occurrenceKey({ instancePath: at.bypass.path, node: at.bypass.ref.node }), portAddressKey(at.bypass.ref.port, at.bypass.ref.members)])
+        ? JSON.stringify(['bypass', occurrenceKey({ instancePath: at.bypass.path, node: at.bypass.ref.node }), portAddressKey(at.bypass.ref.port)])
         : JSON.stringify(['endpoint', at.path, at.defId, at.endpoint]),
       cycle: (at) => {
         if (projection === 'exact') {
@@ -1522,9 +1512,9 @@ function compileImpl(
           } else {
             const ctx = occCtxByPath.get(pathKey(bypass.path))
             const elab = ctx ? elabAt(ctx, node, schema) : elabOf(bypass.defId, node, schema)
-            const requested = elab.outputsByAddr.get(portAddressKey(bypass.ref.port, bypass.ref.members))
-            if (!requested || !elab.outputIndexByAddr.has(portAddressKey(bypass.ref.port, bypass.ref.members))) {
-              sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `${node.type}.${portAddressKey(bypass.ref.port, bypass.ref.members)}: bypass output is not wireable`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
+            const requested = elab.outputsByAddr.get(portAddressKey(bypass.ref.port))
+            if (!requested || !elab.outputIndexByAddr.has(portAddressKey(bypass.ref.port))) {
+              sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `${node.type}.${portAddressKey(bypass.ref.port)}: bypass output is not wireable`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
             } else {
               sink.push(diag('warning', 'compile', 'compile.bypass.unrouted', `${node.type}.${requested.spec.id}: bypass has no matching driven input`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
             }
@@ -1568,7 +1558,7 @@ function compileImpl(
       let ins = built.get(connection.to.node)
       if (!ins) built.set(connection.to.node, (ins = []))
       ins.push({
-        address: { port: connection.to.port, ...(connection.to.members ? { members: connection.to.members } : {}) },
+        address: { port: connection.to.port },
         ...(connection.delivery ? { delivery: connection.delivery } : {}),
         route: [],
       })
@@ -1664,7 +1654,7 @@ function compileImpl(
               let list = childCtx.extraIn.get(binding.node)
               if (!list) childCtx.extraIn.set(binding.node, (list = []))
               list.push({
-                address: { port: binding.port, ...(binding.members ? { members: binding.members } : {}) },
+                address: { port: binding.port },
                 ...(projected.delivery ? { delivery: projected.delivery } : {}),
                 route,
               })
@@ -1733,7 +1723,7 @@ function compileImpl(
       }
       let byInput = overrides.get(target.runtimeId)
       if (!byInput) overrides.set(target.runtimeId, (byInput = new Map()))
-      if (!byInput.has(target.elabKey)) byInput.set(target.elabKey, v)
+      if (!byInput.has(target.inputId)) byInput.set(target.inputId, v)
     }
     for (const item of child.boundary.inputs) {
       if (item.binds.kind === 'valueSource') {
@@ -1836,18 +1826,18 @@ function compileImpl(
     if (emitRegions && type.kind === 'union' && type.names.length === 2 &&
       type.names.includes('FLOAT') && type.names.includes('INT') && input.spec.widget !== undefined) {
       if (emitTypedLiterals) return typedLiteralWire('FLOAT', value) as Json
-      sink.push(diag('error', 'compile', 'compile.value.numericUnionUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the numeric widget type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+      sink.push(diag('error', 'compile', 'compile.value.numericUnionUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the numeric widget type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
       return undefined
     }
     if (canonicalTypeIdOf(input.spec.type) === 'INT' && isCanonicalUnsafeInteger(value)) {
       if (emitDecimalInts) return decimalIntegerWire(value)
-      sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+      sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
       return undefined
     }
     const sourceType = assetSourceTypeOf(input, value)
     if (sourceType === undefined) return value
     if (emitTypedLiterals) return typedLiteralWire(sourceType, value) as Json
-    sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+    sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
     return undefined
   }
 
@@ -1865,8 +1855,7 @@ function compileImpl(
         continue
       }
       if (input.apiName === undefined) continue
-      // Stage under the ELABORATED id (identical to the persisted value key
-      // except for '#'/'%'-escaped static ids).
+      // Stage under the ELABORATED id (identical to the persisted value key).
       const lowered = lowerWidgetLiteral(fn, input, value, nodeDiags)
       if (lowered !== undefined) fn.inputs[input.spec.id] = lowered
     }
@@ -1919,10 +1908,10 @@ function compileImpl(
     const schema = node && resolveNode(defId, node)
     const ctx = occCtxByPath.get(pathKey(path))
     const input = node && schema
-      ? (ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)).inputsByAddr.get(portAddressKey(ref.port, ref.members))
+      ? (ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)).inputsByAddr.get(portAddressKey(ref.port))
       : undefined
     if (!node || !input) return undefined
-    return [{ runtimeId: occurrenceKey({ instancePath: path, node: nodeId }), elabKey: input.spec.id, input }]
+    return [{ runtimeId: occurrenceKey({ instancePath: path, node: nodeId }), inputId: input.spec.id, input }]
   }
 
   /**
@@ -1949,8 +1938,8 @@ function compileImpl(
     // scalar-T decode/merge arms lower through lowerWidgetLiteral before
     // links) - unwrap it instead of double-wrapping; raw stored/override/
     // fallback refs on those inputs re-derive the same source type.
-    const staged = flat.get(input.runtimeId)?.inputs[input.elabKey]
-      ?? overrides.get(input.runtimeId)?.get(input.elabKey)
+    const staged = flat.get(input.runtimeId)?.inputs[input.inputId]
+      ?? overrides.get(input.runtimeId)?.get(input.inputId)
     if (staged !== undefined) {
       const decimalInteger = parseDecimalIntegerWire(staged)
       if (decimalInteger !== undefined) return { value: decimalInteger, typeId: 'INT' }
@@ -1987,8 +1976,8 @@ function compileImpl(
       for (const destination of live) {
         let byInput = wouldRunInputEdges.get(destination.runtimeId)
         if (!byInput) wouldRunInputEdges.set(destination.runtimeId, (byInput = new Map()))
-        let producers = byInput.get(destination.elabKey)
-        if (!producers) byInput.set(destination.elabKey, (producers = new Set()))
+        let producers = byInput.get(destination.inputId)
+        if (!producers) byInput.set(destination.inputId, (producers = new Set()))
         const vias = new Map<string, TraceVia>()
         const viaFor = (routeDefId: string): TraceVia => {
           let via = vias.get(routeDefId)
@@ -1998,7 +1987,7 @@ function compileImpl(
         const all = projectRoute({ kind: 'endpoint', path, defId, endpoint: from }, queryingSources ? 'spec' : 'would-run', scratch, destination.input.spec.type, viaFor, delivery)
         const connections = wouldRunVia.get(destination.runtimeId)
         const recorded = [...vias].map(([routeDefId, via]) => ({ defId: routeDefId, via }))
-        const record = { inputKey: destination.elabKey, entries: recorded }
+        const record = { inputKey: destination.inputId, entries: recorded }
         if (connections) connections.push(record)
         else wouldRunVia.set(destination.runtimeId, [record])
         let anyCandidateDelivers = false
@@ -2078,7 +2067,7 @@ function compileImpl(
       const enclosingRegion = regionPseudoRef !== undefined
         ? [...regions.values()].find((region) => region.childId === defId && pathKey(region.childPath) === pathKey(path))
         : undefined
-      const regionIndexRef = regionPseudoRef?.port === 'index' && regionPseudoRef.members === undefined && enclosingRegion !== undefined
+      const regionIndexRef = regionPseudoRef?.port === 'index' && enclosingRegion !== undefined
         ? regionPseudoRef
         : undefined
       if (regionPseudoRef !== undefined && regionIndexRef === undefined) {
@@ -2106,8 +2095,8 @@ function compileImpl(
         if (regionIndexRef !== undefined) {
           const consumer = flat.get(dst.runtimeId)
           if (!consumer) continue
-          consumer.inputs[dst.elabKey] = { $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: 'index' } }
-          consumer.linkedInputs.add(dst.elabKey)
+          consumer.inputs[dst.inputId] = { $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: 'index' } }
+          consumer.linkedInputs.add(dst.inputId)
           recordSuccessfulDelivery(dst)
           continue
         }
@@ -2137,7 +2126,7 @@ function compileImpl(
           if (routedRandomSelectors.size > 0) {
             let inputs = randomSelectorInputs.get(dst.runtimeId)
             if (!inputs) randomSelectorInputs.set(dst.runtimeId, (inputs = new Set()))
-            inputs.add(dst.elabKey)
+            inputs.add(dst.inputId)
           }
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
@@ -2154,7 +2143,7 @@ function compileImpl(
             if (trace.controllerSources !== undefined) {
               let byInput = literalControllers.get(dst.runtimeId)
               if (!byInput) literalControllers.set(dst.runtimeId, (byInput = new Map()))
-              byInput.set(dst.elabKey, { sources: trace.controllerSources, ...(trace.controllerWidget !== undefined ? { widget: trace.controllerWidget } : {}) })
+              byInput.set(dst.inputId, { sources: trace.controllerSources, ...(trace.controllerWidget !== undefined ? { widget: trace.controllerWidget } : {}) })
             }
           } else src = trace.src
         }
@@ -2184,12 +2173,12 @@ function compileImpl(
             if (baked.typeId === 'INT' && dstTypeId === 'INT') {
               const lowered = lowerWidgetLiteral(consumer, dst.input, baked.value)
               if (lowered !== undefined) {
-                consumer.inputs[dst.elabKey] = lowered
-                consumer.linkedInputs.delete(dst.elabKey)
+                consumer.inputs[dst.inputId] = lowered
+                consumer.linkedInputs.delete(dst.inputId)
                 recordSuccessfulDelivery(dst)
               }
             } else {
-              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: large integer requires an INT input`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: large integer requires an INT input`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port } as PortRef } }))
             }
             continue
           }
@@ -2197,22 +2186,22 @@ function compileImpl(
             (baked.typeId !== undefined && isAssetSourceTypeId(baked.typeId) &&
               baked.typeId !== dstTypeId && !isAssetRefDestinationTypeId(dstTypeId))) {
             if (emitTypedLiterals && baked.typeId !== undefined) {
-              consumer.inputs[dst.elabKey] = typedLiteralWire(baked.typeId, baked.value)
-              consumer.linkedInputs.delete(dst.elabKey)
+              consumer.inputs[dst.inputId] = typedLiteralWire(baked.typeId, baked.value)
+              consumer.linkedInputs.delete(dst.inputId)
               recordSuccessfulDelivery(dst)
               continue
             }
-            diags.push(diag('error', 'compile', 'compile.tap.nonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: literal type cannot be resolved on this backend`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+            diags.push(diag('error', 'compile', 'compile.tap.nonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: literal type cannot be resolved on this backend`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port } as PortRef } }))
             continue
           }
-          consumer.inputs[dst.elabKey] = baked.value
-          consumer.linkedInputs.delete(dst.elabKey)
+          consumer.inputs[dst.inputId] = baked.value
+          consumer.linkedInputs.delete(dst.inputId)
           recordSuccessfulDelivery(dst)
           continue
         }
         if (!src) continue // unreachable (guarded above); narrows the type
-        consumer.inputs[dst.elabKey] = [src.runtimeId, src.outputIndex] as const
-        consumer.linkedInputs.add(dst.elabKey)
+        consumer.inputs[dst.inputId] = [src.runtimeId, src.outputIndex] as const
+        consumer.linkedInputs.add(dst.inputId)
         recordSuccessfulDelivery(dst)
       }
     }
@@ -2240,10 +2229,10 @@ function compileImpl(
         if (!isNodeInput(target)) continue
         const bodyNode = flat.get(target.runtimeId)
         if (!bodyNode) continue
-        bodyNode.inputs[target.elabKey] = {
+        bodyNode.inputs[target.inputId] = {
           $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: item.id },
         }
-        bodyNode.linkedInputs.add(target.elabKey)
+        bodyNode.linkedInputs.add(target.inputId)
         recordSuccessfulDelivery(target)
       }
     }
@@ -2504,7 +2493,7 @@ function compileImpl(
         // Server-side validation is authoritative; surface early as a warning.
         diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
           blocksExecution: true,
-          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef },
+          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef },
         }))
       }
     }
@@ -2600,7 +2589,7 @@ function compileImpl(
     const slotVariants: Record<string, string> = { ...fn.elab.choices }
     const successful = new Set(
       (successfulDestinations.get(fn.runtimeId) ?? [])
-        .map((address) => portAddressKey(address.port, address.members)),
+        .map((address) => portAddressKey(address.port)),
     )
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue
@@ -2624,14 +2613,13 @@ function compileImpl(
           ownerPriority: sources[0]?.ownerPriority ?? 0,
           widget: literal?.widget ?? sources[0]?.widget ?? widget,
           optional: input.spec.optional,
-          driven: literal === undefined && successful.has(portAddressKey(input.address.port, input.address.members)),
+          driven: literal === undefined && successful.has(portAddressKey(input.address.port)),
         })
       }
       const submissionName = input.apiName
       sourceInputs[submissionName] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
-        ...(input.address.members === undefined ? {} : { members: input.address.members }),
       }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
@@ -2762,7 +2750,7 @@ function compileImpl(
       const type = parent && nativeInputType(parent, port.output)
       return owner?.node.region?.elementPorts?.includes(port.output) && type?.kind === 'list' ? type.element : type
     }
-    return fn.elab.inputs.find((input) => elabKeyOf(input.address) === key)?.spec.type
+    return fn.elab.inputs.find((input) => input.address.port === key)?.spec.type
   }
   const nativeOutputType = (runtimeId: string, index: number): TypeExpr | undefined => {
     const key = `${runtimeId}/${index}`
@@ -2789,7 +2777,7 @@ function compileImpl(
       ]
       const schema = { ...resolveNode(fn.graphId, fn.node)!, body: items }
       const projectedInputs = fn.elab.inputs.flatMap((input, i) => {
-        const type = nativeInputType(fn, elabKeyOf(input.address))
+        const type = nativeInputType(fn, input.address.port)
         return type ? [{ type, to: { node: fn.node.id, port: `input_${i}` as PortRef['port'] } }] : []
       })
       const graph = { ...doc.graphs[fn.graphId]!, nodes: { [fn.node.id]: fn.node }, links: {}, nets: {}, reroutes: {} }
@@ -2809,7 +2797,6 @@ function compileImpl(
       inputPorts[inputId] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
-        ...(input.address.members !== undefined ? { members: input.address.members } : {}),
       }
     }
     const outputTypes: Record<string, TypeExpr> = {}
@@ -2833,7 +2820,7 @@ function compileImpl(
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
-      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', elabKeyOf(output.address))
+      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', output.address.port)
       const native = nativeOutputType(fn.runtimeId, fn.elab.outputs.filter((item) => item.wireable !== false).indexOf(output))
       outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
         ? selectorOutputType
@@ -2841,7 +2828,6 @@ function compileImpl(
       outputPorts[outputId] = {
         node: fn.occ.node,
         port: output.address.port as PortRef['port'],
-        ...(output.address.members !== undefined ? { members: output.address.members } : {}),
       }
     }
     return {

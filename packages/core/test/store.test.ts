@@ -6,18 +6,12 @@ import { semanticHashOf } from '../src/compile/hash.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { netViewPositions } from '../src/format/net-views.js'
-import { asDynamicMemberId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
-/** Port ref addressing one member of a dynamic family. */
-const mport = (node: string, portId: string, member: string) => ({
-  node: asNodeId(node),
-  port: asPortId(portId),
-  members: [asDynamicMemberId(member)],
-})
 
 describe('trusted dispatch preflight', () => {
   const rejection = { severity: 'error', origin: 'command', code: 'test.rejected', message: 'no' } as const
@@ -1629,105 +1623,45 @@ describe('named net commands', () => {
     if (!out.ok) expect(out.diagnostics[0]!.code).toBe('net.missing')
   })
 
-  it('net.create and net.connectInput preserve dynamic member ids', () => {
-    const store = makeNetStore()
-    const out = store.dispatch({
-      command: 'net.create',
-      params: { graphId: 'g0', name: 'ctx', source: mport('n1', 'items.sub', 'm0') },
-    })
-    expect(out.ok).toBe(true)
-    expect(store.doc.graphs.g0!.nets.net100!.source).toEqual(mport('n1', 'items.sub', 'm0'))
-
-    const sink = store.dispatch({
-      command: 'net.connectInput',
-      params: { graphId: 'g0', netId: 'net100', to: mport('n3', 'items.sub', 'm7') },
-    })
-    expect(sink.ok).toBe(true)
-    expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([mport('n3', 'items.sub', 'm7')])
-  })
-
-  it('link and net commands preserve NESTED member paths verbatim', () => {
-    // Autogrow-in-Autogrow identity: commands must carry the whole path
-    // through JSON normalization; truncating to the leaf or head segment
-    // would cross-wire sibling scopes.
-    const nested = (node: string, portId: string, ...path: string[]) => ({
-      node: asNodeId(node),
-      port: asPortId(portId),
-      members: path.map(asDynamicMemberId),
-    })
-    const store = makeNetStore()
-    const link = store.dispatch({
-      command: 'link.connect',
-      params: { graphId: 'g0', from: port('n2', 'out0'), to: nested('n3', 'items.sub', 'outer', 'inner') },
-    })
-    expect(link.ok).toBe(true)
-    const linkData = Object.values(store.doc.graphs.g0!.links).at(-1)!
-    expect(linkData.to).toEqual(nested('n3', 'items.sub', 'outer', 'inner'))
-
-    const net = store.dispatch({
-      command: 'net.create',
-      params: { graphId: 'g0', name: 'deep', source: nested('n1', 'items.sub', 'o0', 'i0') },
-    })
-    expect(net.ok).toBe(true)
-    const netId = Object.keys(store.doc.graphs.g0!.nets).at(-1)!
-    expect(store.doc.graphs.g0!.nets[netId]!.source).toEqual(nested('n1', 'items.sub', 'o0', 'i0'))
-    const sink = store.dispatch({
-      command: 'net.connectInput',
-      params: { graphId: 'g0', netId, to: nested('n3', 'items.sub', 'o1', 'i1') },
-    })
-    expect(sink.ok).toBe(true)
-    expect(store.doc.graphs.g0!.nets[netId]!.sinks).toEqual([nested('n3', 'items.sub', 'o1', 'i1')])
-
-    // Sibling paths sharing the leaf segment are distinct identities: a link
-    // into ('outer','other') must not displace the ('outer','inner') link.
-    const before = Object.keys(store.doc.graphs.g0!.links).length
-    const sibling = store.dispatch({
-      command: 'link.connect',
-      params: { graphId: 'g0', from: port('n2', 'out0'), to: nested('n3', 'items.sub', 'outer', 'other') },
-    })
-    expect(sibling.ok).toBe(true)
-    expect(Object.keys(store.doc.graphs.g0!.links).length).toBe(before + 1)
-  })
-
-  it('net sinks on different members of one port are independent', () => {
+  it('net sinks on different members of one group are independent', () => {
     const store = makeNetStore()
     store.dispatch({ command: 'net.create', params: { graphId: 'g0', name: 'ctx', source: { node: 'n1', port: 'out0' } } })
-    store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId: 'net100', to: mport('n3', 'items.sub', 'm0') } })
-    // Same node+port, different member: a second sink, NOT a duplicate no-op.
+    store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId: 'net100', to: port('n3', 'items.m0.sub') } })
+    // Same node and group, different member: a second sink, NOT a duplicate no-op.
     const rev = store.revision
     const other = store.dispatch({
       command: 'net.connectInput',
-      params: { graphId: 'g0', netId: 'net100', to: mport('n3', 'items.sub', 'm1') },
+      params: { graphId: 'g0', netId: 'net100', to: port('n3', 'items.m1.sub') },
     })
     expect(other.ok).toBe(true)
     expect(store.revision).not.toBe(rev)
     expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([
-      mport('n3', 'items.sub', 'm0'),
-      mport('n3', 'items.sub', 'm1'),
+      port('n3', 'items.m0.sub'),
+      port('n3', 'items.m1.sub'),
     ])
     // Same member again IS the duplicate no-op.
     const rev2 = store.revision
-    expect(store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId: 'net100', to: mport('n3', 'items.sub', 'm1') } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId: 'net100', to: port('n3', 'items.m1.sub') } }).ok).toBe(true)
     expect(store.revision).toBe(rev2)
     store.dispatch({
       command: 'selection.move',
       params: {
         graphId: 'g0',
         netViews: [
-          { netId: 'net100', role: 'sink', to: mport('n3', 'items.sub', 'm0'), position: { x: 10, y: 20 } },
-          { netId: 'net100', role: 'sink', to: mport('n3', 'items.sub', 'm1'), position: { x: 30, y: 40 } },
+          { netId: 'net100', role: 'sink', to: port('n3', 'items.m0.sub'), position: { x: 10, y: 20 } },
+          { netId: 'net100', role: 'sink', to: port('n3', 'items.m1.sub'), position: { x: 30, y: 40 } },
         ],
       },
     })
 
     // Disconnecting one member leaves the sibling member's sink and view alone.
-    expect(store.dispatch({ command: 'net.disconnectInput', params: { graphId: 'g0', to: mport('n3', 'items.sub', 'm0') } }).ok).toBe(true)
-    expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([mport('n3', 'items.sub', 'm1')])
+    expect(store.dispatch({ command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n3', 'items.m0.sub') } }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([port('n3', 'items.m1.sub')])
     expect(netViewPositions(store.doc, 'g0')).toEqual([{
       graphId: 'g0',
       netId: 'net100',
       role: 'sink',
-      to: mport('n3', 'items.sub', 'm1'),
+      to: port('n3', 'items.m1.sub'),
       geometry: { kind: 'absolute', x: 30, y: 40 },
     }])
   })
@@ -1735,22 +1669,22 @@ describe('named net commands', () => {
   it('connecting a link to one member does not displace a net sink on a sibling member', () => {
     const store = makeNetStore()
     store.dispatch({ command: 'net.create', params: { graphId: 'g0', name: 'ctx', source: { node: 'n1', port: 'out0' } } })
-    store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId: 'net100', to: mport('n3', 'items.sub', 'm0') } })
+    store.dispatch({ command: 'net.connectInput', params: { graphId: 'g0', netId: 'net100', to: port('n3', 'items.m0.sub') } })
 
-    // Direct link into a DIFFERENT member of the same port: sink m0 survives.
+    // Direct link into a DIFFERENT member of the same group: sink m0 survives.
     const other = store.dispatch({
       command: 'link.connect',
-      params: { graphId: 'g0', from: port('n2', 'out0'), to: mport('n3', 'items.sub', 'm1') },
+      params: { graphId: 'g0', from: port('n2', 'out0'), to: port('n3', 'items.m1.sub') },
     })
     expect(other.ok).toBe(true)
-    expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([mport('n3', 'items.sub', 'm0')])
+    expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([port('n3', 'items.m0.sub')])
 
     store.dispatch({
       command: 'selection.move',
       params: {
         graphId: 'g0',
         netViews: [
-          { netId: 'net100', role: 'sink', to: mport('n3', 'items.sub', 'm0'), position: { x: 10, y: 20 } },
+          { netId: 'net100', role: 'sink', to: port('n3', 'items.m0.sub'), position: { x: 10, y: 20 } },
         ],
       },
     })
@@ -1758,7 +1692,7 @@ describe('named net commands', () => {
     // Direct link into the SAME member: one driver per input, sink displaced.
     const same = store.dispatch({
       command: 'link.connect',
-      params: { graphId: 'g0', from: port('n2', 'out0'), to: mport('n3', 'items.sub', 'm0') },
+      params: { graphId: 'g0', from: port('n2', 'out0'), to: port('n3', 'items.m0.sub') },
     })
     expect(same.ok).toBe(true)
     expect(store.doc.graphs.g0!.nets.net100!.sinks).toEqual([])

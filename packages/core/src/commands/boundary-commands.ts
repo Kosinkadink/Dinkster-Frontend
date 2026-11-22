@@ -12,7 +12,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
-import { asDynamicMemberId, asNodeId, asPortId, asRerouteId } from '../ids.js'
+import { asNodeId, asPortId, asRerouteId } from '../ids.js'
 import type { CommandDefinition } from './contract.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
@@ -44,7 +44,7 @@ function findItem(
 }
 
 // ---------------------------------------------------------------------------
-// boundary.addBinding {graphId, itemId, node, port, members?: string[]}
+// boundary.addBinding {graphId, itemId, node, port}
 //
 // Fan-out: appends an ADDITIONAL inner input target to a boundary INPUT
 // item (BoundaryItem.alsoBinds). Input-side only - an output has exactly
@@ -55,8 +55,7 @@ function findItem(
 // this command validates document structure only.
 // ---------------------------------------------------------------------------
 
-const bindingTargetKey = (node: string, port: string, members: readonly string[] | undefined): string =>
-  JSON.stringify([node, port, members ?? []])
+const bindingTargetKey = (node: string, port: string): string => JSON.stringify([node, port])
 
 const boundaryAddBinding: CommandDefinition = {
   id: 'boundary.addBinding',
@@ -65,13 +64,12 @@ const boundaryAddBinding: CommandDefinition = {
       !isObj(params) ||
       typeof params.itemId !== 'string' ||
       typeof params.node !== 'string' ||
-      typeof params.port !== 'string' ||
-      (params.members !== undefined && !(Array.isArray(params.members) && params.members.every((m) => typeof m === 'string' && m.length > 0)))
+      typeof params.port !== 'string'
     )
       return [
         err(
           'params.invalid',
-          'boundary.addBinding: params must be {graphId, itemId, node, port, members?: string[]}',
+          'boundary.addBinding: params must be {graphId, itemId, node, port}',
         ),
       ]
     const def = graphOf(doc, params.graphId)
@@ -94,14 +92,13 @@ const boundaryAddBinding: CommandDefinition = {
       ]
     if (!def.nodes[params.node])
       return [err('node.missing', `boundary.addBinding: no node '${params.node}' in graph '${String(params.graphId)}'`)]
-    const members = params.members as string[] | undefined
-    const key = bindingTargetKey(params.node, params.port, members)
+    const key = bindingTargetKey(params.node, params.port)
     const existing = (def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
-    if (existing.some((b) => isNodeBoundaryBinding(b) && b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port, b.members) === key))
+    if (existing.some((b) => isNodeBoundaryBinding(b) && b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port) === key))
       return [
         err(
           'boundary.duplicateBind',
-          `boundary.addBinding: inner input '${params.node}/${params.port}'${members ? ` member '${members.join('.')}'` : ''} is already bound by a boundary input`,
+          `boundary.addBinding: inner input '${params.node}/${params.port}' is already bound by a boundary input`,
         ),
       ]
     const entry = bindingFromParams(params, 'inputs')
@@ -115,7 +112,7 @@ const boundaryAddBinding: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// boundary.removeBinding {graphId, itemId, node, port, members?: string[]}
+// boundary.removeBinding {graphId, itemId, node, port}
 //
 // Removes one fan-out target from a boundary input's `alsoBinds`. The
 // PRIMARY binding is not removable this way - re-point it or remove the
@@ -131,13 +128,12 @@ const boundaryRemoveBinding: CommandDefinition = {
       !isObj(params) ||
       typeof params.itemId !== 'string' ||
       typeof params.node !== 'string' ||
-      typeof params.port !== 'string' ||
-      (params.members !== undefined && !(Array.isArray(params.members) && params.members.every((m) => typeof m === 'string' && m.length > 0)))
+      typeof params.port !== 'string'
     )
       return [
         err(
           'params.invalid',
-          'boundary.removeBinding: params must be {graphId, itemId, node, port, members?: string[]}',
+          'boundary.removeBinding: params must be {graphId, itemId, node, port}',
         ),
       ]
     const def = graphOf(doc, params.graphId)
@@ -151,9 +147,8 @@ const boundaryRemoveBinding: CommandDefinition = {
           `boundary.removeBinding: no boundary input '${params.itemId}' in graph '${String(params.graphId)}'`,
         ),
       ]
-    const members = params.members as string[] | undefined
-    const key = bindingTargetKey(params.node, params.port, members)
-    if (isNodeBoundaryBinding(found.item.binds) && found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port, found.item.binds.members) === key)
+    const key = bindingTargetKey(params.node, params.port)
+    if (isNodeBoundaryBinding(found.item.binds) && found.item.binds.kind !== 'widgetTap' && bindingTargetKey(found.item.binds.node, found.item.binds.port) === key)
       return [
         err(
           'boundary.primaryBind',
@@ -161,12 +156,12 @@ const boundaryRemoveBinding: CommandDefinition = {
         ),
       ]
     const also = found.item.alsoBinds ?? []
-    const kept = also.filter((b) => !isNodeBoundaryBinding(b) || b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port, b.members) !== key)
+    const kept = also.filter((b) => !isNodeBoundaryBinding(b) || b.kind === 'widgetTap' || bindingTargetKey(b.node, b.port) !== key)
     if (kept.length === also.length)
       return [
         err(
           'boundary.bindMissing',
-          `boundary.removeBinding: boundary input '${params.itemId}' has no fan-out target '${params.node}/${params.port}'${members ? ` member '${members.join('.')}'` : ''}`,
+          `boundary.removeBinding: boundary input '${params.itemId}' has no fan-out target '${params.node}/${params.port}'`,
         ),
       ]
     if (kept.length === 0) {
@@ -181,38 +176,32 @@ const boundaryRemoveBinding: CommandDefinition = {
   },
 }
 
-const validMembers = (v: Json | undefined): boolean =>
-  v === undefined || (Array.isArray(v) && v.every((m) => typeof m === 'string' && m.length > 0))
-
 const bindingKey = (binding: BoundaryItem['binds']): string => boundaryBindingKey(binding)
 
 const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBinding): boolean =>
   !isNodeBoundaryBinding(binding) || !isNodeBoundaryBinding(target) || binding.kind === 'widgetTap' || target.kind === 'widgetTap'
     ? bindingKey(binding) === bindingKey(target)
-    : bindingTargetKey(binding.node, binding.port, binding.members) ===
-      bindingTargetKey(target.node, target.port, target.members)
+    : bindingTargetKey(binding.node, binding.port) === bindingTargetKey(target.node, target.port)
 
 const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
-  if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined && params.members === undefined) {
+  if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined) {
     return side === 'outputs' && params.viaReroute === undefined
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
   }
-  if (typeof params.port !== 'string' || params.tap !== undefined || !validMembers(params.members)) return undefined
+  if (typeof params.port !== 'string' || params.tap !== undefined) return undefined
   if (params.viaReroute !== undefined &&
       (side !== 'inputs' || typeof params.viaReroute !== 'string' || params.viaReroute.length === 0)) return undefined
-  const members = params.members as string[] | undefined
   return {
     kind: 'port',
     node: asNodeId(params.node),
     port: asPortId(params.port),
-    ...(members !== undefined ? { members: members.map(asDynamicMemberId) } : {}),
     ...(typeof params.viaReroute === 'string' ? { viaReroute: asRerouteId(params.viaReroute) } : {}),
   }
 }
 
 // ---------------------------------------------------------------------------
-// boundary.addItem {graphId, side, node, port?, tap?, members?, itemId?, displayName?}
+// boundary.addItem {graphId, side, node, port?, tap?, itemId?, displayName?}
 //
 // Appends one endpoint exposure. IDs are allocated deterministically from the
 // target when omitted. Input targets are globally unique across primary and
@@ -243,7 +232,7 @@ const boundaryAddItem: CommandDefinition = {
     if (id === undefined) {
       const base = binding.kind === 'widgetTap'
         ? binding.tap
-        : binding.members?.length ? `${binding.port}_${binding.members.join('_')}` : binding.port
+        : binding.port
       id = base
       // Allocate against BOTH sides: derivation treats boundary item ids
       // as one global namespace, so a generated input id must not collide
@@ -294,7 +283,7 @@ const boundaryRenameItem: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// boundary.setBinding {graphId, side, itemId, node, port, members?}
+// boundary.setBinding {graphId, side, itemId, node, port}
 //
 // Re-points an item's primary binding to a concrete port.
 // ---------------------------------------------------------------------------
@@ -322,7 +311,7 @@ const boundarySetBinding: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// boundary.unbind {graphId, side, itemId, node, port, members?}
+// boundary.unbind {graphId, side, itemId, node, port}
 //
 // Disconnects one boundary noodle, promoting input fan-out in stable order.
 // ---------------------------------------------------------------------------

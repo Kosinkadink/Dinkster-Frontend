@@ -35,7 +35,6 @@ const portRef = {
   properties: {
     node: { type: 'string', minLength: 1 },
     port: { type: 'string', minLength: 1 },
-    members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
   },
 } as const
 
@@ -79,12 +78,12 @@ const boundaryBinding = {
     {
       type: 'object', required: ['kind', 'valueSource', 'type'],
       properties: { kind: { const: 'valueSource' }, valueSource: { type: 'string', minLength: 1 }, type: { $ref: '#/$defs/typeExpr' } },
-      not: { anyOf: ['node', 'port', 'tap', 'members', 'viaReroute'].map((field) => ({ required: [field] })) },
+      not: { anyOf: ['node', 'port', 'tap', 'viaReroute'].map((field) => ({ required: [field] })) },
     },
     {
       type: 'object', required: ['kind', 'type'],
       properties: { kind: { const: 'unbound' }, type: { $ref: '#/$defs/typeExpr' } },
-      not: { anyOf: ['node', 'port', 'tap', 'members', 'viaReroute'].map((field) => ({ required: [field] })) },
+      not: { anyOf: ['node', 'port', 'tap', 'viaReroute'].map((field) => ({ required: [field] })) },
     },
     {
       type: 'object',
@@ -94,7 +93,6 @@ const boundaryBinding = {
         node: { type: 'string', minLength: 1 },
         port: { type: 'string', minLength: 1 },
         viaReroute: { type: 'string', minLength: 1 },
-        members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
       },
       not: { required: ['tap'] },
     },
@@ -106,7 +104,7 @@ const boundaryBinding = {
         node: { type: 'string', minLength: 1 },
         tap: { type: 'string', minLength: 1 },
       },
-      not: { anyOf: [{ required: ['port'] }, { required: ['members'] }, { required: ['viaReroute'] }] },
+      not: { anyOf: [{ required: ['port'] }, { required: ['viaReroute'] }] },
     },
   ],
 } as const
@@ -305,7 +303,6 @@ export const WORKFLOW_SCHEMA = {
           required: ['port'],
           properties: {
             port: { type: 'string', minLength: 1 },
-            members: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
           },
         },
         route: {

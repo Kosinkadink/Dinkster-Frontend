@@ -18,7 +18,6 @@
 
 import type {
   ControlSurfaceId,
-  DynamicMemberId,
   GraphDefId,
   LineageId,
   LinkEndpoint,
@@ -115,51 +114,37 @@ export type DynamicAddressResolution =
   | { readonly kind: 'missing' }
   | {
       readonly kind: 'resolved'
-      readonly references: readonly { readonly port: string; readonly members: readonly string[] }[]
+      /** Every group the address lies within, with the member it lies in. */
+      readonly references: readonly { readonly construct: string; readonly member: string }[]
     }
 
 const isFamilyState = (state: DynamicPortState): boolean =>
   state.members !== undefined || state.seq !== undefined
 
 /**
- * Resolve both canonical member arrays and wire-15 path-encoded member ids
- * against persisted dynamic state. Commands remain schema-blind: an endpoint
- * is opaque until a structurally matching family state claims it, after which
- * every member must resolve.
+ * Resolve a flattened id against persisted group state. A group's member
+ * key is the id segment after the group's own id (`items.item1.amount` lies
+ * in member `item1` of `items`), and nested groups are top-level keys whose
+ * ids contain their ancestor member keys, so every group the id lies within
+ * is checked, not merely the innermost. Commands remain schema-blind: an id
+ * is opaque until a group state claims it, after which every member must be
+ * stored.
  */
 export function resolveDynamicAddress(
-  ref: { readonly port: string; readonly members?: readonly string[] },
+  ref: { readonly port: string },
   dynamic: Readonly<Record<string, DynamicPortState>> | undefined,
 ): DynamicAddressResolution {
-  let scope = dynamic
-  if (ref.members !== undefined) {
-    for (let index = 0; index < ref.members.length; index++) {
-      const member = ref.members[index]!
-      const state = Object.entries(scope ?? {})
-        .filter(([construct, candidate]) =>
-          isFamilyState(candidate) && (ref.port === construct || ref.port.startsWith(`${construct}.`)))
-        .sort(([a], [b]) => b.length - a.length)[0]?.[1]
-      if (state === undefined) return index === 0 ? { kind: 'opaque' } : { kind: 'missing' }
-      if (!state.members?.includes(member)) return { kind: 'missing' }
-      scope = undefined
-    }
-    return { kind: 'resolved', references: [{ port: ref.port, members: ref.members }] }
-  }
-
-  // Wire-15 persists nested families as dot-scoped top-level keys whose
-  // paths contain their ancestor member ids. Validate and retain every such
-  // family scope, not merely the longest matching construct.
-  const flatReferences: { port: string; members: readonly string[] }[] = []
+  const references: { construct: string; member: string }[] = []
   for (const [construct, state] of Object.entries(dynamic ?? {})
     .filter(([construct, state]) => isFamilyState(state) && ref.port.startsWith(`${construct}.`))
     .sort(([a], [b]) => a.length - b.length)) {
     const member = ref.port.slice(construct.length + 1).split('.')[0] ?? ''
     if (member.length === 0) continue
     if (!state.members?.includes(member)) return { kind: 'missing' }
-    flatReferences.push({ port: construct, members: [member] })
+    references.push({ construct, member })
   }
 
-  return flatReferences.length === 0 ? { kind: 'opaque' } : { kind: 'resolved', references: flatReferences }
+  return references.length === 0 ? { kind: 'opaque' } : { kind: 'resolved', references }
 }
 
 /** Occurrence-local repetition contract for a subgraph instance. */
@@ -434,9 +419,7 @@ export interface NamedNetData {
  * flip because an inner schema changed shape (hazard N2: one canonical
  * spelling per state):
  *
- * - 'port': a concrete endpoint. `port` is a schema port id or stamped slot
- *   path ('<family>.<slotId>', one segment chain per family crossed) and
- *   `members` carries one member id per family crossed (outermost first) -
+ * - 'port': a concrete endpoint. `port` is the inner row's flattened id -
  *   exactly PortRef semantics.
  * - 'widgetTap': an output endpoint backed by one static inner widget input.
  *   `tap` is the input id. This remains distinct from a node output port so
@@ -447,7 +430,6 @@ export interface PortBoundaryBinding {
   readonly node: NodeId
   readonly port: PortId
   readonly tap?: never
-  readonly members?: readonly DynamicMemberId[]
   /** Input-only junction attachment; node/port remains the schema authority. */
   readonly viaReroute?: RerouteId
 }
@@ -457,7 +439,6 @@ export interface WidgetTapBoundaryBinding {
   readonly node: NodeId
   readonly tap: PortId
   readonly port?: never
-  readonly members?: never
   readonly viaReroute?: never
 }
 
@@ -468,7 +449,6 @@ export interface UnboundBoundaryBinding {
   readonly node?: never
   readonly port?: never
   readonly tap?: never
-  readonly members?: never
   readonly viaReroute?: never
 }
 
@@ -480,7 +460,6 @@ export interface ValueSourceBoundaryBinding {
   readonly node?: never
   readonly port?: never
   readonly tap?: never
-  readonly members?: never
   readonly viaReroute?: never
 }
 
@@ -564,7 +543,6 @@ export type OccurrenceLinkEndpoint =
       readonly occurrence: OccurrenceRef
       readonly address: {
         readonly port: PortId
-        readonly members?: readonly DynamicMemberId[]
       }
       /** Authored boundary fan-out hops, outermost first. */
       readonly route: readonly BoundaryRouteLeg[]
@@ -600,13 +578,12 @@ const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
         binding.kind,
         binding.node,
         binding.port,
-        binding.members ?? [],
         ...(binding.viaReroute !== undefined ? [binding.viaReroute] : []),
       ]
 
 /**
- * Canonical structural binding identity. Member paths remain ordered. Every
- * exposure-changing field participates.
+ * Canonical structural binding identity. Every exposure-changing field
+ * participates.
  */
 export const boundaryBindingKey = (binding: BoundaryBinding): string =>
   JSON.stringify(boundaryBindingIdentity(binding))
@@ -615,7 +592,7 @@ export const boundaryBindingKey = (binding: BoundaryBinding): string =>
 export const boundaryRouteKey = (route: readonly BoundaryRouteLeg[]): string =>
   JSON.stringify(route.map((leg) => [leg.graph, leg.boundaryId, boundaryBindingIdentity(leg.binding)]))
 
-const portRefIdentity = (ref: PortRef): readonly Json[] => [ref.node, ref.port, ref.members ?? []]
+const portRefIdentity = (ref: PortRef): readonly Json[] => [ref.node, ref.port]
 
 /** Canonical key used to sort and deduplicate occurrence suppressions. */
 export const suppressedDeliveryKey = (delivery: SuppressedDelivery): string => {

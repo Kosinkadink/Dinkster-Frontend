@@ -6263,9 +6263,10 @@ export class AppState {
       void this.normalizeLegacyBooleans(tab).then(() => {
         // A required choice saved with nothing stored gets its start key.
         if (this.tabs.get().includes(tab) && tab.store === store) {
-          void this.dispatchTo(tab, { command: 'dynamic.storeStartChoices', params: {} })
+          return this.dispatchTo(tab, { command: 'dynamic.storeStartChoices', params: {} })
         }
-      })
+        return undefined
+      }).catch(() => undefined) // A tab whose schemas vanish keeps its document as saved.
     }
   }
 

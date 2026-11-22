@@ -36,7 +36,7 @@ import {
 import { hitTest } from '../src/hit.js'
 import type { PinLayout } from '../src/layout.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
-import { buildScene, portEndKey, type Scene, type SceneLinkEnd } from '../src/scene.js'
+import { buildScene, type Scene, type SceneLinkEnd } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 
 // ---------------------------------------------------------------------------
@@ -318,8 +318,8 @@ const expectNoDanglingEndpoints = (scene: Scene): void => {
       const node = nodeOf(scene, e.node)
       const direction = e === link.from ? 'out' : 'in'
       expect(
-        node.layout.pins.some((p) => p.direction === direction && p.portId === portEndKey(e)),
-        `link ${link.id}: ${direction} pin ${portEndKey(e)} on ${e.node}`,
+        node.layout.pins.some((p) => p.direction === direction && p.portId === e.port),
+        `link ${link.id}: ${direction} pin ${e.port} on ${e.node}`,
       ).toBe(true)
     }
   }
@@ -884,13 +884,12 @@ describe('named nets over group members', () => {
     expect(latents?.sinks ?? []).toHaveLength(0)
   })
 
-  it('collapsed: the sink stub carries the member id and anchors at the member pin', () => {
+  it('collapsed: the sink stub carries the member flattened id and anchors at the member pin', () => {
     const scene = sceneOf(netDoc({ g0: { nodes: {}, collapsedNets: ['latents'] } }))
     // Collapsed: the delivery stays a (hidden) scene link for connectivity.
     expect(scene.links.filter((l) => l.netId === 'latents').map((l) => l.hidden)).toEqual([true])
     const sink = scene.netStubs.find((st) => st.role === 'sink')!
     expect(sink.portId).toBe('images.image0')
-    expect(sink.members).toBeUndefined()
     const node = nodeOf(scene, 'b')
     const pin = node.layout.pins.find((p) => p.portId === 'images.image0')!
     expect(sink.pinY).toBe(node.y + pin.y)
