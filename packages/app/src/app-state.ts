@@ -2935,6 +2935,7 @@ export class AppState {
    * keeps framework adapters honest when a command changes only a document.
    */
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
+  readonly clearedTabResults = createSignal<ReadonlyMap<string, string>>(new Map())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
@@ -4891,6 +4892,8 @@ export class AppState {
           // cannot cancel a callback already in flight: re-check ownership
           // rather than trusting teardown ordering.
           if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+          const latest = this.lastEndedExecutionForTab(tab)
+          if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
           this.documentPersistenceDirty.add(id)
           reconcileGraphNavigation(tab)
           this.markTabDirty(id)
@@ -6462,6 +6465,36 @@ export class AppState {
     this.schedulePersistTabs()
   }
 
+  renameTab(tabId: string, title: string): void {
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    title = title.trim()
+    if (!tab || tab.execution || !title || title === tab.title ||
+      ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(tab.editorKind)) return
+    const latest = this.lastEndedExecutionForTab(tab)
+    if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(tab.id, latest.key))
+    this.markTabDirty(tab.id)
+    this.tabs.update((list) => list.map((candidate) => candidate === tab ? { ...tab, title } : candidate))
+  }
+
+  async duplicateTab(tabId: string): Promise<Tab | undefined> {
+    const source = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
+    const title = source.execution
+      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
+      : source.title
+    const titles = new Set(this.tabs.get().map((tab) => tab.title))
+    let copyTitle = `${title} copy`
+    for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
+    let lineage: LineageId
+    do lineage = asLineageId(`${source.store.doc.lineage}-copy-${Date.now()}-${++newWorkflowOrdinal}`)
+    while (this.tabs.get().some((tab) => tab.id === lineage))
+    const backend = this.backendForTab(source)
+    const stillWanted = this.beginWorkflowOpen()
+    const copy = await this.openRetainedDocument({ ...source.store.doc, lineage }, copyTitle, backend, stillWanted, false, undefined, backend)
+    if (copy && !source.execution && source.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(copy.id, APP_EDITOR_KIND)
+    return copy && this.tabs.get().find((tab) => tab.id === copy.id)
+  }
+
   openEditorForBinding(tabId: string, context: EditorBindingContext): boolean {
     const binding = this.editorBindings.resolve(context, (candidate) =>
       this.extensionEditorIds.has(candidate.editor) && this.editors.get(candidate.editor) !== undefined)
@@ -7409,6 +7442,11 @@ export class AppState {
     // the Tab object itself: dropping the tab drops its cache entries.
     this.libraryLinks.delete(id)
     this.markTabClean(id)
+    if (this.clearedTabResults.get().has(id)) this.clearedTabResults.update((results) => {
+      const next = new Map(results)
+      next.delete(id)
+      return next
+    })
     if (this.tabViewStates.get().has(id)) {
       this.tabViewStates.update((states) => {
         const next = new Map(states)
@@ -8681,7 +8719,7 @@ export class AppState {
    * never patch record ids into a different backend's library.
    * View/session state, never serialized.
    */
-  private readonly libraryLinks = new Map<string, { recordId: string; revision: number; connectionId: ConnectionId }>()
+  private readonly libraryLinks = new Map<string, { recordId: string; revision: number; connectionId: ConnectionId; title: string }>()
 
   /**
    * Per-tab digest of the last uploaded source document, validated by the
@@ -9033,8 +9071,8 @@ export class AppState {
    * Save a live tab's document to its backend's library: upload the
    * freshly stamped bytes (idempotent, content-addressed), then create a
    * record - or PATCH the tab's linked record, with ONE re-read retry on a
-   * revision conflict (the retry repoints only the digest, so a rename
-   * made elsewhere survives). A link whose record was deleted elsewhere
+   * revision conflict. A name is patched only after a local rename, so
+   * an unrelated rename made elsewhere survives. A record deleted elsewhere
    * falls back to creating a new record. Failures land in Problems.
    */
   async saveWorkflow(tabId: string): Promise<boolean> {
@@ -9112,7 +9150,9 @@ export class AppState {
       // retargeted tab creates a fresh record on the new backend (the old
       // backend's record stays untouched under its own link semantics).
       if (link !== undefined && link.connectionId === backend.id) {
-        const patch = { scope: LIBRARY_SCOPE, revision: link.revision, digest }
+        const patch = { scope: LIBRARY_SCOPE, revision: link.revision, digest,
+          ...(tab.title !== link.title ? { name: tab.title } : {}),
+        }
         const first = await backend.connection.patchLibraryRecord(link.recordId, patch)
         if (first.ok) {
           record = first.record
@@ -9142,15 +9182,14 @@ export class AppState {
         })
       }
       this.backendsTick.update((v) => v + 1) // an open Workflows collection re-pages
-      // The record was written; local bookkeeping only applies if this
-      // exact Tab object is still open. A same-lineage replacement shares
-      // the id but not identity - it must not inherit the link, and its
-      // dirty flag is not ours to clear.
-      if (!this.tabs.get().includes(tab)) return true
-      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+      // A rename or editor switch keeps the session; a document replacement
+      // must inherit neither the saved record nor its clean state.
+      const current = this.tabs.get().find((candidate) => candidate.id === tab.id && candidate.store === tab.store)
+      if (!current) return true
+      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
       // Clean only when nothing was committed since the uploaded snapshot:
       // an edit made during the awaits keeps the tab dirty.
-      const unchanged = tab.store.revision === revision
+      const unchanged = tab.store.revision === revision && current.title === tab.title
       if (unchanged) {
         this.markTabClean(tab.id)
         this.dismissMigrationNotice(tab.id)
@@ -9199,7 +9238,7 @@ export class AppState {
         if (json === undefined || !this.ownerStillLive(backend)) return false
         tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
         if (!tab || !this.tabs.get().includes(tab)) return false
-        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
         this.markTabClean(tab.id)
         return true
       })
@@ -11625,6 +11664,23 @@ export class AppState {
     }
     const lineage = tab.store.doc.lineage
     return this.executionList().filter((state) => state.artifact?.snapshot.lineage === lineage)
+  }
+
+  private lastEndedExecutionForTab(tab: Tab): ExecutionState | undefined {
+    return this.executionsForTab(tab)
+      .filter((run) => run.status !== 'queued' && run.status !== 'running')
+      .sort((a, b) => (b.endedAt ?? b.queuedAt) - (a.endedAt ?? a.queuedAt))[0]
+  }
+
+  tabRunState(tab: Tab): 'idle' | 'queued' | 'running' | 'finished' | 'failed' {
+    const runs = this.executionsForTab(tab)
+    if (runs.some((run) => run.status === 'running')) return 'running'
+    if (runs.some((run) => run.status === 'queued')) return 'queued'
+    const latest = this.lastEndedExecutionForTab(tab)
+    if (latest === undefined || this.clearedTabResults.get().get(tab.id) === latest.key) return 'idle'
+    if (latest.status === 'completed') return 'finished'
+    if (latest.status === 'error' || latest.status === 'interrupted') return 'failed'
+    return 'idle'
   }
 
   /**
