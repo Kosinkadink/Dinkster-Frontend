@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal } from 'solid-js'
 import { CanvasRowFocus, CanvasSidePart } from '@dinkster/ui'
-import { placeRow, rowPlacement, type RowBox } from './row-placement.js'
+import { placeRow, rowPlacement, visibleCanvas, type RowBox } from './row-placement.js'
 
 /** A row the keyboard is on while nothing is open. */
 export interface RowFocusState extends RowBox {
@@ -23,12 +23,13 @@ export function RowFocusOverlay(props: {
   viewport: () => { x: number; y: number; scale: number }
   boundary: HTMLElement
 }) {
-  const [sideWidth, setSideWidth] = createSignal(0)
+  const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
+  const bounds = visibleCanvas(props.boundary)
   const placement = createMemo(() => rowPlacement(
     props.focus,
     props.viewport(),
-    { width: props.boundary.clientWidth, height: props.boundary.clientHeight },
-    sideWidth(),
+    bounds(),
+    sideSize(),
   ))
   const side = createMemo(() => {
     const { defaultText, help } = props.focus
@@ -51,7 +52,8 @@ export function RowFocusOverlay(props: {
           zoomed={placement().scale > 1}
           place={placement().place}
           sideTop={placement().sideTop}
-          onSideSize={(size) => setSideWidth(size.width)}
+          {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
+          onSideSize={setSideSize}
           {...(side() === undefined ? {} : { side: side()! })}
         />
       </div>

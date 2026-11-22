@@ -23,38 +23,118 @@ export interface CanvasBox {
  * Where an open row field's side part goes: beside the node on the right, on
  * the left when the right has no room, under the node when neither side has
  * room, and under the field when the canvas is zoomed out so far that the
- * field is drawn larger than its row.
+ * field is drawn larger than its row. Under the node or the field, it goes
+ * above instead when there is no room below.
  */
-export type CanvasSidePlace = 'right' | 'left' | 'below-node' | 'below-field'
+export type CanvasSidePlace =
+  | 'right'
+  | 'left'
+  | 'below-node'
+  | 'below-field'
+  | 'above-node'
+  | 'above-field'
 
-export function canvasSidePlace(
+/** Where the side part goes and how it fits the visible canvas. */
+export interface CanvasSideLayout {
+  readonly place: CanvasSidePlace
+  /** The side part's top, from the field's top, at normal size. */
+  readonly sideTop: number
+  /** The height the side part may take before it scrolls, at normal size. */
+  readonly sideMaxHeight?: number
+}
+
+/** A side part's size at normal size. */
+export interface CanvasSideSize {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Lays out an open field's side part on the visible canvas, which never
+ * moves for it. A side part is never squeezed: a place counts only when
+ * the whole side part fits there. The places, in order: beside the node on
+ * the right, then on the left, sliding up or down just far enough and still
+ * touching the field's row; under the node; over the node; under the field;
+ * over the field. Zoomed out, only the last two. When no place holds it
+ * whole, it goes under or over the field, where there is more room, takes
+ * the room there is and scrolls. It never covers its field and never runs
+ * past an edge of the visible canvas.
+ *
+ * `row` and `bounds` are screen boxes; `side` is at normal size.
+ * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
+ * field's top down to where the side part starts under the node and up to
+ * where it ends over the node.
+ */
+export function canvasSideLayout(
   row: CanvasBox,
   bounds: CanvasBox,
-  sideWidth: number,
+  side: CanvasSideSize,
   scale: number,
-): CanvasSidePlace {
-  if (scale < 1) return 'below-field'
-  if (row.x + row.width + sideWidth <= bounds.x + bounds.width) return 'right'
-  if (row.x - sideWidth >= bounds.x) return 'left'
-  return 'below-node'
+  nodeBelow: number,
+  nodeAbove: number,
+): CanvasSideLayout {
+  // Zoomed in, the field and its side part scale with the canvas.
+  const zoom = Math.max(1, scale)
+  const top = (bounds.y - row.y) / zoom
+  const bottom = (bounds.y + bounds.height - row.y) / zoom
+  const fieldHeight = row.height / zoom
+  const sideWidth = side.width * zoom
+  const beside: CanvasSidePlace | undefined =
+    scale < 1 || side.height > bottom - top
+      ? undefined
+      : row.x + row.width + sideWidth <= bounds.x + bounds.width
+        ? 'right'
+        : row.x - sideWidth >= bounds.x
+          ? 'left'
+          : undefined
+  if (beside !== undefined) {
+    // On the canvas, and still beside some of the row when the row itself
+    // is partly off the canvas.
+    const onCanvas = Math.max(top, Math.min(0, bottom - side.height))
+    const sideTop = Math.min(Math.max(onCanvas, 1 - side.height), fieldHeight - 1)
+    return { place: beside, sideTop }
+  }
+  if (scale >= 1) {
+    if (nodeBelow + side.height <= bottom)
+      return { place: 'below-node', sideTop: nodeBelow }
+    if (-nodeAbove - side.height >= top)
+      return { place: 'above-node', sideTop: -nodeAbove - side.height }
+  }
+  if (fieldHeight + side.height <= bottom)
+    return { place: 'below-field', sideTop: fieldHeight }
+  if (-side.height >= top)
+    return { place: 'above-field', sideTop: -side.height }
+  // No place holds it whole: under or over the field, where there is more
+  // room, scrolling.
+  const roomBelow = Math.max(0, bottom - fieldHeight)
+  const roomAbove = Math.max(0, -top)
+  if (roomBelow >= roomAbove)
+    return {
+      place: 'below-field',
+      sideTop: fieldHeight,
+      sideMaxHeight: roomBelow,
+    }
+  return { place: 'above-field', sideTop: -roomAbove, sideMaxHeight: roomAbove }
 }
 
 /**
  * The outline around an open field and its side part, as one path: an L
- * when the side part sits beside the row, one box when it sits under the
- * field. Coordinates are local to the field, whose top left is 0,0.
+ * (or a T, when the side part slid) when the side part sits beside the
+ * row, one box when it sits under or over the field. Coordinates are local
+ * to the field, whose top left is 0,0; `sideTop` is the side part's top.
  */
 export function canvasFieldOutline(
   field: { readonly width: number; readonly height: number },
   side: { readonly width: number; readonly height: number } | undefined,
   place: CanvasSidePlace,
+  sideTop: number,
   radius: number,
   inset: number,
 ): string {
   const w = field.width
   const h = field.height
   let points: [number, number][]
-  if (side === undefined || place === 'below-node')
+  if (side === undefined || place === 'below-node' || place === 'above-node')
     points = [
       [0, 0],
       [w, 0],
@@ -68,25 +148,36 @@ export function canvasFieldOutline(
       [w, h + side.height],
       [0, h + side.height],
     ]
+  else if (place === 'above-field')
+    points = [
+      [0, -side.height],
+      [w, -side.height],
+      [w, h],
+      [0, h],
+    ]
   else if (place === 'right') {
-    const bottom = Math.max(h, side.height)
+    const sideBottom = sideTop + side.height
     points = [
       [0, 0],
-      [w + side.width, 0],
-      [w + side.width, bottom],
-      [w, bottom],
+      [w, 0],
+      [w, sideTop],
+      [w + side.width, sideTop],
+      [w + side.width, sideBottom],
+      [w, sideBottom],
       [w, h],
       [0, h],
     ]
   } else {
-    const bottom = Math.max(h, side.height)
+    const sideBottom = sideTop + side.height
     points = [
-      [-side.width, 0],
+      [-side.width, sideTop],
+      [0, sideTop],
+      [0, 0],
       [w, 0],
       [w, h],
       [0, h],
-      [0, bottom],
-      [-side.width, bottom],
+      [0, sideBottom],
+      [-side.width, sideBottom],
     ]
   }
   // A side part no taller than the field leaves repeated and straight-through
@@ -154,10 +245,13 @@ interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
   place: CanvasSidePlace
-  /** Distance from the row's top to the side part, under the node. */
+  /** The side part's top, from the row's top, at normal size. */
   sideTop?: number
+  /** The height the side part may take before it scrolls. */
+  sideMaxHeight?: number
   side?: JSX.Element
-  onSideSize?: (size: { width: number; height: number }) => void
+  /** The side part's own size, before any height limit. */
+  onSideSize?: (size: CanvasSideSize) => void
   ref?: (element: HTMLDivElement) => void
   /** The flat-title node look moves the steppers inward, as the canvas does. */
   look?: 'original' | 'flat-title'
@@ -187,6 +281,7 @@ function CanvasRowFrame(
     width: number
     height: number
   }>()
+  let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
@@ -194,17 +289,35 @@ function CanvasRowFrame(
       setSideSize(undefined)
       return
     }
-    side.style.top =
-      props.place === 'below-node' ? `${props.sideTop ?? 0}px` : ''
+    side.style.top = props.sideTop === undefined ? '' : `${props.sideTop}px`
+    side.style.maxHeight =
+      props.sideMaxHeight === undefined ? '' : `${props.sideMaxHeight}px`
     const size = { width: side.offsetWidth, height: side.offsetHeight }
     const previous = sideSize()
-    if (previous?.width !== size.width || previous.height !== size.height) {
+    if (previous?.width !== size.width || previous.height !== size.height)
       setSideSize(size)
-      props.onSideSize?.(size)
+    // A side part held to a height reports the height its lines need, so
+    // its place is chosen from its whole size.
+    const whole = {
+      width: size.width,
+      height: side.scrollHeight + side.offsetHeight - side.clientHeight,
+    }
+    if (
+      whole.width !== reported?.width ||
+      whole.height !== reported.height
+    ) {
+      reported = whole
+      props.onSideSize?.(whole)
     }
   }
   createEffect(() => {
-    void [props.rowWidth, props.place, props.sideTop, props.side]
+    void [
+      props.rowWidth,
+      props.place,
+      props.sideTop,
+      props.sideMaxHeight,
+      props.side,
+    ]
     measure()
   })
   onMount(() => {
@@ -218,6 +331,7 @@ function CanvasRowFrame(
       { width: props.rowWidth, height: rowHeight() },
       sideSize(),
       props.place,
+      props.sideTop ?? 0,
       4,
       1,
     )
@@ -295,6 +409,9 @@ export function CanvasRowField(
       rowWidth={props.rowWidth}
       place={props.place}
       {...(props.sideTop === undefined ? {} : { sideTop: props.sideTop })}
+      {...(props.sideMaxHeight === undefined
+        ? {}
+        : { sideMaxHeight: props.sideMaxHeight })}
       {...(props.side === undefined ? {} : { side: props.side })}
       {...(props.onSideSize === undefined ? {} : { onSideSize: props.onSideSize })}
       {...(props.ref === undefined ? {} : { ref: props.ref })}
