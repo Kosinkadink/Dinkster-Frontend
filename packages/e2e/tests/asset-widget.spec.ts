@@ -88,16 +88,13 @@ test.beforeEach(async ({ page }) => {
       items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
-    const retained = app as unknown as {
-      openRetainedDocument(document: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
-    }
-    const tab = await retained.openRetainedDocument({
+    const diagnostics = await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'AssetWidgetTest', values: { image: { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { asset: { position: { x: 100, y: 100 } } } } } },
-    }, 'Asset Widget', app.backends.get()[0]!, () => true)
+    }, 'Asset Widget', app.backends.get()[0]!)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    return tab !== undefined
+    return diagnostics.length === 0
   })
   expect(opened).toBe(true)
 })

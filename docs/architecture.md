@@ -46,7 +46,9 @@ validating the current schema and destination. A tab or session change during an
 asynchronous load rejects that stale result. Persistence stages local recovery
 state without blocking normal editing. Recovery and reload use the latest valid
 local stage, keep failed writes visible as Problems, and never replay a command
-that was not confirmed by the session.
+that was not confirmed by the session. A staged asset selection can follow an
+unchanged workspace session promotion; it cannot follow an independent reopen,
+a changed document, or a changed backend, schema, project, or connection.
 
 Preview and result consumers request the backend selected by the execution or
 input source. Requests remain abortable and verify their backend, project,
