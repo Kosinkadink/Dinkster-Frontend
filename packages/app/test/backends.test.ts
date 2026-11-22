@@ -345,6 +345,62 @@ describe('addBackend / removeBackend', () => {
     expect(JSON.stringify(tab.store.doc)).toBe(storedBefore)
   })
 
+  it('publishes pack locale overlays live without refetching the schema catalog', async () => {
+    const digest = (character: string): string => `sha256:${character.repeat(64)}`
+    const requests: string[] = []
+    let releaseGerman!: () => void
+    let germanReturned = false
+    const germanResponse = new Promise<void>((resolve) => { releaseGerman = resolve })
+    const localeCatalogs: Record<string, unknown> = {
+      [digest('a')]: { nodes: { 'demo.localized': { displayName: 'English pack node' } } },
+      [digest('b')]: { nodes: { 'demo.localized': { displayName: 'Deutscher Packknoten' } } },
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.includes('/api/nodes')) return new Response(JSON.stringify({
+        schemaVersion: 1,
+        dinkster: { version: 'locale-test', schemaWire: 1 },
+        packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), de: digest('b') } } },
+        nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'RAW pack node', pack: 'demo', interface: [] } },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      const localeDigest = decodeURIComponent(url.slice(url.lastIndexOf('/') + 1))
+      if (localeDigest === digest('b')) {
+        await germanResponse
+        germanReturned = true
+      }
+      return new Response(JSON.stringify(localeCatalogs[localeDigest]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    setLocale('en')
+    const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
+    if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
+
+    app.setTabTarget(app.activeTab()!.id, backend.id)
+    await app.refreshBackendSchemas(backend)
+    await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName)
+      .toBe('English pack node'))
+    setLocale('de-DE')
+    await vi.waitFor(() => expect(requests.some((url) => url.endsWith(encodeURIComponent(digest('b'))))).toBe(true))
+    setLocale('fr-FR')
+    await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName)
+      .toBe('English pack node'))
+    releaseGerman()
+    await vi.waitFor(() => expect(germanReturned).toBe(true))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('English pack node')
+    setLocale('de-DE')
+    await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName)
+      .toBe('Deutscher Packknoten'))
+
+    expect(requests.filter((url) => url.includes('/api/nodes'))).toHaveLength(1)
+    expect(requests.filter((url) => url.includes('/locales/'))).toHaveLength(2)
+    expect(backend.registry.get()?.hash).toBe(backend.connection.currentRegistry?.hash)
+    setLocale('en')
+  })
+
 
 
   it('loads workers only for placement-capable schemas and rejects stale catalog responses', async () => {
