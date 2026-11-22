@@ -368,6 +368,7 @@ test('linked output counts are refused with boundary and compile diagnostics', a
     tab.instancePath.set(['instance'])
   })
   await openRailPanel(page, 'Boundary')
+  await page.locator('[data-testid=boundary-item][data-problem=true]').first().click()
   const boundaryDiagnostic = page.locator('[data-testid=boundary-diag][data-code="boundary.countBoundOutputInvalid"]')
   await expect(boundaryDiagnostic).toBeVisible()
   await expect(boundaryDiagnostic).toContainText("count input 'count' is linked")

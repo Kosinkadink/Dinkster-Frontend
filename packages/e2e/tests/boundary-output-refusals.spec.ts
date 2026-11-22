@@ -254,6 +254,7 @@ test('execution-time output arity is refused until count is a pre-execution lite
   })
 
   await openRailPanel(page, 'Boundary')
+  await page.locator('[data-testid=boundary-item][data-problem=true]').first().click()
   const boundaryDiagnostic = page.locator('[data-testid=boundary-diag][data-code="boundary.countBoundOutputInvalid"]')
   await expect(boundaryDiagnostic).toBeVisible()
   await expect(boundaryDiagnostic).toContainText("runtimeArity.pictures: count input 'count' requires an integer in 0..4")
