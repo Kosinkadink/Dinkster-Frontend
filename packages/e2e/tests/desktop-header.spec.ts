@@ -13,13 +13,14 @@ test('Desktop header keeps app controls and identity clear of native buttons', a
     const { install } = await import(/* @vite-ignore */ path)
     install({ title: 'Dinkster', platform: 'linux', theme: 'dark', qa: true, development: true })
   }, chromeInstaller)
-  await page.addStyleTag({ content: '.topbar[data-desktop-chrome] { padding-right: 108px }' })
+  await page.addStyleTag({ content: '.topbar[data-desktop-chrome] { padding-right: 148px }' })
   const bar = page.locator('.topbar')
   for (const width of [1100, 769, 768, 600, 521, 520, 390]) {
     await page.setViewportSize({ width, height: 700 })
     expect((await bar.boundingBox())!.height).toBe(56)
     for (const id of ['topbar-search', 'rail-toggle', 'image-documents-button', 'projects-button', 'collab-button'])
       await expect(bar.getByTestId(id)).toBeVisible()
+    expect((await bar.getByTestId('topbar-search').boundingBox())!.width).toBeGreaterThanOrEqual(32)
     await expect(bar.locator('.dinkster-window-identity')).toHaveText('[QA]Development')
     const controls = await bar.locator('button:visible, .dinkster-window-identity').evaluateAll((elements) =>
       elements.map((element) => {
@@ -30,10 +31,12 @@ test('Desktop header keeps app controls and identity clear of native buttons', a
     await bar.screenshot({ path: `test-results/captures/desktop-app-header-${width}.png` })
     for (const [index, control] of controls.entries()) {
       expect(control.left).toBeGreaterThanOrEqual(12)
-      expect(control.right).toBeLessThanOrEqual(width - 108)
+      expect(control.right).toBeLessThanOrEqual(width - 148)
       expect(control.top).toBeGreaterThanOrEqual(0)
       expect(control.bottom).toBeLessThanOrEqual(56)
-      if (index > 0) expect(control.left).toBeGreaterThanOrEqual(controls[index - 1]!.right)
+      for (const previous of controls.slice(0, index))
+        expect(control.right <= previous.left || control.left >= previous.right ||
+          control.bottom <= previous.top || control.top >= previous.bottom).toBe(true)
     }
   }
   await page.getByTestId('topbar-search').click()

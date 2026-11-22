@@ -136,8 +136,11 @@ The topbar search shrinks between its control groups on intermediate widths
 instead of letting its shortcut badge overlap the layout controls.
 Inside Desktop, the attached header reserves separate columns for the control
 groups, search and environment identity, within the native-button insets. At
-768 px and below the app menu uses the compact symbol rather than the full wordmark;
-its menu actions are unchanged. The header stays at the shared 56 px height.
+768 px and below the app menu uses the compact symbol rather than the full
+wordmark; its menu actions are unchanged. Environment labels use a metadata row
+above the controls, keeping the total header at the shared 56 px height even
+with Windows' wider native buttons. At 520 px and below search uses its icon;
+its full text remains available to assistive technology.
 
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the

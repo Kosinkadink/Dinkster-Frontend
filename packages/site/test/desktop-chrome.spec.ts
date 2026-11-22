@@ -4,6 +4,35 @@ import type { DesktopChromeOptions } from '../src/desktop-chrome.js'
 
 const distribution = new URL('../dist/', import.meta.url)
 
+test('real Projects page preserves native chrome insets at the mobile breakpoint', async ({
+  page,
+}) => {
+  await page.goto('/desktop-library.html')
+  await page.addScriptTag({ url: '/desktop-chrome.js' })
+  await page.evaluate(() =>
+    window.DinksterDesktopChrome.install({
+      title: 'Dinkster Desktop',
+      platform: 'win32',
+      theme: 'dark',
+      qa: true,
+      development: true,
+    }),
+  )
+  const bar = page.locator('.dinkster-topbar[data-desktop-chrome]')
+  for (const width of [1100, 769, 768, 390]) {
+    await page.setViewportSize({ width, height: 700 })
+    await expect(bar).toHaveCSS('padding-right', '12px')
+    expect((await bar.boundingBox())!.height).toBe(56)
+    const identity = (await bar
+      .locator('.dinkster-window-identity')
+      .boundingBox())!
+    expect(identity.x + identity.width).toBeLessThanOrEqual(width - 12)
+    await bar.screenshot({
+      path: `test-results/captures/projects-chrome-${width}.png`,
+    })
+  }
+})
+
 declare global {
   interface Window {
     DinksterDesktopChrome: {
@@ -39,7 +68,8 @@ for (const existing of [false, true]) {
     )
     await page.addStyleTag({ content: artifact.css })
     await page.addStyleTag({
-      content: '.topbar {display:grid;grid-template-columns:1fr 1fr;padding:8px;min-height:48px;background:white}',
+      content:
+        '.topbar {display:grid;grid-template-columns:1fr 1fr;padding:8px;min-height:48px;background:white}',
     })
     await page.addScriptTag({ content: installer })
     for (const platform of ['win32', 'linux', 'darwin'] as const) {
