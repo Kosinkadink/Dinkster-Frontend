@@ -63,6 +63,14 @@ import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
+/**
+ * Views whose editor is parked. Such a row opens nothing, so the
+ * `raised-editors` look draws it as a plain inset row showing its summary,
+ * with no icon, chevron or hover wash. Its icon stays in the registry
+ * painter's table of raised rows for when an editor returns.
+ */
+export const PARKED_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.compositor'])
+
 /** Pin color for a declared type: canonical id (closed lists included) when
  * the type is recursively closed, else the neutral default. */
 const pinColorOf = (t: DesignTokens, type: TypeExpr): string =>
@@ -1843,11 +1851,14 @@ export class CanvasRenderer {
     const panel = this.scene.boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
     for (const link of panel === undefined ? [] : this.scene.links) {
       if (link.from.kind !== 'boundary' || link.from.side !== 'inputs' || link.to.kind !== 'port') continue
-      const item = link.from.item
-      const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === item)
-      if (row?.kind !== 'widget') continue
+      const key = panel!.fields!.heads[link.from.item]
+      const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
+      // A dropdown that leads options stays the inner node's editor of the
+      // occurrence's choice, as a selector row bound to the boundary does.
+      if (row?.kind !== 'widget' || row.selector !== undefined) continue
       const wired = panel!.fields!.wired
-      const value: Json | undefined = Object.hasOwn(wired, item) ? wired[item]!.value : panel!.fields!.node.values[item] ?? effectiveWidgetDefault(row.spec)
+      const value: Json | undefined = Object.hasOwn(wired, row.valueKey) ? wired[row.valueKey]!.value
+        : panel!.fields!.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
       if (value !== undefined) panelFieldValues.set(`${link.to.node}\u0000${portEndKey(link.to)}`, value)
     }
     this.panelFieldValues = panelFieldValues
@@ -4008,7 +4019,7 @@ export class CanvasRenderer {
       hovered,
       tokens: t,
     })
-    if (hovered) {
+    if (hovered && !(t.widgetRowLook === 'raised-editors' && PARKED_EDITOR_VIEWS.has(row.viewId))) {
       // A neutral wash preserves the widget's own active/connected
       // styling without making value selection look like live blue data.
       const hoverAlpha = ctx.globalAlpha
@@ -4745,48 +4756,155 @@ export function paintStaleValueStrikethrough(
   ctx.restore()
 }
 
+/** A color with opacity: `#rgba` or `#rrggbbaa` short of fully opaque. */
+function hasOpacity(color: string): boolean {
+  const alpha = /^#(?:[\da-f]{3}([\da-f])|[\da-f]{6}([\da-f]{2}))$/i.exec(color)
+  return alpha !== null && !/^f+$/i.test(alpha[1] ?? alpha[2]!)
+}
+
+/** The square of a color directly before its code; opacity shows over a checker pattern. */
+export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, left: number, top: number, tokens: DesignTokens): void {
+  const { size, radius, checkerCell } = canvasPaintTokens.widget.valueSwatch
+  // Whole pixels keep the square's edges and checker cells sharp.
+  left = Math.round(left)
+  top = Math.round(top)
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(left, top, size, size, radius)
+  ctx.clip()
+  if (hasOpacity(color)) {
+    ctx.fillStyle = tokens.colors.swatchCheckerAlt
+    ctx.fillRect(left, top, size, size)
+    ctx.fillStyle = tokens.colors.swatchChecker
+    let rowStartsDark = true
+    for (let cellTop = top; cellTop < top + size; cellTop += checkerCell) {
+      let dark = rowStartsDark
+      for (let cellLeft = left; cellLeft < left + size; cellLeft += checkerCell) {
+        if (dark) ctx.fillRect(cellLeft, cellTop, checkerCell, checkerCell)
+        dark = !dark
+      }
+      rowStartsDark = !rowStartsDark
+    }
+  }
+  ctx.fillStyle = color
+  ctx.fillRect(left, top, size, size)
+  ctx.restore()
+}
+
+/**
+ * As many of `items` as fit in `maxWidth`, separated by a comma and a space,
+ * then "+N" for the rest. The first item always shows, cut if it must be.
+ */
+export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[], maxWidth: number): string {
+  const more = (shown: number) => shown < items.length ? ` +${items.length - shown}` : ''
+  // Items past the row's width cannot fit, so the search starts below them.
+  let candidate = 0
+  for (let used = 0; candidate < items.length && used <= maxWidth; candidate++) {
+    used += measureWidth(ctx, items[candidate]!) + (candidate > 0 ? measureWidth(ctx, ', ') : 0)
+  }
+  for (let shown = candidate; shown >= 1; shown--) {
+    const text = items.slice(0, shown).join(', ') + more(shown)
+    if (measureWidth(ctx, text) <= maxWidth) return text
+  }
+  return fitText(ctx, items[0] ?? '', Math.max(0, maxWidth - measureWidth(ctx, more(1)))) + more(1)
+}
+
+/**
+ * As many color squares as fit in `maxWidth` ending at `right`, then "+N"
+ * for the rest in `textColor`. Returns the left edge of what was drawn.
+ */
+export function paintSwatchRow(ctx: CanvasRenderingContext2D, colors: readonly string[], right: number, centerY: number, maxWidth: number, tokens: DesignTokens, textColor: string): number {
+  const { size, listGap } = canvasPaintTokens.widget.valueSwatch
+  const count = (shown: number) => shown < colors.length ? `+${colors.length - shown}` : ''
+  const widthFor = (shown: number) => shown * size + Math.max(0, shown - 1) * listGap
+    + (shown < colors.length ? (shown > 0 ? listGap : 0) + measureWidth(ctx, count(shown)) : 0)
+  let shown = colors.length
+  while (shown > 0 && widthFor(shown) > maxWidth) shown--
+  let left = right
+  const rest = count(shown)
+  if (rest !== '') {
+    const align = ctx.textAlign
+    ctx.fillStyle = textColor
+    ctx.textAlign = 'right'
+    ctx.fillText(rest, right, centerY)
+    ctx.textAlign = align
+    left -= measureWidth(ctx, rest) + listGap
+  }
+  for (let index = shown - 1; index >= 0; index--) {
+    left -= size
+    paintValueSwatch(ctx, colors[index]!, left, centerY - size / 2, tokens)
+    left -= listGap
+  }
+  return left + listGap
+}
+
+/**
+ * The text a row's own view shows for a value, with the color square before
+ * it, the list items it fits, or the color squares it draws instead.
+ */
+export interface CompanionSummary {
+  readonly text: string
+  readonly swatch?: string
+  readonly items?: readonly string[]
+  readonly swatches?: readonly string[]
+}
+
 /**
  * Draw a companion (propagated) value into a widget row whose chrome+label
  * are already painted: italic, companion color, right-aligned - the shared
  * "this is what flows in, not what you stored" style for every widget kind.
  * Stale/unproven companions use their own semantic color and dotted
  * underline. Full text opacity preserves AA contrast and the underline keeps
- * the state distinguishable without color.
+ * the state distinguishable without color. `summary`, when given, is the
+ * text the row's own view shows for the value, used instead of its code.
  */
-export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs): void {
+export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y, width, rowHeight, tokens }: WidgetPaintArgs, summary?: CompanionSummary): void {
   if (companion === undefined) return
   const prevFont = ctx.font
   const prevAlpha = ctx.globalAlpha
   const estimate = companion.state === 'estimate'
   // The approx prefix keeps a mirror-computed estimate distinguishable from
   // an execution-recorded value even without color.
-  const text = (estimate ? '\u2248 ' : '') + (formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
+  const prefix = estimate ? '\u2248 ' : ''
+  const text = prefix + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
+  const swatch = summary?.swatch
+  const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
   const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
-  const availableWidth = Math.max(0, field.right - field.left - labelZone)
+  const availableWidth = Math.max(0, field.right - field.left - labelZone - swatchReserve)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven
     ? tokens.colors.companionUnproven
     : estimate ? tokens.colors.companionEstimate : tokens.colors.companionValue
   ctx.font = `italic ${prevFont}`
   ctx.globalAlpha = companionAlpha ?? prevAlpha
-  const displayText = fitText(ctx, text, availableWidth)
+  const textY = y + rowHeight / 2
+  // Squares stand in for the text; the prefix, if any, sits before them.
+  const squaresLeft = summary?.swatches === undefined
+    ? undefined
+    : paintSwatchRow(ctx, summary.swatches, x + field.right, textY, Math.max(0, availableWidth - measureWidth(ctx, prefix)), tokens, color)
+  const textRight = squaresLeft === undefined ? x + field.right : squaresLeft - (prefix === '' ? 0 : canvasPaintTokens.widget.valueSwatch.listGap)
+  const displayText = squaresLeft !== undefined ? prefix
+    : summary?.items !== undefined ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
+    : fitText(ctx, text, availableWidth)
   ctx.fillStyle = color
   ctx.textAlign = 'right'
-  const textRight = x + field.right
-  const textY = y + rowHeight / 2
   ctx.fillText(displayText, textRight, textY)
-  if (unproven && displayText.length > 0) {
+  if (swatch !== undefined) {
+    const { size, gap } = canvasPaintTokens.widget.valueSwatch
+    paintValueSwatch(ctx, swatch, textRight - measureWidth(ctx, displayText) - gap - size, textY - size / 2, tokens)
+  }
+  if (unproven && (displayText.length > 0 || squaresLeft !== undefined)) {
     ctx.save()
     ctx.strokeStyle = color
     ctx.lineWidth = canvasPaintTokens.widget.companion.stroke
     ctx.setLineDash([...canvasPaintTokens.dash.companionUnderline])
     ctx.beginPath()
     ctx.moveTo(textRight - measureWidth(ctx, displayText), textY + canvasPaintTokens.widget.companion.underlineOffset)
-    ctx.lineTo(textRight, textY + canvasPaintTokens.widget.companion.underlineOffset)
+    ctx.lineTo(x + field.right, textY + canvasPaintTokens.widget.companion.underlineOffset)
     ctx.stroke()
     ctx.restore()
   }

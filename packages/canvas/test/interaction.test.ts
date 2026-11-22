@@ -4165,4 +4165,100 @@ describe('Inputs panel fields', () => {
     harness.fire('pointerup', x, y)
     expect(activated).toEqual(['radius'])
   })
+
+  it('shows a dropdown that leads options with its option\'s fields, edited on the entered node', () => {
+    const gain: NodeSchema['items'][number] = { kind: 'input', id: 'gain', type: { kind: 'concrete', name: 'INT' }, optional: true,
+      widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 } }
+    const modal: NodeSchema = {
+      type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: true, dynamic: {
+        kind: 'dynamicCombo', options: [{ key: 'a', inputs: [gain] }, { key: 'b', inputs: [gain] }],
+      } }],
+    }
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-choice', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+          right: { id: 'right', type: '#g1', values: { 'choice.[b].gain': 8 }, dynamic: { choice: { selected: 'b' } } },
+          left: { id: 'left', type: '#g1', values: {} },
+        } },
+        g1: { id: 'g1', name: 'Shaper', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { leaf: { id: 'leaf', type: 'Modal', values: { 'mode.[a].gain': 3 }, dynamic: { mode: { selected: 'a' } } } },
+          boundary: { inputs: [{ id: 'choice', binds: { kind: 'dynamicCombo', node: 'leaf', port: 'mode' } }], outputs: [] } },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { leaf: { position: { x: 400, y: 100 } } } } } },
+    }).document as WorkflowDocument
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    const resolve = documentResolver(store.doc, (type) => type === 'Modal' ? modal : undefined)
+    const scene = buildScene({
+      document: store.doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      occurrence: { owner: { instancePath: [], node: asNodeId('right') }, plannerAvailable: false },
+      occurrenceView: occurrenceDynamicView(store.doc, resolve, ['right']),
+    })
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const rows = panel.layout.rows.filter((row) => row.kind === 'widget')
+    expect(rows.map((row) => row.kind === 'widget' ? row.derivedValue ?? panel.fields!.node.values[row.valueKey] : undefined)).toEqual(['b', 8])
+    // The dropdown is the entered node's choice.
+    const selector = rows[0]!.kind === 'widget' ? rows[0]!.selector?.owner : undefined
+    expect(selector).toMatchObject({ graphId: 'g0', nodeId: 'right', construct: 'choice' })
+    // The plus stepper of the option's field writes the entered node only.
+    const row = rows[1]!
+    if (row.kind !== 'widget') throw new Error('expected a field row')
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const x = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+    const y = panel.y + row.y + defaultTokens.rowHeight / 2
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(harness.dispatched).toHaveLength(1)
+    expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['right']!.values['choice.[b].gain']).toBe(9)
+    expect(store.doc.graphs['g0']!.nodes['left']!.values).toEqual({})
+    expect(store.doc.graphs['g1']!.nodes['leaf']!.values).toEqual({ 'mode.[a].gain': 3 })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['right']!.values['choice.[b].gain']).toBe(8)
+  })
+
+  it('draws a dropdown shown without its wire with no pin or wire, and the mark on the dropdown only', () => {
+    const gain: NodeSchema['items'][number] = { kind: 'input', id: 'gain', type: { kind: 'concrete', name: 'INT' }, optional: true,
+      widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 1 } }
+    const modal: NodeSchema = {
+      type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: true, dynamic: {
+        kind: 'dynamicCombo', options: [{ key: 'a', inputs: [gain] }, { key: 'b', inputs: [gain] }],
+      } }],
+    }
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-choice-hidden', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+          right: { id: 'right', type: '#g1', values: {}, dynamic: { choice: { selected: 'b' } } },
+        } },
+        g1: { id: 'g1', name: 'Shaper', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { leaf: { id: 'leaf', type: 'Modal', values: {}, dynamic: { mode: { selected: 'a' } } } },
+          boundary: { inputs: [{ id: 'choice', binds: { kind: 'dynamicCombo', node: 'leaf', port: 'mode' }, wireHidden: true }], outputs: [] } },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { leaf: { position: { x: 400, y: 100 } } } } } },
+    }).document as WorkflowDocument
+    const resolve = documentResolver(doc, (type) => type === 'Modal' ? modal : undefined)
+    const scene = buildScene({
+      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      occurrence: { owner: { instancePath: [], node: asNodeId('right') }, plannerAvailable: false },
+      occurrenceView: occurrenceDynamicView(doc, resolve, ['right']),
+    })
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const rows = panel.layout.rows.flatMap((row) => row.kind === 'widget' ? [row] : [])
+    expect(rows.map((row) => row.subgraphMark?.item)).toEqual(['choice', undefined])
+    expect(panel.layout.pins.map((pin) => pin.portId)).toEqual([BOUNDARY_ADD_SLOT])
+    const links = scene.links.filter((link) => link.boundary === true)
+    expect(links.map((link) => link.hidden)).toEqual([true])
+    // The hidden link starts at the dropdown's row.
+    expect(links[0]!.y1).toBe(panel.y + rows[0]!.y + defaultTokens.rowHeight / 2)
+    const leaf = scene.nodes.find((node) => node.id === 'leaf')!
+    expect(leaf.layout.rows.flatMap((row) => row.kind === 'widget' && row.subgraphMark !== undefined ? [row.address.port] : [])).toEqual(['mode'])
+  })
 })

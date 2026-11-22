@@ -76,6 +76,15 @@ each as a row of Inputs. A choice whose options are edited on the node
 itself (editable choices, family members) stays a name and a pin. A field
 row is renamed in the Boundary panel, not by double-clicking it.
 
+A dropdown that leads options is a field too, whichever binding forwards
+it: forwarded alone it is the dropdown, and forwarded with its options
+(a `dynamicCombo` binding) it brings the fields of the chosen option,
+which change when the choice does. Both are the rows of the node that owns
+the choice, edited there; the input's pin sits on the dropdown. An option's
+field that node has not set shows the value the inner node receives, which
+is the value a run uses. The inner node's own dropdown stays its editor of
+the same choice.
+
 ## Showing a field on the subgraph node
 
 Inside a subgraph, the right-click menu of a field on an inner node offers
@@ -85,7 +94,8 @@ outside shows it as a field with a pin, starting from the inner field's
 value. No wire is drawn inside: the Inputs panel row is a field without a
 pin, and the inner field has no pin and shows the entered node's value dimmed, as a wired
 one does. A dropdown that leads options is shown through its options
-binding. The entry is not offered in the top-level workflow, on a field
+binding; its Inputs panel row has no pin and carries the icon, and the
+fields of its option follow it unmarked. The entry is not offered in the top-level workflow, on a field
 a wire or another input already drives, or on a field the subgraph node cannot show
 (a member of a forwarded group, a construct, a row with no stored value).
 

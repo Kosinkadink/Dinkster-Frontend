@@ -41,6 +41,30 @@ const blur: NodeSchema = {
   ],
 }
 
+const feather = {
+  kind: 'input',
+  id: 'feather',
+  type: { kind: 'concrete', name: 'INT' },
+  optional: false,
+  widget: { widgetType: 'INT', options: { min: 0, max: 32 }, default: 2 },
+} as const
+const edge: NodeSchema = {
+  type: 'Edge',
+  displayName: 'Edge',
+  category: 'gallery',
+  source: 'v3',
+  isOutputNode: false,
+  items: [
+    {
+      kind: 'input',
+      id: 'edge',
+      type: { kind: 'concrete', name: 'COMBO' },
+      optional: false,
+      dynamic: { kind: 'dynamicCombo', options: [{ key: 'soft', inputs: [feather] }, { key: 'hard', inputs: [] }] },
+    },
+  ],
+}
+
 /** Document-backed structural examples use the same scene builder as the app. */
 export function structuralGalleryScene(
   tokens: DesignTokens,
@@ -83,7 +107,7 @@ export function structuralGalleryScene(
             values: { radius: 8 },
             title: 'Alternative',
           },
-          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75 } },
+          sub: { id: 'sub', type: '#g1', values: { radius: 6, strength: 0.75, 'edge.[soft].feather': 3 }, dynamic: { edge: { selected: 'soft' } } },
           note: {
             id: 'note',
             type: 'dinkster.note',
@@ -156,7 +180,10 @@ export function structuralGalleryScene(
         id: 'g1',
         name: 'Soften',
         nextOrdinal: 2,
-        nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+        nodes: {
+          inner: { id: 'inner', type: 'Blur', values: {} },
+          edge: { id: 'edge', type: 'Edge', values: {}, dynamic: { edge: { selected: 'soft' } } },
+        },
         links: {},
         nets: {},
         reroutes: {},
@@ -175,6 +202,11 @@ export function structuralGalleryScene(
               id: 'strength',
               binds: { kind: 'port', node: 'inner', port: 'strength' },
               promoted: true,
+              wireHidden: true,
+            },
+            {
+              id: 'edge',
+              binds: { kind: 'dynamicCombo', node: 'edge', port: 'edge' },
               wireHidden: true,
             },
           ],
@@ -218,13 +250,13 @@ export function structuralGalleryScene(
           collapsedNets: ['net'],
           guideNets: ['net'],
         },
-        g1: { nodes: { inner: { position: { x: 350, y: 120 } } } },
+        g1: { nodes: { inner: { position: { x: 350, y: 120 } }, edge: { position: { x: 350, y: 240 } } } },
       },
     },
   }).document
   if (!document) throw new Error('Invalid structural gallery document')
   const schemas = new Map(
-    [blur, ...CORE_VIRTUAL_NODE_KINDS.map((kind) => kind.schema)].map(
+    [blur, edge, ...CORE_VIRTUAL_NODE_KINDS.map((kind) => kind.schema)].map(
       (schema) => [schema.type, schema],
     ),
   )
