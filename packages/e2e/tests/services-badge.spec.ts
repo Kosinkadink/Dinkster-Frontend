@@ -16,15 +16,19 @@ for (const panel of [false, true]) {
       await page.goto(url)
       await expect.poll(() => page.evaluate(() => (window.__dinksterTest?.app.backends.get()[0]?.registry.get() as { server?: { services?: { name: string } } } | undefined)?.server?.services?.name)).toBe(services)
       await page.evaluate(() => (window.__dinksterTest!.app as unknown as { shell: { statusBarVisible: { set(value: boolean): void } } }).shell.statusBarVisible.set(false))
-      const badge = page.getByTestId('services-badge')
+      const badge = panel ? page.getByTestId('services-badge') : page.locator('.dinkster-window-toolbar-service')
       if (label === undefined) await expect(badge).toHaveCount(0)
       else {
         await expect(badge).toBeVisible()
         await expect(badge).toHaveText(label)
-        await expect(badge.locator('..').locator('.brand-wordmark, .brand-symbol')).toBeVisible()
-        const brand = await badge.locator('..').locator('.brand-wordmark, .brand-symbol').boundingBox()
-        const bounds = await badge.boundingBox()
-        expect(bounds!.x).toBeGreaterThanOrEqual(brand!.x + brand!.width)
+        const header = badge.locator('xpath=ancestor::header')
+        const brand = header.locator('.brand-wordmark, .brand-symbol, [data-testid="dinkster-menu-button"]')
+        await expect(brand).toBeVisible()
+        const frame = (await header.boundingBox())!
+        const bounds = (await badge.boundingBox())!
+        expect(bounds.x).toBeGreaterThanOrEqual(frame.x)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(frame.x + frame.width)
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(frame.y + frame.height)
       }
       await expect(page.getByTestId('status-bar')).toBeHidden()
     }
