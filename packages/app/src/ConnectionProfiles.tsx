@@ -211,8 +211,9 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
     }
   }
 
+  const visibleProfiles = () => profiles().filter((profile) => props.backendUrl !== undefined ? canonicalBackendUrl(props.backendUrl) === profile.url : !props.compact || !backends().some((backend) => canonicalBackendUrl(backend.baseUrl) === profile.url))
   return (
-    <section class="connection-profiles" data-testid="connection-profiles" aria-label={message('connectionProfiles.title')}>
+    <Show when={!props.compact || props.showCreate || visibleProfiles().length > 0 || errorMessage()}><section class="connection-profiles" data-testid="connection-profiles" aria-label={message('connectionProfiles.title')}>
       <Show when={errorMessage()}>{(text) => <ProductErrorBanner onDismiss={() => setError({ key: '' })}>{text()}</ProductErrorBanner>}</Show>
       <Show when={removing()} keyed>{(profile) => <ProductConfirmation title={message('connectionProfiles.action.remove')} consequence={message('backendsPanel.removeNotice', { backend: profile.name })} actionLabel={message('connectionProfiles.action.remove')} intent="remove" pending={credentialBusy()} onConfirm={() => { void remove(profile) }} onCancel={() => setRemoving(undefined)} />}</Show>
       <Show when={!props.compact || props.showCreate}><div>
@@ -276,7 +277,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
       </form></Show>
 
       <ul class="connection-profile-list">
-        <For each={profiles().filter((profile) => props.backendUrl !== undefined ? canonicalBackendUrl(props.backendUrl) === profile.url : !props.compact || !backends().some((backend) => canonicalBackendUrl(backend.baseUrl) === profile.url))}>{(profile) => (
+        <For each={visibleProfiles()}>{(profile) => (
           <li data-testid="profile-row" data-profile={profile.id}>
             <ProductDisclosure title={props.backendUrl === undefined ? `${profile.name} - ${message('backendsPanel.savedDisconnected')}` : message('connectionProfiles.title')} open={!props.compact}>
             <ProductListRow primary={
@@ -354,6 +355,6 @@ export function ConnectionProfilesSection(props: { readonly app: AppState; reado
           </li>
         )}</For>
       </ul>
-    </section>
+    </section></Show>
   )
 }

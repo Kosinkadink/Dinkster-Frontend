@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountLocations, MountSettings } from '@dinkster/client'
+import Ellipsis from 'lucide-solid/icons/ellipsis'
 import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductLoading, ProductMenu, ProductNotice, ProductSection, ProductToast } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { useSignal } from './solid-adapter.js'
@@ -155,8 +156,8 @@ export function StorageFolders(props: {
   }
   const modelCard = (location: ModelSettingsState['locations'][number]) => <article class="storage-folder" data-model-location={location.id}>
     <div class="storage-folder-heading">
-      <div class="storage-folder-copy"><strong>{location.id}</strong><code>{location.path}</code></div>
-      <ProductMenu label={message('storagePanel.actions', { folder: location.id })} items={[
+      <div class="storage-folder-copy"><strong title={location.id}>{location.id}</strong><code title={location.path}>{location.path}</code></div>
+      <ProductMenu icon={Ellipsis} iconOnly label={message('storagePanel.actions', { folder: location.id })} items={[
         { label: message('modelSettings.edit'), disabled: busy() || models()?.changesAllowed !== true, onSelect: () => { setEditModel(location.id); setEditing('model') } },
         ...(location.enabled && location.visibility !== 'always-on'
           ? [{ label: message('projectFolders.remove'), intent: 'remove' as const, disabled: disabled(), onSelect: () => setLeaving({ id: location.id, model: true }) }]
@@ -177,8 +178,8 @@ export function StorageFolders(props: {
   </article>
   const folderCard = (mount: MountDescriptor, used: boolean) => <article class="storage-folder" data-mount-id={mount.id}>
     <div class="storage-folder-heading">
-      <div class="storage-folder-copy"><strong>{mount.id}</strong><Show when={path(mount)}>{(value) => <code>{value()}</code>}</Show></div>
-      <ProductMenu label={message('storagePanel.actions', { folder: mount.id })} items={used ? [
+      <div class="storage-folder-copy"><strong title={mount.id}>{mount.id}</strong><Show when={path(mount)}>{(value) => <code title={value()}>{value()}</code>}</Show></div>
+      <ProductMenu icon={Ellipsis} iconOnly label={message('storagePanel.actions', { folder: mount.id })} items={used ? [
         { label: message('storagePanel.openAssets'), onSelect: props.onOpenAssets },
         ...(mount.mode === 'readwrite' && mount.id !== settings()?.outputMount ? [{ label: message('storagePanel.saveHere'), disabled: disabled(), onSelect: () => setOutput(mount) }] : []),
         { label: message('projectFolders.up'), disabled: disabled() || selected()[0]?.id === mount.id, onSelect: () => move(mount.id, -1) },

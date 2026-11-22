@@ -38,6 +38,7 @@ describe('BackendsPanel', () => {
     expect(root.querySelectorAll('[data-testid="backend-row"]')).toHaveLength(2)
     const local = root.querySelector('[data-connection="local"]')!
     expect(local.querySelector('[aria-haspopup="menu"]')).toBeNull()
+    expect(local.querySelector('[data-testid="connection-profiles"]')).toBeNull()
     const card = root.querySelector(`[data-connection="${extra.id}"]`)!
     expect(card.querySelector('summary')?.textContent).toContain(`Reconnecting - ${label} - Dinkster`)
     expect(card.querySelector('details')?.open).toBe(false)

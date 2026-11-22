@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from 'solid-js'
+import Ellipsis from 'lucide-solid/icons/ellipsis'
 import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductMenu, ProductNotice } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { backendConnectionStatus, canonicalBackendUrl } from './app-state.js'
@@ -54,7 +55,7 @@ function BackendRow(props: {
           </div>
           <ConnectionProfilesSection app={props.app} compact backendUrl={props.backend.baseUrl} />
         </ProductDisclosure>
-        <Show when={props.backend !== props.defaultBackend}><ProductMenu label={message('backendsPanel.aria.actions', { backend: props.backend.label })}
+        <Show when={props.backend !== props.defaultBackend}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.backend.label })}
           items={[{ label: message('backendsPanel.action.remove'), intent: 'remove', onSelect: () => setRemoving(true) }]} /></Show>
       </div>
     </>}>
