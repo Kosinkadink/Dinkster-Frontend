@@ -12,7 +12,7 @@ import { canonicalTypeIdOf } from '../src/schema/model.js'
 import type { DynamicPortState, Json } from '../src/format/document.js'
 
 const FIXTURE = new URL('./fixtures/flatten_v2.json', import.meta.url)
-const FIXTURE_SHA256 = 'e547eb8552bacbcb8cca260dc8cfb73bacc4575d5bee6bf75e7b67b119fcc604'
+const FIXTURE_SHA256 = 'fb311bdb30ab00333b6f7a720a780b7ae2bce4606abb8241f52e273c5e343b18'
 
 interface FlattenCase {
   readonly id: string
@@ -32,8 +32,8 @@ const cases = (JSON.parse(bytes.toString('ascii')) as { cases: FlattenCase[] }).
 
 /**
  * The document state that gives the case's run: values and wires as stored,
- * a group's member keys in the order the run names them (the engine's
- * discovery rule), and each choice's key.
+ * a group's member keys in the order the run names them (its member list
+ * first, then keys found only in stored ids, the engine's discovery rule), and each choice's key.
  */
 function documentOf(testCase: FlattenCase): {
   values: Record<string, Json>
@@ -54,13 +54,12 @@ function documentOf(testCase: FlattenCase): {
     for (let end = 1; end <= parts.length; end++) prefixes.add(parts.slice(0, end).join('.'))
   }
   for (const path of prefixes) {
-    const found: string[] = []
+    const found = [...new Set(testCase.members[path] ?? [])]
     for (const id of named) {
       if (!id.startsWith(`${path}.`)) continue
       const key = id.slice(path.length + 1).split('.')[0]!
       if (key !== '' && !found.includes(key)) found.push(key)
     }
-    for (const key of testCase.members[path] ?? []) if (!found.includes(key)) found.push(key)
     if (found.length > 0) dynamic[path] = { members: found }
   }
   for (const [path, key] of Object.entries(testCase.choices)) dynamic[path] = { ...dynamic[path], selected: key }

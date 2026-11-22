@@ -87,13 +87,13 @@ const widget = (
   optional: false,
   widget: { widgetType, options, default: value },
 })
-const schema = (type: string, items: NodeSchema['items']): NodeSchema => ({
+const schema = (type: string, body: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items,
+  body,
 })
 const sample = schema('Sampling', [
   { kind: 'input', id: 'model', type: concrete('MODEL'), optional: false },
@@ -116,7 +116,7 @@ const sample = schema('Sampling', [
 
 export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('integer', 'INT', 20, { min: 1, max: 10000 }),
-  sample.items[2] as InputSpec,
+  sample.body[2] as InputSpec,
   widget('float', 'FLOAT', 7.5, { min: 0, max: 100, step: 0.1 }),
   widget('slider', 'FLOAT', 0.65, {
     min: 0,
@@ -256,7 +256,7 @@ export function createCanvasGalleryFixture(
       : 54 + Math.floor(index / 3) * 250
     const producer = schema(
       'Source',
-      definition.items.flatMap((item) =>
+      definition.body.flatMap((item) =>
         item.kind === 'input' && item.widget
           ? [{ kind: 'output' as const, id: item.id, type: item.type }]
           : [],
@@ -299,7 +299,7 @@ export function createCanvasGalleryFixture(
           },
           links: driven
             ? Object.fromEntries(
-                definition.items.flatMap((item, i) =>
+                definition.body.flatMap((item, i) =>
                   item.kind === 'input' && item.widget
                     ? [
                         [
@@ -918,15 +918,13 @@ export function createCanvasGalleryFixture(
         schema(id, [
           id === 'Offered'
             ? {
-                kind: 'input',
+                kind: 'group',
                 id: 'values',
-                type: value.type,
-                optional: true,
-                dynamic: {
-                  kind: 'autogrow',
-                  naming: { kind: 'prefix', prefix: 'value', min: 0, max: 8 },
-                  template: [value],
-                },
+                value,
+                keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+                grows: 'link',
+                minMembers: 0,
+                maxMembers: 8,
               }
             : value,
         ]),
@@ -1016,14 +1014,15 @@ export function createCanvasGalleryFixture(
               id: 'advanced',
               displayName: 'Advanced',
               collapsedByDefault: collapsed,
-            },
-            { ...widget('amount', 'FLOAT', 0.75), section: 'advanced' },
-            {
-              kind: 'input',
-              id: 'mask',
-              type: concrete('MASK'),
-              optional: true,
-              section: 'advanced',
+              rows: [
+                widget('amount', 'FLOAT', 0.75),
+                {
+                  kind: 'input',
+                  id: 'mask',
+                  type: concrete('MASK'),
+                  optional: true,
+                },
+              ],
             },
           ]),
         )

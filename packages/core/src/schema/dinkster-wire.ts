@@ -15,8 +15,6 @@ import { isComboValue } from './combo-options.js'
 import type {
   AbsentPolicy,
   AlphaPolicy,
-  ConditionalWidgetCondition,
-  ConditionalWidgetGroup,
   DeprecationInfo,
   BodyRow,
   ChoiceSpec,
@@ -1886,11 +1884,18 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
   }
 }
 
-/** Tables as formulas read them: whole JSON numbers are whole numbers, `{table: [[k, v]]}` a dictionary. */
+/**
+ * Tables as formulas read them: whole JSON numbers are whole numbers, `{float: n}` a whole float,
+ * `{table: [[k, v]]}` a dictionary.
+ */
 function decodeTable(value: unknown, where: string): unknown {
   if (Array.isArray(value)) return value.map((item, index) => decodeTable(item, `${where}[${index}]`))
   if (typeof value === 'object' && value !== null) {
     const data = value as Record<string, unknown>
+    if (Object.keys(data).length === 1 && Object.hasOwn(data, 'float')) {
+      if (typeof data['float'] !== 'number' || !Number.isInteger(data['float'])) throw new Error(`${where}: a marked table float is {float: whole number}`)
+      return value
+    }
     if (Object.keys(data).length !== 1 || !Array.isArray(data['table'])) throw new Error(`${where}: a table dictionary is {table: [[key, value], ...]}`)
     return {
       table: data['table'].map((pair, index) => {
@@ -2031,15 +2036,20 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       }
     }
     const selector = decodeWireSelector(wire.selector, decodedInputs, decodedOutputs)
-    const widgetGroups = decodeWidgetGroups(wire.widgetGroups, decodedInputs)
+    if (wire.widgetGroups !== undefined) throw new Error('widgetGroups is not part of a body node; a Choice or a visible formula shows and hides rows')
     const mirror = decodeMirror(wire.mirror)
     const topChoices = new Map(scopeRowsOf(baseSchema.body).filter((row): row is ChoiceSpec => row.kind === 'choice').map((row) => [row.id, row]))
     const chunkSafe = decodeChunkSafe(wire, decodedInputs, decodedOutputs, topChoices)
+    if (mirror?.applies !== undefined) checkAppliesChoices(mirror.applies, topChoices, 'mirror')
+    for (const row of allRowsOf(baseSchema.body)) {
+      if (row.kind === 'output' && row.represents?.applies !== undefined) {
+        checkAppliesChoices(row.represents.applies, topChoices, `output '${row.id}' represents`)
+      }
+    }
     return {
       schema: {
         ...baseSchema,
         ...(selector !== undefined ? { selector } : {}),
-        ...(widgetGroups !== undefined ? { widgetGroups } : {}),
         ...(mirror !== undefined ? { mirror } : {}),
         ...(chunkSafe !== undefined ? { chunkSafe } : {}),
       },
@@ -2054,86 +2064,6 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ],
     }
   }
-}
-
-function decodeWidgetGroups(raw: unknown, inputs: ReadonlyMap<string, InputSpec>): readonly ConditionalWidgetGroup[] | undefined {
-  if (raw === undefined) return undefined
-  if (!Array.isArray(raw) || raw.length === 0) {
-    throw new Error('widgetGroups must be a non-empty array')
-  }
-  const widgetInputs = new Map(
-    [...inputs.values()].filter((input) => input.widget !== undefined).map((input) => [input.id, input]),
-  )
-  const decodeCondition = (rawCondition: unknown, where: string): ConditionalWidgetCondition => {
-    const condition = wireObject(rawCondition, where)
-    if (Object.keys(condition).sort().join(',') !== 'input,values') {
-      throw new Error(`${where} must contain exactly input and values`)
-    }
-    const input = condition['input']
-    const values = condition['values']
-    if (typeof input !== 'string' || input === '') {
-      throw new Error(`${where}.input must be a non-empty string`)
-    }
-    if (
-      !Array.isArray(values) ||
-      values.length === 0 ||
-      !values.every(
-        (value) =>
-          value === null ||
-          typeof value === 'string' ||
-          typeof value === 'boolean' ||
-          (typeof value === 'number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value))),
-      )
-    ) {
-      throw new Error(`${where}.values must be non-empty JSON scalars`)
-    }
-    if (new Set(values).size !== values.length) {
-      throw new Error(`${where}.values must be unique`)
-    }
-    if (!widgetInputs.has(input)) {
-      throw new Error(`${where}.input must name a top-level widget input`)
-    }
-    return { input, values }
-  }
-  return raw.map((entry, index) => {
-    const group = wireObject(entry, `widgetGroups[${index}]`)
-    const keys = Object.keys(group).sort().join(',')
-    if (keys !== 'input,members,values' && keys !== 'input,members,requires,values') {
-      throw new Error(`widgetGroups[${index}] must contain input, values, members, and optional requires`)
-    }
-    const condition = decodeCondition({ input: group['input'], values: group['values'] }, `widgetGroups[${index}]`)
-    const { input, values } = condition
-    const members = group['members']
-    if (
-      !Array.isArray(members) ||
-      members.length === 0 ||
-      !members.every((member) => typeof member === 'string' && member !== '') ||
-      new Set(members).size !== members.length
-    )
-      throw new Error(`widgetGroups[${index}].members must be unique non-empty strings`)
-    const rawRequires = group['requires']
-    if (rawRequires !== undefined && (!Array.isArray(rawRequires) || rawRequires.length === 0)) {
-      throw new Error(`widgetGroups[${index}].requires must be a non-empty array`)
-    }
-    const requires =
-      rawRequires === undefined
-        ? []
-        : rawRequires.map((required, requiredIndex) => decodeCondition(required, `widgetGroups[${index}].requires[${requiredIndex}]`))
-    const drivers = [input, ...requires.map((required) => required.input)]
-    if (new Set(drivers).size !== drivers.length) {
-      throw new Error(`widgetGroups[${index}] condition inputs must be unique`)
-    }
-    for (const member of members) {
-      if (!widgetInputs.has(member)) throw new Error(`widgetGroups[${index}].members must name top-level widget inputs`)
-      if (drivers.includes(member)) throw new Error(`widgetGroups[${index}] conditions cannot control themselves`)
-    }
-    return {
-      input,
-      values,
-      members,
-      ...(requires.length > 0 ? { requires } : {}),
-    } as ConditionalWidgetGroup
-  })
 }
 
 const MIRROR_KINDS: ReadonlySet<string> = new Set(['expression', 'glsl'])
@@ -2174,6 +2104,21 @@ function decodeMirrorTolerance(raw: unknown): MirrorTolerance {
  * scope fails the node rather than decoding into an over- or under-applied
  * mirror.
  */
+/** An applies key names a required choice of the body's top scope, and its values are option keys. */
+function checkAppliesChoices(
+  applies: Readonly<Record<string, readonly string[]>>,
+  choices: ReadonlyMap<string, ChoiceSpec>,
+  subject: string,
+): void {
+  for (const [id, keys] of Object.entries(applies)) {
+    const choice = choices.get(id)
+    if (choice === undefined) throw new Error(`${subject} applies key '${id}' does not name a declared choice`)
+    if (!choice.required) throw new Error(`${subject} applies key '${id}' must name a required choice`)
+    const undeclared = keys.filter((key) => !choice.options.some((option) => option.key === key))
+    if (undeclared.length > 0) throw new Error(`${subject} applies['${id}'] covers undeclared option(s): ${[...undeclared].sort().join(', ')}`)
+  }
+}
+
 function decodeApplies(raw: unknown, subject: string): Readonly<Record<string, readonly string[]>> {
   const entries = Object.entries(wireObject(raw, subject))
   if (entries.length === 0) throw new Error(`${subject} must not be empty`)
@@ -2302,11 +2247,7 @@ function decodeChunkSafe(
       throw new Error(`chunkSafe.outputs names invalid output '${id}'`)
   }
   const applies = Object.hasOwn(raw, 'applies') ? decodeApplies(raw['applies'], 'chunkSafe.applies') : undefined
-  for (const [id, keys] of Object.entries(applies ?? {})) {
-    const choice = choices.get(id)
-    if (choice === undefined || !choice.required || keys.some((key) => !choice.options.some((option) => option.key === key)))
-      throw new Error(`chunkSafe.applies names invalid combo or option '${id}'`)
-  }
+  if (applies !== undefined) checkAppliesChoices(applies, choices, 'chunk_safe')
   return {
     inputs: inputIds,
     outputs: outputIds,

@@ -27,6 +27,7 @@ import {
   elaborateInterface,
   valueKeyOf,
   type ElaboratedInput,
+  type ElaboratedInterface,
 } from '../schema/elaborate.js'
 import type { NodeSchema } from '../schema/model.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
@@ -127,19 +128,21 @@ export function deriveGlslMirrorBindings(
   const bindings = new Map<string, GlslMirrorBinding>()
   let index: ReturnType<typeof buildRerouteIndex> | undefined
   let connectivity: ReturnType<typeof buildGraphConnectivity> | undefined
-  const elaborated = new Map<string, readonly ElaboratedInput[]>()
-  const inputsOfNode = (nodeId: string): readonly ElaboratedInput[] | undefined => {
+  const elaborated = new Map<string, ElaboratedInterface>()
+  const elaborationOf = (nodeId: string): ElaboratedInterface | undefined => {
     const cached = elaborated.get(nodeId)
     if (cached) return cached
     const node = def.nodes[nodeId]
     const schema = node ? resolveSchema(node.type) : undefined
     if (!node || !schema) return undefined
     connectivity ??= buildGraphConnectivity(def)
-    const inputs = elabInputsOf(
-      elaborateInterface(schema, node, connectivity(node.id), { promoteGhosts: false }),
-    )
-    elaborated.set(nodeId, inputs)
-    return inputs
+    const elab = elaborateInterface(schema, node, connectivity(node.id), { promoteGhosts: false })
+    elaborated.set(nodeId, elab)
+    return elab
+  }
+  const inputsOfNode = (nodeId: string): readonly ElaboratedInput[] | undefined => {
+    const elab = elaborationOf(nodeId)
+    return elab === undefined ? undefined : elabInputsOf(elab)
   }
 
   for (const [nodeId, node] of Object.entries(def.nodes)) {
@@ -150,18 +153,21 @@ export function deriveGlslMirrorBindings(
 
     const images: GlslImageUniform[] = []
     const scalars: GlslScalarUniform[] = []
-    // The mirror's applies scope (combo id -> covered option keys) is a
+    // The mirror's applies scope (choice id -> covered option keys) is a
     // soundness boundary, not a hint: outside it the shader computes a
-    // DIFFERENT operation than the backend would, so gating must fail
-    // closed. Every scoped combo must be seen among the elaborated inputs
-    // and resolve to a covered value, or the node estimates nothing.
+    // DIFFERENT operation than the backend would, so gating fails closed.
+    // Each scoped choice must have the key the run takes among its keys.
     const applies = schema.mirror?.applies
-    const appliesChecked = new Set<string>()
+    const chosen = elaborationOf(nodeId)?.choices ?? {}
+    if (applies !== undefined && Object.entries(applies).some(([id, keys]) => {
+      const key = chosen[id]
+      return key === undefined || !keys.includes(key)
+    })) continue
     const usedNames = new Set<string>()
     let resolvable = true
     for (const item of inputs) {
-      // Items without an apiName (ghost members, beyond-cap members) never
-      // reach the prompt, so the backend never binds them as uniforms.
+      // Items without an apiName (ghost members, a choice's dropdown) never
+      // reach the prompt's inputs, so the backend never binds them as uniforms.
       if (item.apiName === undefined) continue
       const kind = uniformKindOf(item)
       const name = uniformNameOf(item)
@@ -207,17 +213,7 @@ export function deriveGlslMirrorBindings(
       }
 
       let value: Json | undefined
-      if (item.origin.kind === 'selector') {
-        // A DynamicCombo selector's value lives in node dynamic state,
-        // surfaced by elaboration as derivedValue - NEVER node.values, which
-        // can disagree with the branch that was actually materialized. A
-        // driven selector is not client-resident: estimate nothing.
-        if (driver !== undefined || index.netSourceOf.has(key)) {
-          resolvable = false
-          break
-        }
-        value = item.derivedValue
-      } else if (driver) {
+      if (driver) {
         const trace = traceEndpoint(def, driver.from, index)
         if (trace.kind === 'valueSource') {
           value = def.valueSources?.[trace.id]?.value
@@ -240,14 +236,6 @@ export function deriveGlslMirrorBindings(
 
       let uniform: GlslScalarUniform | undefined
       if (kind === 'combo') {
-        const covered = applies?.[name]
-        if (covered !== undefined) {
-          appliesChecked.add(name)
-          if (typeof value !== 'string' || !covered.includes(value)) {
-            resolvable = false
-            break
-          }
-        }
         const selected = comboIndexOf(item, value)
         if (selected !== undefined) uniform = { name, glslType: 'int', value: selected }
       } else if (kind === 'bool') {
@@ -263,12 +251,6 @@ export function deriveGlslMirrorBindings(
       scalars.push(uniform)
     }
 
-    // An applies key that never surfaced as an elaborated combo input could
-    // not be checked against its covered set, so the scope's soundness
-    // guarantee is unverifiable: derive nothing.
-    if (applies !== undefined && Object.keys(applies).some((key) => !appliesChecked.has(key))) {
-      continue
-    }
     if (!resolvable || images.length === 0) continue
     bindings.set(nodeId, { source: schema.mirror!.source!, images, scalars })
   }

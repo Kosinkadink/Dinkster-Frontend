@@ -289,7 +289,7 @@ export interface ElaboratedInterface {
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
-  /** Stored member keys of each group that holds outputs, which the run cannot discover from inputs. */
+  /** Stored member keys of each group that is not a count group, in order: the run's member lists. */
   readonly outputMembers?: Readonly<Record<string, readonly string[]>>
   /** The key of every choice and type choice that takes part in the run, by flattened id. */
   readonly choices?: Readonly<Record<string, string>>
@@ -856,7 +856,9 @@ export function elaborateInterface(
         default: return false
       }
     })
-    if (holdsOutput && typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
+    // The run's member list gives the engine the order of a grown group's
+    // members, including one whose only stored state is a choice or an output.
+    if (typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
       outputMembers[path] = [...keys]
     }
 
@@ -1005,7 +1007,7 @@ export function elaborateInterface(
       report('prompt.bad_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
-      key = row.default ?? (row.required ? keys[0] : undefined)
+      key = row.required ? row.default ?? keys[0] : undefined
     }
     chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
@@ -1013,7 +1015,7 @@ export function elaborateInterface(
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
     if (row.leader === undefined) {
       const label = literalText(row.displayName) ?? row.id
-      const startKey = row.default ?? (row.required ? keys[0] : undefined)
+      const startKey = row.required ? row.default ?? keys[0] : undefined
       const widget: WidgetSpec = {
         widgetType: 'COMBO',
         options: {
@@ -1210,8 +1212,9 @@ export function elaborateInterface(
   }
 
   const additionalType = schema.additionalInputs
+  // A box or a state of the top scope owns its id and the ids under it.
   const reserved = scopeRowsOf(schema.body)
-    .filter((row) => row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described')
+    .filter((row) => row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described' || row.kind === 'state')
     .map((row) => (row as { id: string }).id)
   for (const id of node.additionalInputs ?? []) {
     if (halted) break

@@ -777,6 +777,88 @@
   {
    "body": [
     {
+     "grows": "link",
+     "id": "g",
+     "keys": {
+      "numbered": {
+       "pad": 0,
+       "prefix": "",
+       "start": 1
+      }
+     },
+     "kind": "group",
+     "member": [
+      {
+       "id": "c",
+       "kind": "choice",
+       "options": [
+        {
+         "key": "x",
+         "rows": []
+        },
+        {
+         "key": "y",
+         "rows": [
+          {
+           "default": 1,
+           "id": "v",
+           "kind": "input",
+           "required": true,
+           "type": {
+            "kind": "concrete",
+            "types": [
+             "INT"
+            ]
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "choices": {
+    "g.1.c": "y",
+    "g.2.c": "y"
+   },
+   "chose": {
+    "g.1.c": "y",
+    "g.2.c": "y"
+   },
+   "id": "group/the-runs-member-list-orders-members-with-no-stored-input",
+   "inputs": [
+    [
+     "g.2.c.v",
+     "INT",
+     true,
+     1
+    ],
+    [
+     "g.1.c.v",
+     "INT",
+     true,
+     1
+    ]
+   ],
+   "members": {
+    "g": [
+     "2",
+     "1"
+    ]
+   },
+   "outcome": "flattened",
+   "outputs": [],
+   "stored": [
+    [
+     "g.1.c.v",
+     5
+    ]
+   ]
+  },
+  {
+   "body": [
+    {
      "id": "format",
      "kind": "choice",
      "options": [
@@ -1952,6 +2034,181 @@
    "id": "depth/17-boxes-are-refused-when-the-pack-loads",
    "members": {},
    "message": "nests deeper than 16",
+   "outcome": "refused-at-load",
+   "stored": []
+  },
+  {
+   "body": [
+    {
+     "id": "format",
+     "kind": "choice",
+     "options": [
+      {
+       "key": "png",
+       "rows": [
+        {
+         "id": "advanced",
+         "kind": "section",
+         "rows": [
+          {
+           "default": 6,
+           "id": "level",
+           "kind": "input",
+           "required": true,
+           "type": {
+            "kind": "concrete",
+            "types": [
+             "INT"
+            ]
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "key": "exr",
+       "rows": [
+        {
+         "id": "advanced",
+         "kind": "section",
+         "rows": [
+          {
+           "default": 0,
+           "id": "half",
+           "kind": "input",
+           "required": true,
+           "type": {
+            "kind": "concrete",
+            "types": [
+             "INT"
+            ]
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "choices": {
+    "format": "exr"
+   },
+   "chose": {
+    "format": "exr"
+   },
+   "id": "ids/options-of-one-choice-may-each-hold-a-section-with-one-id",
+   "inputs": [
+    [
+     "format.half",
+     "INT",
+     true,
+     0
+    ]
+   ],
+   "members": {},
+   "outcome": "flattened",
+   "outputs": [],
+   "stored": []
+  },
+  {
+   "body": [
+    {
+     "id": "format",
+     "kind": "choice",
+     "options": [
+      {
+       "key": "png",
+       "rows": [
+        {
+         "id": "advanced",
+         "kind": "section",
+         "rows": [
+          {
+           "default": 6,
+           "id": "level",
+           "kind": "input",
+           "required": true,
+           "type": {
+            "kind": "concrete",
+            "types": [
+             "INT"
+            ]
+           }
+          }
+         ]
+        },
+        {
+         "id": "advanced",
+         "kind": "section",
+         "rows": [
+          {
+           "default": 0,
+           "id": "fast",
+           "kind": "input",
+           "required": true,
+           "type": {
+            "kind": "concrete",
+            "types": [
+             "INT"
+            ]
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "choices": {},
+   "id": "ids/one-option-may-not-hold-two-sections-with-one-id",
+   "members": {},
+   "message": "declared twice",
+   "outcome": "refused-at-load",
+   "stored": []
+  },
+  {
+   "body": [
+    {
+     "id": "format",
+     "kind": "choice",
+     "options": [
+      {
+       "key": "webm",
+       "rows": [
+        {
+         "id": "audio",
+         "kind": "use",
+         "required": false
+        }
+       ]
+      }
+     ],
+     "shared": [
+      {
+       "default": "opus",
+       "id": "audio",
+       "kind": "choice",
+       "options": [
+        {
+         "key": "opus",
+         "rows": []
+        },
+        {
+         "key": "none",
+         "rows": []
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "choices": {},
+   "id": "choice/a-use-may-not-make-a-choice-with-a-default-optional",
+   "members": {},
+   "message": "an optional choice cannot declare a default",
    "outcome": "refused-at-load",
    "stored": []
   },

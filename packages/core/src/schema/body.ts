@@ -52,15 +52,19 @@ export const isVariantKey = (value: unknown): value is string =>
 
 /**
  * A node's tables as formulas read them. JSON does not keep Python's 1 apart
- * from 1.0, so a whole JSON number reads as a whole number; `{table: [[key,
- * value], ...]}` is a dictionary.
+ * from 1.0, so a whole JSON number reads as a whole number and the engine
+ * writes a whole float as `{float: 1}`; `{table: [[key, value], ...]}` is a
+ * dictionary.
  */
 export function formulaTablesOf(tables: Readonly<Record<string, unknown>> | undefined): ReadonlyMap<string, FormulaTableValue> {
+  const isFloat = (value: unknown): value is { readonly float: number } =>
+    typeof value === 'object' && value !== null && Object.hasOwn(value, 'float')
   const scalar = (value: unknown): FormulaScalar =>
-    typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : (value as FormulaScalar)
+    isFloat(value) ? value.float
+      : typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : (value as FormulaScalar)
   const convert = (value: unknown): FormulaTableValue => {
     if (Array.isArray(value)) return value.map(scalar)
-    if (typeof value === 'object' && value !== null) {
+    if (typeof value === 'object' && value !== null && !isFloat(value)) {
       const pairs = (value as { table: readonly (readonly [string | number, unknown])[] }).table
       return new FormulaTable(pairs.map(([key, item]) => [typeof key === 'number' ? BigInt(key) : key, convert(item)] as const))
     }
@@ -145,7 +149,7 @@ export function initialDynamicStateOf(schema: NodeSchema): Record<string, { read
         state[path] = { members, ...(row.keys.kind === 'numbered' ? { seq: count } : {}) }
         if (row.member !== undefined) for (const key of members) visit(row.member, `${path}.${key}.`)
       } else if (row.kind === 'choice' && row.leader === undefined) {
-        const key = row.default ?? (row.required ? row.options[0]?.key : undefined)
+        const key = row.required ? row.default ?? row.options[0]?.key : undefined
         const option = row.options.find((candidate) => candidate.key === key)
         if (option === undefined) continue
         state[path] = { selected: option.key }
@@ -370,6 +374,10 @@ function choiceRowsById(choice: ChoiceSpec): Map<string, BodyRow> {
   return found
 }
 
+const OPTIONAL_CHOICE_DEFAULT =
+  'an optional choice cannot declare a default; it always starts with nothing chosen. ' +
+  'A choice that should start on an option and still offer none is a required choice with an option of its own for none'
+
 function checkUse(use: UseSpec, row: BodyRow, where: string): void {
   if (row.kind !== 'choice') {
     if (use.only !== undefined) throw new Error(`Use ${where}: only applies to a shared choice`)
@@ -377,6 +385,9 @@ function checkUse(use: UseSpec, row: BodyRow, where: string): void {
     return
   }
   const keys = row.options.map((option) => option.key)
+  const required = use.required ?? row.required
+  const fallback = use.default === undefined ? row.default : use.default
+  if (!required && fallback !== undefined && fallback !== null) throw new Error(`Use ${where}: ${OPTIONAL_CHOICE_DEFAULT}`)
   for (const key of use.only ?? []) {
     if (!keys.includes(key)) throw new Error(`Use ${where}: only names '${key}', which is not an option`)
   }
@@ -467,6 +478,7 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
           break
         case 'choice': {
           box(depth + 1, `choice ${row.id}`)
+          if (!row.required && row.default !== undefined) throw new Error(`choice ${row.id}: ${OPTIONAL_CHOICE_DEFAULT}`)
           const inner = `${where}${row.id}.`
           const choiceIds = newIds()
           const sharedRows = new Map<string, BodyRow>()
@@ -476,7 +488,9 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
           for (const option of row.options) {
             const used = option.rows.filter((item) => item.kind === 'use').map((item) => item.id)
             if (new Set(used).size !== used.length) throw new Error(`choice ${row.id}: option ${option.key} uses a row twice`)
-            visit(option.rows, depth + 1, inner, choiceIds, sharedRows, choiceFrames)
+            // Different options may each hold a section with one id: only one
+            // option is shown, and they share its saved open state.
+            visit(option.rows, depth + 1, inner, { ...choiceIds, section: new Set(choiceIds.section) }, sharedRows, choiceFrames)
           }
           break
         }

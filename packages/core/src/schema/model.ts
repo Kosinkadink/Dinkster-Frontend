@@ -988,20 +988,6 @@ export type SelectorBranchDisplay = 'active' | 'inactive' | 'neutral'
 
 export type ExecutionArm = 'native' | 'comfyui'
 
-export type ConditionalWidgetValue = null | string | boolean | number
-
-export interface ConditionalWidgetCondition {
-  readonly input: string
-  readonly values: readonly ConditionalWidgetValue[]
-}
-
-export interface ConditionalWidgetGroup {
-  readonly input: string
-  readonly values: readonly ConditionalWidgetValue[]
-  readonly members: readonly string[]
-  readonly requires?: readonly ConditionalWidgetCondition[]
-}
-
 export type MirrorKind = 'expression' | 'glsl'
 
 export type MirrorPrecision = 'exact' | 'bounded'
@@ -1133,8 +1119,6 @@ export interface NodeSchema {
   readonly hidden?: readonly string[]
   /** Optional server-owned document-time branch selector (schema wire 15). */
   readonly selector?: NodeSelectorSpec
-  /** Presentation-only visibility groups for top-level static widgets (wire 27). */
-  readonly widgetGroups?: readonly ConditionalWidgetGroup[]
   readonly ext?: Readonly<Record<string, unknown>>
 }
 

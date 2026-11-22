@@ -28,7 +28,6 @@
 
 import {
   elaborateInterface,
-  hiddenConditionalWidgets,
   materializeFramesOf,
   resettableWidgetsOf,
   resolveWidgetRepresentation,
@@ -793,9 +792,9 @@ export function layoutNode(
         hiddenModified.set(section!, (hiddenModified.get(section!) ?? 0) + 1)
     }
   }
+
   const isConnected = (direction: 'in' | 'out', portId: string): boolean =>
     options.connectedPorts?.has(connectedPortKey(direction, portId)) ?? false
-  const conditionallyHidden = hiddenConditionalWidgets(schema, node, isConnected)
 
   /** Ghost/address/materialize annotations shared by every emitted shape. */
   const annotate = (item: ElaboratedInput | ElaboratedOutput): DynamicAnnotations => {
@@ -879,7 +878,6 @@ export function layoutNode(
     const section = inputSection(spec)
     const widget = spec.widget
     if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
-    if (options.minimized !== true && spec.widget && item.origin.kind === 'static' && conditionallyHidden.has(spec.id)) continue
     if (isHidden(section)) {
       if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({

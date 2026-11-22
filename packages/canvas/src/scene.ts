@@ -1020,7 +1020,7 @@ export function updateSceneNodeValues(
     if (existing.node !== old || node.virtual || node.type.startsWith('#') ||
         !sameReferencesExcept(old as unknown as Readonly<Record<string, unknown>>, node as unknown as Readonly<Record<string, unknown>>, 'values')) return undefined
     const schema = resolve(node.type)
-    if (!schema || schema.selector || schema.widgetGroups ||
+    if (!schema || schema.selector ||
       !schema.body.every((row) => row.kind === 'input' || row.kind === 'output')) return undefined
     for (const key of new Set([...Object.keys(old.values), ...Object.keys(node.values)])) {
       if (old.values[key] === node.values[key]) continue

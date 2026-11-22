@@ -19,7 +19,7 @@ const blur: NodeSchema = {
   category: 'gallery',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'image', type: image, optional: false },
     {
       kind: 'input',
@@ -248,7 +248,7 @@ export function boundaryNamesGalleryScene(
     ...blur,
     type: 'Boundary example',
     displayName: 'Boundary example',
-    items: [
+    body: [
       ...inputs.map((id) => ({
         kind: 'input' as const,
         id,
