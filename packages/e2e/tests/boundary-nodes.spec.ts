@@ -183,14 +183,20 @@ test('panels appear only inside the definition, with side-correct pins', async (
 
 test('dragging a panel persists ONE view.moveBoundaryNode; undo/redo round-trips', async ({ page }) => {
   await drillIntoSub(page)
-  const before = (await boundaryNodes(page)).find((b) => b.side === 'inputs')!
+  const panelsBefore = await boundaryNodes(page)
+  const before = panelsBefore.find((b) => b.side === 'inputs')!
+  const outputsBefore = panelsBefore.find((b) => b.side === 'outputs')!
 
   const start = await boundaryHeaderPoint(page, 'inputs')
   await drag(page, start, { x: start.x + 120, y: start.y + 60 })
 
   const expected = { x: before.x + 120, y: before.y + 60 }
   const moved = await activeDoc(page)
-  expect(moved.view.graphs['sub']!.boundary).toEqual({ inputs: { position: expected } })
+  const savedBoundary = {
+    inputs: { position: expected },
+    outputs: { position: { x: outputsBefore.x, y: outputsBefore.y } },
+  }
+  expect(moved.view.graphs['sub']!.boundary).toEqual(savedBoundary)
   const movedPanel = (await boundaryNodes(page)).find((b) => b.side === 'inputs')!
   expect({ x: movedPanel.x, y: movedPanel.y }).toEqual(expected)
   // Pure view state: the boundary definition itself is untouched.
@@ -205,7 +211,7 @@ test('dragging a panel persists ONE view.moveBoundaryNode; undo/redo round-trips
 
   await page.keyboard.press('Control+Shift+z')
   const redone = await activeDoc(page)
-  expect(redone.view.graphs['sub']!.boundary).toEqual({ inputs: { position: expected } })
+  expect(redone.view.graphs['sub']!.boundary).toEqual(savedBoundary)
 })
 
 test('double-clicking boundary row labels renames input and output ports', async ({ page }) => {
