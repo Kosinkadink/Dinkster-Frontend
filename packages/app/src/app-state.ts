@@ -1727,6 +1727,7 @@ interface PersistedTabs {
   readonly active: string
   readonly workspaceRevision?: number
   readonly workspaceOperationWatermarks?: Readonly<Record<string, number>>
+  readonly documentCandidateStages?: Readonly<Record<string, string>>
   readonly tabs: readonly {
     readonly title: string
     readonly doc: unknown
@@ -1749,6 +1750,12 @@ function parsePersistedTabs(raw: string | null): PersistedTabs | undefined {
       active: typeof parsed.active === 'string' ? parsed.active : '',
       ...(Number.isSafeInteger(parsed.workspaceRevision) && parsed.workspaceRevision! >= 0
         ? { workspaceRevision: parsed.workspaceRevision }
+        : {}),
+      ...(parsed.documentCandidateStages !== null && typeof parsed.documentCandidateStages === 'object'
+        ? { documentCandidateStages: Object.fromEntries(
+            Object.entries(parsed.documentCandidateStages).filter(([lineage, stageId]) =>
+              lineage.length > 0 && typeof stageId === 'string' && stageId.length > 0),
+          ) }
         : {}),
       ...(parsed.workspaceOperationWatermarks !== null && typeof parsed.workspaceOperationWatermarks === 'object'
         ? { workspaceOperationWatermarks: Object.fromEntries(
@@ -1851,9 +1858,10 @@ function mergePersistedTabs(
       documents.set(id, committedPersistedTab(tab))
     }
   }
+  const documentCandidateStages = { ...(states[0]?.documentCandidateStages ?? {}) }
   for (const candidate of documentCandidates) {
     const id = persistedTabId(candidate.tab)
-    if (!id) continue
+    if (!id || documentCandidateStages[id] === candidate.stageId) continue
     const current = documents.get(id)
     if (!workspace.tabs.some((tab) => persistedTabId(tab) === id)) {
       // A late Close-owned stage contributes its identity, never tab membership.
@@ -1865,9 +1873,11 @@ function mergePersistedTabs(
         Math.max(candidate.tab.documentRevision ?? 0, current.documentRevision ?? 0) + 1,
       ))
     }
+    documentCandidateStages[id] = candidate.stageId
   }
   return {
     ...workspace,
+    ...(Object.keys(documentCandidateStages).length > 0 ? { documentCandidateStages } : {}),
     tabs: workspace.tabs.map((tab) => {
       const id = persistedTabId(tab)
       const document = id ? documents.get(id) : undefined

@@ -308,7 +308,6 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
   })
   await expect.poll(() => blocker.evaluate(({ id, revision }) => {
     const persisted = JSON.parse(localStorage.getItem('dinkster.openTabs')!) as {
-      documentCandidateStages?: Record<string, string>
       tabs: Array<{
         doc: { lineage: string; root: string; graphs: Record<string, { name: string }> }
         documentRevision?: number
@@ -321,11 +320,16 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
       candidates: [...Array(localStorage.length).keys()]
         .map((index) => localStorage.key(index))
         .filter((key) => key?.startsWith('dinkster.openTabsCandidate.')).length,
-      covered: typeof persisted.documentCandidateStages?.[id] === 'string',
     }
   }, { id: lineage, revision: initialRevision })).toEqual({
-    name: 'actual-later-A', advanced: true, candidates: 0, covered: true,
+    name: 'actual-later-A', advanced: true, candidates: 0,
   })
+  const committedRevision = await blocker.evaluate((id) => {
+    const persisted = JSON.parse(localStorage.getItem('dinkster.openTabs')!) as {
+      tabs: Array<{ doc: { lineage: string }; documentRevision?: number }>
+    }
+    return persisted.tabs.find((tab) => tab.doc.lineage === id)!.documentRevision ?? 0
+  }, lineage)
 
   await Promise.all([earlier.close(), later.close(), blocker.close()])
   const reopened = await context.newPage()
@@ -339,6 +343,12 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
     const tab = app.tabs.get().find((entry) => entry.id === id)!
     return tab.store.doc.graphs[tab.store.doc.root]!.name
   }, lineage)).toBe('actual-later-A')
+  await expect.poll(() => reopened.evaluate((id) => {
+    const persisted = JSON.parse(localStorage.getItem('dinkster.openTabs')!) as {
+      tabs: Array<{ doc: { lineage: string }; documentRevision?: number }>
+    }
+    return persisted.tabs.find((tab) => tab.doc.lineage === id)!.documentRevision ?? 0
+  }, lineage)).toBe(committedRevision)
 })
 
 test('a reconnect fallback cannot overwrite a fresher document at the same workspace revision', async ({ page, context }) => {
