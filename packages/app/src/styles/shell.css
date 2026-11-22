@@ -42,8 +42,7 @@
   min-width: 0;
   min-height: 40px;
   padding: var(--dinkster-space-4) var(--dinkster-space-8) 0;
-  background: var(--dinkster-surface-panel);
-  border-bottom: 1px solid var(--dinkster-border-subtle);
+  background: var(--dinkster-surface-canvas);
 }
 
 .workflow-tabs {
@@ -71,8 +70,8 @@
   min-height: 36px;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-subtle);
+  background: transparent;
+  border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--dinkster-radius-control) var(--dinkster-radius-control) 0 0;
   cursor: pointer;
@@ -94,11 +93,8 @@
 .tab.active {
   position: relative;
   z-index: 1;
-  margin-bottom: -1px;
-  padding-bottom: calc(var(--dinkster-space-4) + 1px);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-canvas);
-  border-color: var(--dinkster-border-strong);
 }
 
 .tab.dragging {
