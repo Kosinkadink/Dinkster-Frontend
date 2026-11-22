@@ -8,6 +8,7 @@ import type { TypeExpr } from '@dinkster/core'
 import type { LayoutRow, PinLayout } from './layout.js'
 import { canvasPaintTokens, type CanvasDetailLevel } from './tokens.js'
 import {
+  boundaryFieldNode,
   GROUP_HEADER_HEIGHT,
   REROUTE_RADIUS,
   REROUTE_SOCKET_OFFSET,
@@ -86,6 +87,8 @@ export type Hit =
       /** Pointer offset from the row origin, used by compact controls. */
       readonly localX: number
       readonly localY: number
+      /** Set for a field on a subgraph's Inputs panel; `node` is the panel's face (boundaryFieldNode). */
+      readonly bnode?: SceneBoundaryNode
     }
   | {
       readonly kind: 'section'
@@ -319,7 +322,19 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (wx < bnode.x || wx > bnode.x + l.width || wy < bnode.y || wy > bnode.y + l.height) continue
     if (wy <= bnode.y + l.headerHeight) return { kind: 'boundary-header', bnode }
     if (contentDetail) {
+      const face = boundaryFieldNode(bnode)
       for (const row of l.rows) {
+        // A field wired outside the subgraph is not edited here: it is body.
+        if (row.kind === 'widget' && face !== undefined && !bnode.fields!.wired.has(row.valueKey)) {
+          const ry = bnode.y + row.y
+          const width = row.width ?? l.width - row.inset * 2
+          if (wy < ry || wy > ry + row.height || wx < bnode.x + row.inset || wx > bnode.x + row.inset + width) continue
+          return {
+            kind: 'widget', node: face, row, bnode,
+            x: bnode.x + row.inset, y: ry, width,
+            height: row.height, localX: wx - bnode.x - row.inset, localY: wy - ry,
+          }
+        }
         if (row.kind !== 'ports') continue
         const slot = row.input ?? row.output
         if (slot && slot.portId !== '__add__' && wy >= bnode.y + row.y && wy <= bnode.y + row.y + row.height) {

@@ -4,15 +4,17 @@
  * modifier precedence covered through the pure decision used by pointerdown.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
+  type CommandInvocation, type NodeSchema, type WorkflowDocument,
+} from '@dinkster/core'
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { buildScene, portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
-import { buildScene } from '../src/scene.js'
-import { coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 
 function interactionHarness(
   scene: Scene,
@@ -3971,5 +3973,102 @@ describe('a wire dragged from the Inputs panel to a field', () => {
     expect(derived?.items.find((item) => item.kind === 'input' && item.id === 'radius')).toMatchObject({ widget: { widgetType: 'INT', default: 6 } })
     expect(sceneOf(store.doc).links.filter((link) => link.boundary === true).map((link) => link.to))
       .toEqual([{ kind: 'port', node: 'blur', port: 'radius' }])
+  })
+})
+
+describe('Inputs panel fields', () => {
+  const blur: NodeSchema = {
+    type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: false,
+    items: [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      { kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 } },
+      { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
+    ],
+  }
+  const workflow = (): WorkflowDocument => loadDocument({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-fields', root: 'g0',
+    graphs: {
+      g0: {
+        id: 'g0', name: 'Root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {},
+        nodes: {
+          soft: { id: 'soft', type: '#g1', values: { radius: 6 } },
+          strong: { id: 'strong', type: '#g1', values: { radius: 12 } },
+        },
+      },
+      g1: {
+        id: 'g1', name: 'Soften', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+        boundary: {
+          inputs: [
+            { id: 'image', binds: { kind: 'port', node: 'inner', port: 'image' } },
+            { id: 'radius', binds: { kind: 'port', node: 'inner', port: 'radius' }, promoted: true },
+          ],
+          outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+        },
+      },
+    },
+    view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } } } } },
+  }).document as WorkflowDocument
+
+  /** The definition's canvas, entered through `node` or, without it, from no node. */
+  const panelScene = (doc: WorkflowDocument, node?: string): Scene => {
+    const resolve = documentResolver(doc, (type) => type === 'Blur' ? blur : undefined)
+    return buildScene({
+      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      ...(node === undefined ? {} : {
+        occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: false },
+        occurrenceView: occurrenceDynamicView(doc, resolve, [node]),
+      }),
+    })
+  }
+
+  /** Press the plus stepper of the panel's radius field and commit what it dispatches. */
+  const pressPlus = (store: DocumentStore, node?: string): Scene => {
+    const scene = panelScene(store.doc, node)
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius')
+    if (row?.kind !== 'widget') throw new Error('expected a radius field on the Inputs panel')
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const x = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+    const y = panel.y + row.y + defaultTokens.rowHeight / 2
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(harness.dispatched).toHaveLength(1)
+    expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
+    return scene
+  }
+  const radiusOf = (store: DocumentStore, graph: string, node: string) => store.doc.graphs[graph]!.nodes[node]!.values['radius']
+
+  it('edits the entered node\'s value in one undo step', () => {
+    const store = new DocumentStore(workflow(), coreCommandRegistry())
+    const scene = pressPlus(store, 'soft')
+    expect(scene.boundaryNodes[0]!.layout.subtitle).toBe('of Soften')
+    expect(radiusOf(store, 'g0', 'soft')).toBe(7)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+    expect(radiusOf(store, 'g1', 'inner')).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(radiusOf(store, 'g0', 'soft')).toBe(6)
+  })
+
+  it('keeps each subgraph node of one definition to its own value', () => {
+    const store = new DocumentStore(workflow(), coreCommandRegistry())
+    pressPlus(store, 'strong')
+    expect(radiusOf(store, 'g0', 'strong')).toBe(13)
+    expect(radiusOf(store, 'g0', 'soft')).toBe(6)
+    const panel = panelScene(store.doc, 'soft').boundaryNodes[0]!
+    expect(panel.fields?.node.values['radius']).toBe(6)
+  })
+
+  it('edits the defaults a new subgraph node starts with when entered from no node', () => {
+    const store = new DocumentStore(workflow(), coreCommandRegistry())
+    const scene = pressPlus(store)
+    expect(scene.boundaryNodes[0]!.layout.subtitle).toBe('defaults')
+    expect(radiusOf(store, 'g1', 'inner')).toBe(5)
+    expect(radiusOf(store, 'g0', 'soft')).toBe(6)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
   })
 })

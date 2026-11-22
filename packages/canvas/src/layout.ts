@@ -286,6 +286,8 @@ export interface NodeLayout {
   readonly resizeHeightOffset?: number
   readonly headerHeight: number
   readonly title: string
+  /** Quieter text after the title of a subgraph's Inputs panel ("of Soften", "defaults"). */
+  readonly subtitle?: string
   /** True only when an override differs from the schema/fallback display name. */
   readonly titleRenamed?: boolean
   readonly rows: readonly LayoutRow[]
@@ -1343,6 +1345,11 @@ export interface BoundarySlotInfo {
   readonly family?: true
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
+  /**
+   * Inputs panel only: the field row the subgraph node outside shows for
+   * this input. The panel shows the same field, with its pin on the right.
+   */
+  readonly field?: Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>
 }
 
 /**
@@ -1370,6 +1377,7 @@ export function layoutBoundaryNode(
   slots: readonly BoundarySlotInfo[],
   tokens: DesignTokens,
   measure: TextMeasurer,
+  subtitle?: string,
 ): NodeLayout {
   const direction = side === 'inputs' ? 'out' : 'in'
   const title = side === 'inputs' ? 'Inputs' : 'Outputs'
@@ -1377,9 +1385,17 @@ export function layoutBoundaryNode(
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
   for (const slot of slots) {
+    const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
+    if (slot.field !== undefined && direction === 'out') {
+      const field = slot.field
+      const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
+      rows.push({ ...field, kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
+      pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + tokens.rowHeight / 2, type })
+      y += height
+      continue
+    }
     const height = tokens.rowHeight
     const label = slot.family ? `${slot.label} []` : slot.label
-    const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
     const portSlot: PortSlot = { portId: slot.id, label, type, address: { port: slot.id }, ...(slot.regionIndex ? { regionIndex: true } : {}) }
     rows.push({
       kind: 'ports',
@@ -1419,8 +1435,14 @@ export function layoutBoundaryNode(
     y += height
   }
 
-  let width = Math.max(tokens.nodeMinWidth, measure(title, 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
+  const titleWidth = measure(title, 'title') +
+    (subtitle === undefined ? 0 : canvasPaintTokens.boundary.subtitleGap + measure(subtitle, 'label'))
+  let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
+    if (row.kind === 'widget') {
+      width = Math.max(width, measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      continue
+    }
     if (row.kind !== 'ports') continue
     const slot = row.input ?? row.output
     if (!slot) continue
@@ -1437,6 +1459,7 @@ export function layoutBoundaryNode(
     minHeight: height,
     headerHeight: tokens.headerHeight,
     title,
+    ...(subtitle !== undefined ? { subtitle } : {}),
     rows,
     pins,
   }

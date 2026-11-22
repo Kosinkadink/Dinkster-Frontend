@@ -2905,10 +2905,16 @@ export class InteractionController {
   }
 
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
+    if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
       hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize'
       ? hit.node
       : undefined
+  }
+
+  /** The boundary panel under a body-like hit; a field on the Inputs panel counts as its body. */
+  private boundaryOfBodyHit(hit: Hit): SceneBoundaryNode | undefined {
+    return hit.kind === 'boundary-body' || hit.kind === 'boundary-header' || hit.kind === 'widget' ? hit.bnode : undefined
   }
 
   /** Boundary-panel counterpart of bodyDropCandidate. Existing rows keep
@@ -3241,7 +3247,7 @@ export class InteractionController {
           : undefined
         const rawBodyNode = explicitPin ? undefined : this.nodeOfBodyHit(hit)
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
-        const boundaryBody = !explicitPin && (hit.kind === 'boundary-body' || hit.kind === 'boundary-header') ? hit.bnode : undefined
+        const boundaryBody = explicitPin ? undefined : this.boundaryOfBodyHit(hit)
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
         const fieldRow = bodyNode && hit.kind === 'widget' ? hit.row : undefined
         const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
@@ -3889,7 +3895,7 @@ export class InteractionController {
       g.bodyCandidateRow = undefined
       g.bodyCandidate = undefined
     }
-    const boundaryBody = rawHit.kind === 'boundary-body' || rawHit.kind === 'boundary-header' ? rawHit.bnode : undefined
+    const boundaryBody = this.boundaryOfBodyHit(rawHit)
     const fieldRow = bodyNode && rawHit.kind === 'widget' ? rawHit.row : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
@@ -4341,9 +4347,7 @@ export class InteractionController {
           ? { selector: g.intoSelector.selector, candidate: g.intoSelector.candidate }
           : undefined)
     if (!dropEnd) {
-      const boundarySide = hit.kind === 'boundary-pin' || hit.kind === 'boundary-body' || hit.kind === 'boundary-header'
-        ? hit.bnode.side
-        : undefined
+      const boundarySide = hit.kind === 'boundary-pin' ? hit.bnode.side : this.boundaryOfBodyHit(hit)?.side
       const unsupportedBoundarySource: BoundaryExposureSource | undefined =
         g.fromTap !== undefined && boundarySide === 'inputs'
           ? { kind: 'widgetTap', node: g.fromTap.node, tap: g.fromTap.tap }

@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BADGE_SIZE,
   MUTED_BADGE,
@@ -26,6 +26,7 @@ import { linkBounds, linkControlOffset } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
+  boundaryFieldNode,
   boundarySceneId,
   GROUP_HEADER_HEIGHT,
   portEndKey,
@@ -850,6 +851,8 @@ export class CanvasRenderer {
   private connectedWidgetTaps: ReadonlySet<string> = new Set()
   /** Like connectedInputPins but excluding boundary bindings (row inertness). */
   private valueDrivenInputPins: ReadonlySet<string> = new Set()
+  /** Inner input (node id, input id) -> the value an Inputs panel field sends it. */
+  private panelFieldValues: ReadonlyMap<string, Json> = new Map()
   private nodeStates: Readonly<Record<string, NodeProgress>> = {}
   private viewport: Viewport = { x: canvasPaintTokens.viewport.initialOffset, y: canvasPaintTokens.viewport.initialOffset, scale: 1 }
   private viewportAnimation: { from: Viewport; to: Viewport; started: number; sampled: number } | undefined
@@ -1820,6 +1823,20 @@ export class CanvasRenderer {
           return `${to.node}\u0000${portEndKey(to)}`
         }),
     )
+    // A field on the Inputs panel sends its value down its wire, so the inner
+    // field shows that value arriving rather than its own dormant one.
+    const panelFieldValues = new Map<string, Json>()
+    const panel = this.scene.boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
+    for (const link of panel === undefined ? [] : this.scene.links) {
+      if (link.from.kind !== 'boundary' || link.from.side !== 'inputs' || link.to.kind !== 'port') continue
+      const item = link.from.item
+      const row = panel!.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === item)
+      if (row?.kind !== 'widget') continue
+      const wired = panel!.fields!.wired
+      const value: Json | undefined = wired.has(item) ? wired.get(item) : panel!.fields!.node.values[item] ?? effectiveWidgetDefault(row.spec)
+      if (value !== undefined) panelFieldValues.set(`${link.to.node}\u0000${portEndKey(link.to)}`, value)
+    }
+    this.panelFieldValues = panelFieldValues
   }
 
   private render(): void {
@@ -3443,158 +3460,7 @@ export class CanvasRenderer {
             ctx.globalAlpha = rowAlpha
           }
         } else {
-          if (this.openRows[sceneNode.id] === row.valueKey) continue
-          const companion = this.companions[sceneNode.id]?.[row.valueKey]
-          const widgetWidth = row.width ?? l.width - row.inset * 2
-          // Selector rows ignore boundary bindings for inertness: the bound row
-          // remains the occurrence-local editor.
-          const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
-          const connected = companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
-          const rowAlpha = ctx.globalAlpha
-          if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
-          if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
-          const companionAlpha = ctx.globalAlpha
-          if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
-          const hovered = this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
-            this.overlay.hoveredWidget.valueKey === row.valueKey
-          const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
-          this.paintWidget({
-            ctx,
-            row,
-            // Selector rows (DynamicCombo) carry their value on the row itself;
-            // everything else persists under the row's value key.
-            value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
-            ...(drag !== undefined ? { dragging: true } : {}),
-            ...(companion !== undefined ? { companion } : {}),
-            ...(companion !== undefined ? { companionAlpha } : {}),
-            x: node.x + row.inset,
-            y: rowY,
-            width: widgetWidth,
-            rowHeight: t.rowHeight,
-            connected,
-            hovered,
-            tokens: t,
-          })
-          if (hovered) {
-            // A neutral wash preserves the widget's own active/connected
-            // styling without making value selection look like live blue data.
-            const hoverAlpha = ctx.globalAlpha
-            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
-            ctx.globalAlpha = hoverAlpha * canvasPaintTokens.widget.hoverOpacity
-            ctx.fillStyle = t.colors.label
-            ctx.beginPath()
-            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-            ctx.fill()
-            ctx.globalAlpha = hoverAlpha
-          }
-          if (this.rowMarks[sceneNode.id]?.has(row.valueKey) === true) {
-            // Anchored widget-value diagnostic (out-of-range INT, unknown
-            // COMBO option, ...): a red row outline makes the Problems entry
-            // actionable at the widget the user must fix, mirroring (not
-            // replacing) the panel entry - same contract as the pin warn ring.
-            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
-            ctx.strokeStyle = t.colors.error
-            ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
-            ctx.beginPath()
-            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-            ctx.stroke()
-          }
-          if (this.overlay.dropRow?.nodeId === sceneNode.id && this.overlay.dropRow.valueKey === row.valueKey) {
-            // A held wire takes this field when dropped: the drop-target
-            // outline sits inside the chrome, at full strength even on a
-            // wired (dimmed) row.
-            const outlineAlpha = ctx.globalAlpha
-            ctx.globalAlpha = rowAlpha
-            const stroke = canvasPaintTokens.widget.dropStroke
-            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
-            ctx.strokeStyle = t.colors.dropTarget
-            ctx.lineWidth = stroke
-            ctx.beginPath()
-            ctx.roundRect(chrome.x + stroke / 2, chrome.y + stroke / 2, chrome.width - stroke, chrome.height - stroke,
-              Math.max(0, chrome.radius - stroke / 2))
-            ctx.stroke()
-            ctx.globalAlpha = outlineAlpha
-          }
-          const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
-          // In-row editing draws a number's mode as an icon before its value instead of the chip.
-          if (row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
-            const chip = controllerChipRect(widgetWidth, t.rowHeight, t.rowGeometry)
-            const x = node.x + row.inset + chip.x
-            const y = rowY + chip.y
-            const chipAlpha = ctx.globalAlpha
-            if (connected) ctx.globalAlpha = chipAlpha * canvasPaintTokens.widget.connectedControllerOpacity
-            ctx.fillStyle = t.colors.widgetRaised
-            ctx.fillRect(x, y, chip.width, chip.height)
-            ctx.strokeStyle = t.colors.selection
-            ctx.strokeRect(x, y, chip.width, chip.height)
-            paintSeedControllerIcon(ctx, row.controllerMode, x, y, chip.width, t.colors.label)
-            ctx.globalAlpha = chipAlpha
-          }
-          const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-          if (numeric && row.derivedValue === undefined && !row.ghost) {
-            // Edge glyphs reserve only the small bump zones; the broad center
-            // remains the familiar editor activation target.
-            const cy = rowY + t.rowHeight / 2 + (t.crispEdges ? canvasPaintTokens.widget.pixelCenter : 0)
-            const glyphAlpha = ctx.globalAlpha
-            const previousStrokeStyle: string | CanvasGradient | CanvasPattern = ctx.strokeStyle
-            const previousLineWidth = ctx.lineWidth
-            const previousLineCap = ctx.lineCap
-            if (connected) ctx.globalAlpha = glyphAlpha * canvasPaintTokens.widget.connectedGlyphOpacity
-            ctx.strokeStyle = t.colors.label
-            ctx.lineWidth = t.rowGeometry.stepperStroke
-            ctx.lineCap = 'round'
-            const rowLeft = node.x + row.inset
-            const rowWidth = widgetWidth
-            const minusX = rowLeft + edgeActionCenterX(rowWidth, 'leading', t.rowGeometry)
-            const plusX = rowLeft + edgeActionCenterX(rowWidth, 'trailing', t.rowGeometry)
-            ctx.beginPath()
-            ctx.moveTo(minusX - EDGE_ACTION_GLYPH_HALF, cy)
-            ctx.lineTo(minusX + EDGE_ACTION_GLYPH_HALF, cy)
-            ctx.stroke()
-            ctx.beginPath()
-            ctx.moveTo(plusX - EDGE_ACTION_GLYPH_HALF, cy)
-            ctx.lineTo(plusX + EDGE_ACTION_GLYPH_HALF, cy)
-            ctx.moveTo(plusX, cy - EDGE_ACTION_GLYPH_HALF)
-            ctx.lineTo(plusX, cy + EDGE_ACTION_GLYPH_HALF)
-            ctx.stroke()
-            ctx.strokeStyle = previousStrokeStyle
-            ctx.lineWidth = previousLineWidth
-            ctx.lineCap = previousLineCap
-            ctx.globalAlpha = glyphAlpha
-          }
-          const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
-          if (lensAffordance !== undefined) {
-            const rowWidth = widgetWidth
-            const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row, t.rowGeometry)
-            const x = node.x + row.inset + rect.x
-            const y = rowY + rect.y
-            const affordanceAlpha = ctx.globalAlpha
-            const paint = canvasPaintTokens.lensAffordance
-            if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
-            ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
-            ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-            ctx.lineWidth = paint.stroke
-            ctx.beginPath()
-            ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
-            ctx.fill()
-            ctx.stroke()
-            ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
-            ctx.lineCap = 'round'
-            ctx.beginPath()
-            if (lensAffordance.active) {
-              ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
-              ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
-              ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
-            } else {
-              ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
-              ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
-              ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
-              ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
-            }
-            ctx.stroke()
-            ctx.globalAlpha = affordanceAlpha
-          }
-          ctx.globalAlpha = rowAlpha
+          this.drawFieldRow(ctx, sceneNode, node, row)
         }
       }
     }
@@ -4070,6 +3936,179 @@ export class CanvasRenderer {
     ctx.globalAlpha = 1
   }
 
+  /**
+   * One field row, painted the same on a node and on a subgraph's Inputs
+   * panel. `node` is `sceneNode` with any drag offset applied; `driven` is
+   * set for a panel field wired outside the subgraph, with the value the
+   * wire carries when the document fixes it.
+   */
+  private drawFieldRow(
+    ctx: CanvasRenderingContext2D,
+    sceneNode: SceneNode,
+    node: SceneNode,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+    driven?: { readonly value: Json | undefined },
+  ): void {
+    const t = this.tokens
+    const l = node.layout
+    const rowY = node.y + row.y
+    if (this.openRows[sceneNode.id] === row.valueKey) return
+    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${sceneNode.id}\u0000${row.inputId}`)
+    const companion = driven !== undefined || arriving !== undefined
+      ? arriving === undefined ? undefined : { value: arriving }
+      : this.companions[sceneNode.id]?.[row.valueKey]
+    const widgetWidth = row.width ?? l.width - row.inset * 2
+    // Selector rows ignore boundary bindings for inertness: the bound row
+    // remains the occurrence-local editor.
+    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
+    const connected = driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
+    const rowAlpha = ctx.globalAlpha
+    if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+    if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+    const companionAlpha = ctx.globalAlpha
+    if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
+    const hovered = this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
+      this.overlay.hoveredWidget.valueKey === row.valueKey
+    const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
+    this.paintWidget({
+      ctx,
+      row,
+      // Selector rows (DynamicCombo) carry their value on the row itself;
+      // everything else persists under the row's value key.
+      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
+      ...(drag !== undefined ? { dragging: true } : {}),
+      ...(companion !== undefined ? { companion } : {}),
+      ...(companion !== undefined ? { companionAlpha } : {}),
+      x: node.x + row.inset,
+      y: rowY,
+      width: widgetWidth,
+      rowHeight: t.rowHeight,
+      connected,
+      hovered,
+      tokens: t,
+    })
+    if (hovered) {
+      // A neutral wash preserves the widget's own active/connected
+      // styling without making value selection look like live blue data.
+      const hoverAlpha = ctx.globalAlpha
+      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
+      ctx.globalAlpha = hoverAlpha * canvasPaintTokens.widget.hoverOpacity
+      ctx.fillStyle = t.colors.label
+      ctx.beginPath()
+      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+      ctx.fill()
+      ctx.globalAlpha = hoverAlpha
+    }
+    if (this.rowMarks[sceneNode.id]?.has(row.valueKey) === true) {
+      // Anchored widget-value diagnostic (out-of-range INT, unknown
+      // COMBO option, ...): a red row outline makes the Problems entry
+      // actionable at the widget the user must fix, mirroring (not
+      // replacing) the panel entry - same contract as the pin warn ring.
+      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
+      ctx.strokeStyle = t.colors.error
+      ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
+      ctx.beginPath()
+      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+      ctx.stroke()
+    }
+    if (this.overlay.dropRow?.nodeId === sceneNode.id && this.overlay.dropRow.valueKey === row.valueKey) {
+      // A held wire takes this field when dropped: the drop-target
+      // outline sits inside the chrome, at full strength even on a
+      // wired (dimmed) row.
+      const outlineAlpha = ctx.globalAlpha
+      ctx.globalAlpha = rowAlpha
+      const stroke = canvasPaintTokens.widget.dropStroke
+      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
+      ctx.strokeStyle = t.colors.dropTarget
+      ctx.lineWidth = stroke
+      ctx.beginPath()
+      ctx.roundRect(chrome.x + stroke / 2, chrome.y + stroke / 2, chrome.width - stroke, chrome.height - stroke,
+        Math.max(0, chrome.radius - stroke / 2))
+      ctx.stroke()
+      ctx.globalAlpha = outlineAlpha
+    }
+    const numberView = row.viewId === 'core.number' || row.viewId === 'core.slider'
+    // In-row editing draws a number's mode as an icon before its value instead of the chip.
+    if (row.controllerMode !== undefined && !(numberView && t.widgetEditing === 'in-row')) {
+      const chip = controllerChipRect(widgetWidth, t.rowHeight, t.rowGeometry)
+      const x = node.x + row.inset + chip.x
+      const y = rowY + chip.y
+      const chipAlpha = ctx.globalAlpha
+      if (connected) ctx.globalAlpha = chipAlpha * canvasPaintTokens.widget.connectedControllerOpacity
+      ctx.fillStyle = t.colors.widgetRaised
+      ctx.fillRect(x, y, chip.width, chip.height)
+      ctx.strokeStyle = t.colors.selection
+      ctx.strokeRect(x, y, chip.width, chip.height)
+      paintSeedControllerIcon(ctx, row.controllerMode, x, y, chip.width, t.colors.label)
+      ctx.globalAlpha = chipAlpha
+    }
+    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    if (numeric && row.derivedValue === undefined && !row.ghost) {
+      // Edge glyphs reserve only the small bump zones; the broad center
+      // remains the familiar editor activation target.
+      const cy = rowY + t.rowHeight / 2 + (t.crispEdges ? canvasPaintTokens.widget.pixelCenter : 0)
+      const glyphAlpha = ctx.globalAlpha
+      const previousStrokeStyle: string | CanvasGradient | CanvasPattern = ctx.strokeStyle
+      const previousLineWidth = ctx.lineWidth
+      const previousLineCap = ctx.lineCap
+      if (connected) ctx.globalAlpha = glyphAlpha * canvasPaintTokens.widget.connectedGlyphOpacity
+      ctx.strokeStyle = t.colors.label
+      ctx.lineWidth = t.rowGeometry.stepperStroke
+      ctx.lineCap = 'round'
+      const rowLeft = node.x + row.inset
+      const rowWidth = widgetWidth
+      const minusX = rowLeft + edgeActionCenterX(rowWidth, 'leading', t.rowGeometry)
+      const plusX = rowLeft + edgeActionCenterX(rowWidth, 'trailing', t.rowGeometry)
+      ctx.beginPath()
+      ctx.moveTo(minusX - EDGE_ACTION_GLYPH_HALF, cy)
+      ctx.lineTo(minusX + EDGE_ACTION_GLYPH_HALF, cy)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(plusX - EDGE_ACTION_GLYPH_HALF, cy)
+      ctx.lineTo(plusX + EDGE_ACTION_GLYPH_HALF, cy)
+      ctx.moveTo(plusX, cy - EDGE_ACTION_GLYPH_HALF)
+      ctx.lineTo(plusX, cy + EDGE_ACTION_GLYPH_HALF)
+      ctx.stroke()
+      ctx.strokeStyle = previousStrokeStyle
+      ctx.lineWidth = previousLineWidth
+      ctx.lineCap = previousLineCap
+      ctx.globalAlpha = glyphAlpha
+    }
+    const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
+    if (lensAffordance !== undefined) {
+      const rowWidth = widgetWidth
+      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row, t.rowGeometry)
+      const x = node.x + row.inset + rect.x
+      const y = rowY + rect.y
+      const affordanceAlpha = ctx.globalAlpha
+      const paint = canvasPaintTokens.lensAffordance
+      if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
+      ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
+      ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+      ctx.lineWidth = paint.stroke
+      ctx.beginPath()
+      ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
+      ctx.fill()
+      ctx.stroke()
+      ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      if (lensAffordance.active) {
+        ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
+        ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
+        ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
+      } else {
+        ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
+        ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
+        ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
+        ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
+      }
+      ctx.stroke()
+      ctx.globalAlpha = affordanceAlpha
+    }
+    ctx.globalAlpha = rowAlpha
+  }
+
   private drawRunningGlow(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -4255,11 +4294,25 @@ export class CanvasRenderer {
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
       ctx.fillText(l.title, x + t.padX, y + l.headerHeight / 2, l.width - t.padX * 2)
-
-      // Port rows (boundary layouts only emit 'ports' rows). Ghost rows (the
-      // trailing "expose..." affordance) render dimmed.
+      const subtitleX = x + t.padX + ctx.measureText(l.title).width + paint.subtitleGap
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
+      if (l.subtitle !== undefined) {
+        ctx.fillStyle = t.colors.label
+        ctx.fillText(l.subtitle, subtitleX, y + l.headerHeight / 2, Math.max(0, x + l.width - t.padX - subtitleX))
+      }
+
+      // Pin rows, and on an Inputs panel the field rows of the subgraph
+      // node outside. Ghost rows (the trailing "expose..." affordance)
+      // render dimmed.
+      const face = boundaryFieldNode(bnode)
       for (const row of l.rows) {
+        if (row.kind === 'widget' && face !== undefined) {
+          this.drawFieldRow(ctx, face, { ...face, x, y }, row,
+            bnode.fields!.wired.has(row.valueKey) ? { value: bnode.fields!.wired.get(row.valueKey) } : undefined)
+          ctx.font = `${t.fontSize}px ${t.fontFamily}`
+          ctx.textBaseline = 'middle'
+          continue
+        }
         if (row.kind !== 'ports') continue
         const rowY = y + row.y
         const slot = row.input ?? row.output
