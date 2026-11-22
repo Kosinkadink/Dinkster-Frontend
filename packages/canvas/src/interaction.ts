@@ -42,9 +42,12 @@
 import {
   canonicalTypeIdOf,
   hasKnownLinkDropAnchorType,
+  dragNumericValue,
   isIntegerWidgetValue,
   numericStepConstraints,
+  numericStepPrecision,
   stepNumericValue,
+  type IntegerWidgetValue,
   typesCompatible,
   type CommandInvocation,
   type DynamicMemberId,
@@ -716,6 +719,14 @@ type Gesture =
       moved: boolean
     }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
+  | {
+      readonly kind: 'number-drag'
+      readonly hit: Extract<Hit, { kind: 'widget' }>
+      readonly start: IntegerWidgetValue
+      /** World x of the row's left edge, for a slider whose value follows the pointer. */
+      readonly rowLeft: number
+      value: IntegerWidgetValue
+    }
   | { readonly kind: 'widget-affordance'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
@@ -769,6 +780,9 @@ type Gesture =
       readonly startWY: number
       moved: boolean
     }
+
+const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
+  row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
 
 export class InteractionController {
   private selection = new Set<string>()
@@ -1252,6 +1266,7 @@ export class InteractionController {
     this.lastGesturePoint = undefined
     this.releasePointer(pointerId)
     if (kind === 'idle') return
+    if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
     this.pushOverlay()
@@ -2928,8 +2943,69 @@ export class InteractionController {
     return undefined
   }
 
+  /** The value a number row's stepper or drag starts from: stored, else declared, else intrinsic default. */
+  private numberRowValue(hit: Extract<Hit, { kind: 'widget' }>): IntegerWidgetValue | undefined {
+    const row = hit.row
+    const stored = hit.node.node.values[row.valueKey]
+    const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
+    return row.spec.widgetType === 'INT'
+      ? isIntegerWidgetValue(stored)
+        ? stored
+        : isIntegerWidgetValue(row.spec.default)
+          ? row.spec.default
+          : isIntegerWidgetValue(intrinsic) ? intrinsic : undefined
+      : typeof stored === 'number'
+        ? stored
+        : typeof row.spec.default === 'number'
+          ? row.spec.default
+          : typeof intrinsic === 'number' ? intrinsic : undefined
+  }
+
+  /**
+   * A sideways drag on a closed number row under in-row editing changes its
+   * value; nothing opens. Not on touch, where a drag moves the canvas, and
+   * not on a row a wire drives or that shows a derived value.
+   */
+  private numberDragStart(hit: Extract<Hit, { kind: 'widget' }>, pointerType: string): Extract<Gesture, { kind: 'number-drag' }> | undefined {
+    if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
+    const row = hit.row
+    if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
+    if (row.derivedValue !== undefined || row.ghost) return undefined
+    const scene = this.renderer.getScene()
+    if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
+    const start = this.numberRowValue(hit)
+    if (start === undefined) return undefined
+    return { kind: 'number-drag', hit, start, rowLeft: hit.node.x + row.inset, value: start }
+  }
+
+  /** A slider's value follows the pointer along the row; a plain number moves by the drag distance. */
+  private updateNumberDrag(g: Extract<Gesture, { kind: 'number-drag' }>, sx: number, fast: boolean): void {
+    const row = g.hit.row
+    const constraints = numericStepConstraints({ widgetType: row.spec.widgetType, options: row.spec.options ?? {} })
+    const min = row.spec.options['min']
+    const max = row.spec.options['max']
+    const slider = row.spec.options['display'] === 'slider' && typeof min === 'number' && typeof max === 'number' &&
+      Number.isFinite(min) && Number.isFinite(max) && max > min
+    if (slider) {
+      const worldX = this.renderer.toWorld(sx, this.downY).x
+      const fraction = Math.min(1, Math.max(0, (worldX - g.rowLeft) / Math.max(1, g.hit.width)))
+      const step = constraints.integer ? Number(constraints.step) : constraints.step
+      const raw = min + Math.round((fraction * (max - min)) / step) * step
+      const clamped = Math.min(max, Math.max(min, raw))
+      g.value = constraints.integer
+        ? Math.round(clamped)
+        : Number(clamped.toFixed(numericStepPrecision(step)))
+    } else {
+      g.value = dragNumericValue(g.start, sx - this.downX, constraints, fast)
+    }
+    this.renderer.setRowDrag({ nodeId: g.hit.node.id, valueKey: row.valueKey, value: g.value })
+  }
+
   private controllerChipContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const { row } = hit
+    // In-row editing draws a number's mode as an icon before its value and no
+    // chip, so the whole row opens the field and its side part sets the mode.
+    if (this.renderer.getDesignTokens().widgetEditing === 'in-row' && isNumberRow(row)) return false
     return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
   }
 
@@ -3202,6 +3278,18 @@ export class InteractionController {
         return
       }
       case 'widget':
+        if (passed && !g.moved) {
+          g.moved = true
+          const drag = this.numberDragStart(g.hit, e.pointerType)
+          if (drag !== undefined) {
+            this.gesture = drag
+            this.updateNumberDrag(drag, sx, e.shiftKey)
+          }
+        }
+        return
+      case 'number-drag':
+        this.updateNumberDrag(g, sx, e.shiftKey)
+        return
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
@@ -3381,25 +3469,13 @@ export class InteractionController {
             this.host.onControllerActivate?.(g.hit, clientX, clientY)
             return
           }
-          const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+          const numeric = isNumberRow(row)
           const stepperZone = this.renderer.getDesignTokens().rowGeometry.stepperZone
           const direction = g.hit.localX <= stepperZone
             ? -1
             : g.hit.localX >= g.hit.width - stepperZone ? 1 : 0
           if (numeric && row.derivedValue === undefined && !row.ghost && direction !== 0) {
-            const stored = g.hit.node.node.values[row.valueKey]
-            const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
-            const current = row.spec.widgetType === 'INT'
-              ? isIntegerWidgetValue(stored)
-                ? stored
-                : isIntegerWidgetValue(row.spec.default)
-                  ? row.spec.default
-                  : isIntegerWidgetValue(intrinsic) ? intrinsic : undefined
-              : typeof stored === 'number'
-                ? stored
-                : typeof row.spec.default === 'number'
-                  ? row.spec.default
-                  : typeof intrinsic === 'number' ? intrinsic : undefined
+            const current = this.numberRowValue(g.hit)
             if (current !== undefined) {
               // Shared with controller advancement (core numeric-step): the
               // stepper and queue-time advancement must not drift.
@@ -3423,6 +3499,23 @@ export class InteractionController {
           this.host.onWidgetActivate?.(g.hit, clientX, clientY)
         }
         return
+      case 'number-drag': {
+        this.renderer.setRowDrag(undefined)
+        this.pushOverlay()
+        // A drag that ends where it began stores nothing and leaves no undo step.
+        if (String(g.value) === String(g.start)) return
+        const row = g.hit.row
+        this.host.dispatch({
+          command: 'node.setValue',
+          params: {
+            graphId: row.familyOwner?.graphId ?? scene.graphId,
+            nodeId: row.familyOwner?.nodeId ?? g.hit.node.id,
+            inputId: row.familyOwner?.valueKey ?? row.valueKey,
+            value: g.value,
+          },
+        })
+        return
+      }
       case 'widget-affordance':
         this.pushOverlay()
         const affordance = this.renderer.getLensCapabilities().widgetRowAffordance?.(g.hit.node, g.hit.row)

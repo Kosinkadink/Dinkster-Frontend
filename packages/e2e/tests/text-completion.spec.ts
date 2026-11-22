@@ -189,11 +189,11 @@ test('ordinary Text uses a compact editor and switches views only from its conte
   const singlePoint = await textRow(page)
   await page.mouse.click(singlePoint.x, singlePoint.y)
   const compactEditor = page.getByTestId('widget-editor')
-  await expect(compactEditor).toHaveAttribute('data-editor-surface', 'popover')
+  await expect(compactEditor).toHaveAttribute('data-editor-surface', 'in-row')
   await expect(compactEditor.locator('input')).toBeVisible()
   await expect(compactEditor.locator('textarea')).toHaveCount(0)
   await page.screenshot({
-    path: `${TEXT_WIDGET_PROOF_DIR}/02-single-line-compact-popover.png`,
+    path: `${TEXT_WIDGET_PROOF_DIR}/02-single-line-in-row.png`,
     animations: 'disabled',
   })
   await page.keyboard.press('Escape')
