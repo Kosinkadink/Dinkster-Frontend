@@ -43,7 +43,7 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
         const compact =
           width -
             (platform === 'win32' ? 160 : platform === 'darwin' ? 104 : 24) <
-          959
+          945
         await page.setViewportSize({ width, height: 300 })
         await page.evaluate(
           ({ platform, theme }) =>

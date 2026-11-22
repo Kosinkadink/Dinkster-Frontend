@@ -954,7 +954,7 @@ optional rightmost account slot separate from actions. It has a fixed 44px
 height and 32px controls. Wordmarks and avatars retain their drawn dimensions;
 the site account trigger is a borderless, unpadded 32px circle. The 2px focus
 outline and 2px offset fit inside the bar's 6px vertical clearance.
-Below the fixed 959px available-content `toolbarExpandedRowWidth`, a container
+Below the fixed 945px available-content `toolbarExpandedRowWidth`, a container
 query compacts `ProductWindowAction` labels to icons. This boundary holds across
 execution, account and project-name changes. In the expanded row Search takes
 spare grid width and gives it back first. Project labels compose
@@ -977,7 +977,12 @@ the accessible name and title; rich content must be non-interactive. Compact
 mode clips that content and shows the action's icon without changing activation
 or menu ownership. Toolbar wordmarks reserve their shared token width and height
 before the image loads. `ProductWordmark` defaults to dark artwork when no theme
-is supplied. Pending actions reuse the shared disabled/focus and spinner behavior.
+is supplied. Pending toolbar actions retain their exact non-pending width and
+shared disabled/focus behavior. The spinner replaces the compact icon, the
+leading icon in an expanded rich label, or the leading symbol in a wordmark.
+For a text-only expanded label, it replaces the drawn text at the center while
+the label continues to supply the accessible name. No other control moves when
+an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
 accessor. It switches below the fixed 460px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
