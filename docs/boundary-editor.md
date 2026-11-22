@@ -46,6 +46,51 @@ acceptance clears the draft. Navigating away clears transient drafts and
 notices without cancelling a submitted command. Its later completion cannot
 clear a newer draft or report a refusal in another view.
 
+## Fields on the canvas Inputs panel
+
+Inside an open subgraph, the Inputs panel drawn on the canvas shows each
+input that the subgraph node outside shows as a field as the same field, in
+the same order, with its pin and wire to the inner node kept. An input that
+is only a pin outside stays a name and a pin. The Outputs panel is unchanged.
+
+The fields carry the values of the subgraph node the editor came in through,
+and the title says whose they are ("Inputs of Soften"). Editing a field
+there is the same command as editing it on that node outside and is one undo
+step; two subgraph nodes of one definition keep their own values. In a
+subgraph inside a subgraph the same rule applies one level down, and an edit
+is written to whichever outer node owns the value. Entered with no node, the
+panel shows and edits the defaults a new subgraph node starts with (the inner
+node's stored value), and the quieter text after the title says "defaults".
+
+The inner field the row is wired to shows the same value dimmed, as an
+arriving value. A field that the entered node receives by a wire outside the
+subgraph is dimmed and not editable, and shows the arriving value when the
+document fixes it. A frozen run view shows the values that run used and
+edits nothing.
+
+A field takes the view chosen for it on the subgraph node (a slider stays a
+slider); the view is chosen there, so a right-click on a panel field opens
+the canvas menu. Tab, Enter and Escape move through the panel's fields as
+through a node's, skipping wired ones, and the canvas keyboard list names
+each as a row of Inputs. A choice whose options are edited on the node
+itself (editable choices, family members) stays a name and a pin. A field
+row is renamed in the Boundary panel, not by double-clicking it. A text box
+has the height the subgraph node gives it and is resized there.
+
+A dropdown that leads options is a field too, whichever binding forwards
+it: forwarded alone it is the dropdown, and forwarded with its options
+(a `dynamicCombo` binding) it brings the fields of the chosen option,
+which change when the choice does. Both are the rows of the node that owns
+the choice, edited there; the input's pin sits on the dropdown. An option's
+field that node has not set shows the value the inner node receives, which
+is the value a run uses. The inner node's own dropdown stays its editor of
+the same choice.
+
+A field whose input reaches the inner node through a reroute is the same
+field, and the inner field shows its value through the reroute. A
+forwarded group, a forwarded slot and a field inside a group member stay a
+name and a pin.
+
 ## Subgraph field values
 
 A subgraph node displays the value a run sends: a value set on the instance

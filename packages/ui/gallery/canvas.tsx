@@ -176,7 +176,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   types: 'The color of each data type on its pins and wires.',
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
-  boundary: 'The input and output panels at the edges of an open subgraph.',
+  boundary:
+    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',

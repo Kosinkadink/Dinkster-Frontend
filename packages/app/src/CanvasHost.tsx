@@ -22,6 +22,7 @@ import {
   defaultTokens,
   hitTest,
   InteractionController,
+  boundaryFieldNode,
   nodesInGroup,
   partialExecutionButtons,
   scenesEqual,
@@ -3323,7 +3324,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ],
           })
         }
-        if (hit.kind === 'widget') {
+        // A field on a subgraph's Inputs panel opens the canvas menu: its view
+        // and editors are chosen on the subgraph node itself.
+        if (hit.kind === 'widget' && hit.bnode === undefined) {
           const address = widgetRepresentationAddress(hit, currentGraphId(tab))
           const representationGroup = widgetRepresentationMenuGroup({
             ...address,
@@ -4183,7 +4186,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // contract directly, so registry churn cannot invalidate it.
       const documentUnchanged = ed !== undefined && tabDocumentUnchanged(ed.tab, editorDocumentRevision, tab) &&
         editorExtensionsGeneration === extensionsGeneration
-      if (widgetEditorAnchorAlive(ed, scene.nodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged, scene.valueSources) &&
+      // A subgraph's Inputs panel carries field rows too, edited like a node's.
+      const fieldNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((bnode) => boundaryFieldNode(bnode) ?? [])]
+      if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged, scene.valueSources) &&
         inRowValueKept(ed, tab.store.doc)) {
         // A workspace promotion replaces the Tab wrapper. Rebind in place so
         // the keyed editor keeps its draft and commits to the live store.
@@ -4204,7 +4209,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // The focused row follows the rebuilt scene, and goes when its row does.
       const focus = untrack(rowFocus)
       if (focus !== undefined) {
-        const node = scene.nodes.find((item) => item.id === focus.nodeId)
+        const node = fieldNodes.find((item) => item.id === focus.nodeId)
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
           ? undefined
@@ -4228,7 +4233,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setLinkDoubleClickMenu(undefined) // its link id/endpoints are scene-owned too
       const openController = untrack(controllerMenu)
       if (openController !== undefined) {
-        const anchorAlive = openController.tab.id === tab.id && scene.nodes.some((node) =>
+        const anchorAlive = openController.tab.id === tab.id && fieldNodes.some((node) =>
           node.layout.rows.some((row) => row.kind === 'widget' && row.controllerMode !== undefined &&
             (row.familyOwner?.graphId ?? graphId) === openController.graphId &&
             (row.familyOwner?.nodeId ?? node.id) === openController.nodeId &&
@@ -5056,13 +5061,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return !(schema?.items.some((item) => item.kind !== 'section' && item.outputDescriptors?.input === row.valueKey) ?? false)
     }
 
+    // A node by id, or the Inputs panel's field face, whose rows take the
+    // keyboard like a node's; `wired` holds the panel rows wired outside.
+    const rowNodeOf = (id: string): { node: SceneNode; wired?: Readonly<Record<string, unknown>> } | undefined => {
+      const scene = renderer.getScene()
+      const node = scene.nodes.find((item) => item.id === id)
+      if (node !== undefined) return { node }
+      for (const bnode of scene.boundaryNodes) {
+        const face = boundaryFieldNode(bnode)
+        if (face?.id === id) return { node: face, wired: bnode.fields!.wired }
+      }
+      return undefined
+    }
+
     // Tab never leaves the node: past its last stop it goes to the first. A
     // row that a wire drives is skipped, and a closed section's rows are not
     // laid out.
     editsRowsInPlace = () => renderer.getDesignTokens().widgetEditing === 'in-row'
     moveEditorRow = (from, direction) => {
       const tab = activeTab()
-      const node = renderer.getScene().nodes.find((item) => item.id === from.nodeId)
+      const found = rowNodeOf(from.nodeId)
+      const node = found?.node
       // Zoomed out to the overview, rows cannot be clicked and Tab does nothing.
       if (tab === undefined || tab.execution || node === undefined || renderer.getDetailLevel() === 'overview') return
       // Every row is a stop. A field or text edited in place opens; any other
@@ -5071,7 +5090,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow =>
-        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port))
+        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && !Object.hasOwn(found?.wired ?? {}, row.valueKey))
       const index = stops.findIndex((row) => row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!
@@ -5124,7 +5143,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     focusEditorRow = (from) => {
       const tab = activeTab()
-      const node = renderer.getScene().nodes.find((item) => item.id === from.nodeId)
+      const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
       if (tab === undefined || node === undefined || row?.kind !== 'widget' || !editsRowsInPlace()) {
         setRowFocus(undefined)
@@ -5152,7 +5171,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       } else if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         event.stopPropagation()
-        const node = renderer.getScene().nodes.find((item) => item.id === focus.nodeId)
+        const node = rowNodeOf(focus.nodeId)?.node
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
         if (row.viewId !== 'core.toggle') setRowFocus(undefined)

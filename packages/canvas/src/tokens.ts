@@ -249,6 +249,8 @@ export const canvasPaintTokens = {
     dropOutset: 2,
     dropStroke: 2,
     labelPinGap: canvasSemanticTokens.space[4],
+    /** Space between the panel title and the quieter text naming whose values its fields carry. */
+    subtitleGap: canvasSemanticTokens.space[4],
   },
   valueSource: {
     heightPadding: 8,
