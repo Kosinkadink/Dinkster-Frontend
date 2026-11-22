@@ -2334,7 +2334,9 @@ export function App(props: {
   const closeZone = (zone: Extract<DockZoneId, 'left' | 'bottom'>): void => {
     const activeId = zoneView(zone).activeId
     app.dock.setOpen(zone, false)
-    if (activeId !== undefined) focusPanelToggle(activeId)
+    if (zone === 'bottom') {
+      queueMicrotask(() => shellEl.querySelector<HTMLButtonElement>('[data-testid="bottom-panel-toggle"]')?.focus())
+    } else if (activeId !== undefined) focusPanelToggle(activeId)
   }
   const closeRail = (): void => {
     app.dock.setOpen('right', false)
