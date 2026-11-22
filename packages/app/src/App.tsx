@@ -1890,7 +1890,7 @@ export function App(props: {
         const section = Number.parseInt(element.dataset['section'] ?? '', 10)
         const tabStrip = element.querySelector<HTMLElement>('.product-tablist')
         const body = element.querySelector<HTMLElement>('.product-tabpanel:not([hidden])')
-        const overflowButton = element.querySelector<HTMLElement>('[data-testid="dock-zone-overflow-button"]')
+        const overflowButton = element.querySelector<HTMLElement>('[data-panel-title], [data-testid="dock-zone-overflow-button"]')
         if (Number.isNaN(section) || tabStrip === null || body === null) continue
         sections.push({
           section,
@@ -1923,7 +1923,7 @@ export function App(props: {
   }
   const beginPanelDrag = (down: PointerEvent): void => {
     const target = down.target instanceof Element
-      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id]')
+      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id], .dock-zone [data-panel-title][data-tab-id]')
       : null
     if (target === null || down.button !== 0) return
     const pointerId = down.pointerId
@@ -2078,8 +2078,9 @@ export function App(props: {
               })
         if (moved && destinationZone !== undefined) {
           queueMicrotask(() => {
-            bodyElement.querySelector<HTMLButtonElement>(
-              `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
+            const handle = destinationZone === 'left' && activityBarVisible() ? '[data-panel-title]' : '.product-tab'
+            bodyElement.querySelector<HTMLElement>(
+              `.dock-zone[data-zone="${destinationZone}"] ${handle}[data-tab-id="${CSS.escape(panelId)}"]`,
             )?.focus({ preventScroll: true })
           })
         }
@@ -2801,6 +2802,7 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
               split={zoneSplit('left')}

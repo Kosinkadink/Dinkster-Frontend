@@ -54,6 +54,23 @@ an environment.
 +--------------------------------------------------------------+
 ```
 
+The window uses a dark frame behind the top bar, left bar and 22 px status
+bar. Filled dock sections and canvas editor groups have 8 px corners, with
+6 px frame gaps between them. There are no region outlines or divider lines.
+The gaps are pointer- and keyboard-operable splitters; their resize cursor
+and hover/focus highlight expose the handle. Closing a region removes its
+gap. Panels end directly at the status bar without a gap above it.
+
+Selected region and minimap switches use cyan icons without a box or fill.
+The selected left bar item uses the panel fill and a 3 px cyan outer mark;
+its title is one line with an ellipsis and a full-title tooltip. Dock tabs
+use primary text and a 2 px underline without a box. Each split editor group
+is rounded; its selected tab uses primary text only in the focused group,
+secondary text otherwise. Search keeps its outline with no fill.
+
+The minimap and its control bar share one width. The controls are minimap,
+view options, minus, zoom level, plus, and fit to view, in that order.
+
 The tab strip belongs to the center workspace column. It starts after both
 the icon sidebar and an open left dock, so those left-side regions own their
 full height and tabs never cover them.
@@ -118,8 +135,8 @@ tabbed panel host with a single open/closed switch. The top-right controls
 `left-panel-toggle`, `bottom-panel-toggle`, and `rail-toggle` explicitly
 toggle the three regions in that visual order after Customize Layout and
 expose their current state through `aria-pressed`. Their custom panel icons
-outline the whole shell and fill only the active region in white; active state
-does not use a blue button background. Opening a closed exclusive region selects its first
+outline the whole shell and fill only the active region; active switches
+use cyan without a button background. Opening a closed exclusive region selects its first
 registered panel (Library on the left, Activity on the bottom). Existing
 panel-specific sidebar and status-bar toggles continue to select or close
 their named panel through the same `ShellLayout` signals.
@@ -326,9 +343,15 @@ status bar even when the user's layout setting hides it.
 
 ## The left dock
 
-A tabbed dock zone between the icon sidebar and the canvas. Multiple panels
-remain available in its tab row while exactly one body per section is
-visible (see "Dock zone sections"). In wide
+A dock zone between the icon sidebar and the canvas. Each section shows
+its active panel's title and keeps inactive bodies mounted. The title is
+keyboard-focusable and supports the same drag and placement context menu as
+a panel tab. The first section keeps the zone close button. Panels are
+selected through the left bar, including pack panels and panels moved here;
+a panel without an icon gets a default panel icon. When the left bar is
+hidden, each section restores its tab row so every panel stays reachable.
+The bottom zone has no entries in the left bar; its top-bar switch opens it
+and its own tabs choose a panel. In wide
 mode, the dock shares the flex row with the canvas, so opening it shrinks the
 canvas rather than covering it. In narrow mode it uses the contained sheet
 behavior described above.
@@ -348,8 +371,8 @@ Panels:
   retaining its own live connection object for backends present in both tabs;
   event application does not write the list back to storage.
 
-`DockZoneHost` owns the tab row, active-panel actions, close button, and scroll
-body. A named separator on the right edge resizes the zone from 280-640 px.
+`DockZoneHost` owns the title or tab row, active-panel actions, close button,
+and scroll body. A named separator on the right edge resizes the zone from 280-640 px.
 Arrow Left/Right changes the size by 16 px, while Home/End selects the
 minimum/maximum. Pointer resizing previews continuously and commits once on
 release. Test IDs: `dock-panel` (`data-active-panel` names the visible body),

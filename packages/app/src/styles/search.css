@@ -10,7 +10,7 @@
   padding: var(--dinkster-space-4) var(--dinkster-space-12);
   overflow: hidden;
   color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-inset);
+  background: transparent;
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   box-shadow: none;
@@ -31,7 +31,7 @@
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
 }
-.search-trigger:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); border-color: var(--dinkster-border-strong); }
+.search-trigger:hover { color: var(--dinkster-text-primary); border-color: var(--dinkster-border-strong); }
 .search-trigger:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
 
 .search-dialog-host {
