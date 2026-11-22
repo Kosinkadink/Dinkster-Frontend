@@ -1,6 +1,8 @@
 import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
+test.use({ seedWorkflows: false })
+
 test('removed pack parts open with anchored upgrade rows and preserve their stored values', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
