@@ -389,7 +389,7 @@ stale entries and lower ceilings. Write mode never permits count increases.
 `packages/app/src/styles.css` is the ordered entrypoint for the surface files
 in `styles/`. Keep imports in cascade order: base and product controls, search
 and modals, canvas and widget surfaces, panels and library, shell and execution
-log, widget assets and App view, collaboration and boot, then image editor.
+log, widget assets and App view, then collaboration, boot and shared editors.
 Keep each surface's responsive and reduced-motion rules beside its rules;
 do not regroup selectors across files if that changes override order.
 The `cssLiteral` entry for `styles.css` aggregates the entrypoint and every
@@ -420,19 +420,6 @@ after dismissal; Escape, Tab and outside clicks dismiss without cancelling the
 submitted command. Synchronous select callers keep their immediate behavior.
 Option IDs preserve pointer targets across inventory refreshes and reordering;
 labels, values and disabled state follow the current inventory.
-
-The compositor editor uses the same buttons, number inputs, checkboxes,
-sliders, text input and select controls as the Image document workspace.
-Layer selection and flips expose pressed state with the primary variant.
-`ProductColorInput` keeps the native color picker and forwards native input
-props while using shared input styling; the compositor retains lowercase
-color storage. Recipe edits, preview geometry and apply/refusal rules remain
-owned by the editor, not by the controls.
-
-The compositor uses ProductEmptyState when no target is open or when the
-selected run has no compositor sources. The latter keeps the explanation that
-the layer stack stays in the graph; Cancel remains enabled and Apply stays
-disabled until runtime data supplies a configurable recipe.
 
 The GLSL editor uses ProductEmptyState for missing targets, absent runtime
 inputs and unavailable browser previews. Preview refusals stay neutral while
@@ -751,21 +738,26 @@ family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
 Core widget rows compares selected, empty and long values for the core kinds.
-The default `widgetRowLook: 'inset-raised'` keeps direct values in inset fields
-and gives color and asset openers raised faces, kind icons and an opening
-chevron. Their real swatches and value summaries are preserved. Before shows
-previous all-inset paint on the same fixture; that comparison does not change
-other pages. Number paint is unchanged; this
-is not a proposed number editor or approval of its appearance.
-
-Collection widget rows proposal compares the current inset collection rows with
-raised multi-choice, list, palette and curve openers. Only that gallery page
-selects `widgetRowLook: 'inset-raised-collections'`. It uses selected, empty or
-minimal, and long or varied document values: selection counts, literal list
-values, palette swatches and counts, and sampled curves with point counts and
-interpolation. Curves require at least one point, so the minimal fixture is a
-flat one-point curve. Production defaults, other pages and editors do not use
-the proposal. Before and After draw both paints from the same document.
+The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
+color included, in an inset field, and raises every row that opens an editor:
+asset, recording, camera, 3D model, crop, compare, save target, video edit,
+list, colors, curve, camera angle and resolution preview. A raised row has a
+lucide icon for its kind and an opening chevron; an output mount is drawn as a
+choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
+compositor's layers) opens nothing, so it is drawn inset with its summary as
+plain text and no hover wash; its icon stays listed for when an editor
+returns. A color's 10 px square sits directly before its code, over a
+checker pattern when the color has opacity. A list shows as many values as fit,
+separated by a comma, then `+N`; colors show as many squares as fit, then `+N`.
+A curve is drawn on its row's second line from the row's start, clear of the
+row's edges. An empty row says what it asks for ("Choose image", "Choose
+model", "Record audio", "Capture frame", "No edits", "Default output", "Empty",
+"No colors"); an empty number shows its declared `placeholder` or nothing. A
+value passed down a wire shows the same text, square or squares its own row
+would. The widget pages (Widget kinds, Core widget rows, Collection widget rows,
+Rows that open an editor, and the link-driven, offered, propagated and state
+pages) draw `widgetRowLook: 'inset-raised'` as Before, with views wrapped to
+draw their earlier text, and the default as After.
 
 Widget output pins shows a field's output pin (the widget tap of
 `docs/architecture.md` section 5c), painted from real documents: a number row
@@ -981,6 +973,19 @@ installer after document load, using its existing isolated renderer boundary.
 The bundle has an embedded symbol, no network imports, no Node/Electron API and
 no preload bridge. Content styles and the page's CSP remain host-owned. Both
 files are hashed by the site manifest and required by the wheel packager.
+
+`ProductWindowToolbar` composes the same native geometry with brand, search and
+actions slots, an optional service label and QA/development identity. It has a
+fixed 56px height. At the standard 768px available-content boundary, a container
+query compacts `ProductWindowAction` labels to icons and moves service/identity
+labels into a metadata row inside the bar. Native reservations therefore reduce
+available space before the breakpoint is evaluated. Actions retain their full
+accessible name and title; pending actions reuse the shared disabled/focus and
+spinner behavior. The gallery's Window toolbar page demonstrates production,
+QA/custom services, all three platforms, both app themes and idle/running/pending
+states. Supply a brand menu with an icon and the fixed QA/custom service labels;
+arbitrary environment names are outside this toolbar contract. These are shared
+patterns, not app adoption or OS-input acceptance.
 
 `ProductAbout` renders the bundled theme-specific wordmark, product title and
 version with shared typography and spacing. Its `theme` follows the host

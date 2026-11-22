@@ -59,6 +59,26 @@ import List from 'lucide/dist/esm/icons/list.mjs'
 import ListChecks from 'lucide/dist/esm/icons/list-checks.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Spline from 'lucide/dist/esm/icons/spline.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Mic from 'lucide/dist/esm/icons/mic.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Camera from 'lucide/dist/esm/icons/camera.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Box from 'lucide/dist/esm/icons/box.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Crop from 'lucide/dist/esm/icons/crop.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Columns2 from 'lucide/dist/esm/icons/columns-2.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import FolderOutput from 'lucide/dist/esm/icons/folder-output.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Film from 'lucide/dist/esm/icons/film.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Rotate3d from 'lucide/dist/esm/icons/rotate-3d.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Layers from 'lucide/dist/esm/icons/layers.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Ruler from 'lucide/dist/esm/icons/ruler.mjs'
 
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import CircleX from 'lucide/dist/esm/icons/circle-x.mjs'
@@ -111,6 +131,16 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   list: List,
   'list-checks': ListChecks,
   spline: Spline,
+  mic: Mic,
+  camera: Camera,
+  box: Box,
+  crop: Crop,
+  'columns-2': Columns2,
+  'folder-output': FolderOutput,
+  film: Film,
+  'rotate-3d': Rotate3d,
+  layers: Layers,
+  ruler: Ruler,
   'volume-x': VolumeX,
   ban: Ban,
   play: Play,

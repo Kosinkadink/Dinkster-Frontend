@@ -47,7 +47,7 @@ import {
   CanvasSideModes,
   CanvasSidePart,
   ProductSection,
-  canvasSidePlace,
+  canvasSideLayout,
 } from '../src/index.js'
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
@@ -63,6 +63,11 @@ export interface RowExample {
   /** The row the keyboard is on while nothing is open, on the keyboard node. */
   readonly focus?: string
   readonly drag?: { readonly valueKey: string; readonly value: Json }
+  /**
+   * The canvas ends where the example does, so the side part keeps within
+   * it. Otherwise the example grows to show the whole side part.
+   */
+  readonly edge?: boolean
 }
 
 export const NODE_WIDTH = 280
@@ -217,6 +222,19 @@ const groups: readonly {
     ],
   },
   {
+    title: 'Near the canvas edge',
+    examples: [
+      {
+        ...besideRight(
+          'number-bottom-edge',
+          'Clicked denoise with the canvas ending just under the node: the side part slides up until it ends at the bottom edge, still touching the row. The canvas does not move.',
+          'denoise',
+        ),
+        edge: true,
+      },
+    ],
+  },
+  {
     title: 'The keyboard on a row',
     examples: [
       focusedRight(
@@ -287,8 +305,10 @@ export function RowEditingExample(props: {
   const [fieldInsetY, setFieldInsetY] = createSignal(0)
   const [proposal, setProposal] = createSignal(false)
   let stage!: HTMLDivElement
-  const [sideWidth, setSideWidth] = createSignal(SIDE_ROOM - MARGIN)
-  const [sideHeight, setSideHeight] = createSignal(0)
+  const [sideSize, setSideSize] = createSignal({
+    width: SIDE_ROOM - MARGIN,
+    height: 0,
+  })
   createEffect(() => {
     const theme = props.theme
     const example = props.example
@@ -453,48 +473,41 @@ export function RowEditingExample(props: {
     // pixel on every side, so its outline sits half in the gap between rows.
     const grow = proposal() ? 1 : 0
     const width = (row.width ?? node.layout.width - row.inset * 2) + grow * 2
+    // The field keeps its normal size when zoomed out, as on the canvas.
+    const zoom = Math.max(1, scale)
     const screen = {
       x: (node.x + row.inset) * scale - grow,
       y: (node.y + row.y + fieldInsetY()) * scale - grow,
-      width: width * scale,
-      height: (row.height - fieldInsetY() * 2) * scale + grow * 2,
+      width: width * zoom,
+      height: (row.height - fieldInsetY() * 2) * zoom + grow * 2,
     }
     const bounds = {
       x: 0,
       y: 0,
       width: canvas.clientWidth,
-      height: canvas.clientHeight,
+      height: props.example.edge === true ? canvas.clientHeight : Infinity,
     }
-    const place = canvasSidePlace(screen, bounds, sideWidth(), scale)
-    const value = node.node.values[row.valueKey]
-    const nodeBottom = (node.y + node.layout.height) * scale
-    return {
-      row,
-      numeric,
+    const layout = canvasSideLayout(
       screen,
-      place,
-      width,
-      value,
-      help,
-      facts,
-      sideTop: nodeBottom - screen.y + MARGIN / 2,
-    }
+      bounds,
+      sideSize(),
+      scale,
+      ((node.y + node.layout.height) * scale - screen.y) / zoom + MARGIN / 2,
+      (screen.y - node.y * scale) / zoom + MARGIN / 2,
+    )
+    const value = node.node.values[row.valueKey]
+    return { row, numeric, screen, width, value, help, facts, ...layout }
   }
   createEffect(() => {
     const current = open()
     if (!current || !field) return
     field.style.left = `${current.screen.x}px`
     field.style.top = `${current.screen.y}px`
-    const fieldHeight =
-      (current.row.height - fieldInsetY() * 2) *
-        Math.max(1, props.example.scale) +
-      (proposal() ? 2 : 0)
-    const sideBottom =
-      current.place === 'below-node'
-        ? current.sideTop + sideHeight()
-        : current.place === 'below-field'
-          ? fieldHeight + sideHeight()
-          : Math.max(fieldHeight, sideHeight())
+    const zoom = Math.max(1, props.example.scale)
+    const sideBottom = Math.max(
+      current.screen.height,
+      (current.sideTop + (current.sideMaxHeight ?? sideSize().height)) * zoom,
+    )
     stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN)}px`
   })
   return (
@@ -514,10 +527,10 @@ export function RowEditingExample(props: {
               rowWidth={current().width}
               place={current().place}
               sideTop={current().sideTop}
-              onSideSize={(size) => {
-                setSideWidth(size.width)
-                setSideHeight(size.height)
-              }}
+              {...(current().sideMaxHeight !== undefined
+                ? { sideMaxHeight: current().sideMaxHeight! }
+                : {})}
+              onSideSize={setSideSize}
               {...(side() !== undefined ? { side: side()! } : {})}
             />
           )}
@@ -547,10 +560,10 @@ export function RowEditingExample(props: {
                 : {})}
               place={current().place}
               sideTop={current().sideTop}
-              onSideSize={(size) => {
-                setSideWidth(size.width)
-                setSideHeight(size.height)
-              }}
+              {...(current().sideMaxHeight !== undefined
+                ? { sideMaxHeight: current().sideMaxHeight! }
+                : {})}
+              onSideSize={setSideSize}
               {...(side() !== undefined ? { side: side()! } : {})}
             />
           )}

@@ -378,8 +378,14 @@ for (const theme of ['dark', 'light'] as const) {
             'titles-content',
             'types',
             'boundary-names',
+            'widgets',
             'core-rows',
             'collection-rows',
+            'editor-rows',
+            'widget-driven',
+            'widget-offered',
+            'widget-companions',
+            'widget-states',
           ].includes(id)
         ) {
           await expect(cards).toHaveCount((await comparisons.count()) * 2)

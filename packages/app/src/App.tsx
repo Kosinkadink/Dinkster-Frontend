@@ -33,11 +33,9 @@ import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
-import { ImageEditor } from './ImageEditor.js'
-import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
@@ -354,14 +352,6 @@ export function App(props: {
   const [managedLayout, setManagedLayout] = createSolidSignal<DesktopWindowLayout>(
     props.desktopWindow?.layout ?? { windows: [browserWindowContext] },
   )
-  const [imageDocumentsOpen, setImageDocumentsOpen] = createSolidSignal(false)
-  const [imageDocumentsMounted, setImageDocumentsMounted] = createSolidSignal(false)
-  const [imageDocumentsBusy, setImageDocumentsBusy] = createSolidSignal(false)
-  const imageDocumentsActive = (): boolean => managedContext().kind === 'primary' && imageDocumentsOpen()
-  const setImageDocumentsVisible = (visible: boolean): void => {
-    if (visible) setImageDocumentsMounted(true)
-    setImageDocumentsOpen(visible)
-  }
   onMount(() => {
     const desktop = desktopBridge()
     if (desktop) {
@@ -1716,12 +1706,6 @@ export function App(props: {
       onCleanup(app.frontendDoors.editorBinding(id, binding))
     }
   })
-  const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
-    roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
-    get title() { return message('shell.editor.image') },
-    component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
-  })
-  onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
     roles: builtinEditorRoles(CURVE_EDITOR_KIND),
     get title() { return message('shell.editor.curve') },
@@ -1747,7 +1731,7 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined && !imageDocumentsActive())
+    dispatchAppCommandKey(app, e, activeTab() !== undefined)
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
@@ -2294,7 +2278,7 @@ export function App(props: {
     const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
     const host: EditorHostContext = {
       tabId: () => group().activeTabId,
-      focused: () => paneFocused() && !imageDocumentsActive(),
+      focused: () => paneFocused(),
     }
     /**
      * This pane's editor descriptor. No tab defaults to the graph editor so
@@ -2681,16 +2665,6 @@ export function App(props: {
             <Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
           </ProductButton>
           <Show when={managedContext().kind === 'primary'}>
-            <ProductButton variant="ghost" size="compact"
-              class="settings-button"
-              data-testid="image-documents-button"
-              data-tooltip-label={message('shell.imageDocuments.title')}
-              data-tooltip-detail={message('shell.imageDocuments.description')}
-              aria-label={message('shell.imageDocuments.title')}
-              aria-pressed={imageDocumentsOpen()}
-              disabled={imageDocumentsBusy()}
-              onClick={() => setImageDocumentsVisible(!imageDocumentsOpen())}
-            ><Icon icon={Images} /></ProductButton>
             <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></ProductButton>
           </Show>
           <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></ProductButton>
@@ -2851,7 +2825,6 @@ export function App(props: {
         <main class="canvas-pane">
           <div
             class="editor-split-region"
-            classList={{ 'image-document-hidden': imageDocumentsActive() }}
             data-testid="editor-split-region"
             ref={setRegionElement}
           >
@@ -2889,7 +2862,6 @@ export function App(props: {
           <Show when={bottomOpen()}>
             <section
               class="bottom-panel"
-              classList={{ 'image-document-hidden': imageDocumentsActive() }}
               data-testid="bottom-panel"
               data-active-panel={bottomActiveId()}
               style={{ height: `${bottomHeight()}px` }}
@@ -2916,14 +2888,6 @@ export function App(props: {
                 onFloat={floatPanel}
               />
             </section>
-          </Show>
-          <Show when={managedContext().kind === 'primary' && imageDocumentsMounted()}>
-            <ImageDocumentWorkspace
-              active={imageDocumentsActive()}
-              app={app}
-              onBusyChange={setImageDocumentsBusy}
-              onClose={() => setImageDocumentsVisible(false)}
-            />
           </Show>
         </main>
 
