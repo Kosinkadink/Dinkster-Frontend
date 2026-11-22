@@ -33,16 +33,14 @@ import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
-import { ImageEditor } from './ImageEditor.js'
-import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductErrorBanner } from '@dinkster/ui'
+import { ProductErrorBanner, ProductToast } from '@dinkster/ui'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -79,6 +77,7 @@ import { useAppMessage } from './locale.js'
 import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
 import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
 import { NodeInstallPrompt } from './NodeInstallPrompt.js'
+import { ProjectNeedsPrompt } from './ProjectNeedsPrompt.js'
 import { HostUiProviderHost } from './host-ui.js'
 import {
   activePanelIndicator,
@@ -353,14 +352,6 @@ export function App(props: {
   const [managedLayout, setManagedLayout] = createSolidSignal<DesktopWindowLayout>(
     props.desktopWindow?.layout ?? { windows: [browserWindowContext] },
   )
-  const [imageDocumentsOpen, setImageDocumentsOpen] = createSolidSignal(false)
-  const [imageDocumentsMounted, setImageDocumentsMounted] = createSolidSignal(false)
-  const [imageDocumentsBusy, setImageDocumentsBusy] = createSolidSignal(false)
-  const imageDocumentsActive = (): boolean => managedContext().kind === 'primary' && imageDocumentsOpen()
-  const setImageDocumentsVisible = (visible: boolean): void => {
-    if (visible) setImageDocumentsMounted(true)
-    setImageDocumentsOpen(visible)
-  }
   onMount(() => {
     const desktop = desktopBridge()
     if (desktop) {
@@ -476,6 +467,8 @@ export function App(props: {
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
+  const projectNeedsReview = useSignal(app.projectNeedsReview)
+  const projectPackNotification = useSignal(app.projectPackNotification)
   const placementStatus = useSignal(app.placementStatus)
   const transientStatus = useSignal(app.transientStatus)
   const detachedWorkflowIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
@@ -1713,12 +1706,6 @@ export function App(props: {
       onCleanup(app.frontendDoors.editorBinding(id, binding))
     }
   })
-  const unregisterImageEditor = app.frontendDoors.editor(IMAGE_EDITOR_KIND, {
-    roles: builtinEditorRoles(IMAGE_EDITOR_KIND),
-    get title() { return message('shell.editor.image') },
-    component: (host) => <ImageEditor app={app} {...(host !== undefined ? { host } : {})} />,
-  })
-  onCleanup(unregisterImageEditor)
   const unregisterCurveEditor = app.frontendDoors.editor(CURVE_EDITOR_KIND, {
     roles: builtinEditorRoles(CURVE_EDITOR_KIND),
     get title() { return message('shell.editor.curve') },
@@ -1744,7 +1731,7 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined && !imageDocumentsActive())
+    dispatchAppCommandKey(app, e, activeTab() !== undefined)
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
@@ -2291,7 +2278,7 @@ export function App(props: {
     const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
     const host: EditorHostContext = {
       tabId: () => group().activeTabId,
-      focused: () => paneFocused() && !imageDocumentsActive(),
+      focused: () => paneFocused(),
     }
     /**
      * This pane's editor descriptor. No tab defaults to the graph editor so
@@ -2678,23 +2665,15 @@ export function App(props: {
             <Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
           </ProductButton>
           <Show when={managedContext().kind === 'primary'}>
-            <ProductButton variant="ghost" size="compact"
-              class="settings-button"
-              data-testid="image-documents-button"
-              data-tooltip-label={message('shell.imageDocuments.title')}
-              data-tooltip-detail={message('shell.imageDocuments.description')}
-              aria-label={message('shell.imageDocuments.title')}
-              aria-pressed={imageDocumentsOpen()}
-              disabled={imageDocumentsBusy()}
-              onClick={() => setImageDocumentsVisible(!imageDocumentsOpen())}
-            ><Icon icon={Images} /></ProductButton>
             <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} aria-label={message('shell.panel.projects.title')} onClick={() => app.modalPanel.set('projects')}><Icon icon={FolderOpen} /></ProductButton>
           </Show>
           <ProductButton variant="ghost" size="compact" class="settings-button" data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} aria-label={message('shell.panel.workspace.title')} onClick={() => app.modalPanel.set('collab')}><Icon icon={Users} /></ProductButton>
         </div>
       </header>
+      <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
+      <Show when={nodeInstallRequest() === undefined && modalPanel() === '' ? projectNeedsReview() : undefined} keyed>{(review) => <ProjectNeedsPrompt app={app} review={review} />}</Show>
 
       {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
           modal at a time, hosted by a native <dialog> opened with
@@ -2846,7 +2825,6 @@ export function App(props: {
         <main class="canvas-pane">
           <div
             class="editor-split-region"
-            classList={{ 'image-document-hidden': imageDocumentsActive() }}
             data-testid="editor-split-region"
             ref={setRegionElement}
           >
@@ -2884,7 +2862,6 @@ export function App(props: {
           <Show when={bottomOpen()}>
             <section
               class="bottom-panel"
-              classList={{ 'image-document-hidden': imageDocumentsActive() }}
               data-testid="bottom-panel"
               data-active-panel={bottomActiveId()}
               style={{ height: `${bottomHeight()}px` }}
@@ -2911,14 +2888,6 @@ export function App(props: {
                 onFloat={floatPanel}
               />
             </section>
-          </Show>
-          <Show when={managedContext().kind === 'primary' && imageDocumentsMounted()}>
-            <ImageDocumentWorkspace
-              active={imageDocumentsActive()}
-              app={app}
-              onBusyChange={setImageDocumentsBusy}
-              onClose={() => setImageDocumentsVisible(false)}
-            />
           </Show>
         </main>
 

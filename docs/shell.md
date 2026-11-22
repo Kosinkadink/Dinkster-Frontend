@@ -197,6 +197,12 @@ while mounted. An open context menu and preview submenu update in place without
 changing the active workflow, tab identity, focus, scroll position, preview
 override, or caller-owned workflow title.
 
+A workflow tab is as wide as its title and its close button, up to 220 px; a
+longer title ends in an ellipsis and shows in full in a tooltip on hover or
+keyboard focus. When the strip is crowded, tabs shrink to about three letters
+and the close button, then the strip scrolls sideways. On phones the widest
+tab is 120 px.
+
 Tabs can be reordered by pressing a tab and dragging horizontally. Movement
 under 4 px remains an ordinary activation click. Once the threshold is
 crossed, the tab immediately lifts with reduced opacity and an inset highlight. A blue

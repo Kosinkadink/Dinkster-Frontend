@@ -1,5 +1,5 @@
 import type { TestInfo } from '@playwright/test'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 interface PointerProbeEntry {
   readonly type: string

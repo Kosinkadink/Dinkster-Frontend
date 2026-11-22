@@ -218,6 +218,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               id={workflowTabDomId(tab.id)}
               class="tab-select"
               role="tab"
+              data-tooltip-label={tab.title}
               aria-label={label(tab)}
               aria-selected={tab.id === props.activeId}
               aria-controls={props.panelId ?? 'workflow-editor-panel'}

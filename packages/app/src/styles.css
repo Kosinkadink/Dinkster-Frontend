@@ -16,7 +16,7 @@
 @import './styles/app-view.css';
 @import './styles/collaboration.css';
 @import './styles/boot.css';
-@import './styles/image-editor.css';
+@import './styles/editors.css';
 
 .banner-button:disabled {
   opacity: 0.45;

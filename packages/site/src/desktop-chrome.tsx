@@ -1,0 +1,78 @@
+import { render } from 'solid-js/web'
+import { ProductWindowChrome, ProductWindowIdentity } from '@dinkster/ui'
+
+export interface DesktopChromeOptions {
+  readonly title: string
+  readonly platform: 'darwin' | 'win32' | 'linux'
+  readonly theme: 'dark' | 'light'
+  readonly qa?: boolean
+  readonly development?: boolean
+}
+
+let dispose: (() => void) | undefined
+
+/** DOM-only chrome adaptation; the host retains navigation and native controls. */
+export function install(options: DesktopChromeOptions): void {
+  dispose?.()
+  let bar: HTMLElement | undefined
+  let mounted: HTMLDivElement | undefined
+  let clear: (() => void) | undefined
+  function reconcile(): void {
+    const existing = document.querySelector<HTMLElement>(
+      '.dinkster-window-toolbar-host, .topbar, .dinkster-topbar, body > header',
+    )
+    if (
+      bar?.isConnected &&
+      mounted?.isConnected &&
+      (existing === bar || !existing)
+    )
+      return
+    clear?.()
+    const mount = document.createElement('div')
+    mounted = mount
+    let unmount: () => void
+    if (existing) {
+      bar = existing
+      mount.className = 'dinkster-window-identity-host'
+      ;(bar.querySelector('.dinkster-window-toolbar') ?? bar).append(mount)
+      unmount = render(
+        () => (
+          <ProductWindowIdentity
+            qa={options.qa ?? false}
+            development={options.development ?? false}
+          />
+        ),
+        mount,
+      )
+    } else {
+      document.body.prepend(mount)
+      unmount = render(() => <ProductWindowChrome {...options} />, mount)
+      bar = mount.querySelector('header')!
+      mount.className = 'dinkster-window-fallback'
+    }
+    const current = bar
+    const previous = {
+      desktopChrome: current.getAttribute('data-desktop-chrome'),
+      platform: current.getAttribute('data-platform'),
+      theme: current.getAttribute('data-theme'),
+    }
+    current.dataset.desktopChrome = ''
+    current.dataset.platform = options.platform
+    current.dataset.theme = options.theme
+    clear = () => {
+      unmount()
+      mount.remove()
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === null) delete current.dataset[name]
+        else current.dataset[name] = value
+      }
+    }
+  }
+  reconcile()
+  const observer = new MutationObserver(reconcile)
+  observer.observe(document.body, { childList: true, subtree: true })
+  dispose = () => {
+    observer.disconnect()
+    clear?.()
+  }
+}

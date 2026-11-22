@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, appViewTest as test } from './fixtures.js'
+import { expect, nativeAppViewTest as test } from './fixtures.js'
 import { pseudoCatalog } from './pseudo-catalog.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
