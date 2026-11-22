@@ -6,6 +6,7 @@
  */
 import { Formula, FormulaRefused, FormulaTable, type FormulaNameKind, type FormulaScalar, type FormulaScope, type FormulaTableValue } from '../mirror/formula.js'
 import {
+  isFormulaSpec,
   scopeRowsOf,
   type BodyRow,
   type ChoiceSpec,
@@ -170,6 +171,40 @@ export function initialDynamicStateOf(schema: NodeSchema): Record<string, { read
   return state
 }
 
+/**
+ * Every group and choice a node can hold, by flattened id: through every
+ * option and variant, and into the members the node stores. A choice placed
+ * by `Use` is as the chosen option places it, else as the first option that
+ * does.
+ */
+export function constructsOf(
+  schema: NodeSchema,
+  dynamic: Readonly<Record<string, { readonly selected?: string; readonly members?: readonly string[] }>> | undefined,
+): ReadonlyMap<string, GroupSpec | ChoiceSpec> {
+  const found = new Map<string, GroupSpec | ChoiceSpec>()
+  const visit = (rows: readonly OptionRow[], prefix: string, shared?: ReadonlyMap<string, BodyRow>): void => {
+    for (const raw of scopeRowsOf(rows)) {
+      const row = raw.kind === 'use' ? (shared?.get(raw.id) === undefined ? undefined : applyUse(shared.get(raw.id)!, raw)) : raw
+      if (row === undefined || row.kind === 'row') continue
+      const path = prefix + row.id
+      if (row.kind === 'group') {
+        if (!found.has(path)) found.set(path, row)
+        if (row.member !== undefined) for (const key of dynamic?.[path]?.members ?? []) visit(row.member, `${path}.${key}.`)
+      } else if (row.kind === 'choice') {
+        if (!found.has(path)) found.set(path, row)
+        const placed = new Map(row.shared.map((item) => [(item as { id: string }).id, item]))
+        const selected = dynamic?.[path]?.selected
+        const options = [...row.options].sort((a, b) => Number(b.key === selected) - Number(a.key === selected))
+        for (const option of options) visit(option.rows, `${path}.`, placed)
+      } else if (row.kind === 'typeChoice') {
+        visit([...row.rows, ...(row.variants ?? []).flatMap((variant) => variant.rows)], `${path}.`)
+      }
+    }
+  }
+  visit(schema.body, '')
+  return found
+}
+
 // ---------------------------------------------------------------------------
 // A shared row placed under one option
 
@@ -281,10 +316,12 @@ export interface ScopeNames {
   readonly names: Map<string, FormulaNameKind>
   readonly inputs: Set<string>
   readonly assets: Set<string>
+  /** A group whose count is a formula, and its rows across members. */
+  readonly counted: Set<string>
 }
 
 export function scopeNamesOf(rows: readonly OptionRow[]): ScopeNames {
-  const found: ScopeNames = { names: new Map(), inputs: new Set(), assets: new Set() }
+  const found: ScopeNames = { names: new Map(), inputs: new Set(), assets: new Set(), counted: new Set() }
   const add = (name: string, kind: FormulaNameKind, input: boolean, asset = false): void => {
     if (!found.names.has(name)) found.names.set(name, kind)
     if (input) found.inputs.add(name)
@@ -292,6 +329,7 @@ export function scopeNamesOf(rows: readonly OptionRow[]): ScopeNames {
   }
   const nested = (prefix: string, inner: ScopeNames, acrossMembers: boolean): void => {
     for (const [name, kind] of inner.names) {
+      if (inner.counted.has(name)) found.counted.add(`${prefix}.${name}`)
       if (acrossMembers) {
         if (kind !== 'group' && kind !== 'opaque' && !kind.endsWith('[]')) add(`${prefix}.${name}`, `${kind}[]` as FormulaNameKind, false)
         continue
@@ -312,6 +350,10 @@ export function scopeNamesOf(rows: readonly OptionRow[]): ScopeNames {
       case 'group':
         add(row.id, 'group', false)
         if (row.member !== undefined) nested(row.id, scopeNamesOf(row.member), true)
+        if (typeof row.grows === 'object' && 'count' in row.grows) {
+          for (const name of found.names.keys()) if (name.startsWith(`${row.id}.`)) found.counted.add(name)
+          found.counted.add(row.id)
+        }
         break
       case 'typeChoice':
         add(row.id, 'opaque', true)
@@ -330,11 +372,13 @@ export function scopeNamesOf(rows: readonly OptionRow[]): ScopeNames {
  * rows, the innermost winning when two scopes use one name.
  */
 export function framesNamesOf(frames: readonly (readonly OptionRow[])[]): ScopeNames {
-  const merged: ScopeNames = { names: new Map(), inputs: new Set(), assets: new Set() }
+  const merged: ScopeNames = { names: new Map(), inputs: new Set(), assets: new Set(), counted: new Set() }
   for (const rows of frames) {
     const inner = scopeNamesOf(rows)
     for (const [name, kind] of inner.names) {
       merged.names.set(name, kind)
+      if (inner.counted.has(name)) merged.counted.add(name)
+      else merged.counted.delete(name)
       if (inner.inputs.has(name)) merged.inputs.add(name)
       else merged.inputs.delete(name)
       if (inner.assets.has(name)) merged.assets.add(name)
@@ -425,10 +469,15 @@ function checkUse(use: UseSpec, row: BodyRow, where: string): void {
  * one id per row in a scope (a box's id is an input id of the scope around
  * it, and an output id too when it holds an output; layout ids are unique per
  * kind), nesting at most 16 boxes deep and 512 boxes in all, every `Use`
- * naming a shared row, and no `key()` in a numbered group's member label.
- * Throws with the engine's wording on the first refusal.
+ * naming a shared row, no `key()` in a numbered group's member label, and no
+ * formula or argument, the node's own included, that reads across a group
+ * whose count is a formula. Throws with the engine's wording on the first refusal.
  */
-export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope, 'tables' | 'derived'> = {}): void {
+export function checkBody(
+  body: readonly BodyRow[],
+  formulas: Pick<FormulaScope, 'tables' | 'derived'> = {},
+  node: Pick<NodeSchema, 'validate' | 'titleSuffix' | 'menu'> = {},
+): void {
   let boxes = 0
   const box = (depth: number, what: string): void => {
     boxes += 1
@@ -436,6 +485,11 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
     if (depth > MAX_BODY_DEPTH) throw new Error(`${what} nests deeper than ${MAX_BODY_DEPTH}`)
   }
   type Frames = readonly (readonly OptionRow[])[]
+  const frameNames = new WeakMap<Frames, ScopeNames>()
+  const namesOf = (frames: Frames): ScopeNames => {
+    if (!frameNames.has(frames)) frameNames.set(frames, framesNamesOf(frames))
+    return frameNames.get(frames)!
+  }
   const scope = (rows: readonly OptionRow[], depth: number, where: string, frames: Frames): void => {
     visit(rows, depth, where, newIds(), new Map(), [...frames, rows])
   }
@@ -452,7 +506,15 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
         const target = shared.get(row.id)
         if (target === undefined) throw new Error(`Use ${where}${row.id}: names no shared row of its choice`)
         checkUse(row, target, `${where}${row.id}`)
+        refuseCountedReads(row, namesOf(frames), formulas, new Set())
         continue
+      }
+      if (row.kind === 'group') {
+        refuseCountedReads(row, namesOf(frames), formulas, new Set([...CHILD_FIELDS, 'memberLabel']))
+      } else {
+        refuseCountedReads(row, namesOf(frames), formulas)
+        if (row.kind === 'choice') for (const option of row.options) refuseCountedReads(option, namesOf(frames), formulas)
+        if (row.kind === 'described') for (const kind of row.kinds) refuseCountedReads(kind, namesOf(frames), formulas)
       }
       switch (row.kind) {
         case 'output':
@@ -492,6 +554,7 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
         case 'group':
           box(depth + 1, `group ${row.id}`)
           if (row.member !== undefined) scope(row.member, depth + 1, `${where}${row.id}.<key>.`, frames)
+          refuseCountedReads(row.memberLabel, framesNamesOf([...frames, memberRowsOf(row)]), formulas, new Set())
           checkMemberLabel(row, [...frames, memberRowsOf(row)], formulas)
           break
         case 'choice': {
@@ -500,15 +563,25 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
           const inner = `${where}${row.id}.`
           const choiceIds = newIds()
           const sharedRows = new Map<string, BodyRow>()
-          for (const item of row.shared) if (item.kind !== 'row') sharedRows.set(item.id, item)
+          for (const item of row.shared) {
+            const kind = item.kind[0]!.toUpperCase() + item.kind.slice(1)
+            if (item.kind === 'section' || item.kind === 'row') {
+              throw new Error(`choice ${inner.slice(0, -1)}: a ${kind} in shared is layout; write it under the option, where the Use stands, with the Use inside it`)
+            }
+            if (item.kind === 'note' || item.kind === 'button' || item.kind === 'editor') {
+              throw new Error(`choice ${inner.slice(0, -1)}: a ${kind} in shared holds no value to share; write it under each option that shows it`)
+            }
+            sharedRows.set(item.id, item)
+          }
           const choiceFrames = [...frames, choiceScopeRows(row)]
           visit(row.shared, depth + 1, inner, choiceIds, new Map(), choiceFrames)
           for (const option of row.options) {
             const used = option.rows.filter((item) => item.kind === 'use').map((item) => item.id)
             if (new Set(used).size !== used.length) throw new Error(`choice ${row.id}: option ${option.key} uses a row twice`)
-            // Different options may each hold a section with one id: only one
-            // option is shown, and they share its saved open state.
-            visit(option.rows, depth + 1, inner, { ...choiceIds, section: new Set(choiceIds.section) }, sharedRows, choiceFrames)
+            // Different options may each hold a layout row with one id: only one
+            // option is shown, and a section's saved open state is shared.
+            const layout = { section: new Set<string>(), button: new Set<string>(), note: new Set<string>(), editor: new Set<string>() }
+            visit(option.rows, depth + 1, inner, { ...choiceIds, ...layout }, sharedRows, choiceFrames)
           }
           break
         }
@@ -532,6 +605,58 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
     }
   }
   scope(body, 0, '', [])
+  const top = framesNamesOf([body])
+  refuseCountedReads([node.validate, node.titleSuffix], top, formulas)
+  for (const button of node.menu ?? []) refuseCountedReads(button, top, formulas)
+}
+
+/** Fields that hold rows of their own; their formulas are checked with those rows. */
+const CHILD_FIELDS = new Set(['rows', 'member', 'value', 'options', 'shared', 'variants', 'kinds'])
+
+/**
+ * Refuses, as the engine does, a formula or a lookup or call argument in a
+ * row's own fields that reads the size or the members of a group whose count
+ * is a formula: reading the counted members is not built yet.
+ */
+function refuseCountedReads(
+  value: unknown,
+  names: ScopeNames,
+  formulas: Pick<FormulaScope, 'tables' | 'derived'>,
+  skip: ReadonlySet<string> = CHILD_FIELDS,
+): void {
+  if (names.counted.size === 0) return
+  const formula = (text: string): void => {
+    const scope: FormulaScope = { ...formulas, names: names.names, inputs: names.inputs, assets: names.assets }
+    for (const name of Formula.parse(text, scope).uses().names) {
+      if (!names.counted.has(name)) continue
+      const group = [...names.counted].sort((a, b) => a.length - b.length).find((item) => `${name}.`.startsWith(`${item}.`))
+      throw new Error(`formula '${text}' reads '${name}': reading the size or the members of group '${group}', whose count is a formula, is not built yet`)
+    }
+  }
+  const walk = (item: unknown, top: boolean): void => {
+    if (Array.isArray(item)) {
+      for (const entry of item) walk(entry, false)
+      return
+    }
+    if (typeof item !== 'object' || item === null) return
+    const fields = item as Record<string, unknown>
+    if (isFormulaSpec(item)) return formula(item.formula)
+    const called = typeof fields['lookup'] === 'string' ? fields['lookup'] : fields['step'] === 'call' ? fields['function'] : undefined
+    if (called !== undefined && Array.isArray(fields['args'])) {
+      for (const argument of fields['args']) {
+        if (typeof argument === 'string' && names.counted.has(argument)) {
+          throw new Error(`${String(called)}: argument '${argument}' reads the members of a group whose count is a formula, which is not built yet`)
+        }
+      }
+    }
+    for (const [key, entry] of Object.entries(fields)) {
+      if (top && skip.has(key)) continue
+      if (top && key === 'leader' && typeof entry === 'string') formula(entry)
+      else if (top && key === 'grows' && typeof entry === 'object' && entry !== null && 'count' in entry) formula(String(entry.count))
+      else walk(entry, false)
+    }
+  }
+  walk(value, true)
 }
 
 /** `key()` would show a numbered member's hidden key, so its label may not use it. */

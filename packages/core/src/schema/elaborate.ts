@@ -305,6 +305,11 @@ export interface ElaboratedInterface {
    * leader, with the start key the node shows for each (view mode only).
    */
   readonly unstoredChoices?: Readonly<Record<string, string>>
+  /**
+   * Groups that grow by hand and take part in the node with fewer stored
+   * members than their minimum, with the members that reach it (view mode only).
+   */
+  readonly unstoredMinimums?: Readonly<Record<string, MaterializeFrame>>
   /** Flattened id of every group, choice and type choice the node holds (not offered members). */
   readonly constructs: readonly string[]
   readonly diagnostics: readonly Diagnostic[]
@@ -470,6 +475,9 @@ function formulaValueOf(raw: unknown, kind: FormulaNameKind): FormulaValue | Unk
 
 const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.['default']
 
+/** Passes a node's choice keys take to settle; a longer chain of formulas is refused. */
+const MAX_CHOICE_PASSES = 8
+
 /**
  * Elaborate one node's effective interface. Pure and deterministic over
  * (schema, node.values/node.dynamic/node.additionalInputs, connectivity).
@@ -480,6 +488,33 @@ export function elaborateInterface(
   connectivity: Connectivity = EMPTY_CONNECTIVITY,
   options: ElaborateOptions = {},
 ): ElaboratedInterface {
+  // A formula may read a choice the walk has not reached yet, such as a led
+  // choice declared later. Such a read takes the key the previous pass
+  // settled, and the passes repeat until every key read is the key settled,
+  // so declaration order does not change the result.
+  let settled: ReadonlyMap<string, string | null> = new Map()
+  for (let pass = 1; ; pass++) {
+    const result = elaboratePass(schema, node, connectivity, options, settled)
+    const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
+    if (unsettled.length === 0) return result.elaborated
+    if (pass === MAX_CHOICE_PASSES) {
+      return {
+        ...result.elaborated,
+        diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
+          `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+      }
+    }
+    settled = result.chosen
+  }
+}
+
+function elaboratePass(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  connectivity: Connectivity,
+  options: ElaborateOptions,
+  settled: ReadonlyMap<string, string | null>,
+): { readonly elaborated: ElaboratedInterface; readonly chosen: ReadonlyMap<string, string | null>; readonly early: ReadonlySet<string> } {
   const budget: ElabBudget = { ...DEFAULT_ELAB_BUDGET, ...options.budget }
   const view = options.promoteGhosts ?? true
   const census = options.includeDormant ?? false
@@ -487,6 +522,7 @@ export function elaborateInterface(
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
+  const unstoredMinimums: Record<string, MaterializeFrame> = {}
   const constructs = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
@@ -509,6 +545,15 @@ export function elaborateInterface(
   const derived = new Map(Object.entries(schema.derived ?? {}))
   /** Choice keys this elaboration settled, which formulas read before the run stores them. */
   const chosen = new Map<string, string | null>()
+  /** Choices a formula read before the walk settled them. */
+  const early = new Set<string>()
+  /** The key of a choice the walk has not settled: the stored one, else the previous pass's. */
+  const unsettledKey = (path: string): string | null | undefined => {
+    const selected = stateOf(path)?.selected
+    if (selected !== undefined) return selected
+    early.add(path)
+    return settled.get(path)
+  }
   let depth = 0
   let membersVisited = 0
   let halted = false
@@ -547,7 +592,10 @@ export function elaborateInterface(
   /** The value a formula reads for one flattened id, and whether a wire feeds it. */
   const valueFor = (path: string, kind: FormulaNameKind, fallback: unknown): FormulaValue | Unknown => {
     if (chosen.has(path)) return chosen.get(path)!
-    if (kind === 'choice' && stateOf(path)?.selected !== undefined) return stateOf(path)!.selected!
+    if (kind === 'choice') {
+      const key = unsettledKey(path)
+      if (key !== undefined) return key
+    }
     if (linked(path)) return UNKNOWN
     return formulaValueOf(Object.hasOwn(node.values, path) ? node.values[path] : fallback, kind)
   }
@@ -564,7 +612,7 @@ export function elaborateInterface(
     for (const row of scopeRowsOf(rows)) {
       if (row.kind === 'choice') {
         const path = prefix + row.id
-        const key = chosen.has(path) ? chosen.get(path) : stateOf(path)?.selected
+        const key = chosen.has(path) ? chosen.get(path) : unsettledKey(path)
         const live = key === undefined || key === null ? [] : optionRows(row, key)
         const kept = scopeNamesOf(live).names
         for (const name of scopeNamesOf(choiceScopeRows(row)).names.keys()) if (!kept.has(name)) hidden.add(`${row.id}.${name}`)
@@ -574,6 +622,44 @@ export function elaborateInterface(
       }
     }
     return hidden
+  }
+
+  /**
+   * The default of each field by flattened id, under the chosen options and
+   * the members the node stores, with each Use's override, as the engine
+   * gives a formula reading a field with nothing stored.
+   */
+  const defaultsUnder = (list: readonly OptionRow[], prefix: string, found: Map<string, unknown>, shared?: ReadonlyMap<string, BodyRow>): void => {
+    for (const row of list) {
+      if (row.kind === 'use') {
+        const target = shared?.get(row.id)
+        if (target !== undefined) defaultsUnder([applyUse(target, row)], prefix, found)
+      } else if (row.kind === 'section' || row.kind === 'row') {
+        defaultsUnder(row.rows, prefix, found, shared)
+      } else if (row.kind === 'input') {
+        found.set(prefix + row.id, defaultOf(row))
+      } else if (row.kind === 'state') {
+        found.set(prefix + row.id, row.default)
+      } else if (row.kind === 'choice') {
+        const path = prefix + row.id
+        const key = chosen.has(path) ? chosen.get(path) : unsettledKey(path)
+        const option = row.options.find((item) => item.key === key)
+        if (option !== undefined) {
+          defaultsUnder(option.rows, `${path}.`, found,
+            new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item])))
+        }
+      } else if (row.kind === 'typeChoice') {
+        const path = prefix + row.id
+        const variant = row.variants?.find((item) => item.key === stateOf(path)?.selected)
+        defaultsUnder([...row.rows, ...(variant?.rows ?? [])], `${path}.`, found)
+      } else if (row.kind === 'group') {
+        const path = prefix + row.id
+        for (const key of membersFor(path)) {
+          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' ? defaultOf(row.value) : undefined)
+          else defaultsUnder(row.member ?? [], `${path}.${key}.`, found)
+        }
+      }
+    }
   }
 
   /** The flattened id of each name a formula in this scope can write, and the names under options not chosen. */
@@ -607,10 +693,13 @@ export function elaborateInterface(
     const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
     const { where, unknown } = namesAt(scope)
     const defaults = new Map<string, unknown>()
+    defaultsUnder(schema.body, '', defaults)
     for (const frame of scope.formulaFrames) {
+      // A member the node shows but does not store reads its own rows' defaults.
       for (const row of scopeRowsOf(frame.rows)) {
-        if (row.kind === 'input') defaults.set(frame.prefix + row.id, defaultOf(row))
-        else if (row.kind === 'state') defaults.set(frame.prefix + row.id, row.default)
+        if (row.kind !== 'input' && row.kind !== 'state') continue
+        const path = frame.prefix + row.id
+        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? defaultOf(row) : row.default)
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
@@ -619,7 +708,11 @@ export function elaborateInterface(
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
-      if (kind === 'group') {
+      if (unknown.has(name)) {
+        // A group's size with no entry in `sizes` reads unknown.
+        if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
+        if (names.inputs.has(name)) wired.set(name, false)
+      } else if (kind === 'group') {
         sizes.set(name, membersFor(path).length)
       } else if (kind.endsWith('[]')) {
         const dot = path.lastIndexOf('.')
@@ -633,9 +726,6 @@ export function elaborateInterface(
           else list.push(value as bigint | number | boolean | string | null)
         }
         values.set(name, unknown ? UNKNOWN : list)
-      } else if (unknown.has(name)) {
-        if (kind !== 'opaque') values.set(name, UNKNOWN)
-        if (names.inputs.has(name)) wired.set(name, false)
       } else {
         if (kind !== 'opaque') values.set(name, valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
@@ -940,7 +1030,7 @@ export function elaborateInterface(
     })
 
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
-    const member = (position: number, key: string, ghost: boolean): boolean => {
+    const member = (position: number, key: string, ghost: boolean, dormant = false): boolean => {
       membersVisited++
       const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
@@ -949,6 +1039,7 @@ export function elaborateInterface(
         ...scope,
         required,
         ghost: scope.ghost || ghost,
+        dormant: scope.dormant || dormant,
         origin: { kind: 'member', construct: path, ordinal: position, key, ...(ghost ? { ghost: true } : {}) },
         ancestry: [...scope.ancestry, {
           construct: path,
@@ -998,6 +1089,21 @@ export function elaborateInterface(
       if (halted) return
       if (!member(position, key, false)) allUsed = false
     }
+    // A count that shrank leaves its later members stored: the census reads
+    // them as dormant, as it reads an option that is not chosen.
+    if (census && typeof grows === 'object' && 'count' in grows) {
+      const later = new Map<number, string>()
+      for (const stored of [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]) {
+        if (!stored.startsWith(`${path}.`)) continue
+        const key = stored.slice(path.length + 1).split('.')[0]!
+        const position = keyPosition(row.keys, key)
+        if (position !== undefined && position >= keys.length && position < limit) later.set(position, key)
+      }
+      for (const [position, key] of [...later.entries()].sort(([a], [b]) => a - b)) {
+        if (halted) return
+        member(position, key, false, true)
+      }
+    }
 
     // Members the node offers beyond the stored ones: up to the minimum, and
     // one spare once every member of a group that grows by link or by a
@@ -1011,6 +1117,9 @@ export function elaborateInterface(
       if (key === undefined) break
       offered.push(key)
     }
+    // A member the node always shows is not the user's to add: the editor stores it.
+    const missing = Math.min(row.minMembers, storedCount + offered.length) - storedCount
+    if (!scope.ghost && missing > 0) unstoredMinimums[path] = frameFor(offered.slice(0, missing))
     if (membersVisited + offered.length > budget.maxMembers) {
       exhaust('elab.budget.members', `group members exceed ${budget.maxMembers}; elaboration stopped`)
       return
@@ -1066,7 +1175,7 @@ export function elaborateInterface(
       key = storedKey
     } else if (row.required && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
-      // (storeStartChoices); a run never makes one up.
+      // (storeStartState); a run never makes one up.
       report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
@@ -1343,7 +1452,7 @@ export function elaborateInterface(
       items[index] = { ...item, spec }
     }
   }
-  return {
+  const elaborated: ElaboratedInterface = {
     items,
     submissionValues: [],
     ...(chunkSafe && covered ? { chunkSafe: {
@@ -1353,9 +1462,11 @@ export function elaborateInterface(
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
+    ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
     diagnostics,
   }
+  return { elaborated, chosen, early }
 }
 
 // ---------------------------------------------------------------------------

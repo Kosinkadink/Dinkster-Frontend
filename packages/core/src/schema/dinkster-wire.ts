@@ -1615,15 +1615,22 @@ function decodeGrows(value: unknown, where: string): GroupGrowsSpec {
   throw new Error(`${where} is "link", "filled", "button", {count: formula} or {followList: field}`)
 }
 
-function decodeUse(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[]): UseSpec {
+/**
+ * A Use's field is decoded against the type of the shared row it places,
+ * found among `scope`, the rows the Use may name.
+ */
+function decodeUse(nodeType: string, entry: Record<string, unknown>, where: string, diags: Diagnostic[], scope: readonly OptionRow[]): UseSpec {
   rejectUnknownFields(entry, ['kind', 'id', 'label', 'tooltip', 'widget', 'default', 'required', 'only', 'inside'], where)
   const id = wireRowId(entry['id'], `${where}.id`)
   wireJson(entry['default'], `${where}.default`)
+  const target = scope.find((row) => row.kind !== 'row' && row.kind !== 'use' && row.id === id)
   let widget: WidgetSpec | null | undefined
   if (entry['widget'] === null) widget = null
   else if (entry['widget'] !== undefined) {
-    widget = widgetFor(nodeType, id, { kind: 'wildcard' }, entry['default'], entry['widget'], diags)
+    const type: TypeExpr = target?.kind === 'input' ? target.type : { kind: 'wildcard' }
+    widget = widgetFor(nodeType, id, type, entry['default'], entry['widget'], diags)
   }
+  const inner = target?.kind === 'choice' ? scopeRowsOf([...target.shared, ...target.options.flatMap((option) => option.rows)]) : []
   return {
     kind: 'use',
     id,
@@ -1637,10 +1644,8 @@ function decodeUse(nodeType: string, entry: Record<string, unknown>, where: stri
       : {}),
     ...(entry['inside'] !== undefined
       ? {
-          inside: wireList(entry['inside'], `${where}.inside`).map((raw, index) => {
-            const inner = wireObject(raw, `${where}.inside[${index}]`)
-            return decodeUse(nodeType, inner, `${where}.inside[${index}]`, diags)
-          }),
+          inside: wireList(entry['inside'], `${where}.inside`).map((raw, index) =>
+            decodeUse(nodeType, wireObject(raw, `${where}.inside[${index}]`), `${where}.inside[${index}]`, diags, inner)),
         }
       : {}),
   }
@@ -1648,22 +1653,22 @@ function decodeUse(nodeType: string, entry: Record<string, unknown>, where: stri
 
 function decodeRows(nodeType: string, value: unknown, where: string, diags: Diagnostic[]): readonly BodyRow[] {
   return wireList(value, where).map((raw, index) => {
-    const row = decodeOptionRow(nodeType, raw, `${where}[${index}]`, diags)
+    const row = decodeOptionRow(nodeType, raw, `${where}[${index}]`, diags, [])
     if (row.kind === 'use') throw new Error(`${where}[${index}]: a Use belongs under a choice's option`)
     return row
   })
 }
 
-function decodeOptionRows(nodeType: string, value: unknown, where: string, diags: Diagnostic[]): readonly OptionRow[] {
-  return wireList(value, where).map((raw, index) => decodeOptionRow(nodeType, raw, `${where}[${index}]`, diags))
+function decodeOptionRows(nodeType: string, value: unknown, where: string, diags: Diagnostic[], scope: readonly OptionRow[]): readonly OptionRow[] {
+  return wireList(value, where).map((raw, index) => decodeOptionRow(nodeType, raw, `${where}[${index}]`, diags, scope))
 }
 
 /** One body row (engine `body_row_from_wire`). */
-function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: Diagnostic[]): OptionRow {
+function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: Diagnostic[], scope: readonly OptionRow[]): OptionRow {
   const entry = wireObject(raw, where)
   switch (entry['kind']) {
     case 'use':
-      return decodeUse(nodeType, entry, where, diags)
+      return decodeUse(nodeType, entry, where, diags, scope)
     case 'input':
       return decodeBodyInput(nodeType, entry, where, diags)
     case 'output':
@@ -1693,7 +1698,7 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
         kind: 'section',
         id: wireLayoutId(entry['id'], `${where}.id`),
         ...wireCommon(entry, where),
-        rows: decodeOptionRows(nodeType, entry['rows'], `${where}.rows`, diags),
+        rows: decodeOptionRows(nodeType, entry['rows'], `${where}.rows`, diags, scope),
         ...(wireBoolean(entry['collapsed'], `${where}.collapsed`, false) ? { collapsedByDefault: true } : {}),
         ...(!wireBoolean(entry['openName'], `${where}.openName`, true) ? { openName: false as const } : {}),
       }
@@ -1756,7 +1761,7 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
       }
       let value: InputSpec | OutputSpec | undefined
       if (entry['value'] !== undefined) {
-        const row = decodeOptionRow(nodeType, entry['value'], `${where}.value`, diags)
+        const row = decodeOptionRow(nodeType, entry['value'], `${where}.value`, diags, [])
         if (row.kind !== 'input' && row.kind !== 'output') throw new Error(`${where}.value is one Input or one Output`)
         value = row
       }
@@ -1796,6 +1801,8 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
     case 'choice': {
       rejectUnknownFields(entry, ['kind', 'id', 'options', 'shared', 'leader', 'default', 'required', 'hidden', 'onEdit', ...COMMON_FIELDS], where)
       const id = wireRowId(entry['id'], `${where}.id`)
+      const shared = decodeRows(nodeType, entry['shared'] ?? [], `${where}.shared`, diags)
+      const sharedScope = scopeRowsOf(shared)
       const keys = new Set<string>()
       const options = wireList(entry['options'], `${where}.options`).map((raw, index) => {
         const optionWhere = `${where}.options[${index}]`
@@ -1809,7 +1816,7 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
         return {
           key,
           ...(label !== undefined ? { label } : {}),
-          rows: decodeOptionRows(nodeType, option['rows'] ?? [], `${optionWhere}.rows`, diags),
+          rows: decodeOptionRows(nodeType, option['rows'] ?? [], `${optionWhere}.rows`, diags, sharedScope),
         }
       })
       if (options.length === 0) throw new Error(`${where}: choice ${id} needs at least one option`)
@@ -1821,7 +1828,7 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
         id,
         ...wireCommon(entry, where),
         options,
-        shared: decodeRows(nodeType, entry['shared'] ?? [], `${where}.shared`, diags),
+        shared,
         ...(entry['leader'] !== undefined ? { leader: wireString(entry['leader'], `${where}.leader`) } : {}),
         ...(defaultKey !== undefined ? { default: defaultKey } : {}),
         required: wireBoolean(entry['required'], `${where}.required`, true),
@@ -1942,13 +1949,16 @@ function decodeBodySchema(nodeType: string, wire: DinksterWireSchema, diags: Dia
     if (row.kind !== 'button') throw new Error(`menu[${index}] is a Button`)
     return row
   })
-  checkBody(body, { tables: formulaTablesOf(tables), derived: new Map(Object.entries(derived)) })
+  const titleSuffix = wire.titleSuffix !== undefined && wire.titleSuffix !== '' ? wireFormulated<string>(wire.titleSuffix, 'titleSuffix', 'string') : undefined
+  checkBody(body, { tables: formulaTablesOf(tables), derived: new Map(Object.entries(derived)) }, {
+    validate, menu, ...(titleSuffix === undefined ? {} : { titleSuffix }),
+  })
   return {
     body,
     ...(Object.keys(tables).length > 0 ? { tables } : {}),
     ...(Object.keys(derived).length > 0 ? { derived } : {}),
     ...(validate.length > 0 ? { validate } : {}),
-    ...(wire.titleSuffix !== undefined && wire.titleSuffix !== '' ? { titleSuffix: wireFormulated<string>(wire.titleSuffix, 'titleSuffix', 'string') } : {}),
+    ...(titleSuffix === undefined ? {} : { titleSuffix }),
     ...(menu.length > 0 ? { menu } : {}),
   }
 }

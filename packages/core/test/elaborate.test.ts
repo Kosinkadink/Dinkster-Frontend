@@ -907,6 +907,88 @@ describe('groups of outputs', () => {
 // Connectivity facts
 // ---------------------------------------------------------------------------
 
+describe('formulas', () => {
+  const int = { kind: 'concrete', types: ['INT'] }
+  const outputsUnder = (body: unknown[], values: Record<string, unknown> = {}, dynamic: Record<string, unknown> = {}) => {
+    const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+    expect(diagnostics).toEqual([])
+    const elaborated = elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(elaborated.diagnostics).toEqual([])
+    return elabOutputsOf(elaborated).map((output) => output.spec.id)
+  }
+  const counted = (count: string) => ({
+    kind: 'group', id: 'a', grows: { count }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 5,
+    value: { kind: 'output', id: 'v', type: int },
+  })
+
+  it('reads a led choice the same whether it is declared before or after the formula', () => {
+    const led = { kind: 'choice', id: 'b', leader: '"x"', options: [
+      { key: 'x', rows: [{ kind: 'input', id: 'n', type: int, pin: false, default: 3 }] },
+      { key: 'y', rows: [] },
+    ] }
+    for (const count of ['b.n', '3 if b == "x" else 1']) {
+      expect(outputsUnder([counted(count), led], { 'b.n': 3 })).toEqual(['a.1', 'a.2', 'a.3'])
+      expect(outputsUnder([led, counted(count)], { 'b.n': 3 })).toEqual(['a.1', 'a.2', 'a.3'])
+    }
+  })
+
+  it('reads the size of a group under an option that is not chosen as unknown', () => {
+    // Unknown counts fall back to the minimum (1), not to the 2 members stored under the unchosen option.
+    const c = { kind: 'choice', id: 'c', options: [
+      { key: 'a', rows: [{ kind: 'group', id: 'g', keys: { numbered: { prefix: '', start: 1, pad: 0 } },
+        member: [{ kind: 'input', id: 's', type: int, required: false }] }] },
+      { key: 'b', rows: [] },
+    ] }
+    const size = { ...counted('len(c.g)'), id: 'o', minMembers: 1 }
+    const sum = { ...counted('sum(c.g.s)'), id: 'p', minMembers: 1 }
+    expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'b' }, 'c.g': { members: ['1', '2'] } }))
+      .toEqual(['o.1', 'p.1'])
+    expect(outputsUnder([c, size, sum], { 'c.g.1.s': 2, 'c.g.2.s': 3 }, { c: { selected: 'a' }, 'c.g': { members: ['1', '2'] } }))
+      .toEqual(['o.1', 'o.2', 'p.1', 'p.2', 'p.3', 'p.4', 'p.5'])
+  })
+
+  it('refuses at load a formula or argument that reads across a counted group, and allows reads within a member', () => {
+    const n = { kind: 'input', id: 'n', type: int, pin: false, default: 2 }
+    const g = { kind: 'group', id: 'g', grows: { count: 'n' }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 4,
+      member: [{ kind: 'input', id: 's', type: int, pin: false, default: 1 }] }
+    const refusal = (body: unknown[], extra: Record<string, unknown> = {}) => {
+      const { schema, diagnostics } = parseDinksterSchema('Counted', { body, ...extra } as never)
+      return schema === undefined ? diagnostics.map((diagnostic) => diagnostic.message).join() : undefined
+    }
+    const note = (text: string) => ({ kind: 'note', id: 'x', text: { formula: text } })
+    expect(refusal([n, g, note('len(g)')])).toContain("reads 'g': reading the size or the members of group 'g', whose count is a formula, is not built yet")
+    expect(refusal([n, { kind: 'choice', id: 'c', options: [{ key: 'a', rows: [g] }] }, note('sum(c.g.s)')]))
+      .toContain("reads 'c.g.s': reading the size or the members of group 'c.g'")
+    expect(refusal([n, g, { kind: 'choice', id: 'c', leader: '"a" if len(g) > 1 else "b"', options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] }]))
+      .toContain('is not built yet')
+    expect(refusal([n, { ...g, grows: { count: 'len(g)' } }])).toContain('is not built yet')
+    expect(refusal([n, g, note('total')], { derived: { total: 'sum(g.s)' } })).toContain("reads 'g.s'")
+    expect(refusal([n, g, { kind: 'note', id: 'x', text: { lookup: 'pack.mod.fn', args: ['g'] } }]))
+      .toContain("pack.mod.fn: argument 'g' reads the members of a group whose count is a formula, which is not built yet")
+    expect(refusal([n, g], { titleSuffix: { formula: 'str(len(g))' } })).toContain('is not built yet')
+    // A member reads its own sibling, and a group that grows by hand is read as before.
+    expect(refusal([n, { ...g, memberLabel: { formula: 'str(s)' } }])).toBeUndefined()
+    expect(refusal([n, { ...g, grows: 'button' }, note('len(g)')])).toBeUndefined()
+  })
+
+  it('censuses what a member past a shrunk count stored, up to the limit the keys allow', () => {
+    const body = [
+      { kind: 'input', id: 'n', type: int, pin: false, default: 2 },
+      { kind: 'group', id: 'g', grows: { count: 'n' }, keys: { numbered: { prefix: '', start: 1, pad: 0 } }, maxMembers: 4,
+        member: [{ kind: 'choice', id: 'c', options: [{ key: 'x', rows: [] }, { key: 'y', rows: [] }] }] },
+    ]
+    const { schema } = parseDinksterSchema('Shrunk', { body } as never)
+    const census = (dynamic: Record<string, unknown>) => elaborateInterface(schema!, { values: { n: 2 }, dynamic } as never,
+      EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics.map((diagnostic) => diagnostic.message)
+    const start = { 'g.1.c': { selected: 'x' }, 'g.2.c': { selected: 'x' } }
+    expect(census({ ...start, 'g.4.c': { selected: 'y' } })).toEqual([])
+    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.5.c'"])
+    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.z.c'"])
+    const active = elaborateInterface(schema!, { values: { n: 2 }, dynamic: { ...start, 'g.4.c': { selected: 'y' } } } as never)
+    expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['n', 'g.1.c', 'g.2.c'])
+  })
+})
+
 describe('buildGraphConnectivity', () => {
 
   it('indexes links and nets once by flattened id, ignoring reroute endpoints', () => {

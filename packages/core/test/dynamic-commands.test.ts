@@ -669,6 +669,62 @@ describe('dynamic.compact', () => {
 
 })
 
+describe('stored state that follows the schema', () => {
+  // Each member holds a required choice that starts on 'a' and a group of its own.
+  const schema = (minMembers: number): NodeSchema => schemaOf([{
+    kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'link', minMembers,
+    member: [
+      socketInput('img'),
+      { kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] },
+      { kind: 'group', id: 'sub', keys: { kind: 'numbered', prefix: 's', start: 0, pad: 0 }, grows: 'link', minMembers: 0,
+        value: socketInput('v') },
+    ],
+  } as GroupSpec])
+  const storeFor = (minMembers: number, dynamic: Record<string, unknown>) =>
+    new DocumentStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic }) } }) }), coreCommandRegistry(),
+      200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => () => schema(minMembers) }))
+  const compact = (store: DocumentStore) =>
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+
+  it('compaction counts a choice off its start key as use, drops what a removed member stored, and keeps the minimum', () => {
+    const store = storeFor(1, {
+      items: { members: ['item0', 'item1', 'item2', 'item3'], seq: 4 },
+      'items.item0.mode': { selected: 'a' },
+      'items.item1.mode': { selected: 'b' },
+      'items.item2.mode': { selected: 'a' },
+      'items.item2.sub': { members: ['s0'], seq: 1 },
+    })
+    compact(store)
+    expect(dynOf(store, 'n1')).toEqual({ items: { members: ['item1'], seq: 4 }, 'items.item1.mode': { selected: 'b' } })
+
+    // Nothing is in use: the first member stays, so the group keeps its minimum.
+    const idle = storeFor(1, {
+      items: { members: ['item2', 'item3'], seq: 4 },
+      'items.item2.mode': { selected: 'a' },
+      'items.item3.mode': { selected: 'a' },
+    })
+    compact(idle)
+    expect(dynOf(idle, 'n1')).toEqual({ items: { members: ['item2'], seq: 4 }, 'items.item2.mode': { selected: 'a' } })
+  })
+
+  it('stores the minimum members of a group that grows by hand, after the ones it has', () => {
+    const fresh = storeFor(2, {})
+    expect(fresh.dispatch({ command: 'dynamic.storeStartState', params: {} }).ok).toBe(true)
+    expect(dynOf(fresh, 'n1')).toEqual({
+      items: { members: ['item0', 'item1'], seq: 2 },
+      'items.item0.mode': { selected: 'a' },
+      'items.item1.mode': { selected: 'a' },
+    })
+    const short = storeFor(2, { items: { members: ['item5'], seq: 6 }, 'items.item5.mode': { selected: 'b' } })
+    expect(short.dispatch({ command: 'dynamic.storeStartState', params: {} }).ok).toBe(true)
+    expect(dynOf(short, 'n1')).toEqual({
+      items: { members: ['item5', 'item6'], seq: 7 },
+      'items.item5.mode': { selected: 'b' },
+      'items.item6.mode': { selected: 'a' },
+    })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // batch
 // ---------------------------------------------------------------------------
