@@ -12,6 +12,8 @@ import { PackPreparationStatus } from './PackPreparationStatus.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
+import { isNativeProjectBackend } from './desktop-bridge.js'
+import { activeProjectId } from './projects.js'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -166,6 +168,16 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
         if (versions.size !== 1 || !version) throw new Error(message('problems.importedPacks.versionConflict'))
         return { pack, version }
       })
+      if (isNativeProjectBackend(backend.baseUrl, activeProjectId())) {
+        await props.app.checkProjectNeeds(backend, packs, () => install() === request && current())
+        if (install() === request && current()) {
+          const needs = props.app.projectNeedsReview.get()
+          if (needs?.backend !== backend || !needs.current()) throw new Error(message('projectNeeds.changed'))
+          setInstall(undefined)
+          props.app.modalPanel.set('')
+        }
+        return
+      }
       const plan = await backend.connection.planPackInstall(packs, controller.signal, (value) => {
         if (install() !== request || !current()) { controller.abort(); return }
         setProgress(value)

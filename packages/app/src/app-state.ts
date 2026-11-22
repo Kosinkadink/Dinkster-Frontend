@@ -84,6 +84,7 @@ import {
   schemaForEditorRole,
   scopeClosure,
   resolvePreviewPolicy,
+  resolveImportedNodePacks,
   semanticHashOf,
   validateDocumentShape,
   type PreviewAnimation,
@@ -2340,6 +2341,7 @@ export interface ProjectNeedsReview {
   readonly needs: ProjectNeeds
   readonly enable: readonly string[]
   readonly changes: ProjectNeeds['packs']
+  readonly requested?: ProjectNeeds['packs']
   readonly errors: readonly string[]
   readonly current: () => boolean
   /** Document and project ownership survives an expected registry replacement. */
@@ -6652,8 +6654,11 @@ export class AppState {
     } }
   }
 
-  async checkProjectNeeds(backend: Backend): Promise<void> {
+  async checkProjectNeeds(backend: Backend, requestedPacks?: ProjectNeeds['packs'], stillWanted: () => boolean = () => true): Promise<void> {
     if (backend.connection.status.get() !== 'connected' || this.projectPackInstallations.get(backend) === 'applying') return
+    const previous = this.projectNeedsReview.get()
+    const requested = requestedPacks ?? (previous?.backend === backend && previous.owned() ? previous.requested : undefined)
+    const selectedStore = requested === undefined ? undefined : this.activeTab()?.store
     const projectId = activeProjectId()
     const registry = backend.registry.get()
     const generation = this.assetConnectionGenerations.get(backend.connection)
@@ -6662,6 +6667,7 @@ export class AppState {
     const documents = this.tabs.get().filter((tab) => this.backendForTab(tab) === backend)
       .map((tab) => ({ store: tab.store, revision: tab.store.revision, document: tab.store.doc }))
     const owned = (): boolean => !this.disposed && activeProjectId() === projectId &&
+      (selectedStore === undefined || this.activeTab() === this.liveTabContinuing(selectedStore)) &&
       this.backends.get().includes(backend) &&
       documents.every(({ store, revision, document }) => {
         const tab = this.liveTabContinuing(store)
@@ -6675,21 +6681,24 @@ export class AppState {
     try {
       const project = await backend.connection.getProject(projectId)
       const needs = await backend.connection.projectNeeds(projectId)
-      if (!current()) return
+      if (!current() || !stillWanted()) return
       const required = new Map<string, { pack: string; version: string | null }>()
       const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
       for (const pack of needs.packs) add(pack.pack, pack.version)
       for (const pack of needs.extra) add(pack, null)
+      for (const pack of requested ?? []) add(pack.pack, pack.version)
       const errors = new Set(needs.unknown.map(({ scope, id }) => `${scope}/${id}`))
       for (const { document } of documents) {
-        for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        for (const imported of resolveImportedNodePacks(document, registry?.resolve ?? (() => undefined))) {
+          const node = document.graphs[imported.graphId]!.nodes[imported.nodeId]!
           if (node.virtual === true || node.type.startsWith('#')) continue
           const saved = document.environment?.nodes[node.type]
           const schema = registry?.resolve(node.type)
-          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? undefined : 'core')
+          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? imported.pack : 'core')
           if (pack === undefined) { errors.add(node.type); continue }
-          const provenance = saved?.pack !== undefined ? document.environment?.packs[pack] : registry?.packs?.get(pack)
-          if (pack !== 'core') add(pack, provenance?.version ?? null)
+          const version = saved?.pack !== undefined ? document.environment?.packs[pack]?.version
+            : schema === undefined ? imported.version : registry?.packs?.get(pack)?.version
+          if (pack !== 'core') add(pack, version ?? null)
         }
       }
       const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
@@ -6700,7 +6709,8 @@ export class AppState {
       const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
         .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
       if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
-      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned })
+      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned,
+        ...(requested === undefined ? {} : { requested }) })
     } catch (error) {
       if (!current()) return
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
