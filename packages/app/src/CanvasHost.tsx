@@ -5221,6 +5221,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           : { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
         ...(inRow ? { inRow: {
           look: tokens.nodeLook,
+          nodeTop: hit.node.y,
           nodeBottom: hit.node.y + hit.node.layout.height,
           storedAtOpen: stored ?? null,
           ...(help === undefined ? {} : { help }),
@@ -5333,6 +5334,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         valueKey: row.valueKey,
         rect: { x: node.x + row.inset, y: node.y + row.y + inset, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - inset * 2 },
         look: tokens.nodeLook,
+        nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
         ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
         ...(help === undefined ? {} : { help }),

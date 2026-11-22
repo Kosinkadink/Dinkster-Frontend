@@ -463,6 +463,13 @@ A seed's side part also holds its four after-run modes as one group of icons
 and a `new seed` link; the closed row shows the mode as an icon before the
 value. A slider's fill follows the typed text while it is in range.
 
+The side part stays whole on the visible canvas, which ends at the status
+bar, a docked panel or the on-screen keyboard; the canvas never moves for it.
+Beside the node it slides up or down just far enough, still touching the
+field's row. Under the field or the node it goes above instead when there is
+no room below. When it fits nowhere it takes the height there is and scrolls,
+its first lines in view.
+
 - Enter stores and keeps the keyboard on the row; Escape cancels and keeps it
   there too. Ctrl+Enter stores, then runs the workflow.
 - Tab and Shift+Tab store, then move to the next or previous row of the node,
