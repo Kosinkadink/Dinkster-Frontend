@@ -44,6 +44,7 @@ import {
   ProductField,
   ProductForm,
   ProductIcon,
+  ProductRunIcon,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -305,6 +306,15 @@ function Gallery() {
                   A sentence can carry a{' '}
                   <ProductLink href="#lists">link to another page</ProductLink>.
                 </p>
+              </Section>
+              <Section title="Run icons" components="ProductRunIcon">
+                <div class="dinkster-actions">
+                  <span>Idle <ProductRunIcon icon={Settings} /></span>
+                  <span>Queued <ProductRunIcon icon={Settings} queued /></span>
+                  <span>Running <ProductRunIcon icon={Settings} running /></span>
+                  <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
+                  <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>
+                </div>
               </Section>
               <Section
                 title="Text fields"

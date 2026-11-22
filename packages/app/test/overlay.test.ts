@@ -90,6 +90,82 @@ describe('follow-latest default', () => {
 
 })
 
+describe('tab run marks', () => {
+  it('shows the last run to end, not the last one queued, and clears cancelled results', () => {
+    const slow = run(basic, 100)
+    const fast = run(basic, 200)
+    expect(app.tabRunState(basic)).toBe('queued')
+    app.store.apply({ kind: 'started', execution: slow, timestamp: 201 })
+    app.store.apply({ kind: 'completed', execution: fast, timestamp: 202 })
+    expect(app.tabRunState(basic)).toBe('running')
+    app.store.apply({ kind: 'error', execution: slow, timestamp: 400, runtimeNodeId: 'n0',
+      detail: { exceptionType: 'RuntimeError', exceptionMessage: 'No image', traceback: [] } })
+    expect(app.tabRunState(basic)).toBe('failed')
+    const cancelled = run(basic, 500)
+    app.store.apply({ kind: 'cancelled', execution: cancelled, timestamp: 501 })
+    expect(app.tabRunState(basic)).toBe('idle')
+  })
+
+  it('tracks each lineage independently of overlay pins and clears results on edit or a new run', async () => {
+    expect(app.tabRunState(basic)).toBe('idle')
+    const first = run(basic, 100)
+    app.store.apply({ kind: 'started', execution: first, timestamp: 101 })
+    expect(app.tabRunState(basic)).toBe('running')
+    expect(app.tabRunState(subgraph)).toBe('idle')
+    app.store.apply({ kind: 'completed', execution: first, timestamp: 102 })
+    expect(app.tabRunState(basic)).toBe('finished')
+    const other = run(subgraph, 200)
+    app.store.apply({ kind: 'started', execution: other, timestamp: 201 })
+    expect(app.tabRunState(subgraph)).toBe('running')
+    expect(app.tabRunState(basic)).toBe('finished')
+    const edited = await app.dispatchTo(basic, { command: 'node.move', params: {
+      graphId: basic.store.doc.root, positions: { n0: { x: 419, y: 173 } },
+    } })
+    expect(edited.ok).toBe(true)
+    expect(app.tabRunState(basic)).toBe('idle')
+    const second = run(basic, 300)
+    app.store.apply({ kind: 'started', execution: second, timestamp: 301 })
+    app.pinExecutionOverlay(basic.id, first)
+    expect(app.tabRunState(basic)).toBe('running')
+    app.store.apply({ kind: 'completed', execution: second, timestamp: 302 })
+    expect(app.tabRunState(basic)).toBe('finished')
+    const third = run(basic, 400)
+    expect(app.tabRunState(basic)).toBe('queued')
+    app.store.apply({ kind: 'error', execution: third, timestamp: 401, runtimeNodeId: 'n0',
+      detail: { exceptionType: 'RuntimeError', exceptionMessage: 'No image', traceback: [] } })
+    expect(app.tabRunState(basic)).toBe('failed')
+    expect(app.tabRunState(subgraph)).toBe('running')
+    expect(await app.openExecutionView(second)).toBe(true)
+    expect(app.tabRunState(app.activeTab()!)).toBe('finished')
+  })
+})
+
+describe('document tab actions', () => {
+  it('duplicates live and frozen workflows with independent lineages and no run history', async () => {
+    const ref = run(basic, 100)
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 101 })
+    const copy = (await app.duplicateTab(basic.id))!
+    expect(copy.title).toBe('basic copy')
+    expect(copy.store.doc).toEqual({ ...basic.store.doc, lineage: copy.store.doc.lineage })
+    expect(copy.store.doc.lineage).not.toBe(basic.store.doc.lineage)
+    expect(copy.store).not.toBe(basic.store)
+    expect(app.backendForTab(copy)).toBe(app.backendForTab(basic))
+    expect(app.isTabDirty(copy.id)).toBe(true)
+    expect(app.tabRunState(copy)).toBe('idle')
+    expect(app.activeTabId.get()).toBe(copy.id)
+    expect((await app.duplicateTab(basic.id))?.title).toBe('basic copy 2')
+    expect(await app.openExecutionView(ref)).toBe(true)
+    const frozen = app.activeTab()!
+    app.renameTab(frozen.id, 'Not allowed')
+    expect(app.activeTab()?.title).toBe(frozen.title)
+    const thawed = (await app.duplicateTab(frozen.id))!
+    expect(thawed.title).toBe('basic copy 3')
+    expect(thawed.execution).toBeUndefined()
+    expect(thawed.editorKind).toBe('graph')
+    expect(app.isTabDirty(thawed.id)).toBe(true)
+  })
+})
+
 describe('pinning', () => {
   it('pin selects an older run and a NEW run does not replace it', () => {
     const older = run(basic, 100)
