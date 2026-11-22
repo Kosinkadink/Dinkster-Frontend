@@ -532,6 +532,7 @@ export type CanvasHoverTarget =
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 /** Where a link dropped on a node body lands: an input or output pin, or a field's value tap. */
 type BodyDropHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
+type PinHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
 
 /** True when a body drop resolved to the field row's own input or value tap. */
 const landsOnRow = (candidate: BodyDropHit, row: WidgetRow | undefined): row is WidgetRow =>
@@ -727,7 +728,13 @@ type Gesture =
       readonly startWY: number
       moved: boolean
     }
-  | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
+  | {
+      readonly kind: 'widget'
+      readonly hit: Extract<Hit, { kind: 'widget' }>
+      moved: boolean
+      /** A pin whose hit circle also covers the press: a drag starts its wire instead. */
+      readonly pin?: { readonly hit: PinHit; readonly shiftKey: boolean; readonly altKey: boolean }
+    }
   | {
       readonly kind: 'number-drag'
       readonly hit: Extract<Hit, { kind: 'widget' }>
@@ -1810,6 +1817,15 @@ export class InteractionController {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
       return
     }
+    // A pin's hit circle reaches over the end of its node's field rows. There
+    // a click belongs to the field's control and a drag to the pin.
+    if (hit.kind === 'pin' || hit.kind === 'widgetTap') {
+      const under = hitTest(scene, w.x, w.y, this.hitOptions({ widgetTaps: new Set(), pinRevealed: () => false }))
+      if (under.kind === 'widget' && under.node.id === hit.node.id) {
+        this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
+        return
+      }
+    }
     if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
       this.gesture = { kind: 'title-press', node: hit.node, startWX: w.x, startWY: w.y }
       return
@@ -1853,36 +1869,8 @@ export class InteractionController {
         this.gesture = { kind: 'growth', hit, moved: false }
         return
       case 'pin':
-        if (hit.pin.familyOwner !== undefined && hit.pin.familyOwner.socketed !== true) return
-        {
-          const gesture = this.beginLinkGesture(scene, hit, e.shiftKey, e.altKey)
-          if (gesture === undefined) return
-          this.gesture = gesture
-        }
-        this.pushOverlay()
-        return
       case 'widgetTap':
-        const fanOut = scene.links.filter((link) =>
-          link.from.kind === 'widgetTap' && link.from.node === hit.node.id && link.from.input === hit.input,
-        )
-        const move = endpointDragMode('out', fanOut.length > 0, e.shiftKey) === 'move-source'
-          ? this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
-          : undefined
-        this.gesture = move ?? {
-          kind: 'link', anchor: { x: hit.x, y: hit.y }, seeking: 'in',
-          presenceOrigin: { kind: 'widgetTap', node: hit.node.id, input: hit.input },
-          anchorType: hit.type,
-          ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
-          fromTap: { node: hit.node.id, tap: hit.input },
-          dropTargets: this.withBoundaryTargets(
-            scene,
-            this.compatibleTargets(scene, hit.type, 'in', hit.node.id),
-            hit.type,
-            'in',
-          ),
-          moved: false,
-        }
-        this.pushOverlay()
+        this.beginPinGesture(scene, hit, e.shiftKey, e.altKey)
         return
       case 'netStub':
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -2191,6 +2179,39 @@ export class InteractionController {
         this.pressNode(scene, hit.node.id, e, w.x, w.y)
         return
     }
+  }
+
+  /** Starts the wire gesture a press on a node pin or a field's output pin begins; a pin that starts none leaves the gesture as it was. */
+  private beginPinGesture(scene: Scene, hit: PinHit, shiftKey: boolean, altKey: boolean): void {
+    if (hit.kind === 'pin') {
+      if (hit.pin.familyOwner !== undefined && hit.pin.familyOwner.socketed !== true) return
+      const gesture = this.beginLinkGesture(scene, hit, shiftKey, altKey)
+      if (gesture === undefined) return
+      this.gesture = gesture
+      this.pushOverlay()
+      return
+    }
+    const fanOut = scene.links.filter((link) =>
+      link.from.kind === 'widgetTap' && link.from.node === hit.node.id && link.from.input === hit.input,
+    )
+    const move = endpointDragMode('out', fanOut.length > 0, shiftKey) === 'move-source'
+      ? this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
+      : undefined
+    this.gesture = move ?? {
+      kind: 'link', anchor: { x: hit.x, y: hit.y }, seeking: 'in',
+      presenceOrigin: { kind: 'widgetTap', node: hit.node.id, input: hit.input },
+      anchorType: hit.type,
+      ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
+      fromTap: { node: hit.node.id, tap: hit.input },
+      dropTargets: this.withBoundaryTargets(
+        scene,
+        this.compatibleTargets(scene, hit.type, 'in', hit.node.id),
+        hit.type,
+        'in',
+      ),
+      moved: false,
+    }
+    this.pushOverlay()
   }
 
   /** Select a pressed node by the modifier rules and arm a move of what is selected. */
@@ -3244,6 +3265,13 @@ export class InteractionController {
       this.lastGesturePoint = { wx: lw.x, wy: lw.y, cx: e.clientX, cy: e.clientY }
     }
     const passed = Math.hypot(sx - this.downX, sy - this.downY) >= DRAG_THRESHOLD
+    if (g.kind === 'widget' && g.pin !== undefined && passed) {
+      // A pin that starts no wire leaves the row's own drag.
+      this.gesture = { kind: 'widget', hit: g.hit, moved: false }
+      this.beginPinGesture(this.renderer.getScene(), g.pin.hit, g.pin.shiftKey, g.pin.altKey)
+      this.processPointerMove(e)
+      return
+    }
 
     switch (g.kind) {
       case 'pan': {

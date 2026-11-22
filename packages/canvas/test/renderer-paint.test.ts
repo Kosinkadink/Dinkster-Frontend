@@ -622,14 +622,14 @@ describe('canvas hover affordance paint', () => {
     expect(inBand(open, 144)).toEqual(inBand(closed, 144))
   })
 
-  it('enlarges only the hovered node pin to 1.35 times its base radius', () => {
+  it('grows only the hovered node pin, from 11 px to 13 px across', () => {
     const scene = hoverScene()
     const calls = paintWith(scene, (renderer) => renderer.setOverlay({
       hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
     }))
     const hovered = calls.find((call) =>
       call.method === 'arc' && call.args[0] === 100 + PIN_INSET && call.args[1] === 156 + PIN_DROP &&
-      call.args[2] === defaultTokens.pinRadius * 1.35,
+      call.args[2] === 13 / 2,
     )
     const ordinary = calls.find((call) =>
       call.method === 'arc' && call.args[0] === 240 - PIN_INSET && call.args[1] === 156 + PIN_DROP &&
@@ -654,10 +654,10 @@ describe('canvas hover affordance paint', () => {
     }
     const assertAssociated = (calls: readonly PaintCall[]) => {
       expect(calls).toContainEqual(expect.objectContaining({
-        method: 'arc', args: [100 + PIN_INSET, 156 + PIN_DROP, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
+        method: 'arc', args: [100 + PIN_INSET, 156 + PIN_DROP, 13 / 2, 0, Math.PI * 2],
       }))
       expect(calls).toContainEqual(expect.objectContaining({
-        method: 'arc', args: [240 - PIN_INSET, 156 + PIN_DROP, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
+        method: 'arc', args: [240 - PIN_INSET, 156 + PIN_DROP, 13 / 2, 0, Math.PI * 2],
       }))
     }
     assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({

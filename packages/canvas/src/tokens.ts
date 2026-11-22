@@ -188,7 +188,8 @@ export const canvasPaintTokens = {
     dividerMinWorld: 0.75,
     dividerMaxWorld: canvasSemanticTokens.space[4],
     diamondScale: 1.25,
-    hoverScale: 1.35,
+    /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
+    hoverGrowth: 1,
     statusRingGap: 3.5,
     statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
     outlineStroke: 1,
