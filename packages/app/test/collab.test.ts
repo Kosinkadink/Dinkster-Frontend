@@ -633,7 +633,8 @@ describe('share', () => {
     if (part === 'slot') {
       const compiled = app.compileTab(activeTab(app))
       expect(compiled?.ok).toBe(false)
-      expect(compiled?.diagnostics.some((entry) => entry.code === 'prompt.missing_dynamic_choice')).toBe(true)
+      if (compiled === undefined || compiled.ok) throw new Error('required slot compiled without a variant')
+      expect(compiled.diagnostics.some((entry) => entry.code === 'prompt.missing_dynamic_choice')).toBe(true)
     }
   })
 

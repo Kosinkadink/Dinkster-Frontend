@@ -2148,6 +2148,29 @@ describe('retained workflow opens', () => {
     },
   )
 
+  it('stores a native combo fallback on open in one undoable change', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const updated: NodeSchema = { ...schema, items: [...schema.items, {
+      kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
+      dynamic: { kind: 'dynamicCombo', defaultOption: 'second', options: [
+        { key: 'first', inputs: [] }, { key: 'second', inputs: [] },
+      ] },
+    }] }
+    app = createWorkflowApp([updated])
+    const original = session().doc
+    const document: WorkflowDocument = { ...original, graphs: { g0: { ...original.graphs.g0!, nodes: {
+      n0: { ...original.graphs.g0!.nodes.n0!, dynamic: { mode: { selected: 'removed' } },
+        values: { files: [asset('a')], 'mode/removed.old': 19 } },
+    } } } }
+    expect(await app.openDocument(document, 'Native combo')).toEqual([])
+    const tab = app.activeTab()!
+    await vi.waitFor(() => expect(tab.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual({ mode: { selected: 'second' } }))
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual(document.graphs.g0!.nodes.n0!.values)
+    expect(app.problems.get().filter((entry) => entry.code === 'upgrade.removedDynamicParts')).toHaveLength(1)
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual({ mode: { selected: 'removed' } })
+  })
+
   it.each(['optional', 'required', 'linked-required'] as const)('clears a removed %s slot variant on open', async (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const updated: NodeSchema = { ...schema, items: [

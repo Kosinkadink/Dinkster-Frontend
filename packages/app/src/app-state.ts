@@ -6217,10 +6217,14 @@ export class AppState {
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
-      const diagnostics = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id),
-        { promoteGhosts: false, includeDormant: true }).diagnostics
-      const changes = diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
+      const connectivity = buildGraphConnectivity(graph)(node.id)
+      const diagnostics = [
+        ...elaborateInterface(schema, node, connectivity, { promoteGhosts: false }).diagnostics,
+        ...elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }).diagnostics,
+      ]
+      const changes = [...new Map(diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
         'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
+        .map((entry) => [JSON.stringify([entry.code, entry.data]), entry])).values()]
       if (changes.length === 0) continue
       for (const entry of changes) {
         if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
