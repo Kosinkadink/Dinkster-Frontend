@@ -490,8 +490,17 @@ export function checkBody(
     if (!frameNames.has(frames)) frameNames.set(frames, framesNamesOf(frames))
     return frameNames.get(frames)!
   }
-  const scope = (rows: readonly OptionRow[], depth: number, where: string, frames: Frames): void => {
-    visit(rows, depth, where, newIds(), new Map(), [...frames, rows])
+  // Frames at or under a group member's rows, where index() and key() may be read.
+  const memberFrames = new WeakSet<Frames>()
+  const within = (frames: Frames, rows: readonly OptionRow[], member = false): Frames => {
+    const next = [...frames, rows]
+    if (member || memberFrames.has(frames)) memberFrames.add(next)
+    return next
+  }
+  const counted = (value: unknown, frames: Frames, skip?: ReadonlySet<string>): void =>
+    refuseCountedReads(value, namesOf(frames), { ...formulas, inMember: memberFrames.has(frames) }, skip)
+  const scope = (rows: readonly OptionRow[], depth: number, where: string, frames: Frames, member = false): void => {
+    visit(rows, depth, where, newIds(), new Map(), within(frames, rows, member))
   }
   const visit = (
     rows: readonly OptionRow[],
@@ -506,15 +515,15 @@ export function checkBody(
         const target = shared.get(row.id)
         if (target === undefined) throw new Error(`Use ${where}${row.id}: names no shared row of its choice`)
         checkUse(row, target, `${where}${row.id}`)
-        refuseCountedReads(row, namesOf(frames), formulas, new Set())
+        counted(row, frames, new Set())
         continue
       }
       if (row.kind === 'group') {
-        refuseCountedReads(row, namesOf(frames), formulas, new Set([...CHILD_FIELDS, 'memberLabel']))
+        counted(row, frames, new Set([...CHILD_FIELDS, 'memberLabel']))
       } else {
-        refuseCountedReads(row, namesOf(frames), formulas)
-        if (row.kind === 'choice') for (const option of row.options) refuseCountedReads(option, namesOf(frames), formulas)
-        if (row.kind === 'described') for (const kind of row.kinds) refuseCountedReads(kind, namesOf(frames), formulas)
+        counted(row, frames)
+        if (row.kind === 'choice') for (const option of row.options) counted(option, frames)
+        if (row.kind === 'described') for (const kind of row.kinds) counted(kind, frames)
       }
       switch (row.kind) {
         case 'output':
@@ -553,8 +562,8 @@ export function checkBody(
           break
         case 'group':
           box(depth + 1, `group ${row.id}`)
-          if (row.member !== undefined) scope(row.member, depth + 1, `${where}${row.id}.<key>.`, frames)
-          refuseCountedReads(row.memberLabel, framesNamesOf([...frames, memberRowsOf(row)]), formulas, new Set())
+          scope(memberRowsOf(row), depth + 1, `${where}${row.id}.<key>.`, frames, true)
+          counted(row.memberLabel, within(frames, memberRowsOf(row), true), new Set())
           checkMemberLabel(row, [...frames, memberRowsOf(row)], formulas)
           break
         case 'choice': {
@@ -573,7 +582,7 @@ export function checkBody(
             }
             sharedRows.set(item.id, item)
           }
-          const choiceFrames = [...frames, choiceScopeRows(row)]
+          const choiceFrames = within(frames, choiceScopeRows(row))
           visit(row.shared, depth + 1, inner, choiceIds, new Map(), choiceFrames)
           for (const option of row.options) {
             const used = option.rows.filter((item) => item.kind === 'use').map((item) => item.id)
@@ -589,12 +598,12 @@ export function checkBody(
           box(depth + 1, `type choice ${row.id}`)
           const inner = `${where}${row.id}.`
           const rowIds = newIds()
-          visit(row.rows, depth + 1, inner, rowIds, new Map(), [...frames, row.rows])
+          visit(row.rows, depth + 1, inner, rowIds, new Map(), within(frames, row.rows))
           for (const variant of row.variants ?? []) {
             const variantIds = Object.fromEntries(
               Object.entries(rowIds).map(([kind, seen]) => [kind, new Set(seen)]),
             ) as Ids
-            visit(variant.rows, depth + 1, inner, variantIds, new Map(), [...frames, [...row.rows, ...variant.rows]])
+            visit(variant.rows, depth + 1, inner, variantIds, new Map(), within(frames, [...row.rows, ...variant.rows]))
           }
           break
         }
@@ -605,9 +614,9 @@ export function checkBody(
     }
   }
   scope(body, 0, '', [])
-  const top = framesNamesOf([body])
-  refuseCountedReads([node.validate, node.titleSuffix], top, formulas)
-  for (const button of node.menu ?? []) refuseCountedReads(button, top, formulas)
+  const top: Frames = [body]
+  counted([node.validate, node.titleSuffix], top)
+  for (const button of node.menu ?? []) counted(button, top)
 }
 
 /** Fields that hold rows of their own; their formulas are checked with those rows. */
@@ -621,7 +630,7 @@ const CHILD_FIELDS = new Set(['rows', 'member', 'value', 'options', 'shared', 'v
 function refuseCountedReads(
   value: unknown,
   names: ScopeNames,
-  formulas: Pick<FormulaScope, 'tables' | 'derived'>,
+  formulas: Pick<FormulaScope, 'tables' | 'derived' | 'inMember'>,
   skip: ReadonlySet<string> = CHILD_FIELDS,
 ): void {
   if (names.counted.size === 0) return

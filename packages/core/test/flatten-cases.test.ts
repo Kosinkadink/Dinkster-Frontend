@@ -97,7 +97,7 @@ describe('flattening cases shared with the engine', () => {
         .filter((input) => input.apiName !== undefined)
         .map((input) => [
           input.apiName!,
-          canonicalTypeIdOf(input.spec.type) ?? '?',
+          canonicalTypeIdOf(input.spec.type) ?? null,
           !input.spec.optional,
           (input.spec.widget?.default ?? input.spec.ext?.['default'] ?? null) as Json,
         ] as const)
