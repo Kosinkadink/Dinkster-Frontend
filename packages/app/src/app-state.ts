@@ -3614,88 +3614,6 @@ export class AppState {
     }
   }
 
-  private async waitForOwnershipCatalogs(backends: readonly Backend[]): Promise<void> {
-    // Initial socket opening replaces the catalog and connection lifetime.
-    // Capture ownership only after that publication, without retrying admission.
-    await new Promise<void>((resolve) => {
-      const ready = (): boolean => this.disposed || !backends.some((backend) => {
-        if (backend.protocol !== 'dinkster') return false
-        const status = backend.connection.status.get()
-        return status === 'connecting' || status === 'reconnecting' ||
-          (status === 'connected' && backend.schemaState.get().status === 'loading')
-      })
-      if (ready()) { resolve(); return }
-      const unsubscribe = this.backendsTick.subscribe(() => {
-        // Status observers must finish invalidating the connected catalog first.
-        queueMicrotask(() => {
-          if (ready()) { unsubscribe(); resolve() }
-        })
-      })
-    })
-  }
-
-  /** Confirm restored local ownership before sharing the local inventory. */
-  async confirmStartupOwnership(): Promise<void> {
-    await this.waitForOwnershipCatalogs(this.backends.get())
-    const tabs = this.tabs.get()
-    const local = this.backends.get().find((backend) => backend.connection === this.connection)!
-    const currentLocalDocuments = new Set(tabs.filter((tab) => this.backendForTab(tab) === local)
-      .map((tab) => JSON.stringify(tab.store.doc)))
-    const sources = [
-      ...tabs.map((tab) => ({ tab, backend: this.backendForTab(tab),
-        document: tab.store.doc, revision: tab.store.revision, history: tab.store.historySnapshot() })),
-      ...this.startupRecoveryDocuments.filter((document) => !currentLocalDocuments.has(JSON.stringify(document)))
-        .map((document) => ({ tab: undefined, backend: local, document, revision: 0,
-          history: { revision: 0, undo: [], redo: [] } })),
-    ]
-    const candidates = sources.map((source) => {
-      const { backend } = source
-      const registry = backend.registry.get()
-      let connectionChanged = false
-      const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-      return { ...source, registry, unsubscribe, connectionChanged: () => connectionChanged,
-        ownershipRegistry: registry && (this.packLocaleSources.get(registry) ?? registry),
-        project: activeProjectId(), generation: this.assetConnectionGenerations.get(backend.connection) }
-    })
-    const admission = { pending: true }
-    const storage = globalThis.localStorage
-    try {
-      if (this.disposed) throw new Error('The application closed before startup ownership could be confirmed')
-      const retained = await Promise.all(candidates.filter(({ backend }) => backend.protocol === 'dinkster')
-        .map(async (candidate) => {
-          const { backend, registry, document, revision, history } = candidate
-          const roots = workflowAssetRoots(document, history,
-            this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-          const receipt = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-          this.unpublishedWorkflowOwners.set(receipt, { backend, registry, storage, admission,
-            project: candidate.project, generation: candidate.generation, lineage: document.lineage })
-          if (!admission.pending) this.retireUnpublishedWorkflowOwners()
-          return { candidate, receipt, roots }
-        }))
-      const latest = this.tabs.get()
-      if (this.disposed || latest.length !== tabs.length || candidates.some((candidate, index) => {
-        const registry = candidate.backend.registry.get()
-        return (candidate.tab !== undefined && (latest[index] !== candidate.tab ||
-          candidate.tab.store.doc !== candidate.document || candidate.tab.store.revision !== candidate.revision ||
-          this.backendForTab(candidate.tab) !== candidate.backend)) || candidate.connectionChanged() ||
-          !this.backends.get().includes(candidate.backend) ||
-          (registry && (this.packLocaleSources.get(registry) ?? registry)) !== candidate.ownershipRegistry
-      })) {
-        throw new Error('The restored workspace changed while startup ownership was being confirmed')
-      }
-      for (const { candidate, receipt, roots } of retained) {
-        if (candidate.tab && !candidate.tab.execution && candidate.tab.store.doc === candidate.document &&
-          candidate.tab.store.revision === candidate.revision) {
-          this.replaceWorkflowAssetOwner(candidate.tab.store, candidate.backend, receipt, candidate.project, candidate.generation)
-        }
-      }
-    } finally {
-      admission.pending = false
-      for (const candidate of candidates) candidate.unsubscribe()
-      this.retireUnpublishedWorkflowOwners()
-    }
-  }
-
   /**
    * Move every local workflow onto the same-origin SharedWorker authority.
    * Keep local edits if the workspace changes before the opening reply.
@@ -8184,25 +8102,9 @@ export class AppState {
       const progress = jobNodes[nodeId]
       if (progress?.state !== 'done' && progress?.state !== 'cached') continue
       for (const outputId of outputIds) {
-<<<<<<< HEAD
         if (!stillCurrent() || !this.store.canRestoreCompleted(result.ref)) return null
         const peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
         if (!stillCurrent() || !this.store.canRestoreCompleted(result.ref)) return null
-=======
-        // This proof-validated read precedes publication of the restored entry.
-        const pending = { backend, jobRef: result.jobRef, nodeId, outputId, current: () => stillCurrent() &&
-          activeProjectId() === project && this.store.canRestoreCompleted(result.ref) }
-        if (!pending.current()) return null
-        const key = executionKey(result.ref)
-        this.pendingResultReads.set(key, pending)
-        let peek: ValuePeekResult
-        try {
-          peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
-          if (this.pendingResultReads.get(key) !== pending || !pending.current()) return null
-        } finally {
-          if (this.pendingResultReads.get(key) === pending) this.pendingResultReads.delete(key)
-        }
->>>>>>> 71dc7bd8 (Remove central cleanup owner state)
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
             peek.status >= 500 || peek.reason === 'malformed-response') return null
