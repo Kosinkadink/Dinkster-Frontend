@@ -59,6 +59,23 @@ export async function selectProductOption(page: Page, control: Locator, optionId
   await expect(control).toHaveAttribute('data-selected-id', selectedId)
 }
 
+/** Page point at the middle of a subgraph node's title-bar mark; a double-click there enters the subgraph. */
+export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
+  const point = await page.waitForFunction((nodeId) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+    const mark = node === undefined ? undefined : renderer.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.subgraph')
+    if (mark === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (mark.x + mark.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (mark.y + mark.height / 2) * viewport.scale + viewport.y,
+    }
+  }, nodeId)
+  return await point.jsonValue() as { x: number; y: number }
+}
+
 export async function openRailPanel(page: Page, title: string): Promise<void> {
   const rail = page.getByTestId('dock-zone-right')
   if (!await rail.isVisible()) {

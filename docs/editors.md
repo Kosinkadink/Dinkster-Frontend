@@ -347,6 +347,14 @@ node's mark at the right end of its title bar uses the boxes icon. When a
 definition is referenced by two or more occurrences, the mark adds the
 document-derived linked count; a single occurrence keeps the icon-only mark.
 
+A subgraph node acts like any node: double-clicking its title minimizes or
+restores it. The mark is the way in. One click opens its panel with the
+subgraph's name, node count and Open Subgraph; a double-click enters the
+subgraph and closes that panel. The toolbox's and the node menu's Open
+Subgraph enter it too. The mark takes the pointer over a 20px square, though
+drawn at 16px, and its tooltip names the subgraph and adds "Double-click to open." A press on
+the mark that drags moves the node.
+
 Right-click a linked subgraph occurrence and choose **Make Unique** to clone
 its definition and repoint only that occurrence. The command clones the
 definition graph and its view state in one undoable transaction. Nested

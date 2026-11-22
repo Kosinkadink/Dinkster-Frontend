@@ -331,7 +331,11 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
         const entry = entries[index]!
         if (entry.badge.interactive === false) continue
         const rect = { x: entry.x, y: entry.y, width: entry.width, height: entry.height }
-        if (wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height) {
+        // The title mark is drawn small; its target grows to the mark's hit size.
+        const grow = entry.badge.placement === 'title'
+          ? Math.max(0, (canvasPaintTokens.badge.mark.hitSize - Math.min(rect.width, rect.height)) / 2)
+          : 0
+        if (wx >= rect.x - grow && wx <= rect.x + rect.width + grow && wy >= rect.y - grow && wy <= rect.y + rect.height + grow) {
           return { node, badge: entry.badge, rect, ...(entry.overflow ? { overflow: entry.overflow } : {}) }
         }
       }

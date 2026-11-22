@@ -3,7 +3,7 @@
  * definition is instantiated twice, so bare definition node ids cannot tell
  * the host which runtime state belongs in the current drilled-in view.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, subgraphMarkPoint, type Page } from './fixtures.js'
 
 type ProjectedStates = Readonly<Record<string, { state: string; value?: number }>>
 
@@ -16,17 +16,8 @@ const projectedStates = (page: Page) =>
   })
 
 async function drillInto(page: Page, nodeId: string): Promise<void> {
-  const header = await page.evaluate((nodeId) => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((item) => item.id === nodeId)
-    if (!node) throw new Error(`no scene node '${nodeId}'`)
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  }, nodeId)
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, nodeId)
+  await page.mouse.dblclick(mark.x, mark.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(2)
 }
 

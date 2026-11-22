@@ -21,9 +21,9 @@ import {
   type PortProblemMap,
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
-import { linkBounds, linkControlOffset } from './hit.js'
+import { linkBounds, linkControlOffset, minimizeArrowRect } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
+import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
   boundarySceneId,
   GROUP_HEADER_HEIGHT,
@@ -586,6 +586,8 @@ export interface OverlayState {
   /** One widget row under the idle pointer. */
   readonly hoveredWidget?: { readonly nodeId: string; readonly valueKey: string }
   readonly hoveredBadge?: { readonly nodeId: string; readonly badgeId: string }
+  /** The node whose title-bar minimize arrow is under the idle pointer. */
+  readonly hoveredMinimize?: string
   /** Live rubber-band selection rectangle (world coords, normalized). */
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
   /** Live node geometry used only for paint; committed as view.setNodeSize on release. */
@@ -714,6 +716,23 @@ const modeDash = (mode: 'active' | 'muted' | 'bypassed', scale: number): number[
   if (mode === 'active') return undefined
   const dash = canvasPaintTokens.stateDash[mode]
   return screenAwareDash(dash.world, dash.screen, scale)
+}
+
+/** The disclosure triangle shared by section rows and the title-bar minimize arrow. */
+function paintDisclosureArrow(ctx: CanvasRenderingContext2D, cx: number, cy: number, open: boolean): void {
+  const paint = canvasPaintTokens.node.section
+  ctx.beginPath()
+  if (open) {
+    ctx.moveTo(cx - paint.arrowHalfWidth, cy - paint.arrowBack)
+    ctx.lineTo(cx + paint.arrowHalfWidth, cy - paint.arrowBack)
+    ctx.lineTo(cx, cy + paint.arrowTip)
+  } else {
+    ctx.moveTo(cx - paint.arrowBack, cy - paint.arrowHalfWidth)
+    ctx.lineTo(cx + paint.arrowTip, cy)
+    ctx.lineTo(cx - paint.arrowBack, cy + paint.arrowHalfWidth)
+  }
+  ctx.closePath()
+  ctx.fill()
 }
 
 const detailRadius = (radius: number, scale: number, detailLevel: CanvasDetailLevel): number =>
@@ -955,7 +974,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge', 'hoveredMinimize',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
     for (const key of keys) {
@@ -3022,6 +3041,20 @@ export class CanvasRenderer {
         : badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id ? t.colors.blockingWarning : badge.color
   }
 
+  /** The title bar's minimize arrow: down on an open node, right on a minimized one. */
+  private drawMinimizeArrow(ctx: CanvasRenderingContext2D, node: SceneNode): void {
+    const rect = minimizeArrowRect(node)
+    const hovered = this.overlay.hoveredMinimize === node.id
+    if (hovered) {
+      ctx.fillStyle = this.tokens.colors.widgetRaised
+      ctx.beginPath()
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, canvasPaintTokens.node.minimizeArrow.hoverRadius)
+      ctx.fill()
+    }
+    ctx.fillStyle = hovered ? this.tokens.colors.title : this.tokens.colors.label
+    paintDisclosureArrow(ctx, rect.x + rect.width / 2, rect.y + rect.height / 2, node.layout.minimized !== true)
+  }
+
   /**
    * A tab: a tint of its color as fill, a 1 px line and the icon and words in
    * that color. The title mark is the same look over the title bar.
@@ -3222,13 +3255,14 @@ export class CanvasRenderer {
       )
     }
 
+    this.drawMinimizeArrow(ctx, node)
     if (!contentDetail) {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
-      if (measureWidth(ctx, title) <= l.width - t.padX * 2) {
+      if (measureWidth(ctx, title) <= l.width - TITLE_START - t.padX) {
         ctx.fillStyle = t.colors.title
         ctx.textBaseline = 'middle'
         ctx.textAlign = 'left'
-        ctx.fillText(title, node.x + t.padX, node.y + l.headerHeight / 2)
+        ctx.fillText(title, node.x + TITLE_START, node.y + l.headerHeight / 2)
       }
     }
 
@@ -3243,7 +3277,7 @@ export class CanvasRenderer {
       const badgeLayout = this.getNodeBadgeLayout(node)
       const markLefts = badgeLayout.filter((entry) => entry.badge.placement === 'title').map((entry) => entry.x)
       const badgeLeft = markLefts.length > 0 ? Math.min(...markLefts) : node.x + l.width - t.padX
-      let titleX = node.x + t.padX
+      let titleX = node.x + TITLE_START
       if (node.regionKind !== undefined) {
         const paint = canvasPaintTokens.region
         const glyphX = titleX + paint.glyphInset
@@ -3313,18 +3347,7 @@ export class CanvasRenderer {
           const cx = node.x + t.padX + paint.glyphInset
           const cy = rowY + row.height / 2
           ctx.fillStyle = t.colors.label
-          ctx.beginPath()
-          if (row.collapsed) {
-            ctx.moveTo(cx - paint.arrowBack, cy - paint.arrowHalfWidth)
-            ctx.lineTo(cx + paint.arrowTip, cy)
-            ctx.lineTo(cx - paint.arrowBack, cy + paint.arrowHalfWidth)
-          } else {
-            ctx.moveTo(cx - paint.arrowHalfWidth, cy - paint.arrowBack)
-            ctx.lineTo(cx + paint.arrowHalfWidth, cy - paint.arrowBack)
-            ctx.lineTo(cx, cy + paint.arrowTip)
-          }
-          ctx.closePath()
-          ctx.fill()
+          paintDisclosureArrow(ctx, cx, cy, row.collapsed !== true)
           ctx.textAlign = 'left'
           ctx.fillText(row.label, cx + paint.labelOffset, cy, l.width - t.padX * 2 - paint.labelReserve)
           // Subtle dot: this collapsed section hides non-default values.

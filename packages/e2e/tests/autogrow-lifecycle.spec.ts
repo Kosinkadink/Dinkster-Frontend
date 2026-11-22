@@ -3,7 +3,7 @@
  * intentionally uses real CanvasHost pointer gestures for ghost promotion and
  * automatic disconnect compaction and one-step undo/redo restoration.
  */
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
 
 async function pinPoint(
   page: Page,
@@ -134,12 +134,8 @@ test('grouped forwarded disconnect compacts atomically and never recycles identi
     to: { node: 'occurrence', port: 'forwarded.image', members: ['m0'] },
   })
 
-  const header = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'occurrence')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'occurrence')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   expect(await page.evaluate(() => {

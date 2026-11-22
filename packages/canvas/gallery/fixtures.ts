@@ -827,6 +827,7 @@ export function createCanvasGalleryFixture(
       'Renamed',
       'Missing type',
       'Minimized',
+      'Minimize arrow hovered',
       'Invalid value',
       'Hovered row',
     ]
@@ -873,6 +874,7 @@ export function createCanvasGalleryFixture(
       selection: new Set(['Selected']),
       hoveredNode: 'Hovered',
       hoveredWidget: { nodeId: 'Hovered row', valueKey: 'cfg' },
+      hoveredMinimize: 'Minimize arrow hovered',
       ghostLink: { x1: from.x, y1: from.y, x2: to.x, y2: to.y, typeName: 'FLOAT' },
       dropTargets: new Set([dropTargetKey(held, 'cfg', 'in')]),
       dropRow: { nodeId: held, valueKey: 'cfg' },
@@ -1099,6 +1101,7 @@ export function createCanvasGalleryFixture(
       ...node,
       isSubgraph: node.id === 'Subgraph',
     }))
+    fixture.badges = { ...fixture.badges, Subgraph: [SUBGRAPH_BADGE] }
     if (page === 'anatomy') {
       for (const collapsed of [false, true]) {
         add(

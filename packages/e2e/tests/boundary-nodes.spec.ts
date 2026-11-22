@@ -10,7 +10,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -131,16 +131,8 @@ async function openSubgraphWorkflow(page: Page): Promise<void> {
 
 /** Double-click the instance header to drill into the definition. */
 async function drillIntoSub(page: Page): Promise<void> {
-  const header = await page.evaluate(() => {
-    const r = window.__dinksterTest!.renderer!
-    const node = r.getScene().nodes.find((n) => n.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await identityViewport(page)
