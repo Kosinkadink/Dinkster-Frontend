@@ -25,7 +25,11 @@ widget writes under that part name. Apply camera angle updates those rows as
 one undoable edit; the presentation-only view string is unchanged. Blank,
 fractional angle and out-of-range drafts cannot be applied. A field whose row
 has a link, or that the widget does not name, is disabled and not written; the
-other fields stay editable. Opening and Cancel write nothing, and outside
+other fields stay editable. A linked field shows the value its link carries
+when that is a literal value, and otherwise shows Linked with no number, never
+the stored value under the link. The preview needs all three numbers; when one
+is missing, a line names it and the preview is not drawn. With no editable
+field, Apply is not offered. Opening and Cancel write nothing, and outside
 dismissal discards the draft.
 
 IMAGECOMPARE opens a wipe comparison of the previews the executed node streams

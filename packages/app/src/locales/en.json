@@ -92,6 +92,8 @@
   "cameraAngleWidget.vertical_angle": "Vertical angle (-30 to 60 degrees)",
   "cameraAngleWidget.zoom": "Zoom (0-10)",
   "cameraAngleWidget.connected": "Fields with a link are not changed here. Apply sets only the fields without one.",
+  "cameraAngleWidget.linked": "Linked",
+  "cameraAngleWidget.missing": "No value for {fields} here, so the preview is not drawn.",
   "cameraAngleWidget.invalid": "Use whole horizontal angles from 0 to 360, whole vertical angles from -30 to 60, and zoom from 0 to 10.",
   "cameraAngleWidget.apply": "Apply camera angle",
   "imageCompareWidget.open": "Compare executed images",

@@ -1,4 +1,4 @@
-import { asPortId, buildRerouteIndex, defaultValuesOf, portRefKey, type CommandInvocation } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, portRefKey, type CommandInvocation } from '@dinkster/core'
 import { createSignal, For, onCleanup, Show, type Component } from 'solid-js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
@@ -29,7 +29,17 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
     return key !== undefined && (index?.inputDriverOf.has(key) === true || index?.netSourceOf.has(key) === true)
   }
   const editable = fields.filter((field) => rows[field] !== undefined && !wired(field))
-  const values = Object.fromEntries(editable.map((field) => [field, node?.values[rows[field]!] ?? defaults?.[rows[field]!]]))
+  const sources = graph && node && companionSourcesOf(graph, index, undefined, resolve).get(node.id)
+  // A wired angle shows the value its wire carries when that is a literal the
+  // editor can read, and never the stored value underneath the wire.
+  const linked = (field: typeof fields[number]): unknown => {
+    const source = rows[field] === undefined ? undefined : sources?.get(rows[field])
+    return source?.kind === 'literal' && typeof source.value === 'number' ? source.value : undefined
+  }
+  const values = Object.fromEntries(fields.map((field) => [field, editable.includes(field)
+    ? node?.values[rows[field]!] ?? defaults?.[rows[field]!]
+    : wired(field) ? linked(field) : undefined]))
+  const missing = fields.filter((field) => typeof values[field] !== 'number')
   const available = editable.length > 0 && editable.every((field) => typeof values[field] === 'number')
   const [draft, setDraft] = createSignal<Record<typeof fields[number], string>>({
     horizontal_angle: String(values.horizontal_angle ?? ''),
@@ -76,11 +86,13 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
       </svg>
       <output class="camera-angle-position">{message('cameraAngleWidget.position', { x: position().x.toFixed(2), y: position().y.toFixed(2), z: position().z.toFixed(2) })}</output>
     </Show>
-    <Show when={editable.length < fields.length}><ProductNotice tone="info">{message('cameraAngleWidget.connected')}</ProductNotice></Show>
+    <Show when={fields.some(wired)}><ProductNotice tone="info">{message('cameraAngleWidget.connected')}</ProductNotice></Show>
+    <Show when={missing.length > 0}><ProductNotice tone="info">{message('cameraAngleWidget.missing', { fields: missing.map((field) => message(`cameraAngleWidget.${field}`)).join(', ') })}</ProductNotice></Show>
     <For each={fields}>{(field) => {
       const id = `camera-angle-${field}`
       return <ProductField controlId={id} label={message(`cameraAngleWidget.${field}`)} layout="compact">
         <ProductTextInput id={id} aria-labelledby={productFieldIds(id).label} value={draft()[field]} inputmode={field === 'zoom' ? 'decimal' : 'numeric'} disabled={!editable.includes(field) || props.commitPending()}
+          placeholder={wired(field) ? message('cameraAngleWidget.linked') : undefined}
           ref={(element) => { if (field === 'horizontal_angle') queueMicrotask(() => { if (element.isConnected) { element.focus(); element.select() } }) }}
           onInput={(event) => { const value = event.currentTarget.value; setDraft((previous) => ({ ...previous, [field]: value })) }} />
       </ProductField>
@@ -88,7 +100,9 @@ const CameraAngleImplementation: Component<WidgetEditorImplementationProps> = (p
     <Show when={available && !valid()}><ProductNotice tone="error">{message('cameraAngleWidget.invalid')}</ProductNotice></Show>
     <ProductActionFooter>
       <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={!valid() || props.commitPending()} onClick={commit}>{message('cameraAngleWidget.apply')}</ProductButton>
+      <Show when={editable.length > 0}>
+        <ProductButton type="button" variant="primary" disabled={!valid() || props.commitPending()} onClick={commit}>{message('cameraAngleWidget.apply')}</ProductButton>
+      </Show>
     </ProductActionFooter>
   </div>
 }
