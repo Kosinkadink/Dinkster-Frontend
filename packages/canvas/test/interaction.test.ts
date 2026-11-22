@@ -4350,6 +4350,84 @@ describe('Inputs panel fields', () => {
     expect(radiusOf(store, 'g0', 'strong')).toBe(12)
   })
 
+  it('shows a promoted value source as a field: the entered node\'s value, else the source\'s, edited where it is owned', () => {
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-sources', root: 'g0',
+      graphs: {
+        g0: {
+          id: 'g0', name: 'Root', nextOrdinal: 4, links: {}, nets: {}, reroutes: {},
+          nodes: {
+            set: { id: 'set', type: '#g1', values: { strength: 6 } },
+            unset: { id: 'unset', type: '#g1', values: {} },
+            outer: { id: 'outer', type: '#g2', values: { amount: 20 } },
+          },
+        },
+        g1: {
+          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
+          nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+          valueSources: { s0: { id: 's0', value: 3 } },
+          links: { l0: { id: 'l0', from: { valueSource: 's0' }, to: { node: 'inner', port: 'radius' } } },
+          boundary: {
+            inputs: [{ id: 'strength', promoted: true, binds: { kind: 'valueSource', valueSource: 's0', type: { kind: 'concrete', name: 'INT' } } }],
+            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+          },
+        },
+        g2: {
+          id: 'g2', name: 'Wrap', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { mid: { id: 'mid', type: '#g1', values: { strength: 9 } } },
+          boundary: { inputs: [{ id: 'amount', promoted: true, binds: { kind: 'port', node: 'mid', port: 'strength' } }], outputs: [] },
+        },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } }, g2: { nodes: {} } } },
+    }).document as WorkflowDocument
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    /** Entered along `path` (none: from no node): the field's value and the value its pill shows arriving, after one plus press. */
+    const press = (path: readonly string[]): readonly [unknown, CommandInvocation, unknown] => {
+      const resolve = documentResolver(store.doc, (type) => type === 'Blur' ? blur : undefined)
+      const scene = buildScene({
+        document: store.doc, graphId: 'g1', resolve, tokens: defaultTokens,
+        measure: (text) => text.length * 6,
+        widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+        ...(path.length === 0 ? {} : {
+          occurrence: { owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: false },
+          occurrenceView: occurrenceDynamicView(store.doc, resolve, path),
+        }),
+      })
+      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength')
+      if (row?.kind !== 'widget') throw new Error('expected a strength field on the Inputs panel')
+      const width = row.width ?? panel.layout.width - row.inset * 2
+      const harness = interactionHarness(scene)
+      harness.fire('pointerdown', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
+      harness.fire('pointerup', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
+      expect(harness.dispatched).toHaveLength(1)
+      const invocation = harness.dispatched[0] as CommandInvocation
+      expect(store.dispatch(invocation).ok).toBe(true)
+      return [panel.fields!.node.values['strength'], invocation, scene.valueSources.find((vs) => vs.id === 's0')?.arriving?.value]
+    }
+    const source = () => store.doc.graphs['g1']!.valueSources!['s0']!.value
+    const value = (graph: string, node: string, key: string) => store.doc.graphs[graph]!.nodes[node]!.values[key]
+
+    // The pill shows the value the entered node sends, as an arriving value.
+    expect(press(['set'])).toEqual([6, expect.anything(), 6])
+    expect(value('g0', 'set', 'strength')).toBe(7)
+    expect(press(['unset'])).toEqual([3, expect.anything(), 3])
+    expect(value('g0', 'unset', 'strength')).toBe(4)
+    // One level down, the outer node that promotes the input owns its value.
+    expect(press(['outer', 'mid'])).toEqual([20, expect.anything(), 20])
+    expect(value('g0', 'outer', 'amount')).toBe(21)
+    expect(value('g2', 'mid', 'strength')).toBe(9)
+    expect(source()).toBe(3)
+    // From no node the field is the source's own value, its default.
+    const [shown, invocation, arriving] = press([])
+    expect(shown).toBe(3)
+    expect(arriving).toBeUndefined()
+    expect(invocation.command).toBe('valueSource.setValue')
+    expect(source()).toBe(4)
+    expect(store.undo()).toBe(true)
+    expect(source()).toBe(3)
+  })
+
   it('rebuilds to an equal scene, so an unrelated document change keeps a drag in progress', () => {
     const doc = workflow()
     expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)

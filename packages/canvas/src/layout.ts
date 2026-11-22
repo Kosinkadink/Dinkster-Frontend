@@ -197,6 +197,12 @@ export type LayoutRow =
         readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
         readonly owner?: DynamicEditOwner
       }
+      /**
+       * Set for an Inputs panel field whose value is a value source's own
+       * value: edits dispatch valueSource.setValue and
+       * valueSource.setController, never node.setValue.
+       */
+      readonly valueSourceOwner?: { readonly graphId: string; readonly valueSourceId: string }
     } & DynamicAnnotations)
   | {
       /**
