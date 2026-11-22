@@ -66,7 +66,7 @@
 .dinkster-resource-line { fill: none; stroke: var(--dinkster-accent-border); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .dinkster-resource-point { fill: var(--dinkster-accent-border); }
 .dinkster-resource-limit { fill: none; stroke: var(--dinkster-text-muted); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-.dinkster-resource-limit-label { position: absolute; top: var(--dinkster-space-4); right: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); }
+.dinkster-resource-limit-label { text-align: right; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-secondary); }
 .dinkster-facts { display: grid; gap: var(--dinkster-space-12); margin: 0; }
 .dinkster-fact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--dinkster-space-16); }
 .dinkster-fact dd { margin: 0; overflow-wrap: anywhere; }

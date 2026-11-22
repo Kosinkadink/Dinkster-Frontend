@@ -111,6 +111,11 @@ export function ProductResourceUsage(props: {
         </For>
       </dl>
       <Show when={props.total > 0}>
+        <Show when={props.limit !== undefined}>
+          <span class="dinkster-resource-limit-label">
+            {props.limitLabel} {props.format(props.limit!)}
+          </span>
+        </Show>
         <div class="dinkster-resource-graph">
           <svg
             viewBox={`0 0 ${width} ${height}`}
@@ -146,11 +151,6 @@ export function ProductResourceUsage(props: {
               />
             </Show>
           </svg>
-          <Show when={props.limit !== undefined}>
-            <span class="dinkster-resource-limit-label">
-              {props.limitLabel} {props.format(props.limit!)}
-            </span>
-          </Show>
         </div>
         <span class="dinkster-metadata">{props.historyLabel}</span>
       </Show>
