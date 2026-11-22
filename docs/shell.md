@@ -68,9 +68,8 @@ gap. Panels end directly at the status bar without a gap above it.
 
 Selected region and minimap switches use cyan icons without a box or fill.
 The selected left bar item uses the panel fill and a 3 px cyan outer mark;
-the bar is 76 px wide so every default label, including Resources, fits on
-one line. Longer pack-panel titles may use an ellipsis with a full-title
-tooltip. Dock tabs
+the bar is 48 px wide with 40 px square icon-only items and name-first
+tooltips. Dock tabs
 use primary text and a 2 px underline without a box. Each split editor group
 is rounded; its selected tab uses primary text only in the focused group,
 secondary text otherwise. An unfocused group's canvas controls and notices
@@ -429,29 +428,27 @@ the `library-overlay` test ID even though it is not an overlay.
 The status-bar `Backends` button and the sidebar icon toggle the same dock
 panel; both reflect pressed state via `aria-pressed`.
 
-The 76 px activity rail stacks each centered label beneath its thin 20 px
-glyph in a 56 px tall action. Default labels stay whole on one line; longer
-pack-panel labels truncate with an ellipsis. Every action participates in the rail's custom tooltip
-session: an unselected item shows its description, or its title when it has no
-description, without a modifier key. When the label is cut off, its tooltip
-starts with the full title, then the description on a new line;
-a title without a description appears only once. Labels that fit keep their
-ordinary help. Selected items suppress the tooltip on hover and keyboard
-focus. Buttons retain normal document tab order,
-explicit accessible names, pressed state for panel toggles, hover feedback,
-and a visible keyboard focus ring. Left-region panel toggles occupy a
-scrolling placement-driven stack. Settings is a separate labeled gear button
-pinned below that stack and dispatches `settings.open`. Bottom-region panels
-have no activity rail items; their region switch and tab row provide access.
-Runtime registrations and placement moves use the same registry query, so
-every left-region panel has an item.
+The 48 px activity rail holds 40 px square icon-only actions with centered
+20 px glyphs. No labels are drawn; every item retains its explicit accessible
+name. A panel without an icon uses the default panel icon. Hover and keyboard
+focus show each item's name immediately, with its description on the next
+line when present and different from the name. Selected items show the same
+help. The Tooltip delay (ms) setting still applies to other tooltips, not
+activity rail items. Buttons retain normal document tab order, pressed state
+for panel toggles, hover feedback, and a visible keyboard focus ring.
+Left-region panel toggles occupy a scrolling placement-driven stack. Settings
+is a separate gear button pinned below that stack and dispatches
+`settings.open`; its Alt tooltip detail retains the shortcut. Bottom-region
+panels have no activity rail items; their region switch and tab row provide
+access. Runtime registrations and placement moves use the same registry
+query, so every left-region panel has an item.
 
-Once one delayed tooltip has appeared, pointer travel between targets in
-the same rail session replaces it immediately without a hidden frame. A
-visible tooltip may bridge empty rail space for 300 ms, then hides if no
-target is reached. Leaving the rail boundary hides immediately, so a later
-re-entry uses the configured delay again. Opening a dock panel dismisses
-the shown tooltip, including while keyboard focus remains on its selected toggle.
+Pointer travel between targets in the same rail session replaces help
+immediately without a hidden frame. A visible tooltip may bridge empty rail
+space for 300 ms, then hides if no target is reached. Leaving the rail boundary
+hides immediately. Clicking an item dismisses its tooltip, including while
+keyboard focus remains on its selected toggle; hovering it again or returning
+keyboard focus shows the help immediately.
 
 ## Tooltip placement
 
