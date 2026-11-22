@@ -213,7 +213,9 @@ and queue target settings, and close actions. Rename edits the title inline:
 Enter, Tab or blur stores a trimmed nonempty name; Escape or an empty name
 cancels. Double-clicking a title starts the same edit. The new name stays
 unsaved until Save writes it to the library and is used by Export. Rename is
-not offered for frozen snapshots or non-document editors.
+not offered for frozen snapshots or non-document editors. Titles follow the
+existing local workspace/window authority; they are not remote collaboration
+document edits.
 Duplicate creates an independent unsaved workflow on the same backend, without
 library links or run history, immediately after its source in the same group.
 It uses "<title> copy", then "copy 2" and so on; a frozen snapshot becomes an

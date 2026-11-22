@@ -274,7 +274,13 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             }}
           >
             {props.renderLeading?.(tab)}
-            <Show when={renaming() !== tab.id} fallback={
+            <Show when={renaming() !== tab.id} fallback={<span class="tab-select">
+              <ProductRunIcon
+                icon={kindIcon(tab.editorKind)}
+                running={props.runState?.(tab) === 'running'}
+                queued={props.runState?.(tab) === 'queued'}
+                result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
+              />
               <ProductTextInput
                 class="tab-rename"
                 aria-label={message('shell.workflowTabs.rename')}
@@ -295,7 +301,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
                   }
                 }}
               />
-            }>
+            </span>}>
             <button
               id={workflowTabDomId(tab.id)}
               class="tab-select"

@@ -302,6 +302,10 @@ function Gallery() {
                   <ProductSpinner label="Pending work" />
                   <ProductIcon icon={Settings} />
                 </div>
+                <p class="dinkster-description">
+                  A sentence can carry a{' '}
+                  <ProductLink href="#lists">link to another page</ProductLink>.
+                </p>
               </Section>
               <Section title="Run icons" components="ProductRunIcon">
                 <div class="dinkster-actions">
@@ -311,10 +315,6 @@ function Gallery() {
                   <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
                   <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>
                 </div>
-                <p class="dinkster-description">
-                  A sentence can carry a{' '}
-                  <ProductLink href="#lists">link to another page</ProductLink>.
-                </p>
               </Section>
               <Section
                 title="Text fields"

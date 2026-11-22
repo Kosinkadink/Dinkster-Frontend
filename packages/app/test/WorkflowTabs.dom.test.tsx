@@ -90,7 +90,9 @@ describe('workflow tabs', () => {
       await Promise.resolve()
       return view.root.querySelector<HTMLInputElement>('input')!
     }
+    view.setRunState('running')
     let input = await start()
+    expect(view.root.querySelector('.dinkster-run-icon[data-running]')).not.toBeNull()
     expect(document.activeElement).toBe(input)
     expect(input.selectionStart).toBe(0)
     expect(input.selectionEnd).toBe(3)
