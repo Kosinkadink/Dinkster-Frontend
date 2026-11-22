@@ -22,7 +22,9 @@
   background: var(--dinkster-surface-panel);
 }
 .image-document-tablist { display: flex; flex: 1; gap: var(--dinkster-space-4); min-width: 0; overflow-x: auto; }
-.image-document-tablist button { min-width: 112px; border-bottom: 0; border-radius: var(--dinkster-radius-control) var(--dinkster-radius-control) 0 0; }
+/* Same rule as workflow tabs: as wide as the name up to 220px, about three letters when crowded. */
+.image-document-tablist button { flex: 0 1 auto; min-width: calc(2 * var(--dinkster-space-12) + 2px + 5ch); max-width: 220px; border-bottom: 0; border-radius: var(--dinkster-radius-control) var(--dinkster-radius-control) 0 0; }
+.image-document-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-document-tablist button.active { color: var(--dinkster-text-primary); border-color: var(--dinkster-border-strong); background: var(--dinkster-surface-canvas); }
 .image-document-shared-status {
   align-self: center;

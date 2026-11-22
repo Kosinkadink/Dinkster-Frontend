@@ -49,6 +49,7 @@ function mountEditor(
   })
   const app = {
     backendForTab: () => ({ protocol: 'v1' }),
+    commands: { get: () => undefined },
     dispatchTo,
     liveEmbeddingAndLoraInventory,
     textEditorExtensionRegistry,

@@ -116,6 +116,23 @@ export interface WidgetEditorState {
    */
   readonly mergeableTypes?: readonly string[]
   readonly multiline: boolean
+  /**
+   * Set when the row is edited in its own row on the canvas instead of in a
+   * card: the node look, the node's bottom edge in world coordinates (the
+   * side part goes under the node when neither side has room), and the
+   * input's tooltip for the side part.
+   */
+  readonly inRow?: {
+    readonly look: 'original' | 'flat-title'
+    readonly nodeBottom: number
+    readonly help?: string
+    /** The raw stored value when the field opened (null when none was stored). */
+    readonly storedAtOpen: Json
+    /** A seed's after-run mode. */
+    readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+    /** Where a click opened a text row, in client coordinates. */
+    readonly caret?: { readonly x: number; readonly y: number }
+  }
   /** Current materialized member names for schema-declared completion sources. */
   readonly inputFamilyMembers?: Readonly<Record<string, readonly string[]>>
   /** Editor anchor rect in canvas world coordinates. */
@@ -147,8 +164,15 @@ export interface WidgetEditorProps {
   ed: WidgetEditorState
   /** Main canvas viewport, sampled once to place a newly opened popover. */
   viewport: () => { x: number; y: number; scale: number }
-  /** Registers the synchronous commit-or-close path for an outside press. */
-  bindClickAway?: (handler: (() => void) | undefined) => void
+  /** Puts the keyboard on a row of the node with nothing open, as after Enter. */
+  focusRow?: (from: { readonly nodeId: string; readonly valueKey: string }) => void
+  /** Opens the next (1) or previous (-1) row of the same node that Tab stops on. */
+  moveRow?: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => void
+  /**
+   * Registers the synchronous commit-or-close path for an outside press. A
+   * handler that returns false keeps the editor open and stops the press.
+   */
+  bindClickAway?: (handler: (() => unknown) | undefined) => void
   /** Lets the canvas activate an exposed ASSET row after this modal closes. */
   onAssetBackdropPointerDown?: (event: PointerEvent) => void
   onClose: () => void

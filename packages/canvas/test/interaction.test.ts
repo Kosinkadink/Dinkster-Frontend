@@ -214,6 +214,13 @@ describe('persistent host overlays', () => {
   })
 })
 
+/** A harness on the card editing look, where a number row draws its mode as a chip. */
+function cardHarness(scene: Scene, hostOverrides: Partial<InteractionHost> = {}) {
+  const harness = interactionHarness(scene, hostOverrides)
+  Object.assign(harness.renderer, { getDesignTokens: () => ({ ...defaultTokens, widgetEditing: 'card' }) })
+  return harness
+}
+
 function controllerScene(mode: 'fixed' | 'increment' | 'decrement' | 'randomize', connected = false): Scene {
   const scene = interactionScene() as any
   scene.nodes[0].layout.rows[0].controllerMode = mode
@@ -3020,6 +3027,82 @@ describe('group resizing', () => {
   })
 })
 
+describe('dragging a number row', () => {
+  const inRowHarness = (scene: Scene, overrides: Partial<InteractionHost> = {}) => {
+    const harness = interactionHarness(scene, overrides)
+    const rowDrags: unknown[] = []
+    Object.assign(harness.renderer, {
+      getDesignTokens: () => ({ ...defaultTokens, widgetEditing: 'in-row' }),
+      setRowDrag: (drag: unknown) => rowDrags.push(drag),
+    })
+    return { ...harness, rowDrags }
+  }
+  const stepsScene = () => {
+    const scene = interactionScene() as any
+    scene.nodes[0].node.values.amount = 20
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'INT', options: { min: 1, max: 10000 }, default: 20 }
+    scene.nodes[0].layout.rows[0].viewId = 'core.number'
+    return scene as Scene
+  }
+
+  it('moves one step per 4 pixels, stores once on release, and opens nothing', () => {
+    const activate = vi.fn()
+    const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 80, 35)
+    harness.fire('pointermove', 100, 35)
+    expect(harness.rowDrags.at(-1)).toEqual({ nodeId: 'n1', valueKey: 'amount', value: 30 })
+    harness.fire('pointerup', 100, 35)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 30 } },
+    ])
+    expect(harness.rowDrags.at(-1)).toBeUndefined()
+    expect(activate).not.toHaveBeenCalled()
+  })
+
+  it('stores nothing when the pointer returns to the press point, and a short press still opens the field', () => {
+    const activate = vi.fn()
+    const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 140, 35)
+    harness.fire('pointermove', 60, 35)
+    harness.fire('pointerup', 60, 35)
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 63, 35)
+    harness.fire('pointerup', 63, 35)
+    expect(harness.dispatched).toEqual([])
+    expect(activate).toHaveBeenCalledOnce()
+  })
+
+  it('puts a slider value under the pointer', () => {
+    const scene = interactionScene() as any
+    scene.nodes[0].node.values.amount = 0.2
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.01, display: 'slider' }, default: 0.5 }
+    scene.nodes[0].layout.rows[0].width = 81
+    scene.nodes[0].layout.rows[0].viewId = 'core.slider'
+    const harness = inRowHarness(scene)
+    // The row starts at world x 19.5 (node x 10 + inset 9.5) and is 81 wide.
+    harness.fire('pointerdown', 30, 35)
+    harness.fire('pointermove', 80, 35)
+    harness.fire('pointerup', 80, 35)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 0.75 } },
+    ])
+  })
+
+  it('leaves a drag inert under card editing and on touch', () => {
+    const card = cardHarness(stepsScene())
+    card.fire('pointerdown', 60, 35)
+    card.fire('pointermove', 100, 35)
+    card.fire('pointerup', 100, 35)
+    const touch = inRowHarness(stepsScene())
+    touch.fire('pointerdown', 60, 35, { pointerType: 'touch' })
+    touch.fire('pointermove', 100, 35, { pointerType: 'touch' })
+    touch.fire('pointerup', 100, 35, { pointerType: 'touch' })
+    expect([...card.dispatched, ...touch.dispatched]).toEqual([])
+  })
+})
+
 describe('numeric widget steppers', () => {
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
@@ -3172,16 +3255,30 @@ describe('numeric widget steppers', () => {
 })
 
 describe('after-generate controller chip', () => {
+  it('opens the field, not the menu, from the chip\'s place on a number row edited in place', () => {
+    const activated: unknown[] = []
+    const opened: unknown[] = []
+    const harness = interactionHarness(controllerScene('increment'), {
+      onControllerActivate: (hit) => activated.push(hit),
+      onWidgetActivate: (hit) => opened.push(hit),
+    })
+    harness.fire('pointerdown', 65, 35)
+    harness.fire('pointerup', 65, 35)
+    expect(activated).toEqual([])
+    expect(opened).toHaveLength(1)
+    expect(harness.dispatched).toEqual([])
+  })
+
   it('reports the chip as its own tooltip target', () => {
     const targets: unknown[] = []
-    const harness = interactionHarness(controllerScene('fixed'), { onHoverTarget: (target) => targets.push(target) })
+    const harness = cardHarness(controllerScene('fixed'), { onHoverTarget: (target) => targets.push(target) })
     harness.fire('pointermove', 65, 35)
     expect(targets.at(-1)).toMatchObject({ kind: 'controller' })
   })
 
   it.each(['fixed', 'increment', 'decrement', 'randomize'] as const)('opens the detail menu from the %s chip', (current) => {
     const activated: unknown[] = []
-    const harness = interactionHarness(controllerScene(current), { onControllerActivate: (hit) => activated.push(hit) })
+    const harness = cardHarness(controllerScene(current), { onControllerActivate: (hit) => activated.push(hit) })
     harness.fire('pointerdown', 65, 35)
     harness.fire('pointerup', 65, 35)
     expect(activated).toHaveLength(1)
@@ -3189,14 +3286,14 @@ describe('after-generate controller chip', () => {
   })
 
   it('keeps a link-driven controller chip inert because advancement skips linked values', () => {
-    const harness = interactionHarness(controllerScene('increment', true))
+    const harness = cardHarness(controllerScene('increment', true))
     harness.fire('pointerdown', 65, 35)
     harness.fire('pointerup', 65, 35)
     expect(harness.dispatched).toEqual([])
   })
 
   it('keeps the right edge stepper distinct from the controller chip', () => {
-    const harness = interactionHarness(controllerScene('increment'))
+    const harness = cardHarness(controllerScene('increment'))
     harness.fire('pointerdown', 100, 35)
     harness.fire('pointerup', 100, 35)
     expect(harness.dispatched).toEqual([{

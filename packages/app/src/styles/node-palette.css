@@ -259,13 +259,9 @@
   overflow-y: auto;
   scroll-padding-block: var(--dinkster-space-8);
   overscroll-behavior: contain;
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
   scrollbar-gutter: stable;
 }
 .palette-result-listbox.empty { flex: none; height: 0; padding: 0; overflow: hidden; }
-.palette-result-listbox::-webkit-scrollbar { width: var(--dinkster-space-8); }
-.palette-result-listbox::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
-.palette-result-listbox::-webkit-scrollbar-thumb { background: var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); }
 .palette-result-listbox .search-result-group-header {
   position: sticky;
   top: calc(var(--dinkster-space-8) * -1);

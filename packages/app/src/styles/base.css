@@ -1,7 +1,5 @@
 * {
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 button,
@@ -18,35 +16,6 @@ textarea {
 :is(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
   outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
   outline-offset: 2px;
-}
-
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-*::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
-*::-webkit-scrollbar-thumb {
-  min-width: 24px;
-  min-height: 24px;
-  background: var(--scrollbar-thumb);
-  border: 2px solid var(--scrollbar-track);
-  border-radius: var(--dinkster-radius-card);
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-}
-
-*::-webkit-scrollbar-corner {
-  background: var(--scrollbar-track);
-}
-
-*::-webkit-scrollbar-button {
-  display: none;
 }
 
 .desktop-setup {
@@ -161,9 +130,6 @@ textarea {
 html,
 body,
 #root {
-  --scrollbar-track: var(--dinkster-surface-canvas);
-  --scrollbar-thumb: var(--dinkster-border-strong);
-  --scrollbar-thumb-hover: var(--dinkster-text-secondary);
   --image-canvas-checker: var(--dinkster-surface-raised);
   --image-canvas-background: var(--dinkster-surface-panel);
   --image-tool-rail-width: 150px;

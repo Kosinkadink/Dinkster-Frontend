@@ -82,6 +82,8 @@ def build(
         "about.js",
         "desktop-library.html",
         "desktop-library.js",
+        "desktop-chrome.js",
+        "desktop-chrome.json",
         "account-view.js",
         "authorization.js",
         "manifest.json",
@@ -122,6 +124,22 @@ def build(
     ):
         raise ValueError(
             "site distribution must contain a valid callback manifest contract"
+        )
+    chrome = json.loads((site / "desktop-chrome.json").read_text(encoding="utf-8"))
+    if (
+        chrome.get("format") != "dinkster.desktop-chrome/1"
+        or chrome.get("installer") != "desktop-chrome.js"
+        or not isinstance(chrome.get("css"), str)
+        or not chrome["css"]
+        or not isinstance(chrome.get("native"), dict)
+        or any(
+            site_manifest.get("files", {}).get(name)
+            != hashlib.sha256((site / name).read_bytes()).hexdigest()
+            for name in ("desktop-chrome.json", "desktop-chrome.js")
+        )
+    ):
+        raise ValueError(
+            "site distribution must contain a valid Desktop chrome contract"
         )
     sources = [(dist, ""), (site, "site/")]
     sources.extend(
