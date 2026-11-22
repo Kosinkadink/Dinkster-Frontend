@@ -31,23 +31,23 @@ const imageDocument = {
 const state = { version: 2 as const, document: imageDocument, documentDigest: assetDigest, stale: false, layerStreams: ['compositor.layer.0', 'compositor.layer.1'] }
 
 const payload = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     Compositor: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Create Layered Image',
       category: 'image/compositing',
       idempotent: false,
       outputNode: true,
       editorRole: 'compositor',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'recipe', required: false,
+          kind: 'input', id: 'recipe', required: false,
           type: { kind: 'concrete', types: ['COMPOSITOR'] },
           default: EMPTY_COMPOSITOR_RECIPE,
           widget: { type: 'COMPOSITOR' },
         },
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
       ],
     },
   },
