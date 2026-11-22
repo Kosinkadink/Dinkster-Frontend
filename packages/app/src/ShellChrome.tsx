@@ -4,6 +4,7 @@ import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import PanelLeft from 'lucide-solid/icons/panel-left'
+import { ProductIconButton } from '@dinkster/ui'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
 import {
@@ -30,15 +31,13 @@ export function TransientStatus(props: { readonly message: string | undefined })
 export function CustomizeLayoutButton(props: { readonly commands: CommandRegistry }) {
   const message = useAppMessage()
   return (
-    <button
-      class="settings-button customize-layout-button"
+    <ProductIconButton
+      label={message('command.layout.customize')}
+      icon={SlidersHorizontal}
       data-testid="customize-layout-button"
       data-tooltip-label={message('command.layout.customize')}
-      aria-label={message('command.layout.customize')}
       onClick={() => props.commands.get('layout.customize')?.run()}
-    >
-      <Icon icon={SlidersHorizontal} />
-    </button>
+    />
   )
 }
 

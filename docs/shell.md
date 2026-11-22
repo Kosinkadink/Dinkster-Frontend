@@ -2,11 +2,15 @@
 
 ## Brand assets
 
-The product menu uses the outlined color wordmark, dark or light according
-to the document theme. Boot discovery uses the same wordmark and the D
-symbol; Desktop preparation and shared empty/loading cards use the symbol.
-All reference the accepted SVGs at `/branding/svg/`. Vite serves and emits
-the canonical files directly, without editable copies in the app package.
+The product menu uses `ProductWindowAction` with a theme-aware
+`ProductWordmark` expanded label and the shared compact menu icon. The
+shared toolbar's available-content breakpoint accounts for native caption
+reservations; the grouped menu controller retains command and focus ownership.
+Detached workflow redocking is the first action in the toolbar action group.
+Boot discovery uses the same wordmark and the D symbol; Desktop preparation
+and shared empty/loading cards use the symbol. Shared components import the
+canonical branding assets; the app also serves them at `/branding/svg/`.
+Vite emits the canonical files without editable copies in the app package.
 The wordmark reserves its canonical aspect ratio before the SVG loads so
 header geometry and restored editor scroll positions do not shift.
 The HTML head references the accepted ICO, 32px PNG, SVG and 256px touch
@@ -21,9 +25,10 @@ do not accrete ad hoc. The center region itself hosts EDITORS resolved
 through the editor registry - a separate vocabulary pinned in
 docs/editors.md (today's only editor kind is the graph canvas).
 
-Shell-owned actions use `ProductButton`: compact ghost controls in the
-topbar and status bar, secondary actions for redocking and output inspection,
-and a danger action for discarding a dirty tab. Menu refs, autofocus,
+The topbar uses `ProductWindowToolbar`, `ProductWindowAction` and
+`ProductIconButton`. Other shell actions use `ProductButton`: compact ghost
+controls in the status bar, secondary output-inspection actions, and a danger
+action for discarding a dirty tab. Menu refs, autofocus,
 disabled state, keyboard handling, and native button activation remain on the
 underlying button. Surface CSS supplies layout, not a separate control skin.
 
@@ -155,8 +160,15 @@ budget of at least 320 px. When both saved side widths do not fit, opening
 one side closes the other; narrowing the window closes the right rail first.
 A single side is temporarily capped to the available space without changing
 its saved width. Widening the window restores that width, not a closed side.
-The topbar search shrinks between its control groups on intermediate widths
-instead of letting its shortcut badge overlap the layout controls.
+The application header uses ProductWindowToolbar with shared window actions
+and icon buttons. Its 56px height and native reservations come from the shared
+stylesheet; the host owns platform, theme and QA/development markings. At the
+768px available-content boundary, action labels and search shortcut hints
+compact to icons while service/identity text occupies the metadata row.
+The command menu retains its grouped commands, live invalidation and focus
+restoration. The existing small-screen visibility of left/bottom/customize
+controls is unchanged; other controls and detached-workflow redocking remain
+available. Non-toolbar cancellation controls retain their original presentation.
 
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the
@@ -867,7 +879,9 @@ AP8-idempotent disposer).
 
 ## Universal search
 
-The always-visible centered topbar control reads "Search Dinkster (Ctrl+K)".
+The always-visible shared header action reads "Search Dinkster" and shows the
+effective shortcut when expanded. Compact mode retains both its action name
+and shortcut description while displaying the search icon.
 It and the rebindable `search.open` command open one modal search overlay,
 including when no document tab exists. Results are grouped by provider and
 support Arrow Up/Down, Enter, Escape, and a five-result group cap with Show

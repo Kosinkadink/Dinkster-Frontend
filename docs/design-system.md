@@ -99,7 +99,8 @@ foreground against their actual fill, including the hovered fill.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
-  same attributes. `pending` shows the spinner and ignores presses under a
+  same attributes. A pressed icon-only toggle uses cyan without a box or fill;
+  its keyboard focus ring remains visible. `pending` shows the spinner and ignores presses under a
   stable name. A pending button, and a button that becomes disabled while it
   holds keyboard focus, stays focusable and is announced as unavailable, so
   focus is never dropped to the page. `ProductLink` is the text link.
