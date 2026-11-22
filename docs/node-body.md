@@ -106,16 +106,11 @@ Member labels come from the group's `memberLabel`, else the name, else the
 prefix and the member's position counted from 1. Rows of a record member are
 labelled with the member label first.
 
-A combo can take its options from a sibling group (`optionSource`). Each
-option stores the member key; the combo shows an editable label. Open the
-combo, edit labels under **Branch labels**, and apply them together. Labels
-must be non-empty and unique within the group. Renaming changes no stored
-key, link or submitted value.
-
 ## Choices
 
 A choice holds a list of options, each with its own rows, and rows several
-options share. Without a leader it draws a dropdown of its options; changing
+options share. An option places a shared row with a `Use`, directly or inside
+one of its sections. Without a leader it draws a dropdown of its options; changing
 it stores the new key (`dynamic.selectOption`) as one undo step. A choice
 with a leader formula has no dropdown: the formula over stored values and
 link state gives the key.
