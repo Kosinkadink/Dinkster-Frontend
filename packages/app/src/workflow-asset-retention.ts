@@ -31,7 +31,6 @@ import {
   IMAGE_OUTPUT_POLICY_EXTENSION,
   imageOutputPolicyOf,
   parseTypedLiteralWire,
-  planReplacement,
   replayHistoryOps,
   typeExprFromTypeId,
   valueSourceConsumersOf,
@@ -142,7 +141,7 @@ export function workflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[] = [],
-  purpose: 'publication' | 'admission' | 'execution' = 'publication',
+  purpose: 'publication' | 'admission' | 'execution' | 'export' = 'publication',
   sourceDocument?: string,
 ): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
   readonly incompleteDiagnostics?: readonly Diagnostic[] } {
@@ -154,7 +153,7 @@ function censusWorkflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[],
-  purpose: 'publication' | 'admission' | 'execution',
+  purpose: 'publication' | 'admission' | 'execution' | 'export',
   sourceDocument?: string,
   inventories: ReadonlyMap<string, CompositorInventory> = new Map(),
 ): ReturnType<typeof workflowAssetRoots> {
@@ -308,7 +307,7 @@ function censusWorkflowAssetRoots(
       dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
     }
   }
-  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
+  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
     const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
@@ -354,6 +353,8 @@ function censusWorkflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
+    if ([...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
+      diagnostic.code === 'elab.dynamic.unknownState' || diagnostic.code === 'elab.combo.removedOption' || diagnostic.code === 'elab.slot.removedVariant')) complete = false
     const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
     if (unsupportedDormant.length > 0) {
       complete = false
@@ -367,28 +368,22 @@ function censusWorkflowAssetRoots(
       complete = false
       incompleteDiagnostics.push(...missingChoices)
     }
-    // An absent required choice is editable, but cannot certify ownership or execute.
-    const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
-      !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
+    // Historical state stays opaque on open; publication still requires current identities.
+    const invalidIdentity = (diagnostic: Diagnostic): boolean =>
+      (purpose === 'publication' || purpose === 'export') && ['elab.combo.removedOption', 'elab.slot.removedVariant'].includes(diagnostic.code) || diagnostic.severity === 'error' &&
+      !((purpose === 'admission' || purpose === 'export') && diagnostic.code === 'prompt.missing_dynamic_choice') &&
+      !(purpose === 'admission' && diagnostic.code === 'elab.dynamic.unknownState')
     if (active.diagnostics.some(invalidIdentity) ||
       stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
-        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
-        (purpose !== 'admission' || ![
+        invalidIdentity(diagnostic) && diagnostic.code !== 'elab.dormant.unsupported' &&
+        ((purpose !== 'admission' && purpose !== 'export') || ![
           'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
           'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
         ].includes(diagnostic.code)))
-      // A planned historical migration can consume state the current schema
-      // no longer describes. Retain its opaque roots, never certify it complete.
-      const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
-        .every((diagnostic) => diagnostic.severity !== 'error' || diagnostic.code === 'elab.dynamic.unknownState') && schema.replacements?.some((rule) => {
-        if (rule.migration === undefined) return false
-        const result = planReplacement(snapshot, graph.id, node.id, rule, resolve)
-        return result.plan !== undefined && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-      })
-      if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
+      if (invalidIdentities || (purpose !== 'admission' && purpose !== 'export')) refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
@@ -466,12 +461,12 @@ function censusWorkflowAssetRoots(
         return node === undefined ? [] : [[node, graph!] as const]
       }))
       if ([...nodes.keys()].every((node) => !node.type.startsWith('#'))) {
-        for (const [node, graph] of nodes) visitNode(node, schemas, graph, snapshot)
+        for (const [node, graph] of nodes) visitNode(node, schemas, graph)
         return
       }
     }
     for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph, snapshot)
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
       for (const source of Object.values(graph.valueSources ?? {})) {
         opaqueRoots(source.value)
         if (source.spec?.options !== undefined) complete = false

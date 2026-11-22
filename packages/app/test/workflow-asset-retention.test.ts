@@ -847,11 +847,7 @@ describe('retained app dispatch', () => {
       } },
     } }
     const opened = await app.openDocument(document, 'Generated boundary')
-    if (severity === 'error') {
-      expect(opened).toContainEqual(expect.objectContaining({ code: 'workflow.open.retention' }))
-      app.dispose()
-      app = createWorkflowApp([schema], document)
-    } else expect(opened).toEqual([])
+    expect(opened).toEqual([])
     const tab = app.activeTab()!
     const resolveDocument = documentNodeResolver(document, app.registryForTab(tab)!.resolve)
     const instance = document.graphs.g0!.nodes.instance!
@@ -870,7 +866,7 @@ describe('retained app dispatch', () => {
     try {
       await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
       const current = app.activeTab()!
-      expect('status' in current.store).toBe(severity === 'warning')
+      expect('status' in current.store).toBe(true)
       const roots = workflowAssetRoots(current.store.doc, current.store.historySnapshot(), app.registryForTab(current)!.resolve)
       if (severity === 'warning') {
         expect(roots).toEqual({ complete: true, digests: [asset('a').digest] })
@@ -880,9 +876,8 @@ describe('retained app dispatch', () => {
         expect(records).toContainEqual(expect.objectContaining({ complete: true, digests: [asset('a').digest], acknowledgedRevision: 1 }))
       } else {
         expect(roots).toMatchObject({ complete: false, refusal: 'Workflow dynamic identities are invalid' })
-        expect(app.problems.get()).toContainEqual(expect.objectContaining({
-          code: 'workspace.authority.failed', message: 'Shared workspace unavailable: Workflow dynamic identities are invalid',
-        }))
+        expect(current.store.doc.graphs.g0!.nodes.instance!.dynamic).toEqual({ unknown: { members: [], seq: 0 } })
+        expect(app.problems.get().some((problem) => problem.code === 'workspace.authority.failed')).toBe(false)
         const downloads = captureDownloads()
         expect(await app.exportWorkflow(current.id)).toBe(false)
         expect(downloads).toHaveLength(0)
@@ -2087,6 +2082,98 @@ describe('retained workflow opens', () => {
     app = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it.each(['option', 'group', 'choice', 'malformed-choice', 'malformed-group'] as const)(
+    'opens removed dynamic parts without losing stored state: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const updated: NodeSchema = { ...schema, items: [
+        ...schema.items,
+        { kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
+          dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+            { key: 'default', inputs: [{ kind: 'input', id: 'amount', optional: true,
+              type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {}, default: 7 } }] },
+            { key: 'other', inputs: [] },
+          ] } },
+      ] }
+      const original = session().doc
+      const dynamic = scenario === 'option' ? { mode: { selected: 'removed' } }
+        : scenario === 'group' ? { removed: { members: ['m3'], seq: 4, memberState: { m3: { nested: { selected: 'old' } } } } }
+        : scenario === 'choice' ? { removed: { selected: 'old' } }
+        : scenario === 'malformed-choice' ? { mode: { selected: 42 } }
+        : { removed: { members: ['m3', 'm3'], seq: 4 } }
+      const document = { ...original, graphs: { g0: { ...original.graphs.g0!, nodes: {
+        n0: { ...original.graphs.g0!.nodes.n0!, dynamic, values: {
+          files: [asset('a')], 'removed.file': asset('c'), 'mode.oldAmount': 31,
+        } },
+      } } } }
+      app = createWorkflowApp([updated])
+      const previous = app.activeTab()
+      const diagnostics = await app.openDocument(document, 'Updated pack')
+      if (scenario.startsWith('malformed')) {
+        expect(diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
+        expect(app.activeTab()).toBe(previous)
+        return
+      }
+      expect(diagnostics).toEqual([])
+      const tab = app.activeTab()!
+      await vi.waitFor(() => expect(app!.problems.get().filter((problem) => problem.code === 'upgrade.removedDynamicParts')).toHaveLength(1))
+      const saved = JSON.parse(JSON.stringify(tab.store.doc)) as WorkflowDocument
+      expect(saved.graphs.g0!.nodes.n0!.values).toEqual(document.graphs.g0.nodes.n0.values)
+      expect(saved.graphs.g0!.nodes.n0!.dynamic).toEqual(scenario === 'option' ? { mode: { selected: 'default' } } : dynamic)
+      const live = elaborateInterface(updated, tab.store.doc.graphs.g0!.nodes.n0!, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+      expect(live.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(false)
+      expect(live.items.filter((item) => item.kind === 'input').map((item) => item.spec.id))
+        .toEqual(['files', 'mode', 'mode.amount'])
+      expect(core.elabInputsOf(live).find((input) => input.address.port === 'mode')?.derivedValue).toBe('default')
+      const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => updated, [], 'admission')
+      expect(roots).toMatchObject({ complete: false, digests: [asset('a').digest, asset('c').digest] })
+      expect(roots.refusal).toBeUndefined()
+      expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => updated).refusal)
+        .toBe('Workflow dynamic identities are invalid')
+      expect(await app.saveWorkflow(tab.id)).toBe(false)
+      if (scenario === 'option') {
+        expect(tab.store.undo()).toBe(true)
+        expect(tab.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual(dynamic)
+        expect(app.problems.get().filter((problem) => problem.code === 'upgrade.removedDynamicParts')).toHaveLength(1)
+      }
+    },
+  )
+
+  it.each(['optional', 'required', 'linked-required'] as const)('clears a removed %s slot variant on open', async (scenario) => {
+    const updated: NodeSchema = { ...schema, items: [
+      ...schema.items,
+      { kind: 'input', id: 'source', displayName: 'Source', optional: scenario === 'optional',
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
+          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [],
+          variants: [{ key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [] }],
+        } },
+      { kind: 'output', id: 'text', type: { kind: 'concrete', name: 'STRING' } },
+    ] }
+    const original = session().doc
+    const document: WorkflowDocument = { ...original, graphs: { g0: { ...original.graphs.g0!, nodes: {
+      n0: { ...original.graphs.g0!.nodes.n0!, dynamic: { source: { selected: 'removed' } },
+        values: { files: [asset('a')], 'source.oldValue': 'keep me' } },
+    }, links: scenario === 'linked-required' ? { l0: { id: asLinkId('l0'),
+      from: { node: asNodeId('n0'), port: asPortId('text') },
+      to: { node: asNodeId('n0'), port: asPortId('source') },
+    } } : {} } } }
+    app = createWorkflowApp([updated])
+    expect(await app.openDocument(document, 'Removed slot variant')).toEqual([])
+    await vi.waitFor(() => expect(app!.activeTab()!.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual({ source: {} }))
+    const tab = app.activeTab()!
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values).toEqual(document.graphs.g0!.nodes.n0!.values)
+    expect(tab.store.doc.graphs.g0!.links).toEqual(document.graphs.g0!.links)
+    const live = elaborateInterface(updated, tab.store.doc.graphs.g0!.nodes.n0!, EMPTY_CONNECTIVITY)
+    expect(live.diagnostics.filter((entry) => entry.severity === 'error').map((entry) => entry.code))
+      .toEqual(scenario === 'optional' ? [] : ['prompt.missing_dynamic_choice'])
+    const rows = app.problems.get().filter((entry) => entry.code === 'upgrade.removedDynamicParts')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ origin: 'import', severity: 'warning', owner: tab.id,
+      anchor: { occurrence: { instancePath: [], node: 'n0' } } })
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.dynamic).toEqual({ source: { selected: 'removed' } })
+    expect(app.problems.get().filter((entry) => entry.code === 'upgrade.removedDynamicParts')).toHaveLength(1)
   })
 
   it.each(['missing', 'out-of-range', 'linked'] as const)('opens a %s output count for repair without certifying its roots', async (variant) => {

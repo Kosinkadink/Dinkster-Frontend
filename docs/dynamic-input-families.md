@@ -46,6 +46,22 @@ member or move its values and links to another member. Named families keep
 their declared semantic order without re-offering a retired earlier name as the
 ghost. Positional API names continue to follow the visible member order.
 
+## Opening after a pack update
+
+A saved dynamic combo whose selected option was removed opens on the current
+schema's default (the first option for a wire-15 choice). Opening stores that
+fallback in one undoable edit; the old values stay in the document. A removed
+slot variant clears the selection instead, and a required slot still needs a
+variant before running. Stored state for a removed group or choice also stays
+in the document but contributes no live controls. Malformed dynamic state is
+still rejected when opening the file. Problems lists one warning per adjusted
+node under "Upgraded on open". Selecting it navigates to the node; undoing the
+edit restores the old selection without dismissing the warning.
+
+Retained values whose schema is no longer available keep their asset references
+protected without claiming a complete asset inventory. Sharing, saving and
+exporting still require valid current dynamic identities.
+
 ## Named routing
 
 A combo can source its choices from a sibling input family. Each choice keeps

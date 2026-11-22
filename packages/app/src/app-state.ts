@@ -30,6 +30,9 @@ import {
   effectiveOccurrenceTopology,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
+  elaborateInterface,
+  buildGraphConnectivity,
+  documentNodeResolver,
   detectFormat,
   diag,
   createLocalSession,
@@ -6199,7 +6202,49 @@ export class AppState {
     })
   }
 
-  private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
+  private async adjustRemovedPartsOnOpen(tab: Tab): Promise<void> {
+    const registry = this.registryForTab(tab)
+    if (registry === undefined) return
+    const document = tab.store.doc
+    const resolve = documentNodeResolver(document, this.resolverWithVirtualNodes(registry.resolve))
+    const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
+    for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+      const child = subgraphDefIdOf(node.type)
+      if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+    }
+    const invocations: CommandInvocation[] = []
+    const entries: Diagnostic[] = []
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const schema = resolve(graph.id, node)
+      if (schema === undefined || node.dynamic === undefined) continue
+      const diagnostics = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id),
+        { promoteGhosts: false, includeDormant: true }).diagnostics
+      const changes = diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
+        'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
+      if (changes.length === 0) continue
+      for (const entry of changes) {
+        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
+        const { construct, selected, ancestors } = entry.data
+        if (typeof selected !== 'string' && selected !== null) continue
+        invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
+          graphId: graph.id, nodeId: node.id, construct, ancestors,
+          ...(selected === null ? { variant: null } : { option: selected }),
+        } as Json })
+      }
+      const instancePath = paths.get(graph.id)
+      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+        }))
+    }
+    if (invocations.length > 0 && !(await this.dispatchTo(tab,
+      { command: 'batch', params: { invocations } as unknown as Json })).ok) return
+    if (this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+  }
+
+  private async upgradeOnOpen(tab: Tab): Promise<void> {
+    await this.adjustRemovedPartsOnOpen(tab)
     if (this.reviewReplacements.get()) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
     if (items.length === 0) return
@@ -8582,7 +8627,7 @@ export class AppState {
     try {
       const registry = this.registryForTab(tab)
       const roots = workflowAssetRoots(tab.store.doc, { revision: tab.store.revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'export')
       if (roots.refusal !== undefined) throw new Error(roots.refusal)
       const snapshot = await this.documentWithAssetLocations(tab)
       if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
