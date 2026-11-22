@@ -455,6 +455,38 @@ describe('open-tab persistence', () => {
 
 
 
+  it('does not replay an older dirty window over an already committed document stage', () => {
+    const canonical = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as {
+      tabs: Array<{
+        doc: { lineage: string; root: string; graphs: Record<string, { name: string }> }
+        documentRevision?: number
+        documentDirty?: true
+      }>
+      documentCandidateStages?: Record<string, string>
+    }
+    const tab = canonical.tabs[0]!
+    const lineage = tab.doc.lineage
+    tab.doc.graphs[tab.doc.root]!.name = 'later edit'
+    tab.documentRevision = 5
+    canonical.documentCandidateStages = { [lineage]: 'later-stage' }
+    const older = structuredClone(canonical)
+    older.tabs[0]!.doc.graphs[tab.doc.root]!.name = 'earlier edit'
+    older.tabs[0]!.documentRevision = 3
+    older.tabs[0]!.documentDirty = true
+    g.localStorage!.setItem(TABS_KEY, JSON.stringify(canonical))
+    g.localStorage!.setItem('dinkster.openTabsCandidate.older-window', JSON.stringify(older))
+    g.localStorage!.setItem(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(lineage)}`,
+      JSON.stringify({ v: 1, stageId: 'later-stage', tab }))
+
+    const restored = createEditableApp()
+    const document = restored.tabs.get().find((entry) => entry.id === lineage)!.store.doc
+    expect(document.graphs[document.root]!.name).toBe('later edit')
+    flush()
+    const reopened = createEditableApp()
+    const reopenedDocument = reopened.tabs.get().find((entry) => entry.id === lineage)!.store.doc
+    expect(reopenedDocument.graphs[reopenedDocument.root]!.name).toBe('later edit')
+  })
+
   it('keeps independently staged edits for different document lineages', () => {
     const seed = prepareWorkflowApp(new AppState())
     flush()

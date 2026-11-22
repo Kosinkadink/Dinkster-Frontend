@@ -1861,16 +1861,19 @@ function mergePersistedTabs(
   const documentCandidateStages = { ...(states[0]?.documentCandidateStages ?? {}) }
   for (const candidate of documentCandidates) {
     const id = persistedTabId(candidate.tab)
-    if (!id || documentCandidateStages[id] === candidate.stageId) continue
+    if (!id) continue
+    const alreadyCommitted = documentCandidateStages[id] === candidate.stageId
     const current = documents.get(id)
     if (!workspace.tabs.some((tab) => persistedTabId(tab) === id)) {
       // A late Close-owned stage contributes its identity, never tab membership.
       if (!incorporatesClosedCandidate?.(candidate, workspace)) continue
     } else if (!current) continue
     if (current && persistenceJson(candidate.tab.doc) !== persistenceJson(current.doc)) {
+      // Older window snapshots can replay after this stage was committed.
+      // Restore its document without counting the same stage as another edit.
       documents.set(id, committedPersistedTab(
         candidate.tab,
-        Math.max(candidate.tab.documentRevision ?? 0, current.documentRevision ?? 0) + 1,
+        Math.max(candidate.tab.documentRevision ?? 0, current.documentRevision ?? 0) + (alreadyCommitted ? 0 : 1),
       ))
     }
     documentCandidateStages[id] = candidate.stageId
