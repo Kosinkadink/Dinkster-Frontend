@@ -224,6 +224,35 @@ describe('preview caption row', () => {
     pendingHarness.fire('pointerup', x, y)
     expect(pendingHarness.dispatched).toEqual([])
   })
+
+  it('sizes only the node height from the bottom edge of an open preview, and nothing when it is folded', () => {
+    const open = withRegion(false, false, 'panel')
+    const harness = interactionHarness(open.scene)
+    // Off center, so a corner or width change would show; 2 below the edge.
+    const x = open.node.x + 30
+    const bottom = open.node.y + open.node.layout.height
+    harness.fire('pointermove', x, bottom + 2)
+    expect(harness.overlays.at(-1)).toMatchObject({ previewEdge: open.node.id })
+    harness.fire('pointerdown', x, bottom + 2)
+    harness.fire('pointermove', x + 40, bottom + 32)
+    harness.fire('pointerup', x + 40, bottom + 32)
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setNodeSize',
+      params: {
+        graphId: open.scene.graphId, nodeId: open.node.id,
+        size: { width: open.node.layout.width, height: open.node.layout.height + 30 },
+        position: { x: open.node.x, y: open.node.y },
+      },
+    }])
+    const pending = withRegion(false, false, 'pending')
+    const pendingHarness = interactionHarness(pending.scene)
+    pendingHarness.fire('pointermove', x, bottom + 2)
+    expect(pendingHarness.overlays.at(-1) ?? {}).not.toHaveProperty('previewEdge')
+    pendingHarness.fire('pointerdown', x, bottom + 2)
+    pendingHarness.fire('pointermove', x + 40, bottom + 32)
+    pendingHarness.fire('pointerup', x + 40, bottom + 32)
+    expect(JSON.stringify(pendingHarness.dispatched)).not.toContain('view.setNodeSize')
+  })
 })
 
 function interactionScene(): Scene {

@@ -1527,7 +1527,7 @@ describe('node chrome paint on the live renderer', () => {
       ...source,
       layout: {
         ...source.layout,
-        width: 100,
+        width: 160,
         height: source.layout.headerHeight + defaultTokens.padBottom,
         minWidth: 80,
         minHeight: source.layout.headerHeight + defaultTokens.padBottom,
@@ -1574,7 +1574,7 @@ describe('node chrome paint on the live renderer', () => {
     ]) {
       update()
       const bare = nodeOf(renderer.getScene(), minimizedSource.id)
-      expect(bare.layout).toMatchObject({ width: 100, height: minimizedHeight })
+      expect(bare.layout).toMatchObject({ width: 160, height: minimizedHeight })
       expect(bare.layout.preview).toBeUndefined()
       expect(bare.layout.textOutput).toBeUndefined()
     }
@@ -1586,17 +1586,17 @@ describe('node chrome paint on the live renderer', () => {
     // start of its first line.
     renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'first line\nsecond line' } })
     const withText = nodeOf(renderer.getScene(), minimizedSource.id)
-    expect(withText.layout.width).toBe(100)
+    expect(withText.layout.width).toBe(160)
     expect(withText.layout.textOutput).toMatchObject({ height: defaultTokens.previewCaptionHeight })
     calls.length = 0
     renderer.renderNow()
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Text')).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'Preview'))).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'first line'))).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'second line'))).toBe(false)
     // The same preview entry turning into a decoded picture shows the folded caption.
     renderer.setNodePreviews({ [minimizedSource.id]: { image: {} as CanvasImageSource, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimizedSource.id)
-    expect(projected.layout.width).toBe(100)
+    expect(projected.layout.width).toBe(160)
     expect(projected.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
     expect(projected.layout.textOutput).toBeUndefined()
     expect(renderer.getScene().links.every((link) =>

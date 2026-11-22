@@ -132,6 +132,12 @@ export const canvasPaintTokens = {
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
     textOutputMaxRows: 6,
+    /**
+     * The bar on the bottom edge of a node whose preview is open: the text
+     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
+     * edge so it sits on the edge, and a band around the edge that drags it.
+     */
+    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],

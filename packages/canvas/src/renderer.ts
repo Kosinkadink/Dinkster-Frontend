@@ -590,6 +590,8 @@ export interface OverlayState {
   readonly textBoxEdge?: { readonly nodeId: string; readonly valueKey: string }
   /** The node whose preview caption row is under the idle pointer. */
   readonly hoveredPreviewCaption?: string
+  /** The node whose preview bar (its bottom edge) is under the pointer or being dragged. */
+  readonly previewEdge?: string
   /** Live node geometry used only for paint; committed as view.setNodeSize on release. */
   readonly resizePreview?: { readonly nodeId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Live group-drag offset (member nodes ride dragOffsets); committed as view.moveGroup. */
@@ -970,6 +972,7 @@ export class CanvasRenderer {
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
       'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
+      'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
     for (const key of keys) {
@@ -3843,6 +3846,18 @@ export class CanvasRenderer {
           hovered: captionHovered && (panel !== undefined || folded),
         })
       }
+      if (panel !== undefined && l.minimized !== true && contentDetail) {
+        // The text box's bar, on the node's bottom edge: it sizes the open
+        // preview through the node's height.
+        const edge = canvasPaintTokens.widget.textBoxEdge
+        const hot = this.overlay.previewEdge === sceneNode.id
+        const barWidth = hot ? edge.hotWidth : edge.width
+        ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+        ctx.beginPath()
+        ctx.roundRect(node.x + (l.width - barWidth) / 2, node.y + l.height - canvasPaintTokens.node.previewEdge.barRise,
+          barWidth, edge.height, edge.radius)
+        ctx.fill()
+      }
     } else if (outputText !== undefined && l.textOutput !== undefined) {
       const rect = {
         x: node.x + l.textOutput.x,
@@ -3915,7 +3930,7 @@ export class CanvasRenderer {
         // Folded, the caption shows the start of the first line in place of a picture.
         this.paintPreviewCaption(ctx, caption, {
           arrow: folded ? 'folded' : 'open',
-          label: 'Text',
+          label: 'Preview',
           detail: folded ? lines.find((line) => line.trim().length > 0) ?? '' : `${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`,
           detailColor: folded ? color : t.colors.valueMark,
           detailFont: folded ? `italic ${t.fontSize}px ${t.fontFamily}` : smallFont,

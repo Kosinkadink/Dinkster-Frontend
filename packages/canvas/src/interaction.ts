@@ -883,6 +883,8 @@ export class InteractionController {
   /** Text box edge under the idle pointer, and the one arrow keys size. */
   private hoveredTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
   private hoveredPreviewCaption: string | undefined
+  /** Node whose preview bar (its bottom edge) is under the idle pointer. */
+  private hoveredPreviewEdge: string | undefined
   private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
   /** A box a double-click fitted to its text, with the height it had before. */
   private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
@@ -964,6 +966,7 @@ export class InteractionController {
       this.setLinkMidpointHover(undefined)
       this.setHoveredTextEdge(undefined)
       this.setHoveredPreviewCaption(undefined)
+      this.setHoveredPreviewEdge(undefined)
     }
     // Space is tracked at the window so it works without canvas focus, but
     // never while typing in a field (space must stay a space there).
@@ -3157,7 +3160,10 @@ export class InteractionController {
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
     this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
     this.setHoveredPreviewCaption(hit?.kind === 'preview-caption' ? hit.node.id : undefined)
-    this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
+    this.setHoveredPreviewEdge(hit?.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
+    this.canvas.style.cursor = hit?.kind === 'resize' && hit.handle === 's'
+      ? 'ns-resize'
+      : hit?.kind === 'resize' || hit?.kind === 'group-resize'
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
         : 'nesw-resize'
@@ -4889,6 +4895,7 @@ export class InteractionController {
       } : {}),
       ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
       ...(this.hoveredPreviewCaption !== undefined ? { hoveredPreviewCaption: this.hoveredPreviewCaption } : {}),
+      ...(this.activePreviewEdge() !== undefined ? { previewEdge: this.activePreviewEdge()! } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -5004,6 +5011,19 @@ export class InteractionController {
   private setHoveredTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
     if (edge?.nodeId === this.hoveredTextEdge?.nodeId && edge?.valueKey === this.hoveredTextEdge?.valueKey) return
     this.hoveredTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /** The node whose preview bar is drawn hot: the one being dragged, else the hovered one. */
+  private activePreviewEdge(): string | undefined {
+    const g = this.gesture
+    if (g.kind === 'resize' && g.handle === 's') return g.nodeId
+    return this.hoveredPreviewEdge
+  }
+
+  private setHoveredPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewEdge) return
+    this.hoveredPreviewEdge = nodeId
     this.pushOverlay()
   }
 

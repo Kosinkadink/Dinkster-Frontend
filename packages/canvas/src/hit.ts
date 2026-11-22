@@ -34,7 +34,8 @@ export const PIN_HIT_RADIUS: number = canvasPaintTokens.hit.pinRadius
 /** Screen-space extent of each corner resize target. */
 export const RESIZE_HIT_SIZE = canvasPaintTokens.hit.resizeSize
 
-export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw'
+/** A node corner, or `s`: the bottom edge of a node whose preview is open, which sizes only its height. */
+export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw' | 's'
 
 /** World-space distance from a link's curve that still counts as a hit. */
 export const LINK_HIT_RADIUS: number = canvasPaintTokens.hit.linkRadius
@@ -244,7 +245,19 @@ export function nodeResizeHandle(
   if (Math.abs(wx - right) <= corner && Math.abs(wy - top) <= corner) return 'ne'
   if (Math.abs(wx - right) <= corner && Math.abs(wy - bottom) <= corner) return 'se'
   if (Math.abs(wx - left) <= corner && Math.abs(wy - bottom) <= corner) return 'sw'
+  if (previewEdgeShown(node) && wx >= left && wx <= right) {
+    const edge = canvasPaintTokens.node.previewEdge
+    if (wy >= bottom - edge.hitAbove && wy <= bottom + edge.hitBelow) return 's'
+  }
   return undefined
+}
+
+/**
+ * True when a node's bottom edge carries the bar that sizes its open preview:
+ * the preview has its picture area and the node is not minimized.
+ */
+export function previewEdgeShown(node: SceneNode): boolean {
+  return node.layout.minimized !== true && node.layout.preview !== undefined && node.layout.preview.compact !== true
 }
 
 /** The text box whose bottom-edge band holds the point, if any. */
