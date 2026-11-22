@@ -553,6 +553,24 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
+              <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
+                <div class="storage-folders">
+                  <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
+                  <article class="storage-folder">
+                    <div class="storage-folder-heading">
+                      <div class="storage-folder-copy"><strong>Models</strong><code>/home/name/Dinkster/Models</code></div>
+                      <ProductMenu label="Folder actions" items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
+                    </div>
+                    <ProductDisclosure title="Model kinds"><ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: '12 files' }, { label: 'LoRAs', value: '48 files' }]} /></ProductDisclosure>
+                    <span class="storage-folder-mark">Downloads land here</span>
+                  </article>
+                  <article class="storage-folder">
+                    <div class="storage-folder-heading"><div class="storage-folder-copy"><strong>Renders</strong><code>/home/name/Portraits/renders</code></div></div>
+                    <div class="storage-folder-summary"><span>Images</span><span>24 files</span><ProductButton onClick={() => complete('Assets chosen')}>Open in Assets</ProductButton></div>
+                    <span class="storage-folder-mark">New saves go here</span>
+                  </article>
+                </div>
+              </Section>
               <Section
                 title="Bordered list"
                 components="ProductList, ProductListRow"
