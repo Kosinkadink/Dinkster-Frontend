@@ -98,6 +98,12 @@ export type Hit =
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'growth' }>
     }
+  /** The bottom edge of a multiline text box: dragging it sets the box's height in lines. */
+  | {
+      readonly kind: 'text-box-edge'
+      readonly node: SceneNode
+      readonly row: Extract<LayoutRow, { kind: 'widget' }>
+    }
   | { readonly kind: 'header'; readonly node: SceneNode }
   | { readonly kind: 'body'; readonly node: SceneNode }
   | { readonly kind: 'resize'; readonly node: SceneNode; readonly handle: ResizeHandle }
@@ -239,6 +245,23 @@ export function nodeResizeHandle(
   return undefined
 }
 
+/** The text box whose bottom-edge band holds the point, if any. */
+export function textBoxEdgeAt(
+  node: SceneNode,
+  wx: number,
+  wy: number,
+): Extract<LayoutRow, { kind: 'widget' }> | undefined {
+  const edge = canvasPaintTokens.widget.textBoxEdge
+  for (const row of node.layout.rows) {
+    if (row.kind !== 'widget' || row.viewId !== 'core.text' || row.inactive === true || row.ghost === true) continue
+    const width = row.width ?? node.layout.width - row.inset * 2
+    if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
+    const bottom = node.y + row.y + row.height
+    if (wy >= bottom - edge.hitAbove && wy <= bottom + edge.hitBelow) return row
+  }
+  return undefined
+}
+
 /** The minimize arrow's square target at the left end of a node's title bar. */
 export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
   const { left, target } = canvasPaintTokens.node.minimizeArrow
@@ -364,6 +387,11 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     // Row controls are boundary affordances too: edge steppers and sockets
     // must remain usable where they meet the resize band.
     if (inside && contentDetail) {
+      // The node's corners stay resizable where a text box edge meets them.
+      const edge = textBoxEdgeAt(node, wx, wy)
+      if (edge !== undefined && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
+        return { kind: 'text-box-edge', node, row: edge }
+      }
       for (const row of l.rows) {
         if (row.kind === 'ports' || row.kind === 'fallback') continue
         const ry = node.y + row.y

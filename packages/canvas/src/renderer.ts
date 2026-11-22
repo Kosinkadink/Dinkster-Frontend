@@ -23,7 +23,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
+import { projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
 import {
   boundarySceneId,
   GROUP_HEADER_HEIGHT,
@@ -590,6 +590,10 @@ export interface OverlayState {
   readonly hoveredMinimize?: string
   /** Live rubber-band selection rectangle (world coords, normalized). */
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
+  /** Live text box height used only for paint; committed as view.setTextBoxLines on release. */
+  readonly textBoxLines?: { readonly nodeId: string; readonly valueKey: string; readonly lines: number }
+  /** The text box edge under the pointer, being dragged, or holding keyboard focus. */
+  readonly textBoxEdge?: { readonly nodeId: string; readonly valueKey: string }
   /** Live node geometry used only for paint; committed as view.setNodeSize on release. */
   readonly resizePreview?: { readonly nodeId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Live group-drag offset (member nodes ride dragOffsets); committed as view.moveGroup. */
@@ -974,7 +978,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge', 'hoveredMinimize',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
     for (const key of keys) {
@@ -1043,6 +1047,22 @@ export class CanvasRenderer {
     const width = ctx.measureText(text).width
     ctx.restore()
     return width
+  }
+
+  /** How many lines a text box's value takes once wrapped as the box paints it. */
+  textBoxContentLines(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): number {
+    const ctx = this.canvas.getContext('2d')
+    const value = row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey]
+    const text = value === undefined || value === null ? '' : formatWidgetValue(value, row.spec)
+    if (!ctx) return text.split('\n').length
+    const t = this.tokens
+    const width = (row.width ?? node.layout.width - row.inset * 2) -
+      t.multilineText.scrollbarWidth - t.multilineText.scrollbarInset - t.multilineText.textInset - t.multilineText.padding
+    ctx.save()
+    ctx.font = `${t.multilineText.fontSize}px ${t.fontFamily}`
+    const lines = text.split('\n').reduce((count, line) => count + wrapText(ctx, line, width).length, 0)
+    ctx.restore()
+    return lines
   }
 
   /** Screen -> world coordinates. */
@@ -2972,8 +2992,8 @@ export class CanvasRenderer {
     fallbackX: number,
     fallbackY: number,
   ): { readonly x: number; readonly y: number } {
-    const preview = this.overlay.resizePreview
-    if (preview === undefined || (end.kind !== 'port' && end.kind !== 'widgetTap') || end.node !== preview.nodeId) {
+    if ((end.kind !== 'port' && end.kind !== 'widgetTap') ||
+        (end.node !== this.overlay.resizePreview?.nodeId && end.node !== this.overlay.textBoxLines?.nodeId)) {
       return { x: fallbackX, y: fallbackY }
     }
     const sceneNode = this.scene.nodes.find((candidate) => candidate.id === end.node)
@@ -2983,15 +3003,19 @@ export class CanvasRenderer {
       : node?.layout.pins.find((candidate) =>
           candidate.direction === direction && candidate.portId === portEndKey(end) && candidate.widgetTap !== true,
         )
-    if (pin === undefined) return { x: fallbackX, y: fallbackY }
+    if (node === undefined || pin === undefined) return { x: fallbackX, y: fallbackY }
     return {
-      x: preview.x + (direction === 'out' ? preview.width : 0),
-      y: preview.y + pin.y,
+      x: node.x + (direction === 'out' ? node.layout.width : 0),
+      y: node.y + pin.y,
     }
   }
 
   /** Paint-only projection for an in-flight resize; scene and hit geometry stay committed. */
   private nodeForPaint(node: SceneNode): SceneNode {
+    const lines = this.overlay.textBoxLines
+    if (lines?.nodeId === node.id) {
+      return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
+    }
     const preview = this.overlay.resizePreview
     if (preview?.nodeId !== node.id) return node
     const layout = projectNodeLayoutHeight(node.layout, preview.height, this.tokens)
@@ -3462,6 +3486,21 @@ export class CanvasRenderer {
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.fill()
             ctx.globalAlpha = hoverAlpha
+          }
+          if (row.viewId === 'core.text' && !row.inactive && !row.ghost) {
+            // The short bar on the box's bottom edge sizes the box in lines.
+            const edge = canvasPaintTokens.widget.textBoxEdge
+            const hot = this.overlay.textBoxEdge?.nodeId === sceneNode.id &&
+              this.overlay.textBoxEdge.valueKey === row.valueKey
+            const barWidth = hot ? edge.hotWidth : edge.width
+            const edgeAlpha = ctx.globalAlpha
+            ctx.globalAlpha = rowAlpha
+            ctx.fillStyle = hot ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+            ctx.beginPath()
+            ctx.roundRect(node.x + row.inset + (widgetWidth - barWidth) / 2, rowY + row.height - edge.bottomOffset,
+              barWidth, edge.height, edge.radius)
+            ctx.fill()
+            ctx.globalAlpha = edgeAlpha
           }
           if (this.rowMarks[sceneNode.id]?.has(row.valueKey) === true) {
             // Anchored widget-value diagnostic (out-of-range INT, unknown

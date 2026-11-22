@@ -451,6 +451,24 @@ export const canvasPaintTokens = {
     },
     chevron: { stroke: 1.5, topOffset: -2, bottomOffset: 1 },
     scrollbarMinThumbRatio: 2,
+    /**
+     * The short bar on a text box's bottom edge, measured from the row's
+     * bottom. The bar widens under the pointer, while dragged and with
+     * keyboard focus; the hit band spans the box's full width.
+     */
+    textBoxEdge: {
+      width: 22,
+      hotWidth: 34,
+      height: 3,
+      radius: 1.5,
+      bottomOffset: 5,
+      hitAbove: 7,
+      hitBelow: 3,
+      /** A box is 2 to 16 lines tall; an arrow key steps one line. */
+      minLines: 2,
+      maxLines: 16,
+      keyStepLines: 1,
+    },
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
@@ -597,6 +615,11 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
+    /**
+     * Left inset of the text: 2 less than the label over it, so the text
+     * starts just left of its label and labels stay in one column.
+     */
+    readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
     readonly scrollbarWidth: number
@@ -763,6 +786,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
+    textInset: 4,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,

@@ -73,6 +73,7 @@ export const canvasGalleryPages = [
   ['widget-companions', 'Propagated values'],
   ['widget-taps', 'Widget output pins'],
   ['widget-states', 'Widget states'],
+  ['text-boxes', 'Text box heights'],
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
   ['boundary-names', 'Subgraph names'],
@@ -267,6 +268,7 @@ export function createCanvasGalleryFixture(
     values: Record<string, Json> = {},
     index = fixture.scene.nodes.length,
     driven = false,
+    view: { textLines?: Record<string, number>; height?: number } = {},
   ) => {
     const x = driven ? 244 : 24 + (index % 3) * 312
     const y = driven
@@ -356,7 +358,8 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : 280, height: 0 },
+                size: { width: id === 'Narrow' ? 112 : 280, height: view.height ?? 0 },
+                ...(view.textLines !== undefined ? { textLines: view.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
                   : {}),
@@ -425,6 +428,30 @@ export function createCanvasGalleryFixture(
         ],
       },
     })
+  } else if (page === 'text-boxes') {
+    const definition = schema('Prompt', [
+      widget('positive', 'STRING', 'a red fox in deep snow, early morning light,\nlong shadows, shallow depth of field,\n85mm, film grain, muted colors', {
+        multiline: true,
+      }),
+      widget('negative', 'STRING', 'blurry, low quality, text, watermark,\nextra limbs, oversaturated, cropped,\njpeg artifacts, duplicate', {
+        multiline: true,
+      }),
+      widget('strength', 'FLOAT', 1, { min: 0, max: 2, step: 0.01 }),
+    ])
+    add('Declared height', definition)
+    add('Each box its own height', definition, {}, undefined, false, {
+      textLines: { positive: 5, negative: 2 },
+    })
+    add('Node made taller', definition, {}, undefined, false, {
+      textLines: { positive: 5, negative: 2 },
+      height: 400,
+    })
+    const sized = fixture.scene.nodes[1]!
+    fixture.overlay = { textBoxEdge: { nodeId: sized.id, valueKey: 'positive' } }
+    fixture.height = Math.max(
+      320,
+      ...fixture.scene.nodes.map((node) => node.y + node.layout.height + 24),
+    )
   } else if (page === 'editor-rows') {
     const opener = galleryWidgetInputs.filter((item) =>
       [

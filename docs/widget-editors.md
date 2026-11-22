@@ -846,9 +846,38 @@ field rules exclude Product fields without raising selector specificity, so
 the in-node borderless geometry overrides ordinary popover field chrome.
 The scrollbar
 starts at the content-box top, not below it. Overflowing painted content uses
-the same gutter while idle and hover; hover paints a proportional scrollbar
-indicator inside the rounded chrome. The painted indicator is deliberately
-non-interactive because canvas rows have no scroll interaction.
+the same gutter and paints a proportional scrollbar indicator inside the
+rounded chrome. The painted indicator is deliberately non-interactive because
+canvas rows have no scroll interaction; the open editor scrolls. The box never
+grows while typing.
+
+### Text box height
+
+A text box's text starts 2 units left of the label over it (the label at 6,
+the text at 4), so the box's text reads apart from the labels, which stay in
+one column down the node; the open editor uses the same inset.
+
+Each multiline text box has its own height, in whole lines, from 2 to 16. A
+new node starts at the height the widget declares. A short bar in the middle
+of the box's bottom edge sizes it: dragging the edge changes the height one
+line at a time with a live preview and stores it on release; the bar takes the
+accent color and widens under the pointer, while dragged, and while focused.
+Pressing the bar focuses it, and Arrow Up and Arrow Down then step one line
+until Escape or a press elsewhere. Double-clicking the bar fits the box to its
+wrapped text within the limits; double-clicking again returns it to the
+height it had before.
+
+The height is view state, stored per node and value key in the node's
+`textLines` through `view.setTextBoxLines`: it changes no value, wire, run, or
+cache key, and undo treats it like any other layout change. Group members,
+sections, and subgraph instances each keep their own height, and switching a
+field's representation away and back keeps it. Other rows, the preview, and
+the text output keep their heights when one box changes; on a node with a
+manual size, the stored height moves by the same amount in the same undo step.
+
+The node's own bottom edge sizes its preview when it has one. On a node
+without a preview it sizes only the last text box; every other box keeps its
+height.
 
 Ctrl+Enter commits through the existing widget command path.
 Escape cancels. An outside pointer explicitly blurs the field before the same

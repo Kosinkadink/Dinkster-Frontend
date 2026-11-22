@@ -78,6 +78,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widget-companions',
         'widget-taps',
         'widget-states',
+        'text-boxes',
       ],
     ],
     ['Wires', ['types', 'structure']],
@@ -170,6 +171,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
+  'text-boxes':
+    'Each text box keeps its own height, set by dragging the short bar on its bottom edge; text that does not fit shows the quiet scrollbar. The middle node shows the bar under the pointer; the right one was made taller by its own edge, which sizes only its last box.',
   types: 'The color of each data type on its pins and wires.',
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
