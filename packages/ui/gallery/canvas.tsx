@@ -568,10 +568,16 @@ export function CanvasGallery() {
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
+      const colors = canvasColorsForTheme(currentTheme)
       const base: DesignTokens = {
         ...defaultTokens,
+        stateColors: {
+          ...defaultTokens.stateColors,
+          pending: colors.pendingOutline,
+          skipped: colors.skippedOutline,
+        },
         ...canvasTypePaintForTheme(currentTheme),
-        colors: canvasColorsForTheme(currentTheme),
+        colors,
       }
       const measureContext = document.createElement('canvas').getContext('2d')!
       const widgetMeasure: WidgetMeasure = (spec) => {
