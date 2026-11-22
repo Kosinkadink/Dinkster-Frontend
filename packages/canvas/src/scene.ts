@@ -872,6 +872,7 @@ export interface BuildSceneInput {
     readonly owner: OccurrenceRef
     readonly plannerAvailable: boolean
   }
+  /** Effective state for an occurrence; inferred from the document when omitted. */
   readonly occurrenceView?: {
     readonly dynamic: ReadonlyMap<string, Readonly<Record<string, DynamicPortState>>>
     readonly values?: ReadonlyMap<string, Readonly<Record<string, Json>>>
@@ -1054,6 +1055,10 @@ export function buildScene(input: BuildSceneInput): Scene {
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  if (input.occurrenceView === undefined) {
+    const occurrenceView = occurrenceDynamicView(input.document, input.resolve, sourcePath ?? [], sourcePath === undefined ? input.graphId : input.document.root)
+    if (input.occurrence !== undefined || occurrenceView.values.size > 0) input = { ...input, occurrenceView }
+  }
   const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     return resolveSource(graphId, sourceId, path)
