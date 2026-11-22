@@ -139,13 +139,18 @@ await writeFile(
       installer: 'desktop-chrome.js',
       css: chromeCss.toString(),
       native: {
+        minimumWidth: {
+          linux: components.layout.toolbarMinimumWidthLinux,
+          darwin: components.layout.toolbarMinimumWidthMac,
+          win32: components.layout.toolbarMinimumWidthWindows,
+        },
         overlay: Object.fromEntries(
           (['dark', 'light'] as const).map((theme) => {
             const tokens = semanticTokensForTheme(theme)
             return [
               theme,
               {
-                color: tokens.surface.panel,
+                color: tokens.surface.frame,
                 symbolColor: tokens.text.primary,
                 height: components.layout.topBarHeight,
               },
