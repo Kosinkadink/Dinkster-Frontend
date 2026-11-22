@@ -11,6 +11,8 @@ import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, 
 import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
+import { buildScene } from '../src/scene.js'
+import { coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 
 function interactionHarness(
   scene: Scene,
@@ -3919,5 +3921,55 @@ describe('two-finger touch navigation', () => {
     harness.fire('pointerdown', 200, 100, { ...touch, pointerId: 6 })
     harness.fire('pointermove', 300, 100, { ...touch, pointerId: 6 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a wire dragged from the Inputs panel to a field', () => {
+  const int = { kind: 'concrete', name: 'INT' } as const
+  const image = { kind: 'concrete', name: 'IMAGE' } as const
+  const blur: NodeSchema = {
+    type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: true,
+    items: [
+      { kind: 'input', id: 'image', type: image, optional: false },
+      { kind: 'input', id: 'radius', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 4 } },
+      { kind: 'output', id: 'IMAGE', type: image },
+    ],
+  }
+  const document = (): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'inputs-panel-field', root: 'g0',
+    graphs: {
+      g0: { id: 'g0', name: 'Root', nextOrdinal: 5, nodes: { s: { id: 's', type: '#sub', values: {} } }, links: {}, nets: {}, reroutes: {} },
+      sub: {
+        id: 'sub', name: 'Soften', nextOrdinal: 5, links: {}, nets: {}, reroutes: {},
+        nodes: { blur: { id: 'blur', type: 'Blur', values: { radius: 6 } } },
+        boundary: { inputs: [], outputs: [] },
+      },
+    },
+    view: { graphs: { sub: { nodes: { blur: { position: { x: 300, y: 100 } } } } } },
+  } as unknown as WorkflowDocument)
+  const resolve = (type: string) => (type === 'Blur' ? blur : undefined)
+  const sceneOf = (doc: WorkflowDocument) => buildScene({
+    document: doc, graphId: 'sub', resolve: documentResolver(doc, resolve), tokens: defaultTokens,
+    measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+  })
+
+  it('gives the subgraph node a field, with the wire drawn', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const scene = sceneOf(store.doc)
+    const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+    const slot = panel.layout.pins.find((pin) => pin.portId === BOUNDARY_ADD_SLOT)!
+    const node = scene.nodes.find((candidate) => candidate.id === 'blur')!
+    const field = node.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'radius')!
+    const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', panel.x + panel.layout.width, panel.y + slot.y)
+    harness.fire('pointermove', node.x + 40, node.y + field.y)
+    harness.fire('pointermove', node.x, node.y + field.y)
+    harness.fire('pointerup', node.x, node.y + field.y)
+
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    const derived = deriveBoundarySchema(store.doc.graphs.sub!, documentResolver(store.doc, resolve)).schema
+    expect(derived?.items.find((item) => item.kind === 'input' && item.id === 'radius')).toMatchObject({ widget: { widgetType: 'INT', default: 6 } })
+    expect(sceneOf(store.doc).links.filter((link) => link.boundary === true).map((link) => link.to))
+      .toEqual([{ kind: 'port', node: 'blur', port: 'radius' }])
   })
 })

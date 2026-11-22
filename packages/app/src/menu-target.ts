@@ -209,6 +209,7 @@ export function widgetMenuTarget(
     kind: 'widget',
     nodeId,
     inputId: row.inputId,
+    address: { port: row.address.port, ...(row.address.members?.length ? { members: row.address.members } : {}) },
     ...owner,
     ...(synthetic ? { synthetic: true as const } : {}),
   }
