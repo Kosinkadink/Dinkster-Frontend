@@ -10,6 +10,7 @@ import {
 import { Menu, type LucideIcon } from 'lucide-solid'
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
 import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
+import lightWordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-light.svg?url'
 import { ProductIcon } from './controls.js'
 import { useProductStrings } from './strings.js'
 
@@ -17,8 +18,14 @@ export function ProductBrandMark() {
   return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />
 }
 
-export function ProductWordmark() {
-  return <img class="dinkster-wordmark" src={wordmarkUrl} alt="Dinkster" />
+export function ProductWordmark(props: { theme?: 'dark' | 'light' }) {
+  return (
+    <img
+      class="dinkster-wordmark"
+      src={props.theme === 'light' ? lightWordmarkUrl : wordmarkUrl}
+      alt="Dinkster"
+    />
+  )
 }
 
 /** A standalone site flow has no shell navigation or top bar. */

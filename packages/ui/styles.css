@@ -130,6 +130,8 @@
 .dinkster-window-toolbar-service { grid-column: 4; grid-row: 1; justify-self: start; white-space: nowrap; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-window-toolbar .dinkster-window-identity { grid-column: 5; grid-row: 1; }
 .dinkster-window-action { display: inline-flex; }
+.dinkster-window-action-label { display: inline-flex; align-items: center; }
+.dinkster-window-action-label .dinkster-wordmark { display: block; width: var(--dinkster-wordmark-width); height: var(--dinkster-wordmark-height); }
 .dinkster-window-action-icon { display: none; }
 .dinkster-window-action-shortcut { padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); color: var(--dinkster-text-secondary); font: inherit; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 @container (max-width: DINKSTER_SIDEBAR_BREAKPOINT) {
@@ -173,7 +175,7 @@
 [data-density='site'] .dinkster-topbar-inner { display: flex; justify-content: space-between; align-items: center; width: calc(100% - var(--dinkster-site-tablet-page-margin) * 2); max-width: var(--dinkster-site-shell-max-width); margin-inline: auto; }
 [data-density='site'] .dinkster-brand { gap: var(--dinkster-space-12); }
 [data-density='site'] .dinkster-brand > .dinkster-brand-mark { display: none; }
-[data-density='site'] .dinkster-brand > .dinkster-wordmark { display: block; width: var(--dinkster-site-wordmark-width); height: var(--dinkster-site-wordmark-height); }
+[data-density='site'] .dinkster-brand > .dinkster-wordmark { display: block; width: var(--dinkster-wordmark-width); height: var(--dinkster-wordmark-height); }
 [data-density='site'] .dinkster-brand-title { border-left: var(--dinkster-border-width) solid var(--dinkster-border-subtle); padding-left: var(--dinkster-space-12); color: var(--dinkster-text-secondary); font-weight: var(--dinkster-weight-regular); }
 [data-density='site'] .dinkster-shell-body { display: grid; grid-template-columns: var(--dinkster-site-navigation-width) minmax(0, 1fr); gap: var(--dinkster-site-navigation-gap); max-width: var(--dinkster-site-shell-max-width); width: calc(100% - var(--dinkster-site-tablet-page-margin) * 2); margin-inline: auto; padding-block: var(--dinkster-site-section-gap); }
 [data-density='site'] .dinkster-shell[data-navigation='false'] .dinkster-shell-body { grid-template-columns: minmax(0, 1fr); }
