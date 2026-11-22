@@ -1847,14 +1847,19 @@ export function App(props: {
   const leftOpen = () => zoneOpen('left') && leftPanels().length > 0
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
-  const [sideSpace, setSideSpace] = createSolidSignal<number>()
+  const [sideSpace, setSideSpace] = createSolidSignal<{ single: number; both: number }>()
   onMount(() => {
     if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
     const measure = (): void => {
+      const style = getComputedStyle(bodyElement)
+      const gap = Number.parseFloat(style.columnGap) || 0
+      const sidebarWidth = sidebar.getBoundingClientRect().width
+      const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
+        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
-        : Math.max(0, bodyElement.clientWidth - sidebar.getBoundingClientRect().width - 320))
+        : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
@@ -1862,13 +1867,13 @@ export function App(props: {
     measure()
     onCleanup(() => observer.disconnect())
   })
-  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace() ?? dockWidth()))
-  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace() ?? railWidth()))
+  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace()?.single ?? dockWidth()))
+  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace()?.single ?? railWidth()))
   let previousRailOpen = railOpen()
   createEffect(() => {
     const right = railOpen()
     const left = leftOpen()
-    const space = sideSpace()
+    const space = sideSpace()?.both
     const openedRail = right && !previousRailOpen
     previousRailOpen = right
     if (space !== undefined && left && right && dockWidth() + railWidth() > space) {
