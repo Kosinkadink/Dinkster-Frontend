@@ -253,9 +253,11 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
   for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
   await page.evaluate(() => document.fonts.ready)
-  const titleWidths = await page.getByTestId('tab-bar').locator('.tab-title').evaluateAll((titles) => {
+  // Tab publication can replace DOM nodes between a locator query and evaluation.
+  const titleWidths = await page.evaluate(() => {
+    const titles = document.querySelectorAll('[data-testid="tab-bar"] .tab-title')
     const context = document.createElement('canvas').getContext('2d')!
-    return titles.map((title) => {
+    return Array.from(titles, (title) => {
       context.font = getComputedStyle(title).font
       return {
         title: title.textContent!,
@@ -267,6 +269,7 @@ test('tab strip suppresses vertical scrolling and retains horizontal overflow', 
       }
     })
   })
+  expect(titleWidths).toHaveLength(22)
   for (const title of titleWidths) expect(title.width, title.title).toBeGreaterThanOrEqual(title.minimum)
   const overflow = await page.getByTestId('tab-bar').locator('.workflow-tablist').evaluate((element) => {
     const style = getComputedStyle(element)
