@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, nativeTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, nativeTest as documentTest, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const fanoutProofDir = process.env['DINKSTER_CONTROLLER_FANOUT_PROOF_DIR']
 if (fanoutProofDir) mkdirSync(fanoutProofDir, { recursive: true })
@@ -70,7 +70,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     return
   }
   const mockLegacyDiscovery = testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')
@@ -82,7 +82,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   if (!seedWorkflows) return
   await page.evaluate(() => {
     const test = window.__dinksterTest! as any

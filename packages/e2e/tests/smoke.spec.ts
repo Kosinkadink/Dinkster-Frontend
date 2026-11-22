@@ -4,16 +4,15 @@
  * dev proxy. Uses the window.__dinksterTest bridge for state assertions instead
  * of scraping canvas pixels.
  */
-import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
 
 test('queues the basic workflow and tracks it to completion with outputs', async ({ page }) => {
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const document = structuredClone(app.activeTab()!.store.doc)
@@ -81,7 +80,7 @@ test('completion before submit acknowledgment retains and hydrates outputs', asy
     await readGate
     await route.fulfill({ response })
   })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.backends.get()[0]!.connection.onLiveCompletion(() => {
       document.documentElement.dataset['completedJobObserved'] = 'true'

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect } from '../visual.js'
-import { nativeTest as test, mockProjectPacks, waitForStartupOwnership, type Page } from './fixtures.js'
+import { nativeTest as test, mockProjectPacks, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = resolve(import.meta.dirname, '../../../.amp/in/artifacts/native-output-preview')
 const longIdentityName = `middle-${'complete-identity-'.repeat(6)}.png`
@@ -83,7 +83,7 @@ test.beforeEach(async ({ page }) => {
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return backend?.connection.status.get() === 'connected' && backend.schemaState.get().status === 'ready'
   })).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await installExecution(page)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
   await expect(page.locator('.output-thumbnail')).toHaveCount(3)

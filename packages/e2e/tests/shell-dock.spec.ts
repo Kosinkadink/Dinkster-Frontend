@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, nativeTest as test, waitForStartupOwnership, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!
@@ -615,7 +615,7 @@ test('Customize Layout toggles supported regions and persists status bar visibil
     return settings.list().some((setting) => setting.id === 'templates.registryUrl')
   })
   await waitForTemplateSetting()
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.getByTestId('library-toggle').click()
   await page.getByTestId('logs-toggle').click()
   await page.getByTestId('dinkster-menu-button').click()
@@ -656,7 +656,7 @@ test('Customize Layout toggles supported regions and persists status bar visibil
   await page.reload()
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await waitForTemplateSetting()
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect(page.getByTestId('status-bar')).toBeHidden()
 
   await page.getByTestId('dinkster-menu-button').click()

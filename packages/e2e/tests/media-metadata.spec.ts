@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, waitForStartupOwnership, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
+import { expect, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
@@ -37,7 +37,7 @@ test('inspects every media kind through the owning value API without mutating th
     return route.fulfill({ json: { available: true, descriptor, renditions: [] } })
   })
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   await page.evaluate(async (outputs) => {
     const app = window.__dinksterTest!.app
@@ -191,7 +191,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   const png = await page.evaluate(() => {
     const canvas = document.createElement('canvas')

@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page, type Route } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page, type Route } from './fixtures.js'
 
 const evidenceDir = process.env['DINKSTER_COLLAB_EVIDENCE_DIR'] ?? '/tmp/dinkster-42-evidence'
 const longSessionId = `session-${'s'.repeat(90)}`
@@ -16,7 +16,7 @@ const session = (sessionId = 'session-one', documentId = 'document-one') => ({
 async function appReady(page: Page): Promise<void> {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     if (!app.backends.get().some((backend) => backend.protocol === 'dinkster')) {

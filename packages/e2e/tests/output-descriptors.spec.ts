@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function openDescriptors(page: Page): Promise<void> {
   const point = await page.evaluate(() => {
@@ -38,7 +38,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const diagnostics = await page.evaluate(async (mode) => {
     const profile = mode === true
     const fixedIds = mode !== false

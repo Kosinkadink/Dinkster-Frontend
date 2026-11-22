@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function acknowledgeRetentions(page: Page): Promise<void> {
   await page.route('/api/library/retentions/document/*?scope=local', async (route) => {
@@ -73,7 +73,7 @@ for (const accepted of [true, false]) {
       }, 'Recording ownership')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
     const point = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!
@@ -143,7 +143,7 @@ for (const accepted of [true, false]) {
     })
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await page.evaluate(async () => {
       await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'picker-owner', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'Picker', values: { source: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
@@ -151,7 +151,7 @@ for (const accepted of [true, false]) {
       }, 'Picker ownership')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
     const point = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!

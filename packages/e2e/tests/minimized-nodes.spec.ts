@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -133,7 +133,7 @@ test.beforeEach(async ({ context, page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   if (await page.getByTestId('dock-zone-right').isVisible()) {
     await page.getByRole('button', { name: /^Toggle right rail/ }).click()
   }

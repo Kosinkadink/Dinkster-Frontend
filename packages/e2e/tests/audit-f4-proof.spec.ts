@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const digest = (character: string): string => `blake3:${character.repeat(64)}`
 
@@ -11,7 +11,7 @@ const catalog = {
 }
 
 async function installAssetDocument(page: Page, multi: boolean): Promise<void> {
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async ({ multi }) => {
     const app = window.__dinksterTest!.app
     const type = multi
@@ -164,7 +164,7 @@ test('proves product upload control and hidden workflow picker lifecycle', async
 
   await page.reload()
   await expect(page.getByTestId('settings-button')).toBeVisible()
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     HTMLInputElement.prototype.click = function () {
       this.dispatchEvent(new MouseEvent('click', { cancelable: true }))

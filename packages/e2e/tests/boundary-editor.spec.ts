@@ -14,7 +14,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -93,7 +93,7 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
  * optional x/y).
  */
 async function openBoundaryWorkflow(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const socket = (id: string, optional: boolean) => ({

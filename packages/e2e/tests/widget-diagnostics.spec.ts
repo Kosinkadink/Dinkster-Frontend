@@ -18,7 +18,7 @@
  * - every message is anchored as <nodeId>.<valueKey> so a report names the
  *   exact node and input
  */
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const problems = (page: Page) => page.getByTestId('problems-panel')
 
@@ -110,7 +110,7 @@ test.beforeEach(async ({ page }) => {
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('an additive nested combo field keeps the node editable and reports its named warning', async ({ page }, testInfo) => {
@@ -123,7 +123,7 @@ test('an additive nested combo field keeps the node editable and reports its nam
   } }))
   await page.reload()
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'additive-widget', root: 'g0',

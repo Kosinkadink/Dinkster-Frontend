@@ -5,7 +5,7 @@
  * synthetic schema through the SAME public extension API (registerSchemas)
  * and open a matching workflow document.
  */
-import { expect, appViewTest as test, nativeAppViewTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, appViewTest as test, nativeAppViewTest as documentTest, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -69,7 +69,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     return
   }
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')) {
@@ -84,7 +84,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 

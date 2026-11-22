@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 
@@ -50,7 +50,7 @@ async function installRoutes(page: Page): Promise<void> {
 async function openFixture(page: Page): Promise<void> {
   await installRoutes(page)
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const local = app.backends.get()[0]!

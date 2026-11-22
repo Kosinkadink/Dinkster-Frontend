@@ -2,7 +2,7 @@ import type { Locator, Page } from '@playwright/test'
 import {
   nativeTest as test,
   expect,
-  waitForStartupOwnership,
+  waitForWorkspaceReady,
 } from './fixtures.js'
 
 const catalog = {
@@ -23,7 +23,7 @@ test.beforeEach(async ({ context }) => {
 })
 
 async function ready(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() =>
     window.__dinksterTest!.app.registerSchemas([
       {
