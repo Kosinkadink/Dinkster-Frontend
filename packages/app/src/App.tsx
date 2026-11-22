@@ -6,8 +6,9 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
 import { FrameRateStatus } from './FrameRateStatus.js'
-import { activeLocale, asNodeId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
-import type { ExecutionState } from '@dinkster/client'
+import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
+import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
+import { executionAssetRoots, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retireAssetOwner } from './workflow-asset-retention.js'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -19,7 +20,7 @@ import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
@@ -1089,9 +1090,11 @@ export function App(props: {
   }
   const [runScope, setRunScope] = createSolidSignal('workflow')
   const [selectedRunKey, setSelectedRunKey] = createSolidSignal<string>()
-  createEffect(() => { activeTabId(); setSelectedRunKey(undefined) })
+  const [selectedStoredRun, setSelectedStoredRun] = createSolidSignal<ExecutionState>()
+  createEffect(() => { activeTabId(); setSelectedRunKey(undefined); setSelectedStoredRun(undefined) })
   const selectedRun = (): ExecutionState | undefined =>
-    selectedRunKey() === undefined ? activeExecution() : executions().get(selectedRunKey()!)
+    selectedRunKey() === undefined ? activeExecution() : executions().get(selectedRunKey()!) ??
+      (selectedStoredRun()?.key === selectedRunKey() ? selectedStoredRun() : undefined)
   const workflowExecutions = (): readonly ExecutionState[] => {
     executions()
     const tab = activeTab()
@@ -1208,7 +1211,7 @@ export function App(props: {
         <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
           onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
         <span>{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
-        <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">agent</span></Show>
+        <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
         <CancelExecutionButton app={app} execution={p.exec} />
       </div>
       <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
@@ -1350,26 +1353,115 @@ export function App(props: {
       ? execution.key === entry.id
       : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
   }
-  const StoredRun = (p: { entry: CollectionEntry; selected: boolean; actions: JSX.Element }) => {
+  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
+    const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient; reader: NonNullable<ReturnType<AppState['executionAssetReader']>> }>()
+    const [loadError, setLoadError] = createSolidSignal<string>()
+    const [loading, setLoading] = createSolidSignal(false)
+    let requested = false
+    let alive = true
+    let unsubscribe: (() => void) | undefined
+    const readers = new Set<RetainedAssetReader>()
+    onCleanup(() => {
+      alive = false
+      unsubscribe?.()
+      for (const reader of readers) void reader.close().then(() => retireAssetOwner(reader.connection, reader.retained)).catch(() => undefined)
+    })
+    const load = async (): Promise<void> => {
+      const entry = p.entry
+      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner)
+      if (backend?.protocol !== 'dinkster') return
+      const project = activeProjectId()
+      let connectionChanged = false
+      unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+      const current = () => alive && !connectionChanged && p.entry === entry && activeProjectId() === project && app.backends.get().includes(backend)
+      setLoading(true)
+      try {
+        const runId = runIdOfEntry(entry)
+        const run = await backend.connection.getHistoryRun(runId, LIBRARY_SCOPE)
+        if (!current()) return
+        if (run === undefined || run.scope !== LIBRARY_SCOPE || (run.jobRef ?? run.runId) !== runId) throw new Error('Stored run is no longer available')
+        const job = await backend.connection.fetchHistoryJob(run)
+        if (!current()) return
+        if (job === undefined) throw new Error('Retained outputs are no longer available')
+        if (job.state === 'queued' || job.state === 'running') throw new Error('Stored run is no longer terminal')
+        const rawOutputs = job.outputs
+        if (rawOutputs !== undefined && (typeof rawOutputs !== 'object' || rawOutputs === null || Array.isArray(rawOutputs) ||
+          !Object.values(rawOutputs).every((outputs) => typeof outputs === 'object' && outputs !== null && !Array.isArray(outputs)))) {
+          throw new Error('Stored run outputs are malformed')
+        }
+        const execution: ExecutionState = {
+          ref: { connection: backend.id, prompt: asPromptId(run.jobId) },
+          key: JSON.stringify([backend.id, run.clientId, run.jobId, runId]),
+          status: run.state === 'failed' ? 'error' : run.state,
+          nodes: nodeStatesFromDinksterJob(job), blockedNodes: {}, expandedNodes: {}, regions: {},
+          outputs: rawOutputs as ExecutionState['outputs'] ?? {}, artifacts: job.artifacts ?? [], artifactsHydrated: true,
+          previews: {}, activities: [], logs: [], logsDropped: 0,
+          errors: run.error?.message === undefined ? [] : [diag('error', 'runtime', 'history.failed', run.error.message)],
+          jobRef: runId, ...(run.sourceDocument === undefined ? {} : { sourceDocument: run.sourceDocument }),
+          queuedAt: run.submittedAt * 1000, endedAt: run.finishedAt * 1000,
+        }
+        const protect = async (roots: Parameters<typeof retainPreviewAssets>[1], offer = false): Promise<RetainedAssetReader> => {
+          if (!current()) throw new Error('Stored run owner changed')
+          const retained = offer ? await retainExecutionAssets(backend.connection, execution.ref, roots)
+            : await retainPreviewAssets(backend.connection, roots, [8])
+          const reader = new RetainedAssetReader(backend.connection, retained, current)
+          readers.add(reader)
+          if (!current()) {
+            await reader.close()
+            await retireAssetOwner(backend.connection, retained)
+            throw new Error('Stored run owner changed')
+          }
+          return reader
+        }
+        let admission: Promise<RetainedAssetReader> | undefined
+        const reader = {
+          key: execution.key,
+          current,
+          read: async <T,>(consume: () => Promise<T>): Promise<T> => {
+            admission ??= protect(executionAssetRoots(execution, () => undefined)).catch((error: unknown) => { admission = undefined; throw error })
+            return (await admission).read(consume)
+          },
+        }
+        const values = backend.connection.historyValues(run, async (query, descriptor, offer) => {
+          if (query.jobId !== run.jobId || (offer !== undefined && offer.jobRef !== runId)) throw new Error('Stored output identity mismatch')
+          return protect(offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined), offer !== undefined)
+        })
+        setLoaded({ execution, values, reader })
+      } catch (error) {
+        if (alive) setLoadError(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (alive) setLoading(false)
+      }
+    }
     createEffect(() => {
-      if (p.selected) setSelectedRunKey(storedExecution(p.entry)?.key ?? p.entry.id)
+      if (!p.selected()) return
+      const known = storedExecution(p.entry)
+      const inspected = loaded()?.execution
+      setSelectedStoredRun(known === undefined ? inspected : undefined)
+      setSelectedRunKey(known?.key ?? inspected?.key ?? p.entry.id)
+      if (known === undefined && !requested) { requested = true; void load() }
     })
     const Facts = () => <>
-      <p>{p.entry.subtitle}</p>
-      <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
       <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
       <Show when={storedExecution(p.entry)?.artifact}>
-        <ProductButton size="compact" onClick={() => { const execution = storedExecution(p.entry); if (execution) void app.openExecutionView(execution.ref) }}>Open snapshot</ProductButton>
+        <ProductButton size="compact" onClick={() => { const execution = storedExecution(p.entry); if (execution) void app.openExecutionView(execution.ref) }}>{message('runs.openSnapshot')}</ProductButton>
       </Show>
     </>
     return <div class="runs-stored-row">
       <strong>{p.entry.title}</strong>
-      <Show when={storedExecution(p.entry)} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
+      <p>{p.entry.subtitle}</p>
+      <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
+      <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
+      <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+      <Show when={storedExecution(p.entry)} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
         <summary>{message('runs.details')}</summary><Facts />
-      </details>}>
-        {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+      </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
+        {(execution) => <>
+          <CancelExecutionButton app={app} execution={execution()} />
+          <Outputs app={app} execution={execution()} details={<Facts />} />
+        </>}
       </Show>
-      <Show when={p.selected}>{p.actions}</Show>
+      <Show when={p.selected()}>{p.actions}</Show>
     </div>
   }
   const pendingRuns = () => {
@@ -3104,7 +3196,10 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
-function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element }) {
+function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
+  values: DinksterValuesClient
+  reader: NonNullable<ReturnType<AppState['executionAssetReader']>>
+} }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
@@ -3115,7 +3210,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
   const currentExecutionKey = createMemo(() => props.execution.key)
   const values = () => {
     backendTick()
-    return props.app.valuesForExecution(props.execution.ref)
+    return props.source?.values ?? props.app.valuesForExecution(props.execution.ref)
   }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
@@ -3153,7 +3248,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
   const images = createMemo(() => executedImageInventory(props.execution, {
     readAsset: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
+    executionAssetReader: (execution, digests, holder) => props.source?.reader ?? props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const imageGroups = createMemo(() => {

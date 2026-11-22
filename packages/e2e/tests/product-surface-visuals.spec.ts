@@ -180,6 +180,80 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   }
 }
 
+test('stored run outputs load only after selection and retain their original identity', async ({ page }, testInfo) => {
+  const records = ['stored-good', 'stored-failed', 'stored-wrong'].map((runId, index) => ({
+    runId, jobRef: runId, scope: 'local', clientId: `other-browser-${index}`, jobId: `shared-job-${index}`,
+    state: 'completed', priority: 0, submittedAt: 1767225600 - index * 10, finishedAt: 1767225605 - index * 10,
+    executed: 1, cached: 0, skipped: 0,
+  }))
+  const jobs: string[] = []
+  let release!: () => void
+  const released = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/api/history?*', (route) => route.fulfill({ json: { records } }))
+  await page.route('**/api/history/*', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1)
+    return route.fulfill({ json: records.find((record) => record.runId === id) })
+  })
+  await page.route('**/api/jobs/by-ref/*', async (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1)!
+    jobs.push(id)
+    if (id === 'stored-failed') return route.fulfill({ status: 503 })
+    const record = records.find((record) => record.runId === id)!
+    if (id === 'stored-good') await released
+    return route.fulfill({ json: { ...record, jobRef: id === 'stored-wrong' ? 'another-run' : id,
+      outputs: { image: { result: { typeId: 'IMAGE', fingerprint: 'stored-image', meta: { shape: [1, 32, 64, 3] } } } },
+    } })
+  })
+  const values: URL[] = []
+  await page.route('**/api/values?*', async (route) => {
+    const url = new URL(route.request().url())
+    values.push(url)
+    if (!url.searchParams.has('rendition')) return route.fulfill({ json: { available: true,
+      descriptor: { typeId: 'IMAGE', fingerprint: 'stored-image', meta: { shape: [1, 32, 64, 3] } },
+      renditions: [{ kind: 'png', mime: 'image/png' }],
+    } })
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 32
+      const context = canvas.getContext('2d')!; context.fillStyle = '#32e6c5'; context.fillRect(0, 0, 64, 32)
+      return canvas.toDataURL('image/png').split(',')[1]!
+    })
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64'),
+      headers: { 'X-Dinkster-Fingerprint': 'stored-image', 'X-Dinkster-Rendition': 'png' } })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await openRail(page, 'Runs')
+  await page.getByTestId('runs-scope').click()
+  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  const rows = page.getByTestId('collection-entry')
+  await expect(rows).toHaveCount(3)
+  expect(jobs).toEqual([])
+  await expect(page.locator('.runs-output-thumbnails')).toHaveCount(0)
+  const good = rows.filter({ hasText: 'shared-j' }).nth(0)
+  await good.click()
+  await expect(good).toContainText('Loading retained outputs...')
+  await page.mouse.move(600, 400)
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('stored-run-loading.png'), animations: 'disabled' })
+  release()
+  await expect(good.locator('.output-thumbnail img')).toHaveJSProperty('naturalWidth', 64)
+  expect(jobs).toEqual(['stored-good'])
+  expect(values.length).toBeGreaterThan(0)
+  expect(values.every((url) => url.searchParams.get('clientId') === 'other-browser-0' && url.searchParams.get('jobId') === 'shared-job-0')).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('stored-run-selected.png'), animations: 'disabled' })
+  await rows.nth(1).click()
+  await expect(rows.nth(1)).toContainText('Could not load outputs:')
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await rows.nth(2).click()
+  await expect(rows.nth(2)).toContainText('response run identity mismatch')
+  await expect(rows.nth(2).locator('.output-thumbnail')).toHaveCount(0)
+  await rows.nth(2).scrollIntoViewIfNeeded()
+  await page.mouse.move(600, 400)
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('stored-run-error.png'), animations: 'disabled' })
+})
+
 test('App view validation and remote failures keep editable controls', async ({ page }) => {
   await boot(page)
   await closeGallery(page)

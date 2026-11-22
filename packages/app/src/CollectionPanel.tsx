@@ -84,7 +84,7 @@ export function CollectionPanel(props: {
   /** Hosts with a row-only contract omit the grid switch and stored view preference. */
   readonly listOnly?: boolean
   /** Replace row contents while retaining selection, paging, keyboard navigation and guarded actions. */
-  readonly entryContent?: (entry: CollectionEntry, selected: boolean, actions: JSX.Element) => JSX.Element
+  readonly entryContent?: (entry: CollectionEntry, selected: () => boolean, actions: JSX.Element) => JSX.Element
   /**
    * localStorage key persisting the grid/list mode. Scope is the host's
    * decision: a shared key makes the same surface feel the same across
@@ -598,7 +598,7 @@ export function CollectionPanel(props: {
         </Show>
       </div>
       </>}>
-        {(render) => render()(p.entry, p.entry.id === selectedId(), <Actions entry={p.entry} />)}
+        {(render) => render()(p.entry, () => p.entry.id === selectedId(), <Actions entry={p.entry} />)}
       </Show>
       <Show when={(p.entry.children ?? []).length > 0}>
         <button
