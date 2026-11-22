@@ -85,7 +85,7 @@ describe('workflow tabs', () => {
   it('renames inline on Enter or blur, cancels Escape and blank names, and refuses frozen tabs', async () => {
     const view = fixture()
     const start = async (): Promise<HTMLInputElement> => {
-      view.root.querySelector('[data-tab-id="one"] [role="tab"]')!
+      view.root.querySelector('[data-tab-id="one"] .tab-title')!
         .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
       await Promise.resolve()
       return view.root.querySelector<HTMLInputElement>('input')!
@@ -111,7 +111,10 @@ describe('workflow tabs', () => {
     input.blur()
     expect(view.rename).toHaveBeenCalledTimes(2)
     expect(view.root.querySelector('input')).toBeNull()
-    view.root.querySelector('[data-tab-id="two"] [role="tab"]')!
+    view.root.querySelector('[data-tab-id="two"] .tab-title')!
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(view.root.querySelector('input')).toBeNull()
+    view.root.querySelector('[data-tab-id="one"] svg')!
       .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(view.root.querySelector('input')).toBeNull()
     view.dispose()

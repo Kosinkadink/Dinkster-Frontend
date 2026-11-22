@@ -313,7 +313,6 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               tabindex={tab.id === props.activeId ? 0 : -1}
               onClick={(event) => props.onActivate(event, tab)}
               onKeyDown={(event) => onTabKeyDown(event, tab)}
-              onDblClick={() => startRename(tab)}
             >
               <ProductRunIcon
                 icon={kindIcon(tab.editorKind)}
@@ -321,7 +320,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
               />
-              <span class="tab-title">{tab.title}</span>
+              <span class="tab-title" onDblClick={() => startRename(tab)}>{tab.title}</span>
             </button>
             </Show>
             <span classList={{
