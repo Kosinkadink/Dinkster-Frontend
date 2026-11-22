@@ -1,5 +1,7 @@
 import {
+  createEffect,
   createSignal,
+  on,
   onCleanup,
   Show,
   type Component,
@@ -10,7 +12,7 @@ import {
   numericStepConstraints,
   type Json,
 } from '@dinkster/core'
-import { defaultTokens } from '@dinkster/canvas'
+import { canvasPaintTokens, defaultTokens } from '@dinkster/canvas'
 import { Check, X } from 'lucide-solid'
 import { floatKind, floatSliderView, intKind } from '@dinkster/widgets'
 import { ProductSlider } from '../ProductSlider.js'
@@ -25,7 +27,7 @@ import {
 } from '../WidgetEditorController.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { Icon } from '../Icon.js'
-import { editorScreenAnchor } from '../widget-editor-position.js'
+import { canvasBaselineRow, devicePixelSnap, domFirstBaseline, editorScreenAnchor } from '../widget-editor-position.js'
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
@@ -157,11 +159,75 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   onCleanup(() => host.bindClickAway?.(undefined))
 
   if (isInNodeTextEditor(ed)) {
-    const anchor = () => editorScreenAnchor(ed.rect, host.viewport())
+    // The canvas draws at the viewport offset rounded to device pixels.
+    const anchor = () => {
+      const viewport = host.viewport()
+      const ratio = window.devicePixelRatio || 1
+      return editorScreenAnchor(ed.rect, { ...viewport, x: Math.round(viewport.x * ratio) / ratio, y: Math.round(viewport.y * ratio) / ratio })
+    }
     const scale = () => host.viewport().scale
-    return <div class="widget-editor widget-editor-in-node" data-testid="widget-editor" data-editor-target="input" data-editor-mode="STRING" data-editor-surface="in-node" role="dialog" aria-label={`Edit ${ed.label} STRING`} style={{ left: `${anchor().x}px`, top: `${anchor().y}px`, width: `${anchor().width}px`, height: `${anchor().height}px`, padding: `${2 * scale()}px 0`, 'border-radius': `${4 * scale()}px` }}>
-      <div class="widget-editor-in-node-surface"><span class="widget-editor-in-node-label" style={{ width: '100%', height: `${defaultTokens.multilineText.labelHeight * scale()}px`, 'font-size': `${defaultTokens.fontSize * scale()}px`, 'padding-left': `${6 * scale()}px` }}>{ed.label}</span>
-        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { completions.anchor(el); queueMicrotask(() => el.focus()) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.multilineText.fontSize * scale()}px`, 'line-height': `${defaultTokens.multilineText.lineHeight * scale()}px`, padding: `${defaultTokens.multilineText.padding * scale()}px ${defaultTokens.multilineText.padding * scale()}px ${defaultTokens.multilineText.padding * scale()}px ${defaultTokens.multilineText.textInset * scale()}px`, width: `calc(100% - ${defaultTokens.multilineText.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${defaultTokens.multilineText.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={multilineKeyDown} />
+    const [snap, setSnap] = createSignal({ x: 0, y: 0 })
+    const [lift, setLift] = createSignal({ label: 0, text: 0 })
+    const box = defaultTokens.multilineText
+    const edge = canvasPaintTokens.widget.textBoxEdge
+    let root: HTMLDivElement | undefined
+    let label!: HTMLSpanElement
+    let field!: HTMLTextAreaElement
+    // The label and the first line of text move onto the very rows the
+    // canvas painted them on, so opening the box moves no pixel of either.
+    const align = () => {
+      if (root === undefined) return
+      setSnap(devicePixelSnap(root))
+      const origin = root.getBoundingClientRect().top - anchor().y
+      const row = (px: number, center: number) => origin + canvasBaselineRow(px, defaultTokens.fontFamily, scale(), anchor().y + center * scale())
+      const current = lift()
+      setLift({
+        label: current.label + domFirstBaseline(label) - row(defaultTokens.fontSize, box.labelHeight / 2),
+        text: current.text + domFirstBaseline(field) - row(box.fontSize, box.labelHeight + box.padding + box.lineHeight / 2),
+      })
+    }
+    createEffect(on(() => host.viewport(), align, { defer: true }))
+    // The canvas paints a box from its first line, so the box opens there, with
+    // the cursor where a click landed; focusing would scroll to the cursor.
+    const placeCaret = (element: HTMLTextAreaElement): void => {
+      if (ed.caret !== undefined) {
+        const at = document.caretPositionFromPoint?.(ed.caret.x, ed.caret.y)
+        const offset = at?.offsetNode === element ? at.offset : 0
+        element.setSelectionRange(offset, offset)
+      }
+      element.focus({ preventScroll: true })
+      element.scrollTop = 0
+      measureScroll()
+      element.addEventListener('scroll', measureScroll)
+      element.addEventListener('input', measureScroll)
+    }
+    // The scrollbar the canvas paints for text that does not fit, drawn the
+    // same way and following the scroll, in node units.
+    const [scroll, setScroll] = createSignal<{ readonly top: number; readonly height: number } | undefined>(undefined)
+    const measureScroll = (): void => {
+      const track = ed.rect.height - box.labelHeight
+      const visible = track - box.padding * 2
+      const content = field.scrollHeight / scale() - box.padding * 2
+      if (content <= visible + 0.5) {
+        setScroll(undefined)
+        return
+      }
+      const height = Math.min(track, Math.max(box.scrollbarWidth * canvasPaintTokens.widget.scrollbarMinThumbRatio, track * visible / content))
+      const range = field.scrollHeight - field.clientHeight
+      setScroll({ top: range > 0 ? field.scrollTop / range * (track - height) : 0, height })
+    }
+    return <div ref={(el) => { root = el; queueMicrotask(align) }} class="widget-editor widget-editor-in-node" data-testid="widget-editor" data-editor-target="input" data-editor-mode="STRING" data-editor-surface="in-node" role="dialog" aria-label={`Edit ${ed.label} STRING`} style={{ left: `${anchor().x + snap().x}px`, top: `${anchor().y + snap().y}px`, width: `${anchor().width}px`, height: `${anchor().height}px`, 'border-radius': `${4 * scale()}px`, '--box-label': `${box.labelHeight * scale()}px`, '--box-padding': `${box.padding * scale()}px`, '--box-scrollbar-width': `${box.scrollbarWidth * scale()}px`, '--box-scrollbar-inset': `${box.scrollbarInset * scale()}px`, '--box-track-height': `${(ed.rect.height - box.labelHeight) * scale()}px`, '--box-thumb-top': `${(scroll()?.top ?? 0) * scale()}px`, '--box-thumb-height': `${(scroll()?.height ?? 0) * scale()}px`, '--box-edge-left': `${(ed.rect.width - edge.width) / 2 * scale()}px`, '--box-edge-top': `${(ed.rect.height + (ed.rowInsetY ?? 0) - edge.bottomOffset) * scale()}px`, '--box-edge-width': `${edge.width * scale()}px`, '--box-edge-height': `${edge.height * scale()}px`, '--box-edge-radius': `${edge.radius * scale()}px` }}>
+      <div class="widget-editor-in-node-surface"><span ref={label} class="widget-editor-in-node-label" style={{ width: '100%', height: `${box.labelHeight * scale()}px`, 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.fontSize * scale()}px`, 'padding-left': `${6 * scale()}px`, position: 'relative', top: `${-lift().label}px` }}>{ed.label}</span>
+        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { field = el; completions.anchor(el); queueMicrotask(() => placeCaret(el)) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${box.fontSize * scale()}px`, 'line-height': `${box.lineHeight * scale()}px`, padding: `${box.padding * scale() - lift().text}px ${box.padding * scale()}px ${box.padding * scale() + lift().text}px ${box.textInset * scale()}px`, width: `calc(100% - ${box.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${box.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={multilineKeyDown} />
+        {/* Text scrolled into the padding is hidden, as the canvas clips it. */}
+        <span class="widget-editor-in-node-mask widget-editor-in-node-mask-top" />
+        <span class="widget-editor-in-node-mask widget-editor-in-node-mask-bottom" />
+        <Show when={scroll() !== undefined}>
+          <span class="widget-editor-in-node-track" />
+          <span class="widget-editor-in-node-thumb" />
+        </Show>
+        {/* The bar the canvas paints near the box's bottom edge, kept while editing. */}
+        <Show when={ed.rowInsetY !== undefined}><span class="widget-editor-in-node-edge" /></Show>
         <Suggestions />
       </div>
       <Show when={props.commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
