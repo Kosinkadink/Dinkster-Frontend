@@ -84,6 +84,7 @@ import {
   widgetRowAffordanceRect,
 } from './renderer.js'
 import {
+  boundaryFieldNode,
   boundarySceneId,
   boundaryNodesInGroup,
   nodesInGroup,
@@ -1838,6 +1839,11 @@ export class InteractionController {
         return
       case 'boundary-header':
       case 'boundary-body': {
+        const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+        if (wiredPanelMark !== undefined) {
+          this.host.onSubgraphMarkActivate?.(wiredPanelMark.row.subgraphMark!.item)
+          return
+        }
         const id = boundarySceneId(hit.bnode.side)
         if (e.shiftKey) {
           if (this.selection.has(id)) this.selection.delete(id)
@@ -3027,6 +3033,30 @@ export class InteractionController {
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
   }
 
+  /**
+   * An Inputs panel field wired outside the subgraph hits as panel body, but
+   * its subgraph mark still names and selects its input: the mark's row as a
+   * widget hit when the point is on the mark.
+   */
+  private wiredPanelMarkAt(hit: Hit | undefined, wx: number, wy: number): Extract<Hit, { kind: 'widget' }> | undefined {
+    if (hit?.kind !== 'boundary-body' || hit.bnode.fields === undefined) return undefined
+    const { bnode } = hit
+    const face = boundaryFieldNode(bnode)
+    if (face === undefined) return undefined
+    const tokens = this.renderer.getDesignTokens()
+    for (const row of bnode.layout.rows) {
+      const driven = row.kind === 'widget' && Object.hasOwn(bnode.fields!.wired, row.valueKey) ? bnode.fields!.wired[row.valueKey] : undefined
+      if (row.kind !== 'widget' || row.subgraphMark === undefined || driven === undefined) continue
+      const width = row.width ?? bnode.layout.width - row.inset * 2
+      const localX = wx - bnode.x - row.inset
+      const localY = wy - bnode.y - row.y
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, driven.value !== undefined, isNumberRow(row))
+      if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
+        return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
+    }
+    return undefined
+  }
+
   private widgetRowAffordanceContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const capabilities = this.renderer.getLensCapabilities?.()
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
@@ -3129,6 +3159,7 @@ export class InteractionController {
       : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
+    const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
     const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit)
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
@@ -3138,6 +3169,8 @@ export class InteractionController {
         ? { kind: 'controller', hit, x: clientX, y: clientY }
       : subgraphMark
         ? { kind: 'subgraphMark', hit, x: clientX, y: clientY }
+      : wiredPanelMark
+        ? { kind: 'subgraphMark', hit: wiredPanelMark, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
@@ -4870,10 +4903,21 @@ export class InteractionController {
     dropTargets?: ReadonlySet<string>,
   ): (node: SceneNode, pin: PinLayout) => boolean {
     let connected: Set<string> | undefined
+    let wireless: Set<string> | undefined
     return (node, pin) => {
       if (pin.widgetBacked !== true || pin.direction !== 'in') return true
-      if (this.selection.has(node.id) || this.hoveredNode === node.id) return true
       if (dropTargets?.has(dropTargetKey(node.id, pin.portId, pin.direction)) === true) return true
+      // A field driven by an input drawn without its wire has no pin to grab.
+      wireless ??= new Set(
+        scene.links
+          .filter((link) => link.boundary === true && link.hidden === true && link.to.kind === 'port')
+          .map((link) => {
+            const to = link.to as Extract<SceneLink['to'], { kind: 'port' }>
+            return `${to.node}\u0000${portEndKey(to)}`
+          }),
+      )
+      if (wireless.has(`${node.id}\u0000${pin.portId}`)) return false
+      if (this.selection.has(node.id) || this.hoveredNode === node.id) return true
       // Lazily derive connectivity the way the renderer does each paint.
       connected ??= new Set(
         scene.links

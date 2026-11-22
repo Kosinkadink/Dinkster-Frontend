@@ -83,7 +83,7 @@ Inside a subgraph, the right-click menu of a field on an inner node offers
 at the end of the inputs and in one undo step, and the subgraph node
 outside shows it as a field with a pin, starting from the inner field's
 value. No wire is drawn inside: the Inputs panel row is a field without a
-pin, and the inner field shows the entered node's value dimmed, as a wired
+pin, and the inner field has no pin and shows the entered node's value dimmed, as a wired
 one does. A dropdown that leads options is shown through its options
 binding. The entry is not offered in the top-level workflow, on a field
 a wire or another input already drives, or on a field the subgraph node cannot show

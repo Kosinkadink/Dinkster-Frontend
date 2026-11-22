@@ -532,6 +532,9 @@ describe('showing a field on the subgraph node', () => {
     expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
       { id: 'mode', binds: { kind: 'dynamicCombo', node: 'modal', port: 'mode' }, wireHidden: true },
     ])
+    // "Use selector only" turns it into a plain pin, which draws its wire.
+    expect(store.dispatch({ command: 'boundary.setBinding', params: { graphId: 'sub', side: 'inputs', itemId: 'mode', node: 'modal', port: 'mode', bindingKind: 'port' } }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'mode', binds: { kind: 'port', node: 'modal', port: 'mode' } }])
   })
 
   it.each([

@@ -4139,4 +4139,30 @@ describe('Inputs panel fields', () => {
     const doc = workflow()
     expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)
   })
+
+  it('keeps the subgraph mark of a field wired outside the subgraph clickable', () => {
+    const doc = structuredClone(workflow()) as any
+    doc.graphs.g1.boundary.inputs[1].wireHidden = true
+    doc.graphs.g0.links = { l: { id: 'l', from: { node: 'strong', port: 'image_out' }, to: { node: 'soft', port: 'radius' } } }
+    const scene = panelScene(doc as WorkflowDocument, 'soft')
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    expect(Object.hasOwn(panel.fields!.wired, 'radius')).toBe(true)
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius') as Extract<LayoutRow, { kind: 'widget' }>
+    expect(row.subgraphMark?.item).toBe('radius')
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, panel.fields!.wired['radius']!.value !== undefined, true)
+    const x = panel.x + row.inset + mark.x + mark.size / 2
+    const y = panel.y + row.y + mark.y + mark.size / 2
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+    harness.fire('pointermove', x, y)
+    expect(hovers.at(-1)?.kind).toBe('subgraphMark')
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(activated).toEqual(['radius'])
+  })
 })

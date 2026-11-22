@@ -689,6 +689,10 @@ const boundarySetBinding: CommandDefinition = {
     const current = found.item.binds
     if (bindingKey(current) === bindingKey(binding)) return []
     tx.set(['graphs', params.graphId, 'boundary', params.side, found.index, 'binds'], binding as unknown as Json)
+    // A row that stops being a field on the subgraph node draws its wire again.
+    const stillField = binding.kind === 'dynamicCombo' || (binding.kind === 'port' && found.item.promoted === true)
+    if (found.item.wireHidden === true && !stillField)
+      tx.remove(['graphs', params.graphId, 'boundary', params.side, found.index, 'wireHidden'])
     return []
   },
 }

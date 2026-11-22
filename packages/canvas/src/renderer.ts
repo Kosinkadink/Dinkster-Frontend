@@ -3835,9 +3835,12 @@ export class CanvasRenderer {
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
           !isLegalTarget && !nodeHovered)
         continue
-      // A field driven by an input drawn without its wire shows no pin.
-      const wired = connected && !this.wirelessBoundaryInputPins.has(`${node.id}\u0000${pin.portId}`)
-      if (pin.widgetBacked && pin.direction === 'in' && !wired && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
+      // A field driven by an input drawn without its wire shows no pin, even
+      // on a hovered or selected node, except as a drop target.
+      if (pin.widgetBacked && pin.direction === 'in' && !isLegalTarget &&
+        this.wirelessBoundaryInputPins.has(`${node.id}\u0000${pin.portId}`))
+        continue
+      if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
         continue
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (isTarget) {
@@ -4760,7 +4763,9 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const text = (estimate ? '\u2248 ' : '') + (formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
   const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
-  const labelZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
+  // The subgraph mark before the name widens the name's share, as the painter lays it out.
+  const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
+  const labelZone = shareRowWidth(field.right - field.left, mark + measureWidth(ctx, row.label) + canvasPaintTokens.widget.labelWidthPadding, measureWidth(ctx, text) + canvasPaintTokens.widget.labelWidthPadding)
   const availableWidth = Math.max(0, field.right - field.left - labelZone)
   const unproven = companion.state === 'stale' || (companion.state === undefined && companion.stale === true)
   const color = unproven

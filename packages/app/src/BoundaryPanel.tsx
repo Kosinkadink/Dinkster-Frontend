@@ -127,6 +127,8 @@ export function BoundaryPanel(props: { app: AppState }) {
 
   const frozen = (): boolean => activeTab()?.execution !== undefined
 
+  // Each click on a mark scrolls once; rows re-created by a later edit do not scroll back.
+  let scrolledFocus: unknown
   /** The input a click on a field's subgraph mark selected, when it is on this definition. */
   const focusedItem = (): string | undefined => {
     docTick()
@@ -501,8 +503,10 @@ export function BoundaryPanel(props: { app: AppState }) {
                     data-boundary-id={item.id}
                     data-selected={focusedItem() === item.id ? '' : undefined}
                     ref={(element) => createEffect(() => {
-                      boundaryFocus()
-                      if (untrack(focusedItem) === item.id) element.scrollIntoView({ block: 'nearest' })
+                      const focus = boundaryFocus()
+                      if (focus === scrolledFocus || untrack(focusedItem) !== item.id) return
+                      scrolledFocus = focus
+                      element.scrollIntoView({ block: 'nearest' })
                     })}
                     data-binding-kind={item.binds.kind}
                     role="group"
