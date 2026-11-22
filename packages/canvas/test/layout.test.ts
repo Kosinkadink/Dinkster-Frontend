@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { InputSpec, NodeData, NodeSchema, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface } from '@dinkster/core'
-import { layoutNode, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -525,7 +525,7 @@ describe('sizing', () => {
     const ordinaryLayout = layoutNode(ordinary, nodeData, defaultTokens, measure, widgetMeasure)
     const armedLayout = layoutNode(armed, nodeData, defaultTokens, measure, widgetMeasure)
 
-    expect(ordinaryLayout.width).toBe(6 * title.length + defaultTokens.padX * 2 + 8)
+    expect(ordinaryLayout.width).toBe(6 * title.length + TITLE_START + defaultTokens.padX + 8)
     expect(armedLayout.width).toBe(ordinaryLayout.width)
   })
 

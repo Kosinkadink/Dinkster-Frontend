@@ -31,8 +31,12 @@
  * - node border: drag any corner/edge = ghost preview, ONE atomic
  *   view.setNodeSize (position + size) on release
  * - double-click on a link: ask the host for reroute vs node-splice menu
- * - double-click on a subgraph node: host.onOpenSubgraph
- * - double-click on an ordinary node: toggle minimized state for its selection
+ * - title-bar minimize arrow: click toggles minimized state (the whole
+ *   selection when the node is selected, else that node alone); a drag from
+ *   it moves the node like the rest of the title bar
+ * - subgraph mark: click = host.onBadgeClick, double-click =
+ *   host.onOpenSubgraph; a drag from it moves the node
+ * - double-click on a node's title: toggle minimized state for its selection
  * - double-click on empty canvas: host.onOpenPalette
  * - right-click: select the item under the cursor (preserving an existing
  *   multi-selection that contains it), then host.onContextMenu
@@ -60,10 +64,10 @@ import {
   type TypeExpr,
   type WidgetSpec,
 } from '@dinkster/core'
-import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
+import { hitTestBadge, SUBGRAPH_BADGE, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
 import { controllerChipContains } from './controller-chip.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
-import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 import { BOUNDARY_ADD_SLOT, clampTextBoxLines, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
@@ -733,6 +737,8 @@ type Gesture =
     }
   | { readonly kind: 'widget-affordance'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
+  /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
+  | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
   | {
@@ -883,6 +889,8 @@ export class InteractionController {
   private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
   /** A box a double-click fitted to its text, with the height it had before. */
   private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
+  private hoveredMinimize: string | undefined
+  private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -1162,7 +1170,8 @@ export class InteractionController {
         (crossGraph || !scene.links.some((link) => link.id === this.hoveredLinkMidpoint))
       // Rows and pin layouts belong to the exact scene instance. Clear their
       // hover on every replacement, even when an identity happens to recur.
-      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined
+      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
+        this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1751,7 +1760,14 @@ export class InteractionController {
     // a selection/drag on the node underneath.
     const badgeHit = this.renderer.getDetailLevel() === 'overview'
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit?.badge.placement === 'title') {
+      // The title mark opens its panel on release, so a drag can move the node.
+      e.preventDefault()
+      this.capturePointer(e)
+      this.gesture = { kind: 'title-press', node: badgeHit.node, badge: badgeHit, startWX: w.x, startWY: w.y }
+      return
+    }
     if (badgeHit) {
       // Cancel the pointerdown so the follow-up mousedown's default action
       // (focus change) can't blur a popover the host just opened and focused.
@@ -1777,6 +1793,10 @@ export class InteractionController {
 
     if (hit.kind === 'widget' && this.widgetRowAffordanceContains(hit)) {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
+      return
+    }
+    if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
+      this.gesture = { kind: 'title-press', node: hit.node, startWX: w.x, startWY: w.y }
       return
     }
     if ((hit.kind === 'body' || hit.kind === 'header') && this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
@@ -2148,38 +2168,47 @@ export class InteractionController {
         return
       }
       case 'header':
-      case 'body': {
-        const id = hit.node.id
-        if (e.shiftKey) {
-          const range = connectivityRangeSelection(scene, this.selection, id)
-          if (range !== undefined) {
-            this.selection = range.nodes
-            this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
-          }
-          else if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (e.ctrlKey || e.metaKey) {
-          // Toggle immediately; a modifier-drag moves the resulting selection.
-          if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (!this.selection.has(id)) {
-          this.selection = new Set([id])
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-        }
-        this.notifySelection()
-        const dragIds = this.selection.has(id) ? [...this.selection] : []
-        this.gesture = this.selection.has(id)
-          ? this.selectionMoveGesture(scene, w.x, w.y)
-          : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: w.x, startWY: w.y, moved: false }
-        this.pushOverlay()
+      case 'body':
+        this.pressNode(scene, hit.node.id, e, w.x, w.y)
         return
-      }
     }
+  }
+
+  /** Select a pressed node by the modifier rules and arm a move of what is selected. */
+  private pressNode(
+    scene: Scene,
+    id: string,
+    e: { readonly shiftKey: boolean; readonly ctrlKey: boolean; readonly metaKey: boolean },
+    wx: number,
+    wy: number,
+  ): void {
+    if (e.shiftKey) {
+      const range = connectivityRangeSelection(scene, this.selection, id)
+      if (range !== undefined) {
+        this.selection = range.nodes
+        this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
+      }
+      else if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (e.ctrlKey || e.metaKey) {
+      // Toggle immediately; a modifier-drag moves the resulting selection.
+      if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (!this.selection.has(id)) {
+      this.selection = new Set([id])
+      this.linkSelection = new Set()
+      this.rerouteSelection = new Set()
+      this.valueSourceSelection = new Set()
+      this.selectorSelection = new Set()
+      this.groupSelection = new Set()
+      this.netViewSelection = new Set()
+    }
+    this.notifySelection()
+    const dragIds = this.selection.has(id) ? [...this.selection] : []
+    this.gesture = this.selection.has(id)
+      ? this.selectionMoveGesture(scene, wx, wy)
+      : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: wx, startWY: wy, moved: false }
+    this.pushOverlay()
   }
 
   private beginLinkGesture(
@@ -3138,13 +3167,16 @@ export class InteractionController {
     )
     const badge = toolboxInside || overview
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
     const hit = toolboxInside || badge ? undefined : hitTest(scene, w.x, w.y, this.hitOptions({
       ...(this.hoveredReroute ? { rerouteSockets: this.hoveredReroute } : {}),
       widgetTaps: this.widgetTapHits(scene),
       pinRevealed: this.pinRevealed(scene),
     }))
-    this.setAffordanceHover(hit)
+    this.setAffordanceHover(hit, {
+      ...(hit?.kind === 'header' && this.minimizeArrowContains(hit, w.x, w.y) ? { minimize: hit.node.id } : {}),
+      ...(badge !== undefined ? { badge: { nodeId: badge.node.id, badgeId: badge.badge.id } } : {}),
+    })
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
     this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
     this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
@@ -3348,6 +3380,12 @@ export class InteractionController {
         this.pushOverlay({ textBoxLines: { nodeId: g.nodeId, valueKey: g.valueKey, lines: g.lines } })
         return
       }
+      case 'title-press':
+        // Dragging a title-bar control moves the node like the rest of the title bar.
+        if (!passed) return
+        this.pressNode(this.renderer.getScene(), g.node.id, { shiftKey: false, ctrlKey: false, metaKey: false }, g.startWX, g.startWY)
+        this.processPointerMove(e)
+        return
       case 'resize': {
         if (!passed && !g.moved) return
         g.moved = true
@@ -3574,6 +3612,11 @@ export class InteractionController {
         if (!g.moved && affordance !== undefined && affordance.disabled !== true) {
           this.host.onWidgetRowAffordanceActivate?.(g.hit)
         }
+        return
+      case 'title-press':
+        this.pushOverlay()
+        if (g.badge !== undefined) this.host.onBadgeClick?.(g.badge.node, g.badge.badge, g.badge.rect)
+        else this.toggleMinimized(scene, g.node)
         return
       case 'preview-affordance': {
         this.pushOverlay()
@@ -4754,22 +4797,20 @@ export class InteractionController {
       return
     }
     const scene = this.renderer.getScene()
+    // Badges are their own targets: a double-click on the subgraph mark
+    // enters the subgraph, and one on any other badge does nothing.
+    const badgeHit = this.renderer.getDetailLevel() === 'overview'
+      ? undefined
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit) {
+      if (badgeHit.badge.id === SUBGRAPH_BADGE.id) this.host.onOpenSubgraph?.(badgeHit.node)
+      return
+    }
     const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
-    if ((hit.kind === 'header' || hit.kind === 'body') && hit.node.isSubgraph) {
-      this.host.onOpenSubgraph?.(hit.node)
-    } else if (hit.kind === 'header') {
-      const selectedNodes = scene.nodes.filter((node) => this.selection.has(node.id))
-      const nodes = selectedNodes.some((node) => node.id === hit.node.id)
-        ? selectedNodes
-        : [hit.node]
-      this.host.dispatch({
-        command: 'view.setNodeCollapsed',
-        params: {
-          graphId: scene.graphId,
-          nodeIds: nodes.map((node) => node.id),
-          collapsed: nodes.some((node) => node.layout.minimized !== true),
-        },
-      })
+    // Each click on the minimize arrow already toggled.
+    if (this.minimizeArrowContains(hit, w.x, w.y)) return
+    if (hit.kind === 'header') {
+      this.toggleMinimized(scene, hit.node)
     } else if (hit.kind === 'text-box-edge') {
       this.fitTextBox(scene, hit.node, hit.row)
     } else if (hit.kind === 'boundary-pin' && hit.item !== BOUNDARY_ADD_SLOT && !hit.regionIndex) {
@@ -4866,6 +4907,8 @@ export class InteractionController {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
       ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
+      ...(this.hoveredBadge !== undefined ? { hoveredBadge: this.hoveredBadge } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -4970,7 +5013,6 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Track one pin OR widget row; repeated moves on it are repaint-free. */
   /** The edge drawn hot: the one being dragged, else the focused one, else the hovered one. */
   private activeTextEdge(): { readonly nodeId: string; readonly valueKey: string } | undefined {
     const g = this.gesture
@@ -5044,7 +5086,36 @@ export class InteractionController {
     this.commitTextBoxLines(scene, node.id, row.valueKey, fitted)
   }
 
-  private setAffordanceHover(hit: Hit | undefined): void {
+
+  /** Whether a header hit lands on the minimize arrow, at a zoom where the title bar takes clicks. */
+  private minimizeArrowContains(hit: Hit | undefined, wx: number, wy: number): boolean {
+    if (hit?.kind !== 'header' || this.renderer.getDetailLevel() === 'overview') return false
+    const rect = minimizeArrowRect(hit.node)
+    return wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height
+  }
+
+  /**
+   * Minimize or restore from a node's title bar. A selected node acts for the
+   * whole selection (any open node minimizes all); otherwise the node alone.
+   */
+  private toggleMinimized(scene: Scene, node: SceneNode): void {
+    const selectedNodes = scene.nodes.filter((candidate) => this.selection.has(candidate.id))
+    const nodes = selectedNodes.some((candidate) => candidate.id === node.id) ? selectedNodes : [node]
+    this.host.dispatch({
+      command: 'view.setNodeCollapsed',
+      params: {
+        graphId: scene.graphId,
+        nodeIds: nodes.map((candidate) => candidate.id),
+        collapsed: nodes.some((candidate) => candidate.layout.minimized !== true),
+      },
+    })
+  }
+
+  /** Track one pin or widget row, the minimize arrow and a badge; repeated moves on them are repaint-free. */
+  private setAffordanceHover(
+    hit: Hit | undefined,
+    titleControl: { readonly minimize?: string; readonly badge?: { readonly nodeId: string; readonly badgeId: string } } = {},
+  ): void {
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
     const pinNode = pin?.node.id
@@ -5059,7 +5130,10 @@ export class InteractionController {
       pinDirection === this.hoveredPinDirection &&
       pinWidgetTap === this.hoveredPinWidgetTap &&
       widgetNode === this.hoveredWidgetNode &&
-      widgetValue === this.hoveredWidgetValue
+      widgetValue === this.hoveredWidgetValue &&
+      titleControl.minimize === this.hoveredMinimize &&
+      titleControl.badge?.nodeId === this.hoveredBadge?.nodeId &&
+      titleControl.badge?.badgeId === this.hoveredBadge?.badgeId
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -5067,6 +5141,8 @@ export class InteractionController {
     this.hoveredPinWidgetTap = pinWidgetTap
     this.hoveredWidgetNode = widgetNode
     this.hoveredWidgetValue = widgetValue
+    this.hoveredMinimize = titleControl.minimize
+    this.hoveredBadge = titleControl.badge
     this.pushOverlay()
   }
 
@@ -5077,5 +5153,7 @@ export class InteractionController {
     this.hoveredPinWidgetTap = undefined
     this.hoveredWidgetNode = undefined
     this.hoveredWidgetValue = undefined
+    this.hoveredMinimize = undefined
+    this.hoveredBadge = undefined
   }
 }

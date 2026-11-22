@@ -534,6 +534,8 @@ interface DinksterTestBridge {
       hoveredWidget?: { nodeId: string; valueKey: string }
     }
     getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string }>>>
+    /** Where each badge of a node is painted and hit, in world units. */
+    getNodeBadgeLayout(node: unknown): ReadonlyArray<{ badge: { id: string; placement?: string }; x: number; y: number; width: number; height: number }>
     getNodeOutputTexts(): Readonly<Record<string, { text: string; stale?: true; estimate?: true }>>
     /** Selection toolbox placement (undefined = hidden). */
     getToolboxLayout():

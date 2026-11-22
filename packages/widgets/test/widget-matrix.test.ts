@@ -216,6 +216,15 @@ describe('compact display through the real registered views', () => {
     expect(rec.actions).toEqual(viewId === 'core.compositor' ? [] : ['widget.edit'])
   })
 
+  it('writes a list of numbers as stored, not rounded to the element step', () => {
+    const view = registry.viewsFor('LIST').find((candidate) => candidate.id === 'core.list')!
+    const rec = recordingBuilder()
+    view.drawCompact(rec.builder, [0.125, 1, 0.1 + 0.2], {
+      widgetType: 'LIST', options: {}, element: { widgetType: 'FLOAT', options: { step: 0.1 } },
+    }, editable)
+    expect(displayed(rec.texts)).toEqual(['0.125, 1, 0.30000000000000004'])
+  })
+
   it('marks only the empty ASSET compact value as a placeholder', () => {
     const empty = draw('core.asset', 'ASSET', null)
     expect(empty.texts.find((text) => text.run === 'Choose file')?.style['placeholder']).toBe(true)

@@ -77,6 +77,47 @@ box's edge and the row's center, which the pin covers. The `crispEdges` token
 holds this behavior. `nodeLookTokens('original', theme)` restores the earlier
 look for the gallery's side-by-side page.
 
+## Badges
+
+The title bar starts with the minimize arrow: the section rows' disclosure
+triangle, centered in an 18px square target 5px in from the node's left edge,
+in the label color, and under the pointer in the title color over a rounded
+raised-surface square (`canvasPaintTokens.node.minimizeArrow`). The name
+starts where that target ends, and a node's automatic width reserves the
+space. See [node minimization](node-minimization.md) for what it does.
+
+The title bar holds the node's name and suffix and, for a subgraph node, one
+mark at its right end: a 16px square with the boxes icon, followed by the
+linked count when two or more occurrences share the definition. The name is
+cut with an ellipsis before the mark. Every other badge is a tab outside the
+node. Tabs above say what the node is and how it is set: Deprecated, Muted,
+Bypassed, and a pack's badge, which goes above unless it asks for below. Tabs
+below say what happened and what is wrong: the run state, Error, Unavailable,
+Warning, Blocked, child counts, Log, media conversion warnings and a region's
+iteration. Top tabs start at the node's right edge, the first one furthest
+right; bottom tabs start at its left edge. Both lanes sit 3px outside the
+node's painted outline, flush with its left and right edges.
+
+A tab is 16px high with 11px words and 3px rounded corners. Its fill is 16
+percent of its color over the canvas background, its 1px line 65 percent, and
+its icon and words 70 percent of its color over the title color, so the words
+stay readable in either theme; under the pointer the fill rises to 30 percent
+and the line takes the words' color. A tab is as wide as its padding, 10px
+icon, 4px gap and measured words, the words capped at 120px. When a lane is
+full, tabs narrow to their icons and the last becomes a "+N" tab listing the
+rest; hovering a narrowed tab shows it whole. Paint, pointer targets and the
+scene's bounds share one layout (`layoutNodeBadges`). The tab tokens are in
+`canvasPaintTokens.badge`, with the gap from the node as one number (`offset`)
+and the distance from its corners as another (`inset`, 0).
+
+Every tab the product adds has an icon, from the Lucide set the canvas
+paints, and no two meanings share one: Queued `clock`, Running `play`,
+Finished `check`, Cached `database`, Skipped `ban`, Failed and Error
+`circle-x`, Unavailable `unplug`, Warning and media warnings `triangle-alert`,
+Blocked `lock`, child counts `list-tree`, Log `scroll-text`, iteration
+`repeat`, Muted `volume-x`, Bypassed `forward`, Deprecated `archive`, and the
+subgraph mark `boxes`. A pack's badge has an icon when the pack names one.
+
 ## Numeric edits and comparison diagnostics
 
 Static numeric widget edits reuse scene geometry when the effective interface

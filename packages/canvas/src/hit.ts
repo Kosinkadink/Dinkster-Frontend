@@ -262,6 +262,13 @@ export function textBoxEdgeAt(
   return undefined
 }
 
+/** The minimize arrow's square target at the left end of a node's title bar. */
+export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
+  const { left, target } = canvasPaintTokens.node.minimizeArrow
+  const size = Math.min(target, node.layout.headerHeight)
+  return { x: node.x + left, y: node.y + (node.layout.headerHeight - size) / 2, width: size, height: size }
+}
+
 /**
  * Topmost hit at a world point. Scene order is draw order, so scan nodes in
  * reverse. Pins are checked across ALL nodes first (they overhang node edges

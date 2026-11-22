@@ -108,7 +108,10 @@ and semantic mode. It can return host-rendered badges, a node color, a title
 suffix, and a short status, or return nothing. It receives no document store,
 renderer, Canvas context, DOM, CSS, theme object, or callback capability.
 
-The host validates and copies every result before rendering. Badge and visible
+A badge is a tab above the node unless it asks for `placement: 'below'`; only
+core puts a mark in the title bar. A badge may name an `icon` from the set the
+canvas paints (Lucide names such as `info`), shown before its words. The host
+validates and copies every result before rendering. Badge and visible
 string counts and lengths are bounded, colors use `#RRGGBB` or `#RRGGBBAA`,
 unknown fields and non-plain objects fail closed, and extension badges cannot
 intercept pointer input. Contributions run in id order. Badges append in that
