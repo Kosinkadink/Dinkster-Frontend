@@ -14,7 +14,6 @@
  * Well-known host actions the app shell provides:
  * - 'openSubgraph'    {nodeId}   drill into a subgraph instance
  * - 'createSubgraph'  {}         create an empty definition at the menu point and drill in
- * - 'createRegion'    {kind}     create a fresh map/fold/while region and select its occurrence
  * - 'openPalette'     {}         open the add-node palette at the menu point
  * - 'deleteSelection' {}         delete the current selection (nodes+links+reroutes)
  * - 'queueSelection'  {nodeIds}  partial-execute: queue the union of upstream

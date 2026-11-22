@@ -22,7 +22,7 @@ import {
 } from '../src/shared-worker-connection.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
-import { IMAGE_EDITOR_KIND } from '../src/editors.js'
+import { CURVE_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { preparePersistenceValue } from '../src/workflow-persistence-value.js'
 
@@ -1488,7 +1488,7 @@ describe('AppState multi-window workspace', () => {
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
   })
 
-  it('preserves a local image editor when another window publishes tab metadata', async () => {
+  it('preserves a local curve editor when another window publishes tab metadata', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())
     const second = prepareWorkflowApp(new AppState())
@@ -1503,23 +1503,20 @@ describe('AppState multi-window workspace', () => {
       tabId: tab.id,
       graphId: 'g0',
       nodeId: 'n1',
-      inputId: 'image',
-      sourceRef: {
-        digest: `blake3:${'a'.repeat(64)}`,
-        name: 'source.png',
-        size: 10,
-        mediaType: 'image/png',
-        virtualPath: '',
-      },
+      inputId: 'curve',
+      instancePath: [],
+      openedStoredValue: undefined,
+      openedSchemaDefault: undefined,
+      openedValue: { points: [{ position: 0, value: 0 }] },
     }
-    first.imageEditorTarget.set(target)
-    first.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
+    first.curveEditorTarget.set(target)
+    first.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
 
     second.createWorkflow()
     await drainTasks()
 
-    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(IMAGE_EDITOR_KIND)
-    expect(first.imageEditorTarget.get()).toBe(target)
+    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(CURVE_EDITOR_KIND)
+    expect(first.curveEditorTarget.get()).toBe(target)
   })
 
   it.each(['after', 'during'] as const)('keeps a local frozen view active when promotion lands %s admission', async (promotionTiming) => {
