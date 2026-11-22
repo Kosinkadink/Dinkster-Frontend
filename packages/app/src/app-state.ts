@@ -2538,7 +2538,7 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
 export class AppState {
   /** Default backend's connection (single-backend code path; always exists). */
   readonly connection: Backend['connection']
-  readonly store = new ExecutionStore((receipts) => receipts.every((receipt) => this.mayAdoptResult(receipt)))
+  readonly store = new ExecutionStore()
   /** Default backend's scoped client. */
   readonly scopedClient: RefreshableScopedClient
   /** UI-neutral live prompt inventory captured from the active tab's backend. */
@@ -8614,20 +8614,12 @@ export class AppState {
       // backend must still report ownerGone, not silently return.
       if (!this.ownerStillLive(backend)) return false
       if (!record) return false
-      let tab: Tab | undefined
-      await this.readAssetPreview(backend.connection, record.digest, async () => {
-        const text = await backend.connection.fetchAssetText(record.digest)
-        return text === undefined ? undefined : JSON.parse(text) as unknown
-      }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
-        if (json === undefined || !this.ownerStillLive(backend)) return false
-        tab = await this.openDocumentOnBackend(json, record.name, backend, stillWanted)
-        if (!tab || !this.tabs.get().includes(tab)) return false
-        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
-        this.markTabClean(tab.id)
-        return true
-      })
-      if (!this.ownerStillLive(backend)) return false
-      if (!tab || !this.tabs.get().includes(tab)) return false
+      const text = await backend.connection.fetchAssetText(record.digest)
+      if (!stillWanted() || !this.ownerStillLive(backend) || text === undefined) return false
+      const tab = await this.openDocumentOnBackend(JSON.parse(text) as unknown, record.name, backend, stillWanted)
+      if (!this.ownerStillLive(backend) || !tab || !this.tabs.get().includes(tab)) return false
+      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id, title: tab.title })
+      this.markTabClean(tab.id)
       return true
     } catch (e) {
       // A rejection from a retired backend (removal disconnects/aborts) is
@@ -8721,20 +8713,13 @@ export class AppState {
         ])
         return false
       }
-      let tab: Tab | undefined
-      await this.readAssetPreview(backend.connection, run.sourceDocument, async () => {
-        const text = await backend.connection.fetchAssetText(run.sourceDocument!)
-        return text === undefined ? undefined : JSON.parse(text) as unknown
-      }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
-        if (json === undefined || !this.ownerStillLive(backend)) return false
-        const meta = (json as { meta?: { title?: unknown } }).meta
-        const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
-        tab = await this.openDocumentOnBackend(json, title, backend, stillWanted)
-        return tab !== undefined && this.tabs.get().includes(tab)
-      })
-      if (!this.ownerStillLive(backend)) return false
-      if (!tab || !this.tabs.get().includes(tab)) return false
-      return true
+      const text = await backend.connection.fetchAssetText(run.sourceDocument)
+      if (!stillWanted() || !this.ownerStillLive(backend) || text === undefined) return false
+      const json = JSON.parse(text) as unknown
+      const meta = (json as { meta?: { title?: unknown } }).meta
+      const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
+      const tab = await this.openDocumentOnBackend(json, title, backend, stillWanted)
+      return this.ownerStillLive(backend) && tab !== undefined && this.tabs.get().includes(tab)
     } catch (e) {
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
