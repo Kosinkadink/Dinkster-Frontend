@@ -462,6 +462,9 @@ limits, a `default` link that stores the declared default, and the help text.
 A seed's side part also holds its four after-run modes as one group of icons
 and a `new seed` link; the closed row shows the mode as an icon before the
 value. A slider's fill follows the typed text while it is in range.
+Clicking into a row moves nothing drawn in it: the label, the value, a seed's
+mode icon and the steppers stay on the pixels the canvas drew them on, and
+only the outline and the cursor appear.
 
 The side part stays whole on the visible canvas, which ends at the status
 bar, a docked panel or the on-screen keyboard; it is drawn over the canvas's

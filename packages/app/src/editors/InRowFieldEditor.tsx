@@ -302,6 +302,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         } : {})}
         {...(fill() === undefined ? {} : { fill: fill()! })}
         {...(inRow.controllerMode === undefined ? {} : { mark: <CanvasSeedModeIcon mode={mode()!} /> })}
+        zoomed={placement().scale > 1}
         place={placement().place}
         sideTop={placement().sideTop}
         {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
