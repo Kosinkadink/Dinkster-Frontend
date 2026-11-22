@@ -22,6 +22,10 @@ import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
+import { ProductButton } from '@dinkster/ui'
+import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
+import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
+import type { Backend } from './app-state.js'
 
 export interface PackSettingsClient {
   fetchPackSettings(packId: string): Promise<PackSettings>
@@ -200,6 +204,8 @@ export function SettingsDialog(props: {
   readonly keybindings: KeybindingRegistry
   readonly request?: { readonly category: string; readonly id: string } | undefined
   readonly onRequestConsumed?: () => void
+  readonly backends?: readonly Backend[]
+  readonly onOpenStorage?: () => void
   readonly storageConnection?: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'> | undefined
   readonly packSettings?: {
     readonly client: PackSettingsClient
@@ -219,6 +225,7 @@ export function SettingsDialog(props: {
     'keybindings',
     ...(props.storageConnection === undefined ? [] : ['storage']),
     ...packCategories().keys(),
+    ...(props.backends ?? []).filter((backend) => backend.protocol === 'dinkster').map((backend) => `backend:${backend.id}`),
   ]
   // Derived categories are intentionally specific (for example canvas.grid), so select a real category rather than inventing a parent grouping.
   const [category, setCategory] = createSignal(initialSettingsCategory(definitions(), (d) => props.settings.categoryOf(d)))
@@ -259,6 +266,8 @@ export function SettingsDialog(props: {
   })
   const matchCount = (candidate: string): number => matchCounts().get(candidate) ?? 0
   const categoryLabel = (candidate: string): string => {
+    const backend = props.backends?.find((row) => `backend:${row.id}` === candidate)
+    if (backend) return backend.label
     const packName = packCategories().get(candidate)
     if (packName !== undefined) return packName
     const key = `settingsDialog.category.${candidate.replaceAll('.', '_')}`
@@ -359,6 +368,7 @@ export function SettingsDialog(props: {
           </nav>
           <main class="settings-content">
             <Show when={searching()} fallback={
+              <Show when={category().startsWith('backend:')} fallback={
               <Show when={category() === 'storage'} fallback={
               <Show when={category().startsWith('pack:')} fallback={
                 <Show when={category() !== 'keybindings'} fallback={
@@ -374,7 +384,14 @@ export function SettingsDialog(props: {
                 }</Show>
               </Show>
               }>
+                <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
                 <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>
+              </Show>
+              }>
+                <Show when={props.backends?.find((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => `backend:${backend.id}` === category() && backend.protocol === 'dinkster')} keyed>{(backend) => <>
+                  <RuntimeSettingsPanel connection={backend.connection} backendLabel={backend.label} categories={['dtype-policy', 'fp8-matmul', 'worker-comfy-args', 'jobs', 'logging']} alwaysOpen />
+                  <AgentPermissionsPanel connection={backend.connection} backendLabel={backend.label} />
+                </>}</Show>
               </Show>
             }>
               <div class="settings-results">

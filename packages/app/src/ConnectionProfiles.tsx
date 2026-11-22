@@ -1,4 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { ProductDisclosure } from '@dinkster/ui'
+import { useSignal } from './solid-adapter.js'
 import type { MessageParams } from '@dinkster/core'
 import { canonicalBackendUrl, type AppState } from './app-state.js'
 import {
@@ -28,7 +30,8 @@ interface ConnectionProfileError {
  * desktop bridge; they are never rendered back and never enter storage the
  * renderer can read.
  */
-export function ConnectionProfilesSection(props: { readonly app: AppState }) {
+export function ConnectionProfilesSection(props: { readonly app: AppState; readonly compact?: boolean }) {
+  const backends = useSignal(props.app.backends)
   const bridge = desktopBridge()
   const message = useAppMessage()
   const [profiles, setProfiles] = createSignal<readonly ConnectionProfile[]>(listConnectionProfiles())
@@ -200,7 +203,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
 
   return (
     <section class="connection-profiles" data-testid="connection-profiles" aria-label={message('connectionProfiles.title')}>
-      <div>
+      <Show when={!props.compact}><div>
         <h2>{message('connectionProfiles.title')}</h2>
         <p>
           {message('connectionProfiles.description')}
@@ -259,11 +262,12 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
           {message('connectionProfiles.action.saveProfile')}
         </ProductButton>
         <Show when={errorMessage()}>{(text) => <ProductNotice tone="error">{text()}</ProductNotice>}</Show>
-      </form>
+      </form></Show>
 
       <ul class="connection-profile-list">
-        <For each={profiles()}>{(profile) => (
+        <For each={profiles().filter((profile) => !props.compact || !backends().some((backend) => canonicalBackendUrl(backend.baseUrl) === profile.url))}>{(profile) => (
           <li data-testid="profile-row" data-profile={profile.id}>
+            <ProductDisclosure title={`${profile.name} - ${message('backendsPanel.savedDisconnected')}`} open={!props.compact}>
             <ProductListRow primary={
               <span class="backend-title-line">
                 <strong>{profile.name}</strong>
@@ -335,6 +339,7 @@ export function ConnectionProfilesSection(props: { readonly app: AppState }) {
                 </ProductButton>
               </form>
             </Show>
+            </ProductDisclosure>
           </li>
         )}</For>
       </ul>

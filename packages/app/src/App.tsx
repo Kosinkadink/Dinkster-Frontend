@@ -64,6 +64,7 @@ import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
 import { ContextPanel } from './ContextPanel.js'
 import { ProductSelect } from './ProductSelect.js'
 import { BackendsPanel } from './BackendsPanel.js'
+import { StoragePanel } from './StoragePanel.js'
 import { ProjectsDialog } from './ProjectsDialog.js'
 import { activeProjectId, DEFAULT_PROJECT_ID, PROJECT_URL_PARAM } from './projects.js'
 import {
@@ -1295,7 +1296,23 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const AssetsPanelBody = () => <Show when={activeBackend()} keyed>
+  const [storageBackendId, setStorageBackendId] = createSolidSignal<string>()
+  const openStorage = (backend = activeBackend()): void => {
+    setStorageBackendId(backend.id)
+    app.modalPanel.set('')
+    setPanelOpen(app.panels, app.dock, 'storage', 'left', true)
+  }
+  const openBackendSettings = (backend: Backend): void => {
+    app.settingsOpenRequest.set({ category: `backend:${backend.id}`, id: '' })
+    app.modalPanel.set('settings')
+  }
+  const unregisterStorageCommand = app.frontendDoors.command('storage.open', {
+    get label() { return message('storagePanel.title') },
+    run: () => openStorage(),
+  })
+  onCleanup(unregisterStorageCommand)
+  const [assetsBackendId, setAssetsBackendId] = createSolidSignal<string>()
+  const AssetsPanelBody = () => <Show when={backends().find((backend) => backend.id === assetsBackendId()) ?? activeBackend()} keyed>
     {(backend) => {
       return backend.protocol === 'dinkster'
       ? <BackendMetadataState independentMounts><AssetsBody
@@ -1303,6 +1320,7 @@ export function App(props: {
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           backendLabel={backend.label}
+          onOpenStorage={() => openStorage(backend)}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
     }}
@@ -1481,10 +1499,25 @@ export function App(props: {
       component: ExecutionLogBody,
     }),
     registerBuiltinPanel({
+      id: 'storage', get title() { return message('storagePanel.title') }, icon: FolderOpen,
+      get description() { return message('storagePanel.description') }, get ariaLabel() { return message('storagePanel.title') },
+      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 29,
+      toggleTestId: 'storage-sidebar-toggle', component: () => <StoragePanel app={app} backendId={storageBackendId()} activeBackend={activeBackend}
+        onOpenAssets={(backend) => {
+          setAssetsBackendId(backend.id)
+          setPanelOpen(app.panels, app.dock, 'assets', 'left', true)
+        }} />,
+    }),
+    registerBuiltinPanel({
       id: 'backends', get title() { return message('shell.panel.backends.title') }, icon: Server,
       get description() { return message('shell.panel.backends.description') }, get ariaLabel() { return message('shell.panel.backends.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
-      toggleTestId: 'backends-sidebar-toggle', component: () => <BackendsPanel app={app} />,
+      toggleTestId: 'backends-sidebar-toggle', component: () => <BackendsPanel app={app} activeBackendId={activeBackend().id}
+        onOpenStorage={openStorage} onOpenSettings={openBackendSettings}
+        onOpenResources={(backend) => {
+          window.dispatchEvent(new CustomEvent('memory-backend-target', { detail: { backendId: backend.id } }))
+          setPanelOpen(app.panels, app.dock, 'memory', 'left', true)
+        }} />,
     }),
     registerBuiltinPanel({
       id: 'memory', get title() { return message('shell.panel.memory.title') }, icon: Database,
@@ -1567,6 +1600,8 @@ export function App(props: {
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
         storageConnection={activeBackend().connection}
+        backends={backends()}
+        onOpenStorage={() => openStorage()}
         packSettings={'fetchPackSettings' in app.connection ? {
           client: app.connection,
           packs: () => [...(defaultRegistry()?.packs ?? [])]
