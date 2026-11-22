@@ -1,6 +1,7 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, onMount, Show } from 'solid-js'
 import { createSearchSession, decodeSearchHostAction, type SearchGroup, type SearchResult } from '@dinkster/core'
 import Search from 'lucide-solid/icons/search'
+import { ProductWindowAction } from '@dinkster/ui'
 import type { AppState } from './app-state.js'
 import { Icon } from './Icon.js'
 import { SearchInput, SearchResultGroup, SearchResultRow, SearchState } from './SearchSurface.js'
@@ -14,15 +15,13 @@ type VisibleSearchRow =
 
 export function UniversalSearchTrigger(props: { readonly shortcut?: string | undefined; readonly onOpen: () => void }) {
   return (
-    <button
-      class="search-trigger"
+    <ProductWindowAction
+      label="Search Dinkster"
+      icon={Search}
+      shortcut={props.shortcut ?? ''}
       data-testid="topbar-search"
       onClick={props.onOpen}
-    >
-      <Icon icon={Search} />
-      <span>Search Dinkster</span>{' '}
-      <Show when={props.shortcut}>{(shortcut) => <kbd>{shortcut()}</kbd>}</Show>
-    </button>
+    />
   )
 }
 

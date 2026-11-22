@@ -74,7 +74,7 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   await expect(dock).toBeVisible()
   await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(320)
   const search = (await page.getByTestId('topbar-search').boundingBox())!
-  const controls = (await page.locator('.topbar-group-right').boundingBox())!
+  const controls = (await page.locator('.dinkster-window-toolbar-actions').boundingBox())!
   const shortcut = (await page.getByTestId('topbar-search').locator('kbd').boundingBox())!
   expect(search.x + search.width).toBeLessThanOrEqual(controls.x)
   expect(shortcut.x + shortcut.width).toBeLessThanOrEqual(search.x + search.width)
