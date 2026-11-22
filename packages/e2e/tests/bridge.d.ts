@@ -318,7 +318,8 @@ interface DinksterTestBridge {
     panels: {
       register(panel: {
         id: string; title: string; placement: string; allowedPlacements: readonly string[]
-        order: number; when(): boolean; component(): HTMLElement
+        description?: string; toggleTestId?: string
+        order: number; when?(): boolean; component(): HTMLElement
       }): void
       changed: { get(): number; set(value: number): void }
     }
@@ -473,6 +474,7 @@ interface DinksterTestBridge {
       register(descriptor: { id: string; title: string; component: () => unknown }): () => void
       get(id: string): { id: string; title: string } | undefined
     }
+    backendsTick: { update(fn: (value: number) => number): void }
     /** Multi-backend surface: connected backends and per-tab targeting. */
     backends: {
       get(): ReadonlyArray<{

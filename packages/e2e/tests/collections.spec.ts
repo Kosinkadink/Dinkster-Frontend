@@ -1,5 +1,5 @@
 /** Library collections stay separate from execution history in Runs. */
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady } from './fixtures.js'
 
 test('Library keeps the pack empty state and does not duplicate Runs history', async ({ page }) => {
   await page.route('/api/nodes*', async (route) => {
@@ -8,7 +8,7 @@ test('Library keeps the pack empty state and does not duplicate Runs history', a
   })
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const library = page.getByTestId('library-overlay')
   await page.getByTestId('library-toggle').click()
   await expect(library).toBeVisible()

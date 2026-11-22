@@ -11,7 +11,7 @@
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
-import { expect, openRailPanel, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
@@ -158,7 +158,7 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.ImageSink') ?? false,
   )).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await openRailPanel(page, 'Runs')
   await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
 }

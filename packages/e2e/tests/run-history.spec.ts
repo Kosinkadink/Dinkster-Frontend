@@ -18,7 +18,7 @@
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
-import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -37,7 +37,7 @@ async function addNativeBackend(page: Page): Promise<void> {
  * resolve through the ACTIVE tab's target).
  */
 async function openGradientDoc(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'run-history-e2e', root: 'g0',

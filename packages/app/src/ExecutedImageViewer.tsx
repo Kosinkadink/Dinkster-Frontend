@@ -48,43 +48,34 @@ export function ViewerImage(props: {
   readonly onLoad: (element: HTMLImageElement) => void
   readonly onError: (message?: string) => void
 }) {
-  const [url, setUrl] = createSolidSignal(props.image.load === undefined && props.image.assetReader === undefined ? props.image.url : '')
+  const [url, setUrl] = createSolidSignal(props.image.load === undefined ? props.image.url : '')
   const [color, setColor] = createSolidSignal<string>()
   createEffect(() => {
     const image = props.image
-    if (image.load === undefined && image.assetReader === undefined) { setUrl(image.url); return }
+    if (image.load === undefined) { setUrl(image.url); return }
     const controller = new AbortController()
-    const reader = image.assetReader?.(controller.signal)
     let ownedUrl: string | undefined
     setUrl('')
     setColor(undefined)
-    const current = () => !controller.signal.aborted && reader?.current() !== false
     const load = async () => {
-      if (image.assetReader !== undefined && reader === undefined) throw new Error('Image ownership unavailable')
-      if (!current()) return
+      if (controller.signal.aborted) return
       const result = image.load === undefined
         ? await fetch(image.url, { signal: controller.signal }).then(async (response) => {
             if (!response.ok) throw new Error(`Image unavailable: ${response.status}`)
             return { available: true as const, bytes: await response.arrayBuffer(), mime: response.headers.get('content-type') ?? image.mediaType }
           })
         : await image.load(controller.signal)
-      if (!current()) return
+      if (controller.signal.aborted) return
       if (!result.available) { props.onError(`${result.reason}: ${result.error}`); return }
       if (!result.mime.startsWith('image/') || result.bytes.byteLength > 64 * 1024 * 1024) {
         props.onError('Image rendition exceeds the preview budget or is not an image.')
         return
       }
       ownedUrl = URL.createObjectURL(new Blob([result.bytes], { type: result.mime }))
-      if (reader !== undefined) {
-        const decoded = new Image()
-        decoded.src = ownedUrl
-        await decoded.decode()
-        if (!current()) return
-      }
       setColor('colorTransform' in result ? result.colorTransform : undefined)
       setUrl(ownedUrl)
     }
-    void (reader === undefined ? load() : reader.read(load)).catch((error: unknown) => {
+    void load().catch((error: unknown) => {
       if (!controller.signal.aborted) props.onError(error instanceof Error ? error.message : 'Image unavailable')
     })
     onCleanup(() => {
@@ -308,7 +299,7 @@ export function ExecutedImageViewer(props: {
         <div><span>Execution</span><strong>{props.provenance.executionId}</strong></div>
         <div><span>Status</span><strong>{props.provenance.executionStatus}</strong></div>
         <Show when={!props.provenance.backendAvailable}>
-          <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
+          <p role="status">{message('outputs.backendDisconnected')}</p>
         </Show>
       </section>
       <div class="output-viewer-toolbar" role="toolbar" aria-label="Image viewer controls">

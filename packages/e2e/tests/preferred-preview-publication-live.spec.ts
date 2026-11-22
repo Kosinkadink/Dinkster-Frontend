@@ -4,7 +4,7 @@
  */
 import { deflateSync } from 'node:zlib'
 import type { NodeSchema } from '@dinkster/core'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -53,10 +53,7 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
   const opened = await page.evaluate(async ({ digest, size, contract }) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get()[0]!
-    const retained = app as unknown as {
-      openRetainedDocument(document: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
-    }
-    const tab = await retained.openRetainedDocument({
+    const diagnostics = await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'midgraph-preview-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -68,16 +65,15 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
         nets: {}, reroutes: {}, nextOrdinal: 3,
       } },
       view: { graphs: { g0: { nodes: { li: { position: { x: 80, y: 120 } }, delay: { position: { x: 80, y: 500 } } } } } },
-    }, 'Mid-graph Tensor Preview', backend, () => true)
+    }, 'Mid-graph Tensor Preview', backend)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    return tab !== undefined
+    return diagnostics.length === 0
   }, { ...asset, contract })
   expect(opened).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   return contract
 }
 
-test.use({ retentionApi: false })
 
 test.beforeEach(async ({ page }) => {
   let served: Record<string, unknown> | null = null
@@ -99,7 +95,7 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('a preferred IMAGE is retried after a running-job refusal crosses terminal publication', async ({ page, request }, testInfo) => {

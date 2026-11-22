@@ -5,12 +5,12 @@
  * viewport (and only the viewport: the document never changes), and the
  * overview keeps painting on a frozen historical tab.
  */
-import { executionDetails, expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { executionDetails, expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const document = structuredClone(app.activeTab()!.store.doc)

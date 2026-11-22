@@ -1,4 +1,4 @@
-import { expect, mockProjectPacks, waitForStartupOwnership, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
+import { expect, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
@@ -11,7 +11,7 @@ const descriptors = {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'media-test', schemaWire: 1 }, nodes: {} } }))
@@ -37,7 +37,7 @@ test('inspects every media kind through the owning value API without mutating th
     return route.fulfill({ json: { available: true, descriptor, renditions: [] } })
   })
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   await page.evaluate(async (outputs) => {
     const app = window.__dinksterTest!.app
@@ -191,7 +191,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   const png = await page.evaluate(() => {
     const canvas = document.createElement('canvas')

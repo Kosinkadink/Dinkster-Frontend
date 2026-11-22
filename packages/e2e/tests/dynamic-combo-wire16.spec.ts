@@ -6,7 +6,7 @@
  * registerSchemas.
  */
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const resizeWireFixture = JSON.parse(readFileSync(
   new URL('../../core/fixtures/dinkster-resize-image-mask-wire16.json', import.meta.url),
@@ -133,7 +133,7 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('comfy.ResizeImageMaskNode') ?? false,
   )).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',

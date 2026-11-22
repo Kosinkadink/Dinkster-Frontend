@@ -22,6 +22,57 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(page.getByTestId('app-tooltip')).toBeVisible()
 })
 
+test('cut activity labels show their full title before help without changing fitting labels', async ({ page }, testInfo) => {
+  await expect(page.getByTestId('queue-button')).toBeEnabled()
+  await page.evaluate(() => window.__dinksterTest!.app.panels.register({
+    id: 'long-pack-panel',
+    title: 'Image review workspace',
+    description: 'Inspect the images produced by this pack.',
+    placement: 'dock',
+    allowedPlacements: ['dock'],
+    order: 1,
+    toggleTestId: 'long-pack-panel-toggle',
+    component: () => document.createElement('div'),
+  }))
+  await page.evaluate(() => document.fonts.ready)
+  const long = page.getByTestId('long-pack-panel-toggle')
+  const library = page.getByTestId('library-toggle')
+  if (await library.getAttribute('aria-pressed') === 'true') await library.click()
+  const tooltip = page.getByTestId('app-tooltip')
+  const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
+  const libraryHelp = 'Browse packs, execution history, and saved workflows'
+  expect(await long.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(true)
+  expect(await library.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(false)
+
+  await page.mouse.move(600, 400)
+  await long.hover()
+  await expect(tooltip).toHaveText(fullHelp)
+  await page.screenshot({ path: testInfo.outputPath('cut-label-help.png') })
+  await page.mouse.move(600, 400)
+  await long.focus()
+  await expect(tooltip).toHaveText(fullHelp)
+  await page.keyboard.press('Enter')
+  await expect(long).toBeFocused()
+  await expect(long).toHaveAttribute('aria-pressed', 'true')
+  await expect(tooltip).toBeHidden()
+  await long.hover()
+  await expect(tooltip).toBeHidden()
+  await page.keyboard.press('Enter')
+  await expect(long).toHaveAttribute('aria-pressed', 'false')
+  await page.mouse.move(600, 400)
+  await long.blur()
+  await long.focus()
+  await expect(tooltip).toHaveText(fullHelp)
+
+  await page.getByTestId('graph-canvas').focus()
+  await library.hover()
+  await expect(tooltip).toHaveText(libraryHelp)
+  await page.screenshot({ path: testInfo.outputPath('fitting-label-help.png') })
+  await page.mouse.move(600, 400)
+  await library.focus()
+  await expect(tooltip).toHaveText(libraryHelp)
+})
+
 test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ page }) => {
   const settings = page.getByTestId('settings-button')
   await settings.hover()

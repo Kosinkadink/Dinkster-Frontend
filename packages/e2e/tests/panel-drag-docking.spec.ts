@@ -22,7 +22,7 @@ interface DockingTestApp {
 }
 
 const zoneTab = (page: Page, zone: DockZone, id: string): Locator =>
-  page.getByTestId(`dock-zone-${zone}`).locator(`.product-tab[data-tab-id="${id}"]`)
+  page.getByTestId(`dock-zone-${zone}`).locator(`${zone === 'left' ? '[data-panel-title]' : '.product-tab'}[data-tab-id="${id}"]`)
 
 const rightTab = (page: Page, id: string): Locator => zoneTab(page, 'right', id)
 

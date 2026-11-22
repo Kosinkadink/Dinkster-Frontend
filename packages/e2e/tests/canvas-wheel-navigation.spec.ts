@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_WHEEL_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -49,7 +49,7 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.clock.install()
   await page.clock.pauseAt(new Date(Date.now() + 100))
   const start = { x: 20, y: -10, scale: 1.25 }
@@ -138,7 +138,7 @@ test('canvas wheel policy preserves default zoom and adds persisted two-axis pan
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   const point = { screenX: 320, screenY: 240 }

@@ -8,7 +8,6 @@ import { BrandMark } from './BrandMark.js'
 import { FrameRateStatus } from './FrameRateStatus.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
-import { executionAssetRoots, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retireAssetOwner } from './workflow-asset-retention.js'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -1222,14 +1221,6 @@ export function App(props: {
     {(label) => <span class="services-badge" data-testid="services-badge">{label()}</span>}
   </Show>
 
-  /** The active live tab's target backend (drives the topbar selector). */
-  const activeTarget = (): Backend | undefined => {
-    backendsTick()
-    tabTargets()
-    const tab = activeTab()
-    return tab && !tab.execution ? app.backendForTab(tab) : undefined
-  }
-
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
     return <article class="runs-row" role="listitem" data-testid="execution-row"
@@ -1385,17 +1376,15 @@ export function App(props: {
       : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
   }
   const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
-    const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient; reader: NonNullable<ReturnType<AppState['executionAssetReader']>> }>()
+    const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient }>()
     const [loadError, setLoadError] = createSolidSignal<string>()
     const [loading, setLoading] = createSolidSignal(false)
     let requested = false
     let alive = true
     let unsubscribe: (() => void) | undefined
-    const readers = new Set<RetainedAssetReader>()
     onCleanup(() => {
       alive = false
       unsubscribe?.()
-      for (const reader of readers) void reader.close().then(() => retireAssetOwner(reader.connection, reader.retained)).catch(() => undefined)
     })
     const load = async (): Promise<void> => {
       const entry = p.entry
@@ -1404,7 +1393,8 @@ export function App(props: {
       const project = activeProjectId()
       let connectionChanged = false
       unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-      const current = () => alive && !connectionChanged && p.entry === entry && activeProjectId() === project && app.backends.get().includes(backend)
+      const current = () => alive && !connectionChanged && p.entry.id === entry.id && p.entry.owner === entry.owner &&
+        activeProjectId() === project && app.backends.get().includes(backend)
       setLoading(true)
       try {
         const runId = runIdOfEntry(entry)
@@ -1431,33 +1421,8 @@ export function App(props: {
           jobRef: runId, ...(run.sourceDocument === undefined ? {} : { sourceDocument: run.sourceDocument }),
           queuedAt: run.submittedAt * 1000, endedAt: run.finishedAt * 1000,
         }
-        const protect = async (roots: Parameters<typeof retainPreviewAssets>[1], offer = false): Promise<RetainedAssetReader> => {
-          if (!current()) throw new Error('Stored run owner changed')
-          const retained = offer ? await retainExecutionAssets(backend.connection, execution.ref, roots)
-            : await retainPreviewAssets(backend.connection, roots, [8])
-          const reader = new RetainedAssetReader(backend.connection, retained, current)
-          readers.add(reader)
-          if (!current()) {
-            await reader.close()
-            await retireAssetOwner(backend.connection, retained)
-            throw new Error('Stored run owner changed')
-          }
-          return reader
-        }
-        let admission: Promise<RetainedAssetReader> | undefined
-        const reader = {
-          key: execution.key,
-          current,
-          read: async <T,>(consume: () => Promise<T>): Promise<T> => {
-            admission ??= protect(executionAssetRoots(execution, () => undefined)).catch((error: unknown) => { admission = undefined; throw error })
-            return (await admission).read(consume)
-          },
-        }
-        const values = backend.connection.historyValues(run, async (query, descriptor, offer) => {
-          if (query.jobId !== run.jobId || (offer !== undefined && offer.jobRef !== runId)) throw new Error('Stored output identity mismatch')
-          return protect(offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined), offer !== undefined)
-        })
-        setLoaded({ execution, values, reader })
+        const values = backend.connection.historyValues(run)
+        setLoaded({ execution, values })
       } catch (error) {
         if (alive) setLoadError(error instanceof Error ? error.message : String(error))
       } finally {
@@ -1519,7 +1484,7 @@ export function App(props: {
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
-          entryContent={(entry, selected, actions) => <StoredRun entry={entry} selected={selected} actions={actions} />}
+          entryContent={(entry, selected, actions) => <StoredRun entry={entry()} selected={selected} actions={actions} />}
           onAction={libraryEntryAction}
           sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
@@ -1964,7 +1929,6 @@ export function App(props: {
   const bottomZonePanels = () => bottomView().panels
   const bottomActiveId = () => bottomView().activeId
   const dockPanels = leftPanels
-  const bottomPanels = bottomZonePanels
   const railPanels = () => railView().panels
   // Aggregate rail-panel indicators onto the region toggle, so attention
   // stays discoverable while the rail is collapsed or the panel's tab is
@@ -1975,14 +1939,19 @@ export function App(props: {
   const leftOpen = () => zoneOpen('left') && leftPanels().length > 0
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
-  const [sideSpace, setSideSpace] = createSolidSignal<number>()
+  const [sideSpace, setSideSpace] = createSolidSignal<{ single: number; both: number }>()
   onMount(() => {
     if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
     const measure = (): void => {
+      const style = getComputedStyle(bodyElement)
+      const gap = Number.parseFloat(style.columnGap) || 0
+      const sidebarWidth = sidebar.getBoundingClientRect().width
+      const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
+        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
-        : Math.max(0, bodyElement.clientWidth - sidebar.getBoundingClientRect().width - 320))
+        : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
@@ -1990,13 +1959,13 @@ export function App(props: {
     measure()
     onCleanup(() => observer.disconnect())
   })
-  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace() ?? dockWidth()))
-  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace() ?? railWidth()))
+  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace()?.single ?? dockWidth()))
+  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace()?.single ?? railWidth()))
   let previousRailOpen = railOpen()
   createEffect(() => {
     const right = railOpen()
     const left = leftOpen()
-    const space = sideSpace()
+    const space = sideSpace()?.both
     const openedRail = right && !previousRailOpen
     previousRailOpen = right
     if (space !== undefined && left && right && dockWidth() + railWidth() > space) {
@@ -2034,7 +2003,7 @@ export function App(props: {
         const section = Number.parseInt(element.dataset['section'] ?? '', 10)
         const tabStrip = element.querySelector<HTMLElement>('.product-tablist')
         const body = element.querySelector<HTMLElement>('.product-tabpanel:not([hidden])')
-        const overflowButton = element.querySelector<HTMLElement>('[data-testid="dock-zone-overflow-button"]')
+        const overflowButton = element.querySelector<HTMLElement>('[data-panel-title], [data-testid="dock-zone-overflow-button"]')
         if (Number.isNaN(section) || tabStrip === null || body === null) continue
         sections.push({
           section,
@@ -2067,7 +2036,7 @@ export function App(props: {
   }
   const beginPanelDrag = (down: PointerEvent): void => {
     const target = down.target instanceof Element
-      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id]')
+      ? down.target.closest<HTMLElement>('.dock-zone .product-tab[data-tab-id], .dock-zone [data-panel-title][data-tab-id]')
       : null
     if (target === null || down.button !== 0) return
     const pointerId = down.pointerId
@@ -2222,8 +2191,9 @@ export function App(props: {
               })
         if (moved && destinationZone !== undefined) {
           queueMicrotask(() => {
-            bodyElement.querySelector<HTMLButtonElement>(
-              `.dock-zone[data-zone="${destinationZone}"] .product-tab[data-tab-id="${CSS.escape(panelId)}"]`,
+            const handle = destinationZone === 'left' && activityBarVisible() ? '[data-panel-title]' : '.product-tab'
+            bodyElement.querySelector<HTMLElement>(
+              `.dock-zone[data-zone="${destinationZone}"] ${handle}[data-tab-id="${CSS.escape(panelId)}"]`,
             )?.focus({ preventScroll: true })
           })
         }
@@ -2334,9 +2304,8 @@ export function App(props: {
   const closeZone = (zone: Extract<DockZoneId, 'left' | 'bottom'>): void => {
     const activeId = zoneView(zone).activeId
     app.dock.setOpen(zone, false)
-    if (zone === 'bottom') {
-      queueMicrotask(() => shellEl.querySelector<HTMLButtonElement>('[data-testid="bottom-panel-toggle"]')?.focus())
-    } else if (activeId !== undefined) focusPanelToggle(activeId)
+    if (zone === 'left' && activityBarVisible() && activeId !== undefined) focusPanelToggle(activeId)
+    else queueMicrotask(() => shellEl.querySelector<HTMLButtonElement>(`[data-testid="${zone === 'bottom' ? 'bottom' : 'left'}-panel-toggle"]`)?.focus())
   }
   const closeRail = (): void => {
     app.dock.setOpen('right', false)
@@ -2422,6 +2391,12 @@ export function App(props: {
       })
     }
     const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTarget = (): Backend | undefined => {
+      backendsTick()
+      tabTargets()
+      const tab = paneActiveTab()
+      return tab && !tab.execution ? app.backendForTab(tab) : undefined
+    }
     const host: EditorHostContext = {
       tabId: () => group().activeTabId,
       focused: () => paneFocused(),
@@ -2493,6 +2468,11 @@ export function App(props: {
     const focusPane = (): void => {
       if (!paneFocused()) updateSplitLayout((layout) => focusGroup(layout, p.groupId))
     }
+    onMount(() => {
+      // Minimap gestures stop propagation; focus before any control handles them.
+      sectionElement.addEventListener('pointerdown', focusPane, true)
+      onCleanup(() => sectionElement.removeEventListener('pointerdown', focusPane, true))
+    })
     return (
       <section
         class="editor-group"
@@ -2501,7 +2481,7 @@ export function App(props: {
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
         style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
-        onPointerDown={focusPane}
+        onFocusIn={focusPane}
         ref={sectionElement}
       >
         <div class="tab-strip">
@@ -2580,7 +2560,7 @@ export function App(props: {
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
-          <Show when={paneFocused() && multiBackend() && activeTarget()}>
+          <Show when={multiBackend() && paneTarget()}>
             {(target) => (
               <ProductSelect
                 class="tab-target"
@@ -2590,7 +2570,7 @@ export function App(props: {
                 selectedId={target().id}
                 options={backends().map((backend) => ({ id: backend.id, label: backend.label, value: backend.id }))}
                 onSelect={(option) => {
-                  const tab = activeTab()
+                  const tab = paneActiveTab()
                   if (tab) app.setTabTarget(tab.id, option.value)
                 }}
               />
@@ -2941,22 +2921,6 @@ export function App(props: {
                 )}
               </For>
             </div>
-            <div class="sidebar-toggle-group sidebar-toggle-group-bottom" data-testid="bottom-toggle-group">
-              <For each={bottomPanels().filter((panel) => panel.id !== 'logs')}>
-                {(panel) => (
-                  <ActivityBarButton
-                    icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
-                    pressed={sidebarPressed(panel.id)}
-                    panelId={panel.id}
-                    testId={panel.toggleTestId}
-                    onActivate={() => toggleSidebarPanel(panel.id)}
-                  />
-                )}
-              </For>
-            </div>
           </div>
           <ActivityBarButton
             icon={Settings}
@@ -2980,6 +2944,7 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
               split={zoneSplit('left')}
@@ -3269,7 +3234,6 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
 
 function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
   values: DinksterValuesClient
-  reader: NonNullable<ReturnType<AppState['executionAssetReader']>>
 } }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
@@ -3317,9 +3281,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
     setLoaded(new Set<string>())
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
-    readAsset: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.source?.reader ?? props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const imageGroups = createMemo(() => {
@@ -3350,8 +3312,8 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
       detail: props.execution.errors.map((error) => error.message).join(' ') || 'The execution reported an error before producing inspectable images.',
     }
     if (!provenance().backendAvailable) return {
-      state: 'owner-unavailable', title: 'Output owner unavailable',
-      detail: 'The execution backend was removed or disconnected. Retained output media cannot be confirmed.',
+      state: 'owner-unavailable', title: 'Output backend unavailable',
+      detail: 'The execution backend was removed or disconnected. Output media may no longer be available.',
     }
     if (props.execution.status === 'queued' || props.execution.status === 'running') return {
       state: 'waiting', title: 'Waiting for image outputs',
@@ -3380,7 +3342,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
         <div><span>Execution</span><strong>{provenance().executionId}</strong></div>
         <div><span>Status</span><strong>{provenance().executionStatus}</strong></div>
         <Show when={!provenance().backendAvailable && images().length > 0}>
-          <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
+          <p role="status">{message('outputs.backendDisconnected')}</p>
         </Show>
         <Show when={props.execution.errors.length > 0}>
           <p class="output-execution-error" role="alert">{props.execution.errors.map((error) => error.message).join(' ')}</p>
