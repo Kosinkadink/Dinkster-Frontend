@@ -341,9 +341,9 @@ export function framesNamesOf(frames: readonly (readonly OptionRow[])[]): ScopeN
 // ---------------------------------------------------------------------------
 // Checks when a declaration loads
 
-type IdKind = 'input' | 'output' | 'section' | 'button' | 'note'
+type IdKind = 'input' | 'output' | 'section' | 'button' | 'note' | 'editor'
 type Ids = Record<IdKind, Set<string>>
-const newIds = (): Ids => ({ input: new Set(), output: new Set(), section: new Set(), button: new Set(), note: new Set() })
+const newIds = (): Ids => ({ input: new Set(), output: new Set(), section: new Set(), button: new Set(), note: new Set(), editor: new Set() })
 
 /** Whether an output sits anywhere inside a row, so its id is also an output id. */
 function holdsOutput(row: OptionRow): boolean {
@@ -469,6 +469,9 @@ export function checkBody(body: readonly BodyRow[], formulas: Pick<FormulaScope,
           break
         case 'note':
           claim(ids.note, row.id, where, 'note')
+          break
+        case 'editor':
+          claim(ids.editor, row.id, where, 'editor')
           break
       }
       switch (row.kind) {

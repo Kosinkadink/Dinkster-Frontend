@@ -308,6 +308,10 @@ export interface WidgetDescriptorSpec {
   readonly editableOptions?: true
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
+  /** A custom or compositor widget's own part names -> the row ids it writes. */
+  readonly writes?: Readonly<Record<string, string>>
+  /** A custom or compositor widget's own part names -> the row ids it reads. */
+  readonly reads?: Readonly<Record<string, string>>
 }
 
 export interface TextCompletionItemSpec {
@@ -637,6 +641,18 @@ export interface RowSpec {
   readonly rows: readonly (InputSpec | ButtonSpec | NoteSpec)[]
 }
 
+/**
+ * A widget with no value of its own, on a line of its own. Layout: it is not
+ * stored, run or drawn by the editor yet; its widget names the rows it writes
+ * and reads.
+ */
+export interface EditorSpec {
+  readonly kind: 'editor'
+  readonly id: string
+  readonly widget: WidgetSpec
+  readonly visible?: Formulated<boolean>
+}
+
 /** Read-only text, usually a formula. */
 export interface NoteSpec {
   readonly kind: 'note'
@@ -795,6 +811,7 @@ export type BodyRow =
   | SectionSpec
   | RowSpec
   | NoteSpec
+  | EditorSpec
   | ButtonSpec
   | GroupSpec
   | ChoiceSpec

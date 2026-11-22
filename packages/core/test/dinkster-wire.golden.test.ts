@@ -26,6 +26,29 @@ describe('Dinkster schema wire', () => {
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
   })
 
+  it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
+      { kind: 'input', id: 'model_file', type: concrete('STRING'),
+        widget: { type: 'load3d.viewport', height: 320, writes: { camera: 'camera' }, reads: { model: 'model_file' } } },
+      { kind: 'state', id: 'camera', type: concrete('STRING'), partOfRun: true },
+      { kind: 'editor', id: 'view', widget: { type: 'COMPOSITOR', reads: { layers: 'model_file' } }, visible: false },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [input, , editor] = schema!.body as unknown as Record<string, Record<string, unknown>>[]
+    expect(input!['widget']).toMatchObject({
+      widgetType: 'load3d.viewport', options: { height: 320 },
+      writes: { camera: 'camera' }, reads: { model: 'model_file' },
+    })
+    expect(input!['widget']!['options']).not.toHaveProperty('writes')
+    expect(editor).toEqual({ kind: 'editor', id: 'view', visible: false,
+      widget: { widgetType: 'COMPOSITOR', options: {}, reads: { layers: 'model_file' } } })
+    const unnamed = parseDinksterSchema('Unnamed', { body: [
+      { kind: 'editor', id: 'view', widget: { type: 'load3d.viewport' } },
+    ] } as never)
+    expect(unnamed.schema).toBeUndefined()
+    expect(unnamed.diagnostics.map((d) => d.message).join()).toContain('must name at least one row')
+  })
+
   it('preserves native asset-selection schemas and imported source names', () => {
     for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
       const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]

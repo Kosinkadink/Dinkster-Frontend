@@ -605,17 +605,36 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'COMPOSITOR':
-      checkWidgetFields(descriptor, ['type'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'writes', 'reads'], where, diags)
+      editorNamesOf(descriptor, where)
       return
     default:
       if (typeof descriptor['type'] !== 'string' || descriptor['type'] === '') {
         throw new Error(`${where}.type must be a non-empty string`)
       }
+      editorNamesOf(descriptor, where)
       for (const [key, value] of Object.entries(descriptor)) {
         if (key !== 'type') cloneJsonValue(value, `${where}.${key}`)
       }
       return
   }
+}
+
+/**
+ * The rows a custom or compositor widget writes and reads: its own part name
+ * -> a row id of its scope (the engine checks the ids when the pack loads).
+ */
+function editorNamesOf(descriptor: Record<string, unknown>, where: string): Pick<WidgetSpec, 'writes' | 'reads'> {
+  const names: { writes?: Record<string, string>; reads?: Record<string, string> } = {}
+  for (const field of ['writes', 'reads'] as const) {
+    if (descriptor[field] === undefined) continue
+    const mapping = wireObject(descriptor[field], `${where}.${field}`)
+    for (const [part, row] of Object.entries(mapping)) {
+      if (part === '' || typeof row !== 'string' || row === '') throw new Error(`${where}.${field}.${part} must name a row`)
+    }
+    names[field] = mapping as Record<string, string>
+  }
+  return names
 }
 
 function cloneJsonValue(value: unknown, where: string): unknown {
@@ -1111,6 +1130,7 @@ function widgetFor(
       return {
         widgetType: 'COMPOSITOR',
         options: {},
+        ...editorNamesOf(wire as Record<string, unknown>, `${nodeType}.${id}.widget`),
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1136,11 +1156,12 @@ function widgetFor(
     if (typeof descriptor.type === 'string' && descriptor.type !== '') {
       const options: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(descriptor)) {
-        if (key !== 'type') options[key] = cloneJsonValue(value, `${nodeType}.${id}.widget.${key}`)
+        if (key !== 'type' && key !== 'writes' && key !== 'reads') options[key] = cloneJsonValue(value, `${nodeType}.${id}.widget.${key}`)
       }
       return {
         widgetType: descriptor.type,
         options,
+        ...editorNamesOf(wire as Record<string, unknown>, `${nodeType}.${id}.widget`),
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1679,6 +1700,23 @@ function decodeOptionRow(nodeType: string, raw: unknown, where: string, diags: D
         id: wireLayoutId(entry['id'], `${where}.id`),
         text: wireLooked(entry['text'], `${where}.text`),
         ...(unknown !== undefined ? { unknown } : {}),
+        ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
+      }
+    }
+    case 'editor': {
+      rejectUnknownFields(entry, ['kind', 'id', 'widget', 'visible'], where)
+      const id = wireLayoutId(entry['id'], `${where}.id`)
+      const descriptor = wireObject(entry['widget'], `${where}.widget`)
+      // A custom or compositor widget; the compositor binds as on its own input type.
+      const type: TypeExpr = descriptor['type'] === 'COMPOSITOR' ? { kind: 'concrete', name: 'COMPOSITOR' } : { kind: 'wildcard' }
+      const widget = widgetFor(nodeType, id, type, undefined, descriptor, diags)
+      if (widget === undefined || (widget.writes === undefined && widget.reads === undefined)) {
+        throw new Error(`${where}.widget must name at least one row it writes or reads`)
+      }
+      return {
+        kind: 'editor',
+        id,
+        widget,
         ...(entry['visible'] !== undefined ? { visible: wireFormulated<boolean>(entry['visible'], `${where}.visible`, 'boolean') } : {}),
       }
     }

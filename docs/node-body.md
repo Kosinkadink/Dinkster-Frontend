@@ -19,8 +19,15 @@ non-empty legacy `interface` list.
   `collapsed`). Layout only; it adds nothing to row ids.
 - **Row**: two to four fields side by side. Layout only: each field is drawn
   beside the one before it when both are in the same section.
-- **Note** and **Button**: decoded with the schema. The canvas does not draw
-  them, and the editor never runs a button's steps.
+- **Note**, **Editor** and **Button**: decoded with the schema. The canvas
+  does not draw them, and the editor never runs a button's steps. An editor
+  row is a custom or compositor widget with no value of its own; it must name
+  at least one row it writes or reads.
+
+A custom or compositor widget, on an editor row or on an input, may carry
+`writes` and `reads`: its own part names mapped to row ids of its scope. The
+editor keeps them on the widget spec, apart from the widget's own options, and
+does not hand those rows to the widget yet.
 - **Group**, **Choice**, **Type choice** and **Described**: the rows below.
 
 Every row's `visible` (a boolean or a formula) and an input's or output's

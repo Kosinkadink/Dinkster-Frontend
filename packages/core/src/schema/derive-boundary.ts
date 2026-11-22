@@ -246,14 +246,14 @@ export function resolveBoundaryRoute(
   ): void => {
     const seg = segs[index]
     for (const raw of scopeRowsOf(rows)) {
-      if (raw.kind === 'row' || raw.kind === 'note' || raw.kind === 'button' || raw.kind === 'section') continue
+      if (raw.kind === 'row' || raw.kind === 'note' || raw.kind === 'editor' || raw.kind === 'button' || raw.kind === 'section') continue
       let row: BodyRow
       if (raw.kind === 'use') {
         const base = shared?.get(raw.id)
         if (base === undefined) continue
         row = applyUse(base, raw)
       } else row = raw
-      if (row.kind === 'row' || row.kind === 'section' || row.kind === 'note' || row.kind === 'button' || row.id !== seg) continue
+      if (row.kind === 'row' || row.kind === 'section' || row.kind === 'note' || row.kind === 'editor' || row.kind === 'button' || row.id !== seg) continue
       const full = `${prefix}${row.id}`
       const top = topItem ?? row
       const last = index === segs.length - 1

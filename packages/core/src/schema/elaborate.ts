@@ -739,6 +739,7 @@ export function elaborateInterface(
         described(row, scope.prefix + row.id, scope)
         return
       case 'note':
+      case 'editor':
       case 'button':
         return
     }

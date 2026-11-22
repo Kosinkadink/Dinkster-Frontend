@@ -546,7 +546,7 @@ export function workflowAssetRootsUnchanged(
       if (node.type.startsWith('#') || node.virtual || node.region || !schema || schema.virtual ||
           allRowsOf(schema.body).some((row) => row.kind === 'input' || row.kind === 'output'
             ? row.type.kind !== 'concrete' && row.type.kind !== 'asset'
-            : !['section', 'row', 'note', 'button'].includes(row.kind))) return false
+            : !['section', 'row', 'note', 'editor', 'button'].includes(row.kind))) return false
     }
   }
   return prepared.forward.every((op) => {
