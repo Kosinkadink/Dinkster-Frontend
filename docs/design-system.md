@@ -379,7 +379,7 @@ stale entries and lower ceilings. Write mode never permits count increases.
 `packages/app/src/styles.css` is the ordered entrypoint for the surface files
 in `styles/`. Keep imports in cascade order: base and product controls, search
 and modals, canvas and widget surfaces, panels and library, shell and execution
-log, widget assets and App view, collaboration and boot, then image editor.
+log, widget assets and App view, then collaboration, boot and shared editors.
 Keep each surface's responsive and reduced-motion rules beside its rules;
 do not regroup selectors across files if that changes override order.
 The `cssLiteral` entry for `styles.css` aggregates the entrypoint and every
@@ -410,19 +410,6 @@ after dismissal; Escape, Tab and outside clicks dismiss without cancelling the
 submitted command. Synchronous select callers keep their immediate behavior.
 Option IDs preserve pointer targets across inventory refreshes and reordering;
 labels, values and disabled state follow the current inventory.
-
-The compositor editor uses the same buttons, number inputs, checkboxes,
-sliders, text input and select controls as the Image document workspace.
-Layer selection and flips expose pressed state with the primary variant.
-`ProductColorInput` keeps the native color picker and forwards native input
-props while using shared input styling; the compositor retains lowercase
-color storage. Recipe edits, preview geometry and apply/refusal rules remain
-owned by the editor, not by the controls.
-
-The compositor uses ProductEmptyState when no target is open or when the
-selected run has no compositor sources. The latter keeps the explanation that
-the layer stack stays in the graph; Cancel remains enabled and Apply stays
-disabled until runtime data supplies a configurable recipe.
 
 The GLSL editor uses ProductEmptyState for missing targets, absent runtime
 inputs and unavailable browser previews. Preview refusals stay neutral while

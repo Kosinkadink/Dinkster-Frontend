@@ -55,9 +55,14 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { isSaveTarget } from '@dinkster/widgets'
-import { isAssetRef } from './image-editor.js'
+import { blake3 } from '@noble/hashes/blake3.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import { isAssetRef } from './workflow-asset-locations.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
-import { imageDocumentDigest } from './image-document-local.js'
+
+export function imageDocumentDigest(bytes: Uint8Array): `blake3:${string}` {
+  return `blake3:${bytesToHex(blake3(bytes))}`
+}
 
 interface CompositorInventory {
   readonly complete: boolean

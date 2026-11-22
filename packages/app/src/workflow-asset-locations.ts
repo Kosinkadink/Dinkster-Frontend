@@ -1,5 +1,12 @@
 import { subgraphDefIdOf, type AssetRef, type Json, type WorkflowDocument } from '@dinkster/core'
-import { isAssetRef } from './image-editor.js'
+
+export function isAssetRef(value: unknown): value is AssetRef {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const ref = value as Partial<AssetRef>
+  return Object.keys(value).length === 5 && /^blake3:[0-9a-f]{64}$/.test(ref.digest ?? '') &&
+    typeof ref.name === 'string' && Number.isSafeInteger(ref.size) && (ref.size ?? -1) >= 0 &&
+    typeof ref.mediaType === 'string' && typeof ref.virtualPath === 'string'
+}
 
 const EXT_KEY = 'dinkster.assetLocations'
 
