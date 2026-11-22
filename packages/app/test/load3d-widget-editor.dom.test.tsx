@@ -93,7 +93,6 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   let fail = true
-  let activeReads = 0
   let current = true
   const uploads: string[] = []
   const connection = {
@@ -108,10 +107,6 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
-    workflowAssetReader: () => ({ current: () => current, read: async <T,>(consume: () => Promise<T>) => {
-      activeReads++
-      try { return await consume() } finally { activeReads-- }
-    } }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -381,7 +376,6 @@ it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edite
   let entered = false
   let settled = false
   let readCount = 0
-  let activeReads = 0
   let current = true
   if (variant === 'viewer-close-mount' || variant === 'viewer-expired') fixtures.mount = () => pending
   const app = {
