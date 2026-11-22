@@ -12,6 +12,7 @@ import {
 import { render } from 'solid-js/web'
 import {
   Bell,
+  ChevronDown,
   CircleAlert,
   LayoutList,
   FolderOpen,
@@ -32,7 +33,6 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
-  ProductWordmark,
   ProductAccountMenu,
   ProductSignInControl,
   ProductBrandMark,
@@ -958,7 +958,7 @@ function WindowToolbarGallery() {
               onChange={(event) => setBrand(event.currentTarget.value)}
             >
               <option value="menu">Plain menu</option>
-              <option value="wordmark">Wordmark action</option>
+              <option value="wordmark">D symbol action</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -1099,7 +1099,12 @@ function WindowToolbarGallery() {
                         >
                           <ProductWindowAction
                             label="Dinkster menu"
-                            labelContent={<ProductWordmark theme={theme} />}
+                            labelContent={
+                              <>
+                                <ProductBrandMark />
+                                <ProductIcon icon={ChevronDown} />
+                              </>
+                            }
                             icon={() => <ProductBrandMark />}
                             pending={state() === 'pending'}
                             onClick={() => setActivity('Dinkster opened')}

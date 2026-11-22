@@ -224,7 +224,7 @@ for (const existing of [false, true]) {
     )
     expect(artifact.format).toBe('dinkster.desktop-chrome/1')
     expect(artifact.native).toEqual({
-      minimumWidth: { linux: 342, darwin: 422, win32: 478 },
+      minimumWidth: { linux: 374, darwin: 454, win32: 510 },
       overlay: {
         dark: { color: '#090D0D', symbolColor: '#F0F5F5', height: 44 },
         light: { color: '#EDEFF2', symbolColor: '#20252A', height: 44 },

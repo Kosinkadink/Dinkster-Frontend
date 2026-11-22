@@ -152,14 +152,31 @@ export function ProductWindowToolbar(props: {
   development?: boolean
 }) {
   let host!: HTMLElement
+  let search!: HTMLDivElement
   const [narrow, setNarrow] = createSignal(false)
   onMount(() => {
-    const observer = new ResizeObserver(([entry]) => {
+    const observer = new ResizeObserver(() => {
+      const frame = host.getBoundingClientRect()
+      const slot = search.getBoundingClientRect()
+      const action = search.firstElementChild as HTMLElement | null
+      const width = action?.getBoundingClientRect().width ?? 0
+      const left = Math.max(
+        0,
+        Math.min(
+          slot.width - width,
+          frame.left + (frame.width - width) / 2 - slot.left,
+        ),
+      )
+      if (action) action.style.left = `${left}px`
       setNarrow(
-        entry!.contentRect.width < components.layout.toolbarFullRowWidth,
+        frame.width -
+          parseFloat(getComputedStyle(host).paddingLeft) -
+          parseFloat(getComputedStyle(host).paddingRight) <
+          components.layout.toolbarFullRowWidth,
       )
     })
     observer.observe(host)
+    observer.observe(search)
     onCleanup(() => observer.disconnect())
   })
   return (
@@ -172,7 +189,9 @@ export function ProductWindowToolbar(props: {
     >
       <div class="dinkster-window-toolbar">
         <div class="dinkster-window-toolbar-brand">{props.brand}</div>
-        <div class="dinkster-window-toolbar-search">{props.search}</div>
+        <div ref={search} class="dinkster-window-toolbar-search">
+          {props.search}
+        </div>
         <div class="dinkster-window-toolbar-actions">
           {typeof props.actions === 'function'
             ? props.actions(narrow)
