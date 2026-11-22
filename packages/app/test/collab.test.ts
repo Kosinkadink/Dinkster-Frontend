@@ -505,7 +505,7 @@ describe('share', () => {
       const prior = activeTab(app)
       await until(() => 'status' in activeTab(app).store, 'initial promotion')
       const tab = activeTab(app)
-      expect((await app.dispatchRetainedTo(tab, { command: 'node.add', params: {
+      expect((await app.dispatchTo(tab, { command: 'node.add', params: {
         graphId: tab.store.doc.root, type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
           held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
         },
@@ -516,7 +516,7 @@ describe('share', () => {
       const shared = activeTab(app)
       expect([...receipts.values()].some((receipt) => receipt.digests.includes(digest))).toBe(true)
       const node = Object.values(shared.store.doc.graphs[shared.store.doc.root]!.nodes).find((entry) => entry.type === 'AssetHolder')!
-      expect((await app.dispatchRetainedTo(shared, { command: 'node.remove', params: {
+      expect((await app.dispatchTo(shared, { command: 'node.remove', params: {
         graphId: shared.store.doc.root, nodeIds: [node.id],
       } })).ok).toBe(true)
       if (ordered) await sharedSession(app, shared.id).settle()
