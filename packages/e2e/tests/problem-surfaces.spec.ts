@@ -203,7 +203,7 @@ test('Selection only follows canvas selection without changing the full problem 
   await panel.getByRole('checkbox', { name: 'Selection only' }).check()
   await expect(panel.getByTestId('problems-selection')).toHaveText('Nothing selected')
   await expect(panel.locator('details.problem')).toHaveCount(0)
-  await expect(tab.getByTestId('panel-indicator')).toHaveText('2')
+  await expect(tab.getByTestId('panel-indicator').locator('[aria-hidden="true"]')).toHaveText('2')
   await page.evaluate(() => { window.__dinksterTest!.controller!.setSelection(['source']) })
   await expect(panel.getByTestId('problems-selection')).toHaveText('Source proof')
   await expect(panel.locator('details.problem')).toHaveCount(1)
@@ -217,7 +217,7 @@ test('Selection only follows canvas selection without changing the full problem 
 })
 
 test('the problem indicator is discoverable from every right-panel state and clears at zero', async ({ page }) => {
-  // The default active rail tab is Executions, so Problems starts INACTIVE;
+  // The default active rail tab is Runs, so Problems starts INACTIVE;
   // at the default rail width it is clipped into the all-tabs menu.
   const problemsTab = railTab(page, 'problems')
   const overflowButton = page.getByTestId('dock-zone-right').getByTestId('dock-zone-overflow-button')

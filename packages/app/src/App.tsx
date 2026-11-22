@@ -1230,6 +1230,10 @@ export function App(props: {
     </article>
   }
 
+  const RunList = (p: { runs: readonly ExecutionState[] }) => <For each={p.runs.map((run) => run.key)}>
+    {(key) => <Show when={executions().get(key)}>{(execution) => <ExecutionRow exec={execution()} />}</Show>}
+  </For>
+
   // ---- Shell panels ------------------------------------------------------
   // Surfaces are registered descriptors; the sidebar, dock, and rail render
   // from the registry, so moving a surface is a descriptor change, not a
@@ -1478,7 +1482,7 @@ export function App(props: {
       <Show when={runScope() === 'workflow'} fallback={<>
         <Show when={activeBackend().protocol === 'dinkster'}>
           <div role="list" aria-label={message('runs.pending')}>
-            <For each={pendingRuns()}>{(execution) => <ExecutionRow exec={execution} />}</For>
+            <RunList runs={pendingRuns()} />
           </div>
         </Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
@@ -1489,23 +1493,23 @@ export function App(props: {
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
-        <For each={executionGroups()}>
-          {(group) => (
-            <div class="backend-group" role="list" aria-label={group.backend?.label ?? `${group.id} removed backend executions`}>
-              <Show when={multiBackend() || group.backend === undefined}>
+        <For each={executionGroups().map((group) => group.id)}>
+          {(id) => <Show when={executionGroups().find((group) => group.id === id)}>{(group) => (
+            <div class="backend-group" role="list" aria-label={group().backend?.label ?? `${id} removed backend executions`}>
+              <Show when={multiBackend() || group().backend === undefined}>
                 <h3
                   class="backend-group-title"
-                  classList={{ disconnected: group.backend === undefined }}
+                  classList={{ disconnected: group().backend === undefined }}
                   data-testid="backend-group"
-                  data-connection={group.id}
-                  role={group.backend === undefined ? 'status' : undefined}
+                  data-connection={id}
+                  role={group().backend === undefined ? 'status' : undefined}
                 >
-                  {group.backend?.label ?? `${group.id} - backend removed or disconnected`}
+                  {group().backend?.label ?? `${id} - backend removed or disconnected`}
                 </h3>
               </Show>
-              <For each={group.execs}>{(exec) => <ExecutionRow exec={exec} />}</For>
+              <RunList runs={group().execs} />
             </div>
-          )}
+          )}</Show>}
         </For>
         <RunIterations />
       </Show>
@@ -3311,7 +3315,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
         <Show when={!provenance().backendAvailable && images().length > 0}>
           <p role="status">Execution owner removed or disconnected. Retained output routes are used when available.</p>
         </Show>
-        <Show when={props.execution.errors.length > 0 && images().length > 0}>
+        <Show when={props.execution.errors.length > 0}>
           <p class="output-execution-error" role="alert">{props.execution.errors.map((error) => error.message).join(' ')}</p>
         </Show>
       </section>

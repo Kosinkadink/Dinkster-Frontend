@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, nativeTest as test } from './fixtures.js'
+import { expect, openRailPanel, waitForStartupOwnership, nativeTest as test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_REGION_INSPECTOR_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -33,6 +33,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 
   await page.evaluate(async () => {
     const bridge = window.__dinksterTest!

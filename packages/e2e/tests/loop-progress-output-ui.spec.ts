@@ -91,17 +91,17 @@ test('loop progress and outputs render per item', async ({ page }) => {
     await page.screenshot({ path: join(proofDir, 'loop-queue-progress.png'), animations: 'disabled', fullPage: true })
   }
 
-  await page.getByRole('tab', { name: 'Outputs' }).click()
-  const outputs = page.getByTestId('outputs-panel')
+  await page.getByRole('tab', { name: 'Runs', exact: true }).click()
+  const outputs = page.getByTestId('runs-panel')
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 1', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
-  ).toContainText('item-1.png')
+    outputs.getByRole('region', { name: 'mapImages - item 1', exact: true }).locator('.output-thumbnail'),
+  ).toHaveAccessibleName(/item-1.png/)
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 2', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
-  ).toContainText('item-2.png')
+    outputs.getByRole('region', { name: 'mapImages - item 2', exact: true }).locator('.output-thumbnail'),
+  ).toHaveAccessibleName(/item-2.png/)
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 1 / nested - item 3', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
-  ).toContainText('nested-item.png')
+    outputs.getByRole('region', { name: 'mapImages - item 1 / nested - item 3', exact: true }).locator('.output-thumbnail'),
+  ).toHaveAccessibleName(/nested-item.png/)
   await expect(outputs.locator('.output-thumbnail')).toHaveCount(3)
   if (proofDir !== undefined) {
     await page.setViewportSize({ width: 1440, height: 1600 })

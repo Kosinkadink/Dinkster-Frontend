@@ -10,7 +10,7 @@
 .runs-details { min-width: 0; order: 2; }
 .runs-details > summary { cursor: pointer; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
 .runs-details > :not(summary) { margin-top: var(--dinkster-space-8); }
-.runs-output-thumbnails { display: flex; align-items: stretch; min-width: 0; gap: var(--dinkster-space-4); }
+.outputs.runs-output-thumbnails { display: flex; align-items: stretch; min-width: 0; gap: var(--dinkster-space-4); }
 .runs-output-thumbnails .output-iteration-group, .runs-output-thumbnails .output-iteration-images { display: contents; }
 .runs-output-thumbnails .output-iteration-group > h3, .runs-output-thumbnails .output-thumbnail-position { display: none; }
 .runs-output-thumbnails [role='listitem'] { flex: 1; min-width: 0; max-width: 33%; }

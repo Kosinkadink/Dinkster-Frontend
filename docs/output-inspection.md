@@ -10,7 +10,10 @@ backends use browser execution history instead.
 Each run has one thumbnail row with up to three previews. The overflow count
 opens the existing image viewer in Grid mode; a thumbnail opens it in Single
 mode. Details keeps run metadata, output identities, saved files and typed
-media inspection below the row. The separate Outputs panel is removed.
+media inspection below the row. Failures retain their full error message in
+Details even when the run produced no images. Execution updates keep the
+same run's Details open and preserve media inspection state. The separate
+Outputs panel is removed.
 
 Runs does not invent artifact authority. Every media URL is resolved through that execution's
 backend by `assetUrlForExecution` or its values API, including retained
