@@ -91,6 +91,7 @@ import {
   PanelIndicatorBadge,
   ShellRegionIcon,
   ShellResizeHandle,
+  ShellTooltip,
   TransientStatus,
 } from './ShellChrome.js'
 import { PanelDragOverlay } from './PanelDragOverlay.js'
@@ -2985,15 +2986,7 @@ export function App(props: {
         <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => (
-        <aside class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
-          <div role="tooltip">
-            <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
-            <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
-            <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
-          </div>
-        </aside>
-      )}</Show>
+      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"

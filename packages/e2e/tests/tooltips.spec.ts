@@ -109,6 +109,22 @@ test('top-right tooltip uses its real width and follows content changes', async 
   await page.keyboard.up('Alt')
   await expect(tooltip).not.toContainText('Second detail line.')
   await assertPlacement()
+  await target.evaluate((element) => {
+    Object.assign((element as HTMLElement).style, { position: 'fixed', left: '50%', top: '40%' })
+  })
+  await page.setViewportSize({ width: 1100, height: 700 })
+  await assertPlacement()
+  await target.evaluate((element) => {
+    (element as HTMLElement).dataset['tooltipDetail'] = Array.from({ length: 30 }, (_, index) => `Layout detail line ${index + 1}`).join('|')
+  })
+  await page.setViewportSize({ width: 1100, height: 300 })
+  await page.keyboard.down('Alt')
+  await expect(tooltip).toContainText('Layout detail line 1')
+  await assertPlacement()
+  const box = (await tooltip.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(292)
+  await page.screenshot({ path: testInfo.outputPath('short-window-tooltip.png') })
+  await page.keyboard.up('Alt')
 })
 
 test('bottom-edge tooltip flips above its element without overlapping it', async ({ page }, testInfo) => {
@@ -125,6 +141,22 @@ test('bottom-edge tooltip flips above its element without overlapping it', async
   const box = (await tooltip.boundingBox())!
   expect(box.x).toBeGreaterThanOrEqual(8)
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width - 8)
+})
+
+test('activity rail tooltip stays beside its item at desktop and compact widths', async ({ page }, testInfo) => {
+  const target = page.getByTestId('settings-button')
+  const tooltip = page.getByTestId('app-tooltip')
+  for (const width of [1440, 480]) {
+    await page.setViewportSize({ width, height: 900 })
+    await target.focus()
+    await expect(tooltip).toBeVisible()
+    await expect.poll(async () => {
+      const anchor = (await target.boundingBox())!
+      const box = (await tooltip.boundingBox())!
+      return Math.abs(box.x - anchor.x - anchor.width - 8) + Math.abs(box.y - anchor.y - (anchor.height - box.height) / 2)
+    }).toBeLessThan(0.1)
+    await page.screenshot({ path: testInfo.outputPath(`activity-help-${width}.png`) })
+  }
 })
 
 test('node palette port product tooltip preserves hover and keyboard wording', async ({ page }) => {
