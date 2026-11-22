@@ -40,7 +40,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductErrorBanner, ProductToast } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductToast } from '@dinkster/ui'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -2646,7 +2646,7 @@ export function App(props: {
               <p>{message('shell.close.confirm', { title: pending.title })}</p>
               <ProductActionFooter>
                 <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <ProductButton variant="danger" type="button" onClick={confirmPendingClose}>{message('shell.close.discard')}</ProductButton>
+                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
               </ProductActionFooter>
             </div>
           </ModalSurface>
@@ -2666,7 +2666,7 @@ export function App(props: {
             <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
             <ProductActionFooter>
               <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
-              <ProductButton variant="danger" type="button" onClick={confirmCloseOthers}>{message('shell.close.discard')}</ProductButton>
+              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
             </ProductActionFooter>
           </div>
         </ModalSurface>
