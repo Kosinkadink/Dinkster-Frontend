@@ -839,8 +839,9 @@ The overlay derives its position from the widget's world rectangle and the
 renderer viewport signal. Camera pan and zoom update its screen position and
 dimensions while it remains open. Its 18px label band, 14px content font, 20px
 line height, 6px padding, 8px reserved gutter, and corner radius scale with
-zoom and match the Canvas2D field. The editor stays inside the shared 2px
-top/bottom chrome inset, has no resize handle or browser outline, and uses a
+zoom and match the Canvas2D field. The editor covers the same field box the
+canvas paints, inset by the `fieldInsetY` token, has no resize handle or
+browser outline, and uses a
 6px product-themed scrollbar with bounded vertical scrolling. Generic widget
 field rules exclude Product fields without raising selector specificity, so
 the in-node borderless geometry overrides ordinary popover field chrome.
@@ -850,6 +851,28 @@ the same gutter and paints a proportional scrollbar indicator inside the
 rounded chrome. The painted indicator is deliberately non-interactive because
 canvas rows have no scroll interaction; the open editor scrolls. The box never
 grows while typing.
+
+Clicking into a text box moves no pixel of its label or text: only the box's
+outline and the cursor appear. The canvas places its bitmap and its text
+baselines on whole device pixels, while DOM layout rounds font metrics and
+centering its own way, so a computed offset lands a pixel off at some zooms.
+The editor therefore places itself on the canvas's device pixel grid, measures
+where the browser lays out the label's and the first line's baselines, and
+moves each onto the row the canvas painted it on
+(`canvasBaselineRow` and `domFirstBaseline` in
+`packages/app/src/widget-editor-position.ts`). It measures again when the
+camera moves while the box is open.
+
+The open box also keeps everything else the canvas paints in it, so nothing
+appears or disappears except the outline, the cursor and a selection. It
+opens scrolled to its top, as the canvas paints it, with the cursor where the
+click landed. It keeps the bar near the bottom edge, and it masks the top and
+bottom padding so scrolled text is clipped where the canvas clips it. Its
+scrollbar is drawn with the canvas's track and thumb formula and follows the
+scroll; the browser's scrollbar stays over it, unseen, so it can still be
+dragged. `packages/e2e/tests/in-row-field-still.spec.ts` compares the ink of
+the label, each line, the bar and the scrollbar closed and open at 100, 150
+and 200 percent, for a default box, a box made taller and a box that scrolls.
 
 ### Text box height
 
