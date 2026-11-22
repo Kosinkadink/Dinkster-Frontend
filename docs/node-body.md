@@ -75,6 +75,10 @@ How a group grows:
 - `button`: the node shows an add control after the members.
 - `count`: a formula over stored values gives the number of members, within
   the group's bounds. These members are not stored and there is no spare.
+  A formula or lookup argument that reads the size or the members of such a
+  group from outside a member (`len(g)`, `sum(g.s)`), a count reading its own
+  group included, is refused at load as not built yet; a member's formulas
+  may read its own rows.
 - `followList` is refused with `elab.group.followList`.
 
 A count or leader formula that names a row under an option that is not

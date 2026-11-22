@@ -1949,13 +1949,16 @@ function decodeBodySchema(nodeType: string, wire: DinksterWireSchema, diags: Dia
     if (row.kind !== 'button') throw new Error(`menu[${index}] is a Button`)
     return row
   })
-  checkBody(body, { tables: formulaTablesOf(tables), derived: new Map(Object.entries(derived)) })
+  const titleSuffix = wire.titleSuffix !== undefined && wire.titleSuffix !== '' ? wireFormulated<string>(wire.titleSuffix, 'titleSuffix', 'string') : undefined
+  checkBody(body, { tables: formulaTablesOf(tables), derived: new Map(Object.entries(derived)) }, {
+    validate, menu, ...(titleSuffix === undefined ? {} : { titleSuffix }),
+  })
   return {
     body,
     ...(Object.keys(tables).length > 0 ? { tables } : {}),
     ...(Object.keys(derived).length > 0 ? { derived } : {}),
     ...(validate.length > 0 ? { validate } : {}),
-    ...(wire.titleSuffix !== undefined && wire.titleSuffix !== '' ? { titleSuffix: wireFormulated<string>(wire.titleSuffix, 'titleSuffix', 'string') } : {}),
+    ...(titleSuffix === undefined ? {} : { titleSuffix }),
     ...(menu.length > 0 ? { menu } : {}),
   }
 }
