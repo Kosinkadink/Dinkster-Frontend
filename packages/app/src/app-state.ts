@@ -3423,7 +3423,6 @@ export class AppState {
         if (identity !== undefined) saveExecutionResult(execution, identity)
       }
       this.retireUnusedResultOwners()
-      this.retireUnusedPreviewOwners()
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
     })
@@ -9174,7 +9173,7 @@ export class AppState {
   private async sourceDocumentFor(
     tab: Tab,
     backend: Extract<Backend, { protocol: 'dinkster' }>,
-  ): Promise<{ sourceDocument: string; retained: Promise<RetainedAssets | undefined>; project: string; generation: number | undefined } | undefined> {
+  ): Promise<{ sourceDocument: string } | undefined> {
     const revision = tab.store.revision
     const snapshot = tab.store.doc
     const registry = this.registryForTab(tab)
@@ -9186,39 +9185,17 @@ export class AppState {
     const cached = this.sourceDocCache.get(tab)
     try {
       const document = this.stampedDocumentOf(tab)
-      const resolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
       const digest = cached?.connection === backend.connection && cached.revision === revision &&
         cached.schemaHash === schemaHash && cached.document === snapshot && cached.project === project && cached.generation === generation
         ? cached.digest : await backend.connection.uploadAsset(JSON.stringify(document))
       if (!current()) return undefined
-      const retained = Promise.resolve().then(async () => {
-        const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] }, resolve, [], 'publication', digest)
-        return retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-      }).catch((error: unknown) => {
-        console.warn('Run source file-list recording failed', error)
-        return undefined
-      })
       if (schemaHash !== undefined) this.sourceDocCache.set(tab, {
         connection: backend.connection, revision, schemaHash, digest, document: snapshot, project, generation,
       })
-      return { sourceDocument: digest, retained, project, generation }
+      return { sourceDocument: digest }
     } catch {
       return undefined // absence of a stamp is fully valid
     }
-  }
-
-  private handoffSourceDocument(
-    backend: Backend, ref: ExecutionRef, source: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
-  ): void {
-    if (source === undefined) return
-    void source.retained.then((retained) => {
-      if (retained === undefined || this.disposed || activeProjectId() !== source.project ||
-        this.backendFor(backend.id) !== backend ||
-        this.assetConnectionGenerations.get(backend.connection) !== source.generation) return
-      this.resultAssetOwners.set(retained.ownerId, { backend, retained,
-        project: source.project, generation: source.generation, execution: executionKey(ref), interim: true, observed: true })
-      this.retireUnusedResultOwners()
-    }).catch((error: unknown) => { console.warn('Run file-list handoff failed', error) })
   }
 
   /**
@@ -10915,7 +10892,6 @@ export class AppState {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
         ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
       })
-      this.handoffSourceDocument(backend, submitted.execution, sourceDocument)
       this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
       // Network/transport failures must land in Problems, never vanish -
@@ -11003,7 +10979,6 @@ export class AppState {
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
           ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
         })
-        this.handoffSourceDocument(backend, ok.execution, sourceDocument)
         this.log(
           'info',
           this.backendFor(ok.execution.connection)?.label ?? String(ok.execution.connection),
