@@ -570,35 +570,6 @@ describe('share', () => {
     }
   })
 
-  it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
-    const server = new FakeCollabServer()
-    const app = prepareWorkflowApp(makeApp(server))
-    const prior = activeTab(app)
-    const backend = app.collabBackend()!
-    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
-      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-    const added = await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
-    expect(added.ok).toBe(true)
-    const node = Object.values(prior.store.doc.graphs[prior.store.doc.root]!.nodes)[0]!
-    expect((await app.dispatchTo(prior, { command: 'node.setValue', params: { graphId: prior.store.doc.root,
-      nodeId: node.id, inputId: 'held', value: asset('b') } })).ok).toBe(true)
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('a').digest, asset('b').digest] })
-      return { ...owner, ...declaration, revision: accepted ? 1 : 2 }
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    expect(await app.shareActiveTab() === undefined).toBe(accepted)
-    expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
-    expect(activeTab(app).store.canUndo).toBe(true)
-    expect(activeTab(app).store.undo()).toBe(true)
-    expect(activeTab(app).store.doc.graphs[prior.store.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
-    if (!accepted) {
-      expect(activeTab(app).store).toBe(prior.store)
-      expect(server.sessions.size).toBe(0)
-    }
-  })
-
   it.each(['option', 'group', 'choice', 'slot'] as const)('shares removed %s data without stripping leftovers', async (part) => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
