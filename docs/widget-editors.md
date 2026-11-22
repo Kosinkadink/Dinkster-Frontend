@@ -462,6 +462,20 @@ limits, a `default` link that stores the declared default, and the help text.
 A seed's side part also holds its four after-run modes as one group of icons
 and a `new seed` link; the closed row shows the mode as an icon before the
 value. A slider's fill follows the typed text while it is in range.
+Clicking into a row moves nothing drawn in it: the label, the value, a seed's
+mode icon and the steppers stay on the pixels the canvas drew them on, and
+only the outline and the cursor appear.
+
+The side part stays whole on the visible canvas, which ends at the status
+bar, a docked panel or the on-screen keyboard; it is drawn over the canvas's
+floating tools, and the canvas never moves for it. It takes the first of
+these places that holds it whole: beside the node on the right, then on the
+left, sliding up or down just far enough and still touching the field's row;
+under the node; over the node; under the field, over the node's lower rows;
+over the field. Zoomed out, only the last two. When no place holds it whole,
+it goes under or over the field, whichever has more room, takes the room
+there is and scrolls with its first lines in view. It never covers its field
+and never runs past an edge of the visible canvas.
 
 - Enter stores and keeps the keyboard on the row; Escape cancels and keeps it
   there too. Ctrl+Enter stores, then runs the workflow.

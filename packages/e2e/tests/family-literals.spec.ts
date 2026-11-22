@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
 
 for (const named of [false, true]) {
   test(`canonical forwarded family edits its instance in a drilled view (named=${named})`, async ({ page }, testInfo) => {
@@ -45,15 +45,8 @@ for (const named of [false, true]) {
       if (diagnostics.length) throw new Error(JSON.stringify(diagnostics))
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     }, { names, named })
-    const header = await page.evaluate(() => {
-      const renderer = window.__dinksterTest!.renderer!
-      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'instance')!
-      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-      const viewport = renderer.getViewport()
-      return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
-        y: rect.top + (node.y + 14) * viewport.scale + viewport.y }
-    })
-    await page.mouse.dblclick(header.x, header.y)
+    const mark = await subgraphMarkPoint(page, 'instance')
+    await page.mouse.dblclick(mark.x, mark.y)
     await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
     await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'n'))
     await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1.4 }))

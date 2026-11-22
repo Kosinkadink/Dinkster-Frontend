@@ -72,8 +72,10 @@ describe('buildCanvasSemanticItems', () => {
 
     expect(items.map((item) => item.label)).toEqual([
       'Node: Source, 0 inputs, 1 output, in Image pipeline, running 50 percent, live result estimated locally: float: 3.5, int: 3',
+      'Button: Minimize Source',
       'Output: Image of Source, IMAGE, 1 connection',
       'Node: Sink, 1 input, 0 outputs, in Image pipeline, muted, blocking warning',
+      'Button: Minimize Sink',
       'Input: Image of Sink, IMAGE, optional, blocking-warning, 1 connection',
       'Row: strength of Sink, 0.50',
       'Row: caption of Sink, two lines',
@@ -122,6 +124,10 @@ describe('buildCanvasSemanticItems', () => {
     expect(items.find((item) => item.key === 'node:sink')?.label)
       .toContain('minimized, 1 hidden connected input, 0 hidden connected outputs')
     expect(items.some((item) => item.category === 'port')).toBe(false)
+    expect(items.find((item) => item.key === 'minimize:source')).toMatchObject({
+      label: 'Button: Restore Source',
+      target: { kind: 'minimize', nodeId: 'source' },
+    })
     expect(items.find((item) => item.key === 'link:link-1')?.label)
       .toContain('Source.Retained label to Sink.Retained label')
   })

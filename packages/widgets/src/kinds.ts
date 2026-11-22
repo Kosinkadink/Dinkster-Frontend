@@ -821,10 +821,11 @@ export const listView: WidgetView<Json[]> = {
       compactRow(ctx, label, Array.isArray(value) ? 'Empty' : JSON.stringify(value), state, 'widget.edit', Array.isArray(value))
       return
     }
-    // A number is written as a number row writes it; `items` lets the painter
-    // show as many values as fit and count the rest.
-    const items = value.map((item) => typeof item === 'number' && spec.element !== undefined
-      ? formatWidgetValue(item, spec.element)
+    // A number is written as stored, in the shortest text that reads back as
+    // the same number, never rounded to the element's step. `items` lets the
+    // painter show as many values as fit and count the rest.
+    const items = value.map((item) => typeof item === 'number'
+      ? String(item)
       : typeof item === 'string' ? item : JSON.stringify(item))
     compactRow(ctx, label, items.join(', '), state, 'widget.edit', false, { items })
   },

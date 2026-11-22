@@ -315,6 +315,9 @@ export interface NodeLayout {
   }
 }
 
+/** Offset from a node's left edge to its title, past the minimize arrow's target. */
+export const TITLE_START: number = canvasPaintTokens.node.minimizeArrow.left + canvasPaintTokens.node.minimizeArrow.target
+
 /** Shared visible bounds for registry widget chrome and its overlay states. */
 export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
   readonly x: number
@@ -1189,7 +1192,7 @@ export function layoutNode(
   const titleRenamed = node.title !== undefined && node.title !== schema.displayName
   const title = node.title ?? schema.displayName
   const titleWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title')
-  let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
+  let width = Math.max(tokens.nodeMinWidth, titleWidth + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
     let content = 0
     if (row.kind === 'ports') {

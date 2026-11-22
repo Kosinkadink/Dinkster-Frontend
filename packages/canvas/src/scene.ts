@@ -47,6 +47,7 @@ import {
   traceEndpointAll,
   typeExprFromTypeId,
   type BoundaryItem,
+  type BoundaryPositionResolver,
   type CommandInvocation,
   type Diagnostic,
   type DynamicPortState,
@@ -78,6 +79,7 @@ import {
   insetRowStack,
   layoutBoundaryNode,
   REGION_INDEX_SLOT,
+  TITLE_START,
   layoutNode,
   type BoundarySlotInfo,
   type LayoutRow,
@@ -871,6 +873,7 @@ export interface BuildSceneInput {
     readonly owner: OccurrenceRef
     readonly plannerAvailable: boolean
   }
+  /** Effective state for an occurrence; inferred from the document when omitted. */
   readonly occurrenceView?: {
     readonly dynamic: ReadonlyMap<string, Readonly<Record<string, DynamicPortState>>>
     readonly values?: ReadonlyMap<string, Readonly<Record<string, Json>>>
@@ -1036,6 +1039,16 @@ export function updateSceneNodeValues(
   return changed ? { ...scene, nodes } : scene
 }
 
+/** Use the rendered layout when persisting a definition's initial panel positions. */
+export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPositionResolver> {
+  const scene = buildScene(input)
+  const position = (side: 'inputs' | 'outputs') => {
+    const panel = scene.boundaryNodes.find((node) => node.side === side)!
+    return { position: { x: panel.x, y: panel.y } }
+  }
+  return { inputs: position('inputs'), outputs: position('outputs') }
+}
+
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
@@ -1043,6 +1056,10 @@ export function buildScene(input: BuildSceneInput): Scene {
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  if (input.occurrenceView === undefined) {
+    const occurrenceView = occurrenceDynamicView(input.document, input.resolve, sourcePath ?? [], sourcePath === undefined ? input.graphId : input.document.root)
+    if (input.occurrence !== undefined || occurrenceView.values.size > 0) input = { ...input, occurrenceView }
+  }
   const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     return resolveSource(graphId, sourceId, path)
@@ -2349,7 +2366,7 @@ function missingLayout(
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
-  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding
+  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {

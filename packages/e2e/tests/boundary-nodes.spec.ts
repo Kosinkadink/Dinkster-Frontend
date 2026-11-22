@@ -10,7 +10,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -131,16 +131,8 @@ async function openSubgraphWorkflow(page: Page): Promise<void> {
 
 /** Double-click the instance header to drill into the definition. */
 async function drillIntoSub(page: Page): Promise<void> {
-  const header = await page.evaluate(() => {
-    const r = window.__dinksterTest!.renderer!
-    const node = r.getScene().nodes.find((n) => n.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await identityViewport(page)
@@ -183,14 +175,20 @@ test('panels appear only inside the definition, with side-correct pins', async (
 
 test('dragging a panel persists ONE view.moveBoundaryNode; undo/redo round-trips', async ({ page }) => {
   await drillIntoSub(page)
-  const before = (await boundaryNodes(page)).find((b) => b.side === 'inputs')!
+  const panelsBefore = await boundaryNodes(page)
+  const before = panelsBefore.find((b) => b.side === 'inputs')!
+  const outputsBefore = panelsBefore.find((b) => b.side === 'outputs')!
 
   const start = await boundaryHeaderPoint(page, 'inputs')
   await drag(page, start, { x: start.x + 120, y: start.y + 60 })
 
   const expected = { x: before.x + 120, y: before.y + 60 }
   const moved = await activeDoc(page)
-  expect(moved.view.graphs['sub']!.boundary).toEqual({ inputs: { position: expected } })
+  const savedBoundary = {
+    inputs: { position: expected },
+    outputs: { position: { x: outputsBefore.x, y: outputsBefore.y } },
+  }
+  expect(moved.view.graphs['sub']!.boundary).toEqual(savedBoundary)
   const movedPanel = (await boundaryNodes(page)).find((b) => b.side === 'inputs')!
   expect({ x: movedPanel.x, y: movedPanel.y }).toEqual(expected)
   // Pure view state: the boundary definition itself is untouched.
@@ -205,7 +203,7 @@ test('dragging a panel persists ONE view.moveBoundaryNode; undo/redo round-trips
 
   await page.keyboard.press('Control+Shift+z')
   const redone = await activeDoc(page)
-  expect(redone.view.graphs['sub']!.boundary).toEqual({ inputs: { position: expected } })
+  expect(redone.view.graphs['sub']!.boundary).toEqual(savedBoundary)
 })
 
 test('double-clicking boundary row labels renames input and output ports', async ({ page }) => {

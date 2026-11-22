@@ -96,6 +96,16 @@ const chromeCss = postcss.root()
 for (const node of postcss.parse(embeddedCss).nodes) {
   if (node.type === 'atrule' && node.name === 'font-face')
     chromeCss.append(node.clone())
+  if (
+    node.type === 'atrule' &&
+    node.name === 'container' &&
+    node.nodes?.some(
+      (child) =>
+        child.type === 'rule' &&
+        child.selector.includes('.dinkster-window-toolbar'),
+    )
+  )
+    chromeCss.append(node.clone())
   if (node.type !== 'rule') continue
   if (node.selector === ':root')
     chromeCss.append(
@@ -111,7 +121,7 @@ for (const node of postcss.parse(embeddedCss).nodes) {
       }),
     )
   else if (
-    /\.dinkster-(?:desktop-bar|window-chrome|window-identity|window-fallback)\b/.test(
+    /\.dinkster-(?:desktop-bar|window-(?:chrome|identity|fallback|toolbar|action))\b/.test(
       node.selector,
     )
   )

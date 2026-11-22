@@ -61,8 +61,7 @@ left-aligned and flowing right: error, then warning, then info. The error tab
 is the run error report's single visual - the same `ExecutionState.errors`
 diagnostics the Execution log projects - and shows a count when more than one
 diagnostic anchors to the node. The warning tab counts the node's warning log
-records; a compact info dot marks that the node produced any informational
-records. Warning and info badges derive from the run's log records, so they
+records; a Log tab marks that the node produced any informational records. Warning and info badges derive from the run's log records, so they
 clear when the next run starts, and they follow the view: inside a subgraph
 they sit on the inner node that logged, and on the collapsed instance node
 when viewed from the parent graph.
@@ -76,5 +75,5 @@ it selects the Current run and pre-filters the Node selector to that node.
 A collapsed subgraph instance aggregates several runtime occurrences, so
 opening from its badge filters to all of them at once ("Focused node (N
 occurrences)"); picking any node manually returns to the ordinary filter.
-Document problem badges (compile and validation diagnostics) are unaffected
-and stay in the node header lane.
+Document problem tabs (compile and validation diagnostics) sit in the same
+bottom lane after the run's tabs.

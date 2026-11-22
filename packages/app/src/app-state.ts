@@ -20,6 +20,8 @@ import {
   compile,
   documentResolver,
   coreCommandRegistry,
+  initializeBoundaryViews,
+  type BoundaryPositionResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
@@ -176,7 +178,8 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { canvasMeasures } from './canvas-measures.js'
 import { createComponent } from 'solid-js'
 import pkg from '../package.json'
 import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
@@ -3347,10 +3350,11 @@ export class AppState {
     this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org/static' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     this.frontendDoors.nodeDecoration('core.node.mode', {
+      // The decoration contract has no title placement, so the mode tabs name their side.
       decorate: (node) => node.mode === 'muted'
-        ? { badges: [MUTED_BADGE] }
+        ? { badges: [{ ...MUTED_BADGE, placement: 'above' }] }
         : node.mode === 'bypassed'
-          ? { badges: [BYPASSED_BADGE] }
+          ? { badges: [{ ...BYPASSED_BADGE, placement: 'above' }] }
           : undefined,
     })
     registerCoreWidgets(this.frontendDoors)
@@ -4620,6 +4624,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
+          boundaryPositionsFor: this.boundaryPositionResolver(resolve),
           validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, resolve, retainedDocuments),
           beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
             const owner = this.tabs.get().find((candidate) => candidate.store === (session ?? tab.store))
@@ -6745,6 +6750,26 @@ export class AppState {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
+  private boundaryPositionResolver(resolve: SchemaResolver): BoundaryPositionResolver {
+    return (document, graphId) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
+      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
+      const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
+      const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
+      return boundaryPositions({
+        document, graphId, resolve: resolver,
+        tokens: defaultTokens, ...measurements,
+        seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
+        renderVirtualNode: (node) => this.virtualNodeKinds.get(node.type)?.render(node),
+        occurrenceView: occurrenceDynamicView(document, resolver, path, path.length === 0 ? graphId : document.root),
+        ...(path.length > 0 ? { occurrence: {
+          owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
+          plannerAvailable: false,
+        } } : {}),
+      })
+    }
+  }
+
   private makeTab(
     document: WorkflowDocument,
     title: string,
@@ -6772,6 +6797,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
+        boundaryPositionsFor: this.boundaryPositionResolver(resolve),
         validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
@@ -7627,6 +7653,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
+        boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, sessionResolver, retainedDocuments),
         beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
           const live = this.tabs.get().find((tab) => tab.store === session)
@@ -9458,8 +9485,12 @@ export class AppState {
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
     ])
-    if (!unavailable) return result
-    return { ...result, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
+    const imported = result.document === undefined ? result : {
+      ...result,
+      document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
+    }
+    if (!unavailable) return imported
+    return { ...imported, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
       ? { ...entry, code: 'import.registry.unreachable', message: `registry could not be reached; ${entry.message}`, data: { detail: entry.message } }
       : entry) }
   }

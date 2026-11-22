@@ -49,38 +49,28 @@ export const canvasPaintTokens = {
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   graphCache: { tilePixels: 512, bleedPixels: 2 },
   badge: {
-    size: 14,
-    stride: 18,
-    rightInset: 22,
-    characterWidth: 5.5,
-    labelPadding: 10,
-    iconWidth: 10,
     radius: 3,
-    iconInset: 1,
-    fontSize: 9,
-    textIconOffset: 5,
     baselineOffset: 0.5,
+    /** The subgraph mark at the right end of the title bar. */
+    mark: { size: 16, hitSize: 20, iconSize: 10, padding: 3, gap: 3 },
     tab: {
       height: 16,
       fontSize: 11,
-      inset: 12,
+      /** Distance from the node's left and right outer edges to the first tab. */
+      inset: 0,
+      /** Gap between the node's painted outer edge and its tabs. */
+      offset: 3,
       gap: 2,
       padding: 6,
       iconSize: 10,
       iconGap: 4,
       maxLabelWidth: 120,
-      overlap: 1,
-      hoverStroke: 1,
-      hoverTint: 0.22,
-      foreground(background: string): string {
-        if (!/^#[0-9a-f]{6}$/i.test(background)) return canvasSemanticTokens.text.primary
-        const channels = background.replace('#', '').match(/.{2}/g)!.map((channel) => {
-          const value = parseInt(channel, 16) / 255
-          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-        })
-        const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
-        return luminance > 0.179 ? '#000000' : '#ffffff'
-      },
+      stroke: 1,
+      /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
+      fillMix: 0.16,
+      hoverFillMix: 0.3,
+      lineMix: 0.65,
+      textMix: 0.7,
     },
     colors: {
       subgraph: '#4a4a5e',
@@ -145,6 +135,12 @@ export const canvasPaintTokens = {
     /** The flat-title look's rule under the title, inside the title bar. */
     headerRuleStroke: 1,
     titleBadgeGap: canvasSemanticTokens.space[4],
+    /**
+     * The minimize arrow at the left end of the title bar: its square target
+     * starts `left` in from the node's edge, and the title starts where the
+     * target ends. The arrow itself is the section disclosure triangle.
+     */
+    minimizeArrow: { left: 5, target: 18, hoverRadius: 3 },
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
@@ -595,7 +591,6 @@ export interface DesignTokens {
   readonly crispEdges: boolean
   /** Placement inside widget and pin rows; the node look sets it. */
   readonly rowGeometry: RowGeometry
-  readonly badgeLayout: 'chips' | 'tabs'
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
@@ -760,7 +755,6 @@ export const defaultTokens: DesignTokens = {
     pinTopInset: 1,
     pinBottomInset: 2,
   },
-  badgeLayout: 'chips',
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
   // Comfy-style prompt fields use 14px type with readable 20px leading and

@@ -25,7 +25,14 @@ const stripTitles = (group: Locator): Promise<string[]> =>
 
 const laidOutBox = async (locator: Locator): Promise<NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>> => {
   await expect(locator).toBeVisible()
-  const box = await locator.boundingBox()
+  // Tab metadata can replace the node between handle resolution and a CDP geometry read.
+  const box = await locator.evaluateAll((elements) => {
+    if (elements.length !== 1) return null
+    const element = elements[0]!
+    if (element.getClientRects().length === 0) return null
+    const { x, y, width, height } = element.getBoundingClientRect()
+    return { x, y, width, height }
+  })
   expect(box).not.toBeNull()
   return box!
 }
