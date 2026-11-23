@@ -5073,12 +5073,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /**
-     * Number, slider, seed and single-line text rows are edited in their own
-     * row when the canvas edits in the row; every other kind keeps its card.
+     * Number, slider, seed and single-line text rows, and choices, are edited
+     * in their own row when the canvas edits in the row; every other kind
+     * keeps its card. A choice fed by the remote-choice route keeps its card.
      */
     function editsInRow(tab: Tab, node: SceneNode, row: Extract<Hit, { kind: 'widget' }>['row']): boolean {
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
-      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line') return false
+      const choice = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO' && row.spec.remote === undefined
+      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line' && !choice) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,
