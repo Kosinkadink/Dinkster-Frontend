@@ -34,6 +34,12 @@ const schemas: Record<string, NodeSchema> = {
   Steps: schemaOf('Steps', [input('steps', INT, intWidget({ min: 0, max: 8 }, { default: 4 }), { displayName: 'Steps' })]),
   Count: schemaOf('Count', [input('count', INT, intWidget({ min: 4, max: 12, step: 2 }, { default: 4 }), { displayName: 'Count' })]),
   Counter: schemaOf('Counter', [{ kind: 'output', id: 'INT', type: INT }] as NodeSchema['body'], { isOutputNode: false }),
+  Switch: schemaOf('Switch', [
+    input('pick', { kind: 'union', names: ['INT', 'BOOLEAN', 'STRING', 'COMBO'] }, undefined, { optional: true }),
+    input('names', { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, undefined, { optional: true, hidden: true }),
+    { kind: 'group', id: 'branch', value: input('branch', INT, undefined, { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
+    { kind: 'output', id: 'value', type: INT },
+  ] as NodeSchema['body'], { selector: { input: 'pick', group: 'branch', names: 'names' } }),
   Far: schemaOf('Far', [input('far', INT, intWidget({ min: 20, max: 30 }))]),
   Sampler: schemaOf('Sampler', [input('sampler', COMBO, { widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })]),
   Scheduler: schemaOf('Scheduler', [input('sampler', COMBO, { widgetType: 'COMBO', options: { options: ['ddim', 'dpm', 'lms'] } })]),
@@ -120,6 +126,18 @@ describe('a primitive works out its value widget', () => {
     const effective = effectiveOf(doc, 'choice')!
     expect(effective.spec?.widgetType).toBe('COMBO')
     expect(effective.spec?.options['options']).toEqual(['dpm', 'ddim'])
+  })
+
+  it('offers a Choice on a Switch\'s Pick the branch names, the ones both Switches have when it feeds two', () => {
+    const doc = docOf({ choice: { type: 'Choice' }, s1: { type: 'Switch' }, s2: { type: 'Switch' } },
+      [['choice', 'COMBO', 's1', 'pick'], ['choice', 'COMBO', 's2', 'pick']])
+    const nodes = doc.graphs['g0']!.nodes as Record<string, NodeData>
+    nodes['s1'] = { ...nodes['s1']!, dynamic: { branch: { members: ['a', 'b', 'c'], memberLabels: { a: 'Quick', b: 'Detailed', c: 'Final' } } } } as NodeData
+    nodes['s2'] = { ...nodes['s2']!, dynamic: { branch: { members: ['a', 'b'], memberLabels: { a: 'Detailed', b: 'Quick' } } } } as NodeData
+    const effective = effectiveOf(doc, 'choice')!
+    expect(effective.spec?.widgetType).toBe('COMBO')
+    expect(effective.spec?.options['options']).toEqual(['Quick', 'Detailed'])
+    expect(effective.diagnostics).toEqual([])
   })
 
   it('lets a Choice that feeds nothing be typed in as text', () => {

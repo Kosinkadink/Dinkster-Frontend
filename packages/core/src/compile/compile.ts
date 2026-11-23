@@ -2181,10 +2181,15 @@ function compileImpl(
             anyCandidateDelivers = true
             if (queryingSources && terminal.controllerSources !== undefined) {
               const consumer = flat.get(destination.runtimeId)!
+              // A Switch's Pick that takes names offers its branch names, so
+              // a Choice that feeds it lists them.
+              const pickByName = consumer.selector?.names !== undefined && destination.inputId === consumer.selectorInputKey
               sourceConsumers.push({ sources: terminal.controllerSources,
                 terminal: { graph: consumer.graphId, occurrence: consumer.occ, valueKey: valueKeyOf(destination.input) },
                 ref: { node: consumer.occ.node, ...destination.input.address, port: destination.input.address.port as PortRef['port'] },
-                input: destination.input.spec,
+                input: pickByName
+                  ? { ...destination.input.spec, widget: { widgetType: 'COMBO', options: { options: [...branchNamesOf(consumer)] } } }
+                  : destination.input.spec,
               })
             }
             continue
