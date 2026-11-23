@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, test as seededTest } from './fixtures.js'
+import { expect, nativeTest as test, test as seededTest, waitForWorkspaceReady } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -23,7 +23,7 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
 })
 
 test('cut activity labels show their full title before help without changing fitting labels', async ({ page }, testInfo) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled()
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.panels.register({
     id: 'long-pack-panel',
     title: 'Image review workspace',
@@ -40,7 +40,7 @@ test('cut activity labels show their full title before help without changing fit
   if (await library.getAttribute('aria-pressed') === 'true') await library.click()
   const tooltip = page.getByTestId('app-tooltip')
   const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
-  const libraryHelp = 'Browse packs, execution history, and saved workflows'
+  const libraryHelp = 'Browse packs, templates, and saved workflows'
   expect(await long.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(true)
   expect(await library.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(false)
 
