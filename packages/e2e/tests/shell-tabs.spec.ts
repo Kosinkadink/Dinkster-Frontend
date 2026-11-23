@@ -302,7 +302,7 @@ const actionsTest = test.extend({
         json: {
           schemaVersion: 1,
           epoch: 1,
-          dinkster: { version: 'e2e', schemaWire: 1 },
+          dinkster: { version: 'e2e', schemaWire: 2 },
           packs: {},
           nodes: {
             Relay: { displayName: 'Relay', category: 'test', interface: [] },

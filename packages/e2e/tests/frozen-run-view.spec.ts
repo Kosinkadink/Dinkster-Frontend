@@ -29,7 +29,7 @@ const openRun = async (page: Page) => {
 test.beforeEach(async ({ page }) => {
   await page.route(/\/api\//, (route) => route.fulfill({ status: 503, json: {} }))
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'frozen-view', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'frozen-view', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [
     { runId: 'frozen-retained-run', jobRef: 'frozen-retained-run', scope: 'local', clientId: 'frozen-client',
@@ -43,13 +43,14 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
-      { type: 'ImageSettings', displayName: 'Image settings', category: 'test', source: 'v3', isOutputNode: false, items: [
-        { kind: 'section', id: 'settings', displayName: 'Settings' },
-        { kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false, section: 'settings',
-          widget: { widgetType: 'INT', options: { min: 1, max: 4096 }, default: 512 } },
+      { type: 'ImageSettings', displayName: 'Image settings', category: 'test', source: 'v3', isOutputNode: false, body: [
+        { kind: 'section', id: 'settings', displayName: 'Settings', rows: [
+          { kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false,
+            widget: { widgetType: 'INT', options: { min: 1, max: 4096 }, default: 512 } },
+        ] },
         { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
       ] },
-      { type: 'ImageOutput', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true, items: [
+      { type: 'ImageOutput', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true, body: [
         { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       ] },
     ])
