@@ -177,8 +177,9 @@ foreground against their actual fill, including the hovered fill.
   Escape dismissal, keyboard focus wrapping and opener restoration for apps;
   while `pending` it cannot be dismissed, however often Escape is pressed.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
-  `ProductEmptyState` centers the approved D mark with a sentence and optional
-  action in its column. `ProductLoading` is one status region with its label;
+  `ProductEmptyState` shows a sentence and optional hint and action, without a
+  picture by default. App empty states retain explicitly supplied semantic icons,
+  such as loading or error indicators. `ProductLoading` is one status region with its label;
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional

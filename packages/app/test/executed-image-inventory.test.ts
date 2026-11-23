@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ExecutionState } from '@dinkster/client'
-import { executedImageInventory } from '../src/executed-image-inventory.js'
+import { executedImageInventory, executionThumbnail } from '../src/executed-image-inventory.js'
 import type { PeekValues } from '../src/peek-preview.js'
 
 const digest = (char: string): string => `blake3:${char.repeat(64)}`
@@ -18,6 +18,20 @@ const execution = (outputs: ExecutionState['outputs']): ExecutionState => ({
 } as unknown as ExecutionState)
 
 describe('executedImageInventory', () => {
+  it('chooses a retained poster before its video, falls back to typed media, and leaves non-media absent', () => {
+    const video = { nodeId: 'save', digest: digest('b'), name: 'saved.webm', mediaType: 'video/webm', size: 3, virtualPath: '' }
+    const poster = { digest: digest('c'), name: 'poster.png', mediaType: 'image/png', size: 2, virtualPath: '' }
+    const state = { ...execution({ node: { image: asset(digest('a'), 'typed.png') } }), artifacts: [{ ...video, preview: poster }] }
+    expect(executionThumbnail(state)).toMatchObject(poster)
+    expect(executionThumbnail({ ...state, artifacts: [video] })).toMatchObject(video)
+    expect(executionThumbnail({ ...state, artifacts: [] })).toMatchObject({ digest: digest('a'), mediaType: 'image/png' })
+    const typedVideo = { ...asset(digest('d'), 'typed.webm'), meta: { digest: digest('d'), mediaType: 'video/webm' } }
+    const fromOutputs = { ...state, artifacts: [], outputs: { node: { files: { typeId: 'list<ASSET>', elements: [typedVideo] } } } }
+    expect(executionThumbnail(fromOutputs)).toMatchObject({ digest: digest('d'), mediaType: 'video/webm' })
+    expect(executedImageInventory(fromOutputs, { assetUrlForExecution: () => '' })).toEqual([])
+    expect(executionThumbnail({ ...state, artifacts: [{ ...video, mediaType: 'audio/wav' }], outputs: {} })).toBeUndefined()
+  })
+
   it('loads native batch images from their owning execution and preserves refusals', async () => {
     const outputs = { preview: { images: { typeId: 'IMAGE', fingerprint: 'batch', meta: { shape: [3, 8, 16, 4] } } } }
     const values: PeekValues = {
