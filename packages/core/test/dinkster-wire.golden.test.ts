@@ -555,6 +555,31 @@ describe('Dinkster schema wire', () => {
     expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('alpha must be a boolean') })])
   })
 
+  it('carries the color strips a curve declares to its widget options, and refuses any other shape', () => {
+    const curve = (id: string, widget: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: concrete('CURVE'), required: true, widget: { type: 'CURVE', ...widget } })
+    const decoded = parseDinksterSchema('Curves', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        curve('brightness', { inputStrip: ['#000000', '#ffffff'], outputStrip: ['#000000', '#ffffff'] }),
+        curve('red', { inputStrip: ['#000000', '#ff0000'] }),
+        curve('plain', {}),
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [brightness, red, plain] = inputsOf(decoded.schema!)
+    expect(brightness!.widget!.options).toEqual({ inputStrip: ['#000000', '#ffffff'], outputStrip: ['#000000', '#ffffff'] })
+    expect(red!.widget!.options).toEqual({ inputStrip: ['#000000', '#ff0000'] })
+    expect(plain!.widget!.options).toEqual({})
+    for (const bad of [['#000000', '#FFFFFF'], ['#000', '#fff'], ['#000000'], '#000000', ['#000000', '#ffffff', '#ffffff']]) {
+      const rejected = parseDinksterSchema('BadCurve', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('c', { outputStrip: bad })] })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({
+        severity: 'error', message: expect.stringContaining('outputStrip must be two lower-case #rrggbb colors'),
+      })])
+    }
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const widget = { type: 'NUMBER', min: 1, max: 1000, step: 0.01, round: false, display: 'number' }
     for (const types of [['FLOAT', 'INT'], ['INT', 'FLOAT']]) {
