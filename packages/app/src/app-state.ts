@@ -5853,7 +5853,7 @@ export class AppState {
     }
     return [
       'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
-      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setEditorUnfolded',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
       'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
