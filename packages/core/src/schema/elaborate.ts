@@ -363,12 +363,30 @@ export interface ElaboratedInterface {
   readonly unstoredMinimums?: Readonly<Record<string, MaterializeFrame>>
   /** Flattened id of every group, choice and type choice the node holds (not offered members). */
   readonly constructs: readonly string[]
+  /** The groups among `constructs`. */
+  readonly groups: readonly string[]
   /**
    * The node's `titleSuffix` worked out: at most 64 characters, a line break
    * read as a space. Absent when unknown, failed or empty.
    */
   readonly titleSuffix?: string
   readonly diagnostics: readonly Diagnostic[]
+}
+
+/**
+ * Whether `address` lies in a member the node does not have: under one of its
+ * groups, in a member none of whose rows the node draws (a member its group
+ * does not store, or past a count). An offered member is not one the node has.
+ */
+export function inGoneMember(elaborated: ElaboratedInterface, address: string): boolean {
+  const drawn = elaborated.items.flatMap((item) => (item.kind === 'input' || item.kind === 'output') &&
+    !(item.origin.kind === 'member' && item.origin.ghost === true) && item.ancestry?.some((entry) => entry.ghost) !== true
+    ? [item.address.port] : [])
+  return elaborated.groups.some((group) => {
+    if (!address.startsWith(`${group}.`)) return false
+    const member = `${group}.${address.slice(group.length + 1).split('.')[0]}`
+    return !drawn.some((port) => port === member || port.startsWith(`${member}.`))
+  })
 }
 
 /**
@@ -643,6 +661,7 @@ function elaboratePass(
   const unstoredChoices: Record<string, string> = {}
   const unstoredMinimums: Record<string, MaterializeFrame> = {}
   const constructs = new Set<string>()
+  const groupPaths = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
   const emittedOutputs = new Set<string>()
@@ -1221,6 +1240,7 @@ function elaboratePass(
   const group = (row: GroupSpec, path: string, scope: Scope): void => {
     if (!enter(path)) return
     if (!scope.ghost) constructs.add(path)
+    groupPaths.add(path)
     try {
       groupBody(row, path, scope)
     } finally {
@@ -1844,6 +1864,7 @@ function elaboratePass(
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
     ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
+    groups: [...constructs].filter((path) => groupPaths.has(path)),
     ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }

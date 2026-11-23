@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asNodeId } from '../src/ids.js'
-import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from '../src/schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, type Connectivity } from '../src/schema/elaborate.js'
 import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -1281,5 +1281,16 @@ describe('rows kept for a wire on their output', () => {
       ['items.item2.amount', undefined, true],
       ['items.item2.weight', undefined, true],
     ])
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps('items.item1.weight')), 'items.item1.weight')).toBe(true)
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps()), 'items.item2.weight')).toBe(false)
+    // The spare offered under the same key is not a member the node has.
+    const valued = schemaOf([{
+      kind: 'group', id: 'weights', value: intInput('weight', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
+    }])
+    const spare = elaborateInterface(valued, { values: { 'weights.weight0': 2 }, dynamic: { weights: { members: ['weight0'] } } } as never, taps('weights.weight1'))
+    expect(elabInputsOf(spare).map((input) => input.address.port)).toEqual(['weights.weight0', 'weights.weight1'])
+    expect(inGoneMember(spare, 'weights.weight1')).toBe(true)
+    expect(inGoneMember(spare, 'weights.weight0')).toBe(false)
   })
 })
