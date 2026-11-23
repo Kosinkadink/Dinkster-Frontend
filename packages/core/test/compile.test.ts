@@ -10,6 +10,7 @@ import { compile, scopeClosure, type CompileInput } from '../src/compile/compile
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import type { WorkflowDocument } from '../src/format/document.js'
+import type { Diagnostic } from '../src/diagnostics.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
@@ -128,6 +129,38 @@ describe('golden pairs', () => {
     expect(legacy.ok).toBe(true)
     if (legacy.ok) expect(legacy.artifact.prompt.n0!.inputs).toEqual({ frame_rate: value ?? 23.976, count: 7 })
     expect(document).toEqual(before)
+  })
+
+  it('refuses a run on a failed rule without a fix, runs with a warning when it has one, and names the node and its one field', () => {
+    const schemaWith = (fix: unknown[]) => parseDinksterSchema('Ruled', {
+      schemaVersion: 2,
+      nodeType: 'Ruled',
+      outputNode: true,
+      body: [
+        { kind: 'input', id: 'w', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 0 } },
+        { kind: 'input', id: 'h', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 0 } },
+      ],
+      validate: [
+        { check: { formula: 'w <= 6' }, message: 'Width must be 6 or less', fix },
+        { check: { formula: 'w + h <= 10' }, message: 'Too big', fix },
+      ],
+    } as never).schema!
+    const base = loadWorkflow('minimal')
+    const document: WorkflowDocument = { ...base, graphs: { [base.root]: {
+      ...base.graphs[base.root]!, links: {}, nodes: { n0: { id: asNodeId('n0'), type: 'Ruled', values: { w: 7, h: 4 } } },
+    } } }
+    const rules = (diagnostics: readonly Diagnostic[]) => diagnostics.filter((item) => item.code === 'node.rule.failed')
+      .map((item) => [item.severity, item.refs, item.data])
+
+    const refused = compile(compileInput(document, { kind: 'full' }, () => schemaWith([])))
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(rules(refused.diagnostics)).toEqual([
+      ['error', [{ graphId: base.root, nodeId: 'n0', portId: 'w', valueKey: 'w', direction: 'input' }], { rule: 0, hasFix: false, fields: ['w'] }],
+      ['error', [{ graphId: base.root, nodeId: 'n0' }], { rule: 1, hasFix: false, fields: ['w', 'h'] }],
+    ])
+    const warned = compile(compileInput(document, { kind: 'full' }, () => schemaWith([{ step: 'Set', row: 'w', value: { value: 6 } }])))
+    expect(warned.ok).toBe(true)
+    if (warned.ok) expect(rules(warned.artifact.diagnostics).map(([severity]) => severity)).toEqual(['warning', 'warning'])
   })
 
   it('requires explicit supported type stamps for nonconcrete additional literals', () => {

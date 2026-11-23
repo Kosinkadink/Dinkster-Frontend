@@ -78,6 +78,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
   EMPTY_CONNECTIVITY,
@@ -834,9 +835,13 @@ function compileImpl(
     // Errors (budget exhaustion) fail the compile - a truncated interface
     // must never produce a prompt.
     for (const d of e.diagnostics) {
+      // A failed node rule keeps its data and names its node (and its one
+      // field), so the editor's copy and this one read as one cause.
+      const rule = d.code === 'node.rule.failed'
       const diagnostic = diag(d.severity, 'compile', d.code, `[${where}] ${d.message}`, {
         ...(d.anchor !== undefined ? { anchor: d.anchor } : {}),
-        ...(d.refs !== undefined ? { refs: d.refs } : {}),
+        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), ...(d.data !== undefined ? { data: d.data } : {}) }
+          : d.refs !== undefined ? { refs: d.refs } : {}),
       })
       diags.push(diagnostic)
       elaborationDiagnosticOwners.set(diagnostic, owner)

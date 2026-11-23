@@ -488,7 +488,7 @@ interface PortSpecBase {
   /** A label the declaration works out by formula; `displayName` is then unset. */
   readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
-  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  /** Whether the row shows. A hidden row is still stored and sent to the run. */
   readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
@@ -590,6 +590,8 @@ export interface OutputKnownValue {
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
   readonly type: TypeExpr
+  /** Set by elaboration, never declared: its `visible` is false. Still part of the run. */
+  readonly hidden?: true
   readonly isList?: boolean
   /**
    * Presentation/discovery-only marker: this final output is offered as a
