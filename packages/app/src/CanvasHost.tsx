@@ -1245,33 +1245,36 @@ export function NodeOutputPager(props: {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) props.onActiveChange?.(false)
       }}
     >
-      <div class="node-output-pager-controls" role="group" aria-label={`${props.title} execution ${mediaKind()}s`}>
-        <Show when={props.refusal}>{(reason) => <span class="image-preview-refusal" role="alert">{reason()}</span>}</Show>
-        <Show when={props.count > 1}>
-          <ProductButton size="compact" type="button" class="node-output-page-previous" aria-label={`Previous ${mediaKind()} for ${props.title}`} disabled={props.index <= 0} onClick={() => page(props.onPrevious)}>Previous</ProductButton>
-          <Show when={props.onOpen !== undefined} fallback={
-            <span class="node-output-position node-output-label" aria-label={`${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`}>
-              <span>{props.index + 1}/{props.count}</span>
-            </span>
-          }>
-            <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open ${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`} onClick={() => props.onOpen?.()}>
-              <span>{props.index + 1}/{props.count}</span>
-              <Show when={props.width !== undefined && props.height !== undefined}>
-                <small>{props.width}x{props.height}</small>
-              </Show>
-            </ProductButton>
+      {/* A refused output is only its caption row, which paints the reason. */}
+      <Show when={props.refusal}>{(reason) => <span class="visually-hidden" role="alert">{reason()}</span>}</Show>
+      <Show when={props.refusal === undefined}>
+        <div class="node-output-pager-controls" role="group" aria-label={`${props.title} execution ${mediaKind()}s`}>
+          <Show when={props.count > 1}>
+            <ProductButton size="compact" type="button" class="node-output-page-previous" aria-label={`Previous ${mediaKind()} for ${props.title}`} disabled={props.index <= 0} onClick={() => page(props.onPrevious)}>Previous</ProductButton>
+            <Show when={props.onOpen !== undefined} fallback={
+              <span class="node-output-position node-output-label" aria-label={`${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`}>
+                <span>{props.index + 1}/{props.count}</span>
+              </span>
+            }>
+              <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open ${mediaKind()} ${props.index + 1} of ${props.count} for ${props.title}`} onClick={() => props.onOpen?.()}>
+                <span>{props.index + 1}/{props.count}</span>
+                <Show when={props.width !== undefined && props.height !== undefined}>
+                  <small>{props.width}x{props.height}</small>
+                </Show>
+              </ProductButton>
+            </Show>
+            <ProductButton size="compact" type="button" class="node-output-page-next" aria-label={`Next ${mediaKind()} for ${props.title}`} disabled={props.index >= props.count - 1} onClick={() => page(props.onNext)}>Next</ProductButton>
           </Show>
-          <ProductButton size="compact" type="button" class="node-output-page-next" aria-label={`Next ${mediaKind()} for ${props.title}`} disabled={props.index >= props.count - 1} onClick={() => page(props.onNext)}>Next</ProductButton>
-        </Show>
-        <Show when={props.count === 1 && props.onOpen !== undefined}>
-          <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</ProductButton>
-        </Show>
-        <Show when={props.download}>
-          {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
-        </Show>
-        <Show when={props.virtualPath}>{(path) => <span class="node-output-path" title={path()}>{message('outputFile.writtenTo', { path: path() })}</span>}</Show>
-        <Show when={props.onReveal}><ProductButton size="compact" type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></Show>
-      </div>
+          <Show when={props.count === 1 && props.onOpen !== undefined}>
+            <ProductButton size="compact" type="button" class="node-output-position" aria-label={`Open image 1 of 1 for ${props.title}`} onClick={() => props.onOpen?.()}>Open image</ProductButton>
+          </Show>
+          <Show when={props.download}>
+            {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
+          </Show>
+          <Show when={props.virtualPath}>{(path) => <span class="node-output-path" title={path()}>{message('outputFile.writtenTo', { path: path() })}</span>}</Show>
+          <Show when={props.onReveal}><ProductButton size="compact" type="button" class="node-output-reveal" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></Show>
+        </div>
+      </Show>
     </div>
   )
 }
@@ -1608,7 +1611,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       (item) => {
         if (item.output.batch === undefined && viewport.scale < defaultTokens.mediaControlMinScale) return false
         const rect = mediaScreenRect(item.node, item.preview, viewport, canvas)
-        return rect !== undefined && visibleOutputPagerRect(rect, canvas) !== undefined
+        // A refusal's alert is not drawn, so it needs no room for controls.
+        return rect !== undefined && (item.output.refusal !== undefined || visibleOutputPagerRect(rect, canvas) !== undefined)
       },
       (item) => active.has(`pager:${item.output.key}`) || selected.has(item.id) || viewer === item.output.key,
     )
@@ -4686,10 +4690,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const output = model.executedImages[node.id]
         const content = model.previews[node.id]
         const preview = node.layout.preview
-        // A folded or pending preview is only its caption row.
-        const mediaRect = preview === undefined || preview.compact === true
+        // A folded or pending preview is only its caption row. A refused
+        // output keeps its pager there for the accessible reason alone.
+        const mediaRect = preview === undefined
           ? undefined
-          : splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media
+          : preview.compact === true
+            ? output?.refusal === undefined ? undefined : preview
+            : splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media
         return output !== undefined && mediaRect !== undefined
           ? [{
               id: node.id,
@@ -6508,7 +6515,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const current = item()
           if (current === undefined) return undefined
           const rect = mediaScreenRect(current.node, current.preview, editorViewport(), canvasClientRect())
-          return rect === undefined ? undefined : visibleOutputPagerRect(rect, canvasClientRect())
+          return rect === undefined || current.output.refusal !== undefined ? rect : visibleOutputPagerRect(rect, canvasClientRect())
         }
         const page = (index: number): void => {
           const currentItem = item()

@@ -373,13 +373,16 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     const actual = document.querySelector('[data-editor-surface="in-node"]')!.getBoundingClientRect()
+    // The editor opens over the field box the canvas paints, inside the row.
+    const insetY = (renderer as unknown as { getDesignTokens(): { rowGeometry: { fieldInsetY: number } } })
+      .getDesignTokens().rowGeometry.fieldInsetY
     return {
       actual: { left: actual.left, top: actual.top, width: actual.width, height: actual.height },
       expected: {
         left: canvas.left + (node.x + row.inset!) * viewport.scale + viewport.x,
-        top: canvas.top + (node.y + row.y) * viewport.scale + viewport.y,
+        top: canvas.top + (node.y + row.y + insetY) * viewport.scale + viewport.y,
         width: (node.layout.width - row.inset! * 2) * viewport.scale,
-        height: row.height * viewport.scale,
+        height: (row.height - insetY * 2) * viewport.scale,
       },
     }
   })
