@@ -309,6 +309,11 @@ interface FlatNode {
   readonly authoredOptions?: ReadonlyMap<string, readonly string[]>
 }
 
+/** A Switch's branch names as its rows show them, in member order. */
+const branchNamesOf = (fn: FlatNode): readonly string[] =>
+  (fn.selectorMembers ?? []).map((member) =>
+    fn.elab.inputsByValueKey.get(member)?.spec.displayName ?? member.slice(fn.selector!.group.length + 1))
+
 /**
  * A node's elaborated interface, indexed for compilation. Computed once per
  * (definition, node) - every occurrence of a definition shares values,
@@ -1299,6 +1304,8 @@ function compileImpl(
     : undefined
   const wouldRunInputEdges = wouldRun ? new Map<string, Map<string, Set<string>>>() : undefined
   const randomSelectorInputs = new Map<string, Set<string>>()
+  /** Switches whose known text names no branch: their pick is refused, so would-run stays neutral. */
+  const refusedPicks = new Set<string>()
   const fixedSelectionCache = new Map<string, SelectorResolution>()
   /** Selection narrowed to DECIDED (fixed-policy) selectors: random ones expand. */
   const fixedSelectionFor = (defId: string): SelectorResolution => {
@@ -2286,6 +2293,20 @@ function compileImpl(
           // known (tap fallbacks always carry one; value sources declare no
           // runtime type - no guessing, per the joint contract), else
           // refuse loudly instead of failing at the server.
+          // Known text on a Switch that picks by name resolves here, name
+          // then key, and is sent as the member key: the server reads a
+          // stored text pick as a key. Text naming no branch is refused.
+          if (consumer.selector?.names !== undefined && dst.inputId === consumer.selectorInputKey && typeof baked.value === 'string') {
+            const names = branchNamesOf(consumer)
+            const picked = selectedMember(consumer.selector, consumer.selectorMembers ?? [], baked.value, names)
+            if (picked === undefined) {
+              const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+              diags.push(diag('error', 'compile', 'compile.switch.noBranchNamed', `Switch received "${baked.value}". ${names.length === 1 ? 'The branch is' : 'The branches are'} ${listed}.`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port } as PortRef } }))
+              refusedPicks.add(consumer.runtimeId)
+              continue
+            }
+            baked = { ...baked, value: picked.slice(consumer.selector.group.length + 1) }
+          }
           const dstTypeId = canonicalTypeIdOf(dst.input.spec.type)
           if (isCanonicalUnsafeInteger(baked.value)) {
             if (baked.typeId === 'INT' && dstTypeId === 'INT') {
@@ -2389,7 +2410,7 @@ function compileImpl(
   if (wouldRun) {
     for (const fn of flat.values()) {
       if (!fn.selector || !fn.selectorInputKey || !fn.selectorMembers) continue
-      if (fn.linkedInputs.has(fn.selectorInputKey) || randomPicks.has(fn.runtimeId)) continue
+      if (fn.linkedInputs.has(fn.selectorInputKey) || randomPicks.has(fn.runtimeId) || refusedPicks.has(fn.runtimeId)) continue
       const staged = fn.inputs[fn.selectorInputKey]
       const pick = staged === undefined ? undefined : parseTypedLiteralWire(staged)?.value ?? staged
       const picked = selectedMember(fn.selector, fn.selectorMembers, pick)
@@ -2780,6 +2801,18 @@ function compileImpl(
       sourceInputs[submissionName] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
+      }
+      // A Switch's names are sent only when its pick is a wire that may carry
+      // text, so a branch name otherwise stays a label and a rename changes
+      // nothing that is submitted.
+      if (fn.selector?.names !== undefined && valueKeyOf(input) === fn.selector.names) {
+        const pick = fn.inputs[fn.selectorInputKey!]
+        const source = fn.linkedInputs.has(fn.selectorInputKey!) && Array.isArray(pick) && typeof pick[1] === 'number'
+          ? flat.get(pick[0] as string)?.elab.outputs.filter((output) => output.wireable !== false)[pick[1]]
+          : undefined
+        const sourceType = source === undefined ? undefined : canonicalTypeIdOf(source.spec.type)
+        if (source !== undefined && sourceType !== 'INT' && sourceType !== 'BOOLEAN') inputs[submissionName] = [...branchNamesOf(fn)]
+        continue
       }
       // The compiler fills an editable choice's options input on every submission.
       const authored = fn.authoredOptions?.get(valueKeyOf(input))
