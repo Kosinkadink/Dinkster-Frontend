@@ -94,7 +94,7 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(tooltip).toBeHidden()
   await page.getByTestId('graph-canvas').hover()
   await page.getByTestId('library-toggle').hover()
-  const libraryHelp = 'Library\nBrowse packs, execution history, and saved workflows'
+  const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
   await expect(page.getByTestId('library-toggle')).toHaveAttribute('aria-pressed', 'true')
   await expect(tooltip).toHaveText(libraryHelp)
   await page.getByTestId('library-toggle').click()

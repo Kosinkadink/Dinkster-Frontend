@@ -53,7 +53,7 @@ an environment.
 |bar |  library /    | (views, lenses, queue)       | jobs,    |
 |    |  backends)    +------------------------------+ problems)|
 |    |               | bottom panel (exclusive:     |          |
-|    |               |  Activity)                   |          |
+|    |               |  Log)                        |          |
 +----+---------------+------------------------------+----------+
 | status bar (optional: connection, schemas, Backends, review) |
 +--------------------------------------------------------------+
@@ -149,9 +149,10 @@ toggle the three regions in that visual order after Customize Layout and
 expose their current state through `aria-pressed`. Their custom panel icons
 outline the whole shell and fill only the active region; active switches
 use cyan without a button background. Opening a closed exclusive region selects its first
-registered panel (Library on the left, Activity on the bottom). Existing
+registered panel (Library on the left, Log on the bottom). Existing
 panel-specific sidebar and status-bar toggles continue to select or close
-their named panel through the same `ShellLayout` signals.
+their named panel through the same `ShellLayout` signals. Closing the bottom
+panel from its header returns keyboard focus to the bottom-region toggle.
 All three are pointer- and keyboard-resizable and all layout state persists per-browser (see
 "Layout persistence"). The status bar is a separate thin strip - it is NOT
 the bottom panel and never toggles with it.
@@ -407,8 +408,32 @@ behavior described above.
 
 Panels:
 
+- **Runs**: the right-side execution list defaults to **This workflow**. Each
+  run shows up to three output thumbnails; the overflow opens all images in
+  the output viewer. **Details** holds metadata, saved files and typed values.
+  Selecting a loop box shows the selected run's retained iterations below the
+  workflow's runs. **All workflows** places this browser's pending runs above
+  the backend's searchable, paged finished runs, preserving open, resubmit,
+  delete and clear actions. An empty stored list says no finished runs are
+  stored; search misses do not fall back to finished runs in browser memory.
+  A backend without durable history uses this browser's execution history.
+  Browser-known runs show thumbnails immediately;
+  other stored runs fetch outputs only after selection. Until selected they
+  show list metadata without placeholder thumbnails. Fetch failures stay on
+  the selectable row. Refreshing the same backend's page preserves the row's
+  disclosure and in-flight output read; switching owners does not reuse them.
+  Stored-run inspection never registers a new live run or records temporary file lists.
+- **Log**: the bottom panel combines **This run** execution records and **App**
+  activity. Selecting another run switches to that run's records.
+- **Problems**: **Selection only** filters to selected widgets, nodes, links or
+  groups. An empty selection shows "Nothing selected", not document or subgraph
+  problems; the tab badge still counts all problems. **Show on canvas** remains
+  the row navigation action.
+- **Extensions**: available from the left bar. Backends and Memory keep their
+  existing contents; Boundary is available while editing a subgraph definition.
 - **Library** (`library-toggle`, Ctrl+O): the collection browser over Packs,
-  Templates, Workflows, History, and Runs. Its body names the active backend,
+  Templates, and Workflows. Runs and browser history live in the right-side
+  Runs panel. Its body names the active backend,
   protocol, and connection state; see [Library](library.md). Activating an entry
   that opens a document closes the dock, matching the previous overlay
   behavior.
@@ -469,7 +494,7 @@ canvas help use the same whole-line limit against the window height.
 ## The bottom panel
 
 A tabbed dock zone under the canvas column. Multiple panels, such as Problems
-and Activity, can coexist in its tab row while exactly one body per
+and Log, can coexist in its tab row while exactly one body per
 section is visible; its two sections sit side by side (see "Dock zone
 sections").
 It shares the canvas pane's column flex, so opening it shrinks the canvas. The
@@ -481,11 +506,12 @@ grows or shrinks it, and Home/End selects its minimum/maximum. Test IDs:
 
 Resident panel:
 
-- **Activity** (`logs-toggle`): structured UTC timestamp, severity,
-  source, and message rows with deterministic empty and tail-following states.
-  Its Clear header action requires a second activation within four seconds.
-  Bottom by default (a wide, short surface suits streaming rows); `dock`
-  remains an allowed placement. See `docs/activity-log.md`.
+- **Log** (`logs-toggle`): App shows structured UTC timestamp, severity,
+  source, and frontend message rows; This run and All runs show execution logs.
+  Each scope keeps its existing filtering and tail-following behavior.
+  App Clear requires a second activation within four seconds.
+  Bottom by default; left and right remain allowed placements.
+  See `docs/execution-log.md` and `docs/activity-log.md`.
 
 Panels with bottom-zone membership get their toggle in the bottom-anchored
 cluster of the same icon sidebar as left-zone panels. The toggle's cluster and
@@ -494,8 +520,8 @@ survives reload and moves the panel's icon and behavior together.
 
 ## The right zone
 
-A tabbed panel host (`queue`, `outputs`, `extensions`, `boundary`,
-`surfaces`, `problems`; some conditional via `when()`), toggled as one unit
+A tabbed panel host (`runs`, `boundary`, `surfaces`, `problems`, `help`;
+some conditional via `when()`), toggled as one unit
 by the topbar `rail-toggle` and drag-resizable via the grab handle on its
 left edge (`rail-resize`, clamped 240-560 px). `DockZoneHost`
 (`ShellChrome.tsx`) renders one tab row per section through the shared
@@ -582,9 +608,15 @@ it a whole visible tab. Arrow-key traversal covers the visible tab row,
 while the all-tabs button keeps every hidden tab reachable by keyboard and
 pointer.
 
-The queue tab is active-workflow scoped. It uses the same lineage-filtered
-entries as the center-region queue disclosure and never displays the
-backend-wide queue depth as though it belonged to one workflow.
+Runs defaults to This workflow. It uses the same lineage-filtered entries
+as the center-region queue disclosure, with output thumbnails and Details.
+All workflows combines pending browser runs and stored backend history.
+The scope's active work uses the shared ProductRunActivity presentation: a
+turning accent ring with the running count and a still gray clock with the
+queued count. Both include 1; zero-count marks disappear, and an idle scope
+has no activity marks. The accessible summary is localized. Counts follow
+execution updates and the selected scope; finished history never contributes.
+Backend-wide queue depth is never presented as one workflow's queue.
 
 Every move between a zone, floating, and a separate window goes through one
 boundary: `movePanel` / `returnPanelToZone` (`panel-location.ts`). It

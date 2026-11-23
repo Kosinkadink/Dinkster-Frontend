@@ -13,7 +13,7 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(library).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
   await library.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Library\nBrowse packs, execution history, and saved workflows', { timeout: 250 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Library\nBrowse packs, templates, and saved workflows', { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(library).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(600, 400)
@@ -41,7 +41,7 @@ test('icon-only activity items show immediate name-first help on hover and focus
   if (await library.getAttribute('aria-pressed') === 'true') await library.click()
   const tooltip = page.getByTestId('app-tooltip')
   const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
-  const libraryHelp = 'Library\nBrowse packs, execution history, and saved workflows'
+  const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
   await expect(long).toHaveAccessibleName('Image review workspace')
   await expect(long).toHaveText('')
   await expect(long.locator('svg')).toBeVisible()
