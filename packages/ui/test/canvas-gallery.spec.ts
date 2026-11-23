@@ -72,7 +72,7 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
   }
 })
 
-test('Canvas pages are listed under six headings in the side list', async ({
+test('Canvas pages are listed under seven headings in the side list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -84,6 +84,7 @@ test('Canvas pages are listed under six headings in the side list', async ({
     'Rows',
     'Wires',
     'Subgraphs',
+    'Flow nodes',
     'Zoom',
   ])
   // Only the heading holding the current page starts open.
@@ -91,7 +92,7 @@ test('Canvas pages are listed under six headings in the side list', async ({
     await headings.evaluateAll((all) =>
       all.map((heading) => heading.getAttribute('aria-expanded')),
     ),
-  ).toEqual(['true', 'false', 'false', 'false', 'false', 'false'])
+  ).toEqual(['true', 'false', 'false', 'false', 'false', 'false', 'false'])
   await expect(pageLink(page, 'anatomy')).toHaveAttribute(
     'aria-current',
     'page',
@@ -145,7 +146,7 @@ test('A page link opens its heading, and the foot steps in list order', async ({
   const wires = sideList(page).getByRole('button', { name: 'Wires' })
   await expect(wires).toHaveAttribute('aria-expanded', 'true')
   await expect(
-    sideList(page).getByRole('button', { name: 'Nodes' }),
+    sideList(page).getByRole('button', { name: 'Nodes', exact: true }),
   ).toHaveAttribute('aria-expanded', 'false')
   await expect(pageLink(page, 'types')).toHaveAttribute('aria-current', 'page')
   const steps = page.getByRole('navigation', { name: 'Canvas pages' })
