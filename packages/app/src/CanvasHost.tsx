@@ -4102,7 +4102,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       hostFocused,
     )
 
-    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry)
+    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry, () => {
+      const tab = activeTab()
+      return tab !== undefined && props.app.backendForTab(tab).protocol !== 'dinkster'
+    })
     const placementGeometryForEntry = (entry: PaletteEntry): PlacementGeometry => {
       if (entry.schema === undefined) {
         return { ...canvasPaintTokens.preview.unknownPlacement, headerHeight: defaultTokens.headerHeight }
