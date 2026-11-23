@@ -498,6 +498,8 @@ const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   optional: false,
   ...extra,
 })
+const PICK = { kind: 'union', names: ['INT', 'BOOLEAN'] } as const
+const BRANCHES = { branch: { members: ['on_false', 'on_true'] } }
 const dynOutput = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
 const dynSchemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
@@ -676,21 +678,19 @@ const dynSchemas: Record<string, NodeSchema> = {
   }]),
   LazySelector: {
     ...dynSchemaOf('LazySelector', [
-      dynInput('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      dynInput('on_false'),
-      dynInput('on_true'),
+      dynInput('switch', { type: PICK, optional: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['on_false', 'on_true'] }, grows: 'button', minMembers: 1 },
       dynOutput('result'),
     ]),
-    selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+    selector: { input: 'switch', group: 'branch' },
   },
-  LazySelectorOdd: {
-    ...dynSchemaOf('LazySelectorOdd', [
-      dynInput('switch#id', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      dynInput('on_false'),
-      dynInput('on_true'),
+  Switch: {
+    ...dynSchemaOf('Switch', [
+      dynInput('pick', { type: PICK, optional: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
       dynOutput('result'),
     ]),
-    selector: { input: 'switch#id', branches: { false: 'on_false', true: 'on_true' } },
+    selector: { input: 'pick', group: 'branch' },
   },
   'comfy.ResizeImageMaskNode': parseDinksterSchema(
     'comfy.ResizeImageMaskNode',
@@ -872,12 +872,12 @@ describe('dynamic interfaces', () => {
         decisionSource: { type: 'BooleanSrc' },
         falseSource: { type: 'NonOutputImageSrc' },
         trueSource: { type: 'NonOutputImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: false } },
+        selector: { type: 'LazySelector', values: { switch: false }, dynamic: BRANCHES },
       },
       links: [
         [['decisionSource', 'out'], ['selector', 'switch']],
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const result = dynCompile(doc)
@@ -891,10 +891,11 @@ describe('dynamic interfaces', () => {
       selector: {
         class_type: 'LazySelector',
         outputIds: ['result'],
+        outputMembers: { branch: ['on_false', 'on_true'] },
         inputs: {
           switch: ['decisionSource', 0],
-          on_false: ['falseSource', 0],
-          on_true: ['trueSource', 0],
+          'branch.on_false': ['falseSource', 0],
+          'branch.on_true': ['trueSource', 0],
         },
       },
     })
@@ -908,18 +909,18 @@ describe('dynamic interfaces', () => {
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
+        selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     }))
-    expect(valued.ok).toBe(true)
+    expect(valued.ok, JSON.stringify(!valued.ok && valued.diagnostics)).toBe(true)
     if (valued.ok) {
       expect(valued.artifact.prompt.selector?.inputs.switch).toBe(true)
-      expect(valued.artifact.prompt.selector?.inputs.on_false).toEqual(['falseSource', 0])
-      expect(valued.artifact.prompt.selector?.inputs.on_true).toEqual(['trueSource', 0])
+      expect(valued.artifact.prompt.selector?.inputs['branch.on_false']).toEqual(['falseSource', 0])
+      expect(valued.artifact.prompt.selector?.inputs['branch.on_true']).toEqual(['trueSource', 0])
       expect(Object.keys(valued.artifact.prompt).sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     }
   })
@@ -929,11 +930,11 @@ describe('dynamic interfaces', () => {
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
+        selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = {
@@ -945,8 +946,8 @@ describe('dynamic interfaces', () => {
     if (!exact.ok) return
     expect(exact.artifact.prompt.selector?.inputs).toMatchObject({
       switch: true,
-      on_false: ['falseSource', 0],
-      on_true: ['trueSource', 0],
+      'branch.on_false': ['falseSource', 0],
+      'branch.on_true': ['trueSource', 0],
     })
     expect(Object.keys(exact.artifact.prompt).sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     const exactBytes = JSON.stringify(exact.artifact.prompt)
@@ -972,15 +973,15 @@ describe('dynamic interfaces', () => {
         inactiveSource: { type: 'ImageSrc' },
         selectedSource: { type: 'ImageSrc' },
         bypass: { type: 'Passthrough', mode: 'bypassed' },
-        selector: { type: 'LazySelector', values: { switch: choice } },
+        selector: { type: 'LazySelector', values: { switch: choice }, dynamic: BRANCHES },
         target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
       reroutes: ['selected-route'],
       nets: [['inactive-feed', ['inactiveSource', 'out'], [['bypass', 'in']]]],
       links: [
-        [['bypass', 'out'], ['selector', 'on_false']],
+        [['bypass', 'out'], ['selector', 'branch.on_false']],
         [['selectedSource', 'out'], { reroute: 'selected-route' }],
-        [{ reroute: 'selected-route' }, ['selector', 'on_true']],
+        [{ reroute: 'selected-route' }, ['selector', 'branch.on_true']],
         [['selector', 'result'], ['target', 'items.item0']],
       ],
     })
@@ -1002,11 +1003,11 @@ describe('dynamic interfaces', () => {
           nodes: {
             falseSource: { type: 'ImageSrc' },
             trueSource: { type: 'ImageSrc' },
-            selector: { type: 'LazySelector', values: { switch: true } },
+            selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
           },
           links: [
-            [['falseSource', 'out'], ['selector', 'on_false']],
-            [['trueSource', 'out'], ['selector', 'on_true']],
+            [['falseSource', 'out'], ['selector', 'branch.on_false']],
+            [['trueSource', 'out'], ['selector', 'branch.on_true']],
           ],
           boundary: { inputs: [], outputs: [] },
         },
@@ -1022,22 +1023,22 @@ describe('dynamic interfaces', () => {
     expect([...closure.inactiveExclusive.get('left.selector') ?? []]).toEqual(['left.falseSource'])
   })
 
-  it('uses occurrence-promoted booleans and keeps promoted null neutral', () => {
+  it('uses occurrence-promoted picks and keeps a promoted pick outside the branches neutral', () => {
     const doc = dynDoc({
       nodes: {
         decided: { type: '#branch', values: { decision: false } },
-        neutral: { type: '#branch', values: { decision: null } },
+        neutral: { type: '#branch', values: { decision: 2 } },
       },
       subgraphs: {
         branch: {
           nodes: {
             falseSource: { type: 'ImageSrc' },
             trueSource: { type: 'ImageSrc' },
-            selector: { type: 'LazySelector', values: { switch: true } },
+            selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
           },
           links: [
-            [['falseSource', 'out'], ['selector', 'on_false']],
-            [['trueSource', 'out'], ['selector', 'on_true']],
+            [['falseSource', 'out'], ['selector', 'branch.on_false']],
+            [['trueSource', 'out'], ['selector', 'branch.on_true']],
           ],
           boundary: {
             inputs: [{ id: 'decision', binds: { kind: 'port', node: 'selector', port: 'switch' } }],
@@ -1065,14 +1066,14 @@ describe('dynamic interfaces', () => {
         outerOff: { type: 'ImageSrc' },
         innerOn: { type: 'ImageSrc' },
         innerOff: { type: 'ImageSrc' },
-        inner: { type: 'LazySelector', values: { switch: false } },
-        outer: { type: 'LazySelector', values: { switch: true } },
+        inner: { type: 'LazySelector', values: { switch: false }, dynamic: BRANCHES },
+        outer: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['innerOn', 'out'], ['inner', 'on_false']],
-        [['innerOff', 'out'], ['inner', 'on_true']],
-        [['outerOff', 'out'], ['outer', 'on_false']],
-        [['inner', 'result'], ['outer', 'on_true']],
+        [['innerOn', 'out'], ['inner', 'branch.on_false']],
+        [['innerOff', 'out'], ['inner', 'branch.on_true']],
+        [['outerOff', 'out'], ['outer', 'branch.on_false']],
+        [['inner', 'result'], ['outer', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('outer') }] }
@@ -1083,18 +1084,18 @@ describe('dynamic interfaces', () => {
   })
 
   it.each([
-    ['missing', {}],
-    ['non-boolean', { switch: 'true' }],
+    ['out-of-range', { switch: 2 }],
+    ['fractional', { switch: 0.5 }],
   ])('keeps %s lazy-switch state neutral', (_name, values) => {
     const doc = dynDoc({
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values },
+        selector: { type: 'LazySelector', values, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = {
@@ -1104,6 +1105,38 @@ describe('dynamic interfaces', () => {
     const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })!
     expect([...closure.included].sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     expect(closure.inactiveExclusive.size).toBe(0)
+  })
+
+  it.each([
+    ['a stored key by id, not position', 'a', 'sourceA', ['sourceB', 'sourceC']],
+    ['a removed key as the first member', 'gone', 'sourceC', ['sourceA', 'sourceB']],
+    ['no pick as the first member', undefined, 'sourceC', ['sourceA', 'sourceB']],
+    ['a position in stored order', 2, 'sourceB', ['sourceA', 'sourceC']],
+  ] as const)('projects %s among three branches', (_name, pick, live, dimmed) => {
+    const doc = dynDoc({
+      nodes: {
+        sourceA: { type: 'ImageSrc' },
+        sourceB: { type: 'ImageSrc' },
+        sourceC: { type: 'ImageSrc' },
+        selector: {
+          type: 'Switch',
+          values: pick === undefined ? {} : { pick },
+          dynamic: { branch: { members: ['c', 'a', 'b'] } },
+        },
+      },
+      links: [
+        [['sourceA', 'out'], ['selector', 'branch.a']],
+        [['sourceB', 'out'], ['selector', 'branch.b']],
+        [['sourceC', 'out'], ['selector', 'branch.c']],
+      ],
+    })
+    const scope: ExecutionScope = {
+      kind: 'partial',
+      targets: [{ instancePath: [], node: asNodeId('selector') }],
+    }
+    const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })!
+    expect([...closure.included].sort()).toEqual([live, 'selector'].sort())
+    expect([...closure.inactiveExclusive.get('selector') ?? []].sort()).toEqual(dimmed)
   })
 
   it('rewires a group member destination after its producer becomes bypassed', () => {

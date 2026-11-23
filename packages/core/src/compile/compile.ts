@@ -77,6 +77,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  selectorMembersOf,
   valueKeyOf,
   EMPTY_CONNECTIVITY,
   type Connectivity,
@@ -86,7 +87,7 @@ import {
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
 import { boundaryOutputFanOutProblems, matchBoundaryItem, projectEditableOptions } from './crossing.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -290,13 +291,10 @@ interface FlatNode {
   readonly selector?: NodeSelectorSpec
   /** Elaborated identity of selector.input, when this is a selector node. */
   readonly selectorInputKey?: string
-  /** Elaborated identities of selector branch inputs. */
-  readonly selectorBranchKeys?: { readonly false: string; readonly true: string }
-  /** Stored, occurrence-effective boolean used only by would-run liveness. */
-  selectorProjection?: {
-    readonly choice: boolean
-    readonly branches: { readonly false: string; readonly true: string }
-  }
+  /** Elaborated identities of the selector's member inputs, in stored order. */
+  readonly selectorMembers?: readonly string[]
+  /** Members a stored, occurrence-effective pick leaves out; used only by would-run liveness. */
+  selectorProjection?: { readonly inactive: readonly string[] }
   /** Inputs whose final staged value came from a real graph link/net. */
   readonly linkedInputs: Set<string>
   /** Staging record, keyed by ELABORATED input id (remapped to apiName at assembly). */
@@ -1677,12 +1675,9 @@ function compileImpl(
       const selectorInputKey = schema.selector === undefined
         ? undefined
         : elab.inputsByValueKey.get(schema.selector.input)?.spec.id
-      const selectorBranchKeys = schema.selector === undefined
+      const selectorMembers = schema.selector === undefined
         ? undefined
-        : {
-            false: elab.inputsByValueKey.get(schema.selector.branches.false)?.spec.id,
-            true: elab.inputsByValueKey.get(schema.selector.branches.true)?.spec.id,
-          }
+        : selectorMembersOf(schema.selector, elab.inputs)
       flat.set(runtimeId, {
         runtimeId,
         occ,
@@ -1691,9 +1686,7 @@ function compileImpl(
         elab,
         ...(schema.selector !== undefined ? { selector: schema.selector } : {}),
         ...(selectorInputKey !== undefined ? { selectorInputKey } : {}),
-        ...(selectorBranchKeys?.false !== undefined && selectorBranchKeys.true !== undefined
-          ? { selectorBranchKeys: { false: selectorBranchKeys.false, true: selectorBranchKeys.true } }
-          : {}),
+        ...(selectorMembers !== undefined ? { selectorMembers } : {}),
         linkedInputs: new Set(),
         inputs: {},
       })
@@ -2242,22 +2235,23 @@ function compileImpl(
 
   // -- Scope: full = closure of output nodes; partial = closure of targets ---
 
-  // A lazy selector's decision may be document state or link-fed. Stored
-  // booleans project the inactive branch, with promoted occurrence values
-  // outranking definition-local values. Link-fed decisions stay neutral:
-  // The backend resolves them at runtime, and stale stored values must not prune
-  // either would-run branch. Defaults and non-booleans also remain neutral.
+  // A Switch's pick may be document state or link-fed. A stored pick
+  // projects the members it leaves out, with promoted occurrence values
+  // outranking definition-local values. Link-fed picks stay neutral: the
+  // backend resolves them at runtime, and stale stored values must not prune
+  // any would-run branch. A pick the backend would refuse also stays neutral.
   // This projection never mutates fn.inputs.
   if (wouldRun) {
     for (const fn of flat.values()) {
-      if (!fn.selector || !fn.selectorInputKey || !fn.selectorBranchKeys) continue
+      if (!fn.selector || !fn.selectorInputKey || !fn.selectorMembers) continue
       if (fn.linkedInputs.has(fn.selectorInputKey)) continue
       const promoted = overrides.get(fn.runtimeId)
-      const choice = promoted?.has(fn.selectorInputKey)
+      const pick = promoted?.has(fn.selectorInputKey)
         ? promoted.get(fn.selectorInputKey)
         : fn.node.values?.[fn.selector.input]
-      if (typeof choice !== 'boolean') continue
-      fn.selectorProjection = { choice, branches: fn.selectorBranchKeys }
+      const picked = selectedMember(fn.selector, fn.selectorMembers, pick)
+      if (picked === undefined) continue
+      fn.selectorProjection = { inactive: fn.selectorMembers.filter((member) => member !== picked) }
     }
   }
 
@@ -2801,21 +2795,19 @@ function compileImpl(
     }
     const outputTypes: Record<string, TypeExpr> = {}
     const outputPorts: Record<string, PortRef> = {}
-    const selectorBranchTypes = fn.selectorBranchKeys === undefined
+    const selectorBranchTypes = fn.selectorMembers === undefined
       ? undefined
-      : [fn.selectorBranchKeys.false, fn.selectorBranchKeys.true].map((key) => {
+      : fn.selectorMembers.map((key) => {
           const value = fn.inputs[key]
           if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== 'string' || typeof value[1] !== 'number') return undefined
           return flat.get(value[0])?.elab.outputs
             .filter((output) => output.wireable !== false)[value[1]]?.spec.type
         })
-    const falseBranchType = selectorBranchTypes?.[0]
-    const trueBranchType = selectorBranchTypes?.[1]
-    const selectorOutputType = falseBranchType !== undefined &&
-        trueBranchType !== undefined &&
-        canonicalTypeIdOf(falseBranchType) !== undefined &&
-        canonicalTypeIdOf(falseBranchType) === canonicalTypeIdOf(trueBranchType)
-      ? falseBranchType
+    const firstBranchType = selectorBranchTypes?.[0]
+    const selectorOutputType = firstBranchType !== undefined &&
+        canonicalTypeIdOf(firstBranchType) !== undefined &&
+        selectorBranchTypes!.every((type) => type !== undefined && canonicalTypeIdOf(type) === canonicalTypeIdOf(firstBranchType))
+      ? firstBranchType
       : undefined
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
@@ -2962,11 +2954,9 @@ function compileImpl(
     for (const [consumerId, connections] of wouldRunVia) {
       if (!included.has(consumerId)) continue
       const consumer = flat.get(consumerId)
-      const inactiveKey = consumer?.selectorProjection
-        ? consumer.selectorProjection.branches[String(!consumer.selectorProjection.choice) as 'false' | 'true']
-        : undefined
+      const inactive = consumer?.selectorProjection?.inactive ?? []
       for (const connection of connections) {
-        if (connection.inputKey === inactiveKey) continue
+        if (inactive.includes(connection.inputKey)) continue
         for (const { defId, via } of connection.entries) {
           let g = acc.get(defId)
           if (!g) acc.set(defId, (g = { reroutes: new Set(), selectors: new Map(), valueSources: new Set() }))

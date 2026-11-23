@@ -49,6 +49,7 @@ import type {
   GroupSpec,
   InputSpec,
   NodeSchema,
+  NodeSelectorSpec,
   OptionRow,
   OutputSpec,
   SectionSpec,
@@ -296,6 +297,18 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
  * flattened id. The one rule compile, the canvas and the app share.
  */
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
+
+/**
+ * A Switch's member inputs that take part in the run (not the offered add
+ * slot), by value key, in stored order.
+ */
+export const selectorMembersOf = (
+  selector: NodeSelectorSpec,
+  inputs: readonly ElaboratedInput[],
+): readonly string[] =>
+  inputs
+    .filter((input) => input.apiName !== undefined && valueKeyOf(input).startsWith(`${selector.group}.`))
+    .map(valueKeyOf)
 
 // ---------------------------------------------------------------------------
 // Options and budget
