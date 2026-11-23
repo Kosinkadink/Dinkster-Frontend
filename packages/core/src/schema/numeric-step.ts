@@ -114,9 +114,10 @@ function exactInteger(value: unknown): bigint | undefined {
  * in place of the number. Only an exactly equal number counts.
  */
 export function specialValueLabel(value: unknown, spec: Pick<WidgetSpec, 'widgetType' | 'options'>): string | undefined {
+  // Only a number widget declares special values.
   const special = spec.options['special']
-  if (!Array.isArray(special) || (spec.widgetType !== 'INT' && spec.widgetType !== 'FLOAT')) return undefined
-  const read = spec.widgetType === 'INT' ? exactInteger : finiteOption
+  if (!Array.isArray(special)) return undefined
+  const read = numericStepConstraints(spec).integer ? exactInteger : finiteOption
   const current = read(value)
   if (current === undefined) return undefined
   for (const item of special) {
