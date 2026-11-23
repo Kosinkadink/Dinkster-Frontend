@@ -103,6 +103,14 @@ interface DinksterBridgeLifecycleEvent {
   timestamp: number
 }
 
+interface DinksterBridgeNodeStatesEvent {
+  kind: 'nodeStates'
+  execution: DinksterBridgeExecutionRef
+  timestamp: number
+  nodes: Readonly<Record<string, import('@dinkster/core').NodeProgress>>
+  snapshot?: true
+}
+
 /** Injectable preview frame: the same NormalizedEvent shape the metadata
  * preview protocol produces, used to create deterministic live frames. */
 interface DinksterBridgePreviewEvent {
@@ -303,9 +311,9 @@ interface DinksterTestBridge {
           }
         >
       }
-      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent): void
+      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent | DinksterBridgeNodeStatesEvent): void
       /** Register a run directly (AP5 spec bypasses the compile path). */
-      register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number): void
+      register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number, identity?: { readonly jobRef?: string; readonly sourceDocument?: string }): void
     }
     connection: {
       readonly id: import('@dinkster/core').ConnectionId
@@ -524,6 +532,7 @@ interface DinksterTestBridge {
     setViewport(viewport: { x: number; y: number; scale: number }): void
     /** Grid preference as the renderer holds it (canvas.grid.visible). */
     getGridVisible(): boolean
+    getInactiveNodes(): ReadonlySet<string> | undefined
     /** Ephemeral overlay state; specs assert ghost-noodle persistence. */
     getOverlay(): {
       /** Selected ordinary and boundary-node scene ids. */

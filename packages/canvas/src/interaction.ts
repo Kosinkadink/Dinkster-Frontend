@@ -399,6 +399,8 @@ export interface InteractionHost {
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
   smoothWheelZoom?(): boolean
+  /** Frozen inspection keeps navigation and layout gestures, without edit hover highlights. */
+  frozen?(): boolean
   /** Plan and dispatch one drilled occurrence mutation through the injected capability. */
   dispatchOccurrenceMutation?(intention: OccurrenceLinkIntention): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Report an occurrence gesture that cannot be represented atomically. */
@@ -4772,6 +4774,7 @@ export class InteractionController {
 
   /** Track one pin OR widget row; repeated moves on it are repaint-free. */
   private setAffordanceHover(hit: Hit | undefined): void {
+    if (this.host.frozen?.()) hit = undefined
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
     const pinNode = pin?.node.id

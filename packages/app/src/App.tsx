@@ -26,7 +26,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
 import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
-import { ExecutionActivityCard, executionStatusLabel } from './ExecutionActivityCard.js'
+import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
@@ -75,7 +75,7 @@ import {
   type DesktopWindowLayout,
 } from './desktop-bridge.js'
 import { coordinateBrowserWindows } from './browser-window-layout.js'
-import { MemoryPanel } from './MemoryPanel.js'
+import { ResourcesPanel } from './ResourcesPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
@@ -1213,6 +1213,7 @@ export function App(props: {
           onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
         <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
         <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
+        <ExecutionOpenButton entry={p.exec} title={app.tabTitleFor(p.exec.ref)} onOpen={() => { void app.openExecutionView(p.exec.ref) }} />
         <CancelExecutionButton app={app} execution={p.exec} />
       </div>
       <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
@@ -1220,7 +1221,7 @@ export function App(props: {
           title={app.tabTitleFor(p.exec.ref)}
           testId="run-details"
           relation={overlayRoleOf(p.exec)}
-          onOpen={() => { void app.openExecutionView(p.exec.ref) }}
+          hideOpen
           onPin={live() ? () => {
             const tab = live()
             if (!tab) return
@@ -1319,6 +1320,7 @@ export function App(props: {
     }))
   }
   const executionLogFocus = useSignal(app.executionLogFocus)
+  const [resourcesBackend, setResourcesBackend] = createSolidSignal<{ readonly id: string }>()
   const [appLogRequest, setAppLogRequest] = createSolidSignal<number>()
   const LogsBody = () => (
     <LogPanel
@@ -1424,12 +1426,14 @@ export function App(props: {
     })
     const Facts = () => <>
       <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
-      <Show when={storedExecution(p.entry)?.artifact}>
-        <ProductButton size="compact" onClick={() => { const execution = storedExecution(p.entry); if (execution) void app.openExecutionView(execution.ref) }}>{message('runs.openSnapshot')}</ProductButton>
-      </Show>
     </>
     return <div class="runs-stored-row">
-      <strong>{p.entry.title}</strong>
+      <div class="runs-row-heading">
+        <strong>{p.entry.title}</strong>
+        <Show when={storedExecution(p.entry)?.artifact && storedExecution(p.entry)}>{(execution) =>
+          <ExecutionOpenButton entry={execution()} title={p.entry.title} onOpen={() => { void app.openExecutionView(execution().ref) }} />
+        }</Show>
+      </div>
       <p>{p.entry.subtitle}</p>
       <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
       <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
@@ -1596,11 +1600,7 @@ export function App(props: {
       id: 'memory', get title() { return message('shell.panel.memory.title') }, icon: Database,
       get description() { return message('shell.panel.memory.description') }, get ariaLabel() { return message('shell.panel.memory.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 35,
-      toggleTestId: 'memory-sidebar-toggle', component: () => <div class="memory-panels">
-        <For each={backends().filter((backend): backend is Extract<Backend, { protocol: 'dinkster' }> => backend.protocol === 'dinkster')} fallback={<p>{message('shell.backend.noneNative')}</p>}>
-          {(backend) => <MemoryPanel connection={backend.connection} backendId={backend.id} label={backend.label} />}
-        </For>
-      </div>,
+      toggleTestId: 'memory-sidebar-toggle', component: () => <ResourcesPanel backends={backends()} activeBackendId={activeBackend().id} focusBackend={resourcesBackend()} />,
     }),
     registerBuiltinPanel({
       id: 'runs', get title() { return message('shell.panel.runs.title') },
@@ -3114,7 +3114,10 @@ export function App(props: {
           if (tab === undefined || (tab.editorKind !== undefined && tab.editorKind !== GRAPH_EDITOR_KIND) || view === undefined) return undefined
           return message('shell.status.workflowContext', { count: Object.keys(view.doc.graphs[view.graphId]?.nodes ?? {}).length, selected: selected.nodes.length })
         }}
-        openPanel={(id) => setPanelOpen(app.panels, app.dock, id, id === 'problems' ? 'right' : 'left', true)}
+        openPanel={(id) => {
+          if (id === 'memory') setResourcesBackend({ id: activeBackend().id })
+          setPanelOpen(app.panels, app.dock, id, id === 'problems' ? 'right' : 'left', true)
+        }}
         openRuns={() => {
           setRunScope('workflow')
           setPanelOpen(app.panels, app.dock, 'runs', 'right', true)
