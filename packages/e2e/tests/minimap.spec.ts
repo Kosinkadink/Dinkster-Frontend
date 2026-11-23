@@ -9,7 +9,6 @@ import { executionDetails, expect, test, waitForWorkspaceReady, type Page } from
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
@@ -278,7 +277,7 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(documentBefore)
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect(page.getByTestId('minimap')).toHaveAttribute('data-node-colors', 'false')
   await expect(page.getByTestId('minimap')).toHaveAttribute('data-bookmarks', 'false')
   const minimapHandle = await page.getByTestId('minimap').elementHandle()

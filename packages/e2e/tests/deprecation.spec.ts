@@ -24,8 +24,7 @@ test('review-mode native deprecation badges show guidance without an executable 
     },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 3)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.reviewUpgrades', true))
   expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],
@@ -74,8 +73,7 @@ async function migrationCatalog(page: Page): Promise<void> {
     } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 30_000 })
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 1)
 }
 
 async function openMigration(page: Page, lineage: string): Promise<void> {
@@ -203,7 +201,7 @@ test('deprecated resize imports its authored size and undoes from the migration 
     } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'ResizeImagesByLongerEdge', pos: [170, 140],
       properties: { ver: '0.5.1' }, widgets_values: [1536],

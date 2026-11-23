@@ -381,10 +381,14 @@ an empty, flattened, or otherwise lossy document as a successful import.
 
 The status bar contains changing state, not shortcuts. Connection opens Backends;
 run state opens Runs; the active workflow's problem count opens Problems;
-background work opens Log on App; graphics-memory use opens Memory. Connection,
-runs and memory follow the open tab's backend. Run state leads with the open
-workflow's run, or the earliest running workflow on that backend, and includes
-that backend's queued count. Background work covers every connected backend.
+background work opens Log on App; graphics-memory use opens Memory. Connection
+and memory follow the open tab's backend. Run state counts only the focused
+workflow and always opens Runs at This workflow. One running job shows the
+workflow name and progress; several running jobs show the name without a
+single-job percentage. Queued-only work shows the name when its backend queue
+position is unknown. Frozen tabs show only their job's activity or elapsed
+completion time, and other editor kinds omit the run item. Background work
+covers every connected backend.
 Graphics memory shows the fullest measured card, with every card in its tooltip;
 CPU-only, missing and disconnected measurements are omitted. Stale readings use
 the Memory panel's existing threshold and are marked stale.

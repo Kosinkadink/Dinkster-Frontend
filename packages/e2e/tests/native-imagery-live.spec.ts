@@ -149,8 +149,7 @@ test.beforeEach(async ({ page }) => {
 
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await waitForWorkspaceReady(page)
 })
 

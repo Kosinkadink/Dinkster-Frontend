@@ -3111,9 +3111,8 @@ export function App(props: {
           return message('shell.status.workflowContext', { count: Object.keys(view.doc.graphs[view.graphId]?.nodes ?? {}).length, selected: selected.nodes.length })
         }}
         openPanel={(id) => setPanelOpen(app.panels, app.dock, id, id === 'problems' ? 'right' : 'left', true)}
-        openRuns={(all) => {
-          setRunScope(all ? 'all' : 'workflow')
-          if (all) { setSelectedRunKey(''); setSelectedStoredRun(undefined) }
+        openRuns={() => {
+          setRunScope('workflow')
           setPanelOpen(app.panels, app.dock, 'runs', 'right', true)
         }}
         openAppLog={() => {

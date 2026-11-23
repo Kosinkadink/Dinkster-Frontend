@@ -1,10 +1,12 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
-import type { ExecutionState, MemoryStatus } from '@dinkster/client'
+import type { MemoryStatus } from '@dinkster/client'
 import { ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
+import Snowflake from 'lucide-solid/icons/snowflake'
 import Download from 'lucide-solid/icons/download'
 import { backendConnectionStatus, type AppState, type Backend, type Tab } from './app-state.js'
-import { executionProgress } from './ExecutionActivityCard.js'
+import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
+import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { executionActivity } from './execution-activity.js'
 import { FrameRateStatus } from './FrameRateStatus.js'
 import { formatBytes, MemoryStatusController, telemetryPresentationState } from './MemoryPanel.js'
@@ -100,7 +102,7 @@ export function StatusBar(props: {
   readonly transient: () => string | undefined
   readonly extensions: JSX.Element
   readonly openPanel: (id: string) => void
-  readonly openRuns: (all: boolean) => void
+  readonly openRuns: () => void
   readonly openAppLog: () => void
 }) {
   const message = useAppMessage()
@@ -110,26 +112,33 @@ export function StatusBar(props: {
   const settings = useSignal(props.app.settings.changed)
   const [tasks, setTasks] = createSignal<ReadonlyMap<string, readonly BackgroundTask[]>>(new Map())
   const allTasks = createMemo(() => [...tasks().values()].flat())
+  const workflowTab = () => {
+    const tab = props.tab()
+    return tab !== undefined && (tab.editorKind === GRAPH_EDITOR_KIND || tab.editorKind === APP_EDITOR_KIND)
+  }
   const run = createMemo(() => {
     executions()
-    const pending = props.app.executionList().filter((execution) => execution.ref.connection === props.backend().id)
-    const running = pending.filter((execution) => execution.status === 'running').sort((a, b) => (a.startedAt ?? a.queuedAt) - (b.startedAt ?? b.queuedAt))
-    const own = props.tab() === undefined ? [] : props.app.executionsForTab(props.tab()!)
-    const leading = running.find((execution) => own.some((candidate) => candidate.key === execution.key)) ?? running[0]
-    return { leading, own: leading !== undefined && own.some((candidate) => candidate.key === leading.key), ...executionActivity(pending) }
+    const tab = props.tab()
+    const own = tab === undefined ? [] : props.app.executionsForTab(tab)
+    const running = own.filter((execution) => execution.status === 'running')
+    return { ...executionActivity(own), leading: running.length === 1 ? running[0] : undefined,
+      frozen: tab?.execution === undefined ? undefined : own[0] }
   })
-  const workflowTab = () => props.tab() !== undefined && (props.tab()!.editorKind === undefined || props.tab()!.editorKind === 'graph')
-  const title = (execution: ExecutionState) => {
-    const lineage = execution.artifact?.snapshot.lineage
-    return (lineage === undefined ? undefined : props.app.liveTabFor(lineage)?.title) ?? message('shell.status.runningWorkflow')
-  }
-  const progress = () => run().leading === undefined ? undefined : executionProgress(run().leading!)
   const busy = () => run().running > 0 || run().waiting > 0
   const activityLabel = () => message('runs.activity', { running: run().running, waiting: run().waiting })
-  const runWords = () => !busy() ? message('shell.status.idle')
-    : progress() === undefined ? '' : `${Math.round(progress()!.value * 100)}%`
-  const runLabel = () => [runTitle(), busy() ? activityLabel() : '', runWords()].filter(Boolean).join(' - ')
-  const runTitle = () => run().leading !== undefined && (!run().own || !workflowTab()) ? title(run().leading!) : ''
+  const runWords = () => {
+    const frozen = run().frozen
+    if (frozen !== undefined && !busy()) {
+      return frozen.status === 'completed' && frozen.startedAt !== undefined && frozen.endedAt !== undefined
+        ? message('shell.status.completedIn', { seconds: Math.round((frozen.endedAt - frozen.startedAt) / 1000) })
+        : executionStatusLabel(frozen.status)
+    }
+    const progress = run().leading === undefined ? undefined : executionProgress(run().leading!)
+    return progress === undefined ? '' : `${Math.round(progress.value * 100)}%`
+  }
+  const runTitle = () => props.tab()?.execution !== undefined ? message('shell.status.frozen')
+    : busy() ? props.tab()!.title : message('shell.status.idle')
+  const runLabel = () => `${props.tab()?.title}: ${busy() ? activityLabel() : message('shell.status.noActivity')}${props.tab()?.execution === undefined ? '' : ` - ${message('shell.status.frozen')}`}${runWords() === '' ? '' : ` - ${runWords()}`}`
   const connection = () => { backendTick(); return backendConnectionStatus(props.backend()) }
   const connectionLabel = () => `${props.backend().label}: ${connection()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
@@ -161,14 +170,17 @@ export function StatusBar(props: {
           <span class="status-connection-dot" aria-hidden="true" /><span class="status-connection-name">{props.backend().label}</span>
           <Show when={connection() !== 'connected'}><span>{connection()}</span></Show>
         </ProductButton>
-        <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
-          aria-label={runLabel()} data-tooltip-label={runLabel()}
-          onClick={() => props.openRuns(!workflowTab() || (run().leading !== undefined && !run().own))}>
-          <Show when={busy()} fallback={<ProductRunIcon icon={Workflow} />}>
-            <ProductRunActivity running={run().running} waiting={run().waiting} label={activityLabel()} />
-          </Show>
-          <Show when={runTitle()}><span class="status-run-title">{runTitle()}</span></Show><span>{runWords()}</span>
-        </ProductButton>
+        <Show when={workflowTab()}>
+          <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
+            aria-label={runLabel()} data-tooltip-label={runLabel()} onClick={props.openRuns}>
+            <Show when={props.tab()?.execution !== undefined}><Icon icon={Snowflake} /><span>{message('shell.status.frozen')}</span></Show>
+            <Show when={busy()} fallback={<Show when={props.tab()?.execution === undefined}><ProductRunIcon icon={Workflow} /></Show>}>
+              <ProductRunActivity running={run().running} waiting={run().waiting} label={activityLabel()} />
+            </Show>
+            <Show when={props.tab()?.execution === undefined}><span classList={{ 'status-run-title': busy() }}>{runTitle()}</span></Show>
+            <Show when={runWords()}>{(words) => <span>{words()}</span>}</Show>
+          </ProductButton>
+        </Show>
         <Show when={props.problems()}>{(problem) => <ProductButton variant="ghost" size="compact" class="status-item status-problems"
           data-testid="status-problems" data-severity={problem().severity} aria-label={problem().label} data-tooltip-label={problem().label}
           onClick={() => props.openPanel('problems')}>{message('shell.status.problemCount', { count: problem().count })}</ProductButton>}</Show>

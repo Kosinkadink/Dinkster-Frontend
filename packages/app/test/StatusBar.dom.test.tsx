@@ -15,7 +15,7 @@ afterEach(() => {
   dispose?.(); app.dispose(); vi.restoreAllMocks(); document.body.replaceChildren(); localStorage.clear()
 })
 
-it('follows the active backend run and opens the explanatory panels without toggling them closed', async () => {
+it('counts only the focused workflow and opens its explanatory panels without toggling them closed', async () => {
   app = createWorkflowApp(null)
   const backend = app.backends.get()[0]!
   const other = app.addBackend('/other-status-backend', 'Other backend', false, 'dinkster')!
@@ -34,7 +34,7 @@ it('follows the active backend run and opens the explanatory panels without togg
   }
   dispose = render(() => <StatusBar app={app} backend={() => backend} tab={() => app.activeTab()} problems={problem}
     context={() => '2 nodes, 1 selected'} visible={() => true} placement={() => undefined} transient={() => undefined}
-    extensions={<span>Extension state</span>} openPanel={(id) => opened.push(id)} openRuns={(all) => opened.push(all ? 'all' : 'workflow')}
+    extensions={<span>Extension state</span>} openPanel={(id) => opened.push(id)} openRuns={() => opened.push('workflow')}
     openAppLog={() => opened.push('app-log')} />, root)
   expect(root.querySelector('[data-testid="status-run"]')?.textContent).toContain('Idle')
   expect(root.querySelector('[data-testid="status-problems"]')).toBeNull()
@@ -45,7 +45,11 @@ it('follows the active backend run and opens the explanatory panels without togg
   app.store.apply({ kind: 'started', execution: ref, timestamp: 101 })
   app.store.apply({ kind: 'nodeStates', execution: ref, timestamp: 102, snapshot: true, nodes: { first: { state: 'done' }, second: { state: 'running', value: 0.5 } } })
   app.store.register({ connection: backend.id, prompt: asPromptId('queued') }, artifact as never, 103)
-  app.store.register({ connection: other.id, prompt: asPromptId('foreign-queued') }, artifact as never, 104)
+  const foreign = { ...artifact, snapshot: { ...artifact.snapshot, lineage: 'another-workflow' } }
+  app.store.register({ connection: backend.id, prompt: asPromptId('foreign-queued') }, foreign as never, 104)
+  const foreignRunning = { connection: other.id, prompt: asPromptId('foreign-running') }
+  app.store.register(foreignRunning, foreign as never, 105)
+  app.store.apply({ kind: 'started', execution: foreignRunning, timestamp: 106 })
   await vi.waitFor(() => expect(root.querySelector('[data-testid="status-run"]')?.textContent).toContain('75%'))
   expect(root.querySelector('[data-testid="status-run"]')?.getAttribute('aria-label')).toContain('1 running, 1 queued')
   expect(root.querySelector('[data-testid="status-run"] .dinkster-run-activity')?.getAttribute('aria-label')).toBe('1 running, 1 queued')
