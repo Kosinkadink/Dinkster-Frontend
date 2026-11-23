@@ -98,11 +98,16 @@ shows Environment software history. These dated installation snapshots are
 separate from finished workflow runs. The page names the resolved installation
 and active snapshot, keeps history entry IDs distinct from snapshot numbers,
 and shows the recorded engine, base and whether substitutions were made. This
-record does not establish current recovery-input availability. Tools compatibility notices
-stay visible; a recorded exact snapshot does not establish that it can open a
-migrated library. Listing starts no engine and offers no restore action. Older
-bridges without history keep the existing library browser. A failed read is an
-error, not an empty history; selecting the project again retries it.
+record does not establish current recovery-input availability. Tools compatibility
+notices stay visible; a recorded exact snapshot does not establish that it can
+open a migrated library. Listing starts no engine. When Desktop also supplies
+restore review and Apply, the user chooses Every project on it or Only this
+project, reviews affected projects and software alternatives, then applies the
+retained approval. Changing scope or an expired or failed attempt requires a
+new review. A failed attempt may leave software or the project selection changed;
+it does not promise rollback. Older bridges without restore keep read-only
+history, and bridges without history keep the existing library browser. A failed
+read is an error, not an empty history; selecting the project again retries it.
 
 The installation list, project list and project assets have loading and empty
 states. An unavailable bridge or unreadable library gets one plain by-the-way
