@@ -199,7 +199,7 @@ function Example(props: {
   )
 }
 
-const fieldSettings = (
+const fieldSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">strength</span>
@@ -223,7 +223,7 @@ const fieldSettings = (
   </>
 )
 
-const outputSettings = (
+const outputSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">preview</span>
@@ -244,7 +244,7 @@ const outputSettings = (
   </>
 )
 
-const sectionSettings = (
+const sectionSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">Look</span>
@@ -266,7 +266,7 @@ const sectionSettings = (
   </>
 )
 
-const groupSettings = (
+const groupSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">Images</span>
@@ -287,7 +287,7 @@ const groupSettings = (
   </>
 )
 
-const problemSettings = (
+const problemSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">detail</span>
@@ -322,7 +322,7 @@ export function BoundaryTreeGallery() {
           uses="used in 2 places"
           entries={detailPass()}
           selected="strength"
-          settings={fieldSettings}
+          settings={fieldSettings()}
         />
       </Example>
       <Example
@@ -334,7 +334,7 @@ export function BoundaryTreeGallery() {
           uses="used in 2 places"
           entries={detailPass({ lookOpen: false })}
           selected="preview"
-          settings={outputSettings}
+          settings={outputSettings()}
         />
       </Example>
       <Example
@@ -346,7 +346,7 @@ export function BoundaryTreeGallery() {
           uses="used in 2 places"
           entries={detailPass({ advancedOpen: true })}
           selected="look"
-          settings={sectionSettings}
+          settings={sectionSettings()}
         />
       </Example>
       <Example
@@ -358,7 +358,7 @@ export function BoundaryTreeGallery() {
           uses="used in 2 places"
           entries={detailPass({ lookOpen: false })}
           selected="images"
-          settings={groupSettings}
+          settings={groupSettings()}
         />
       </Example>
       <Example
@@ -402,7 +402,7 @@ export function BoundaryTreeGallery() {
       </Example>
       <Example
         caption="An input added to a face that ends with a section and an output"
-        note="seed was just shown on the subgraph node. A new input goes at the end of the top level, after a box that follows the last input and before the outputs that end the list; nothing goes inside a box by itself."
+        note="steps was just shown on the subgraph node. A new input goes at the end of the top level, after a box that follows the last input and before the outputs that end the list; nothing goes inside a box by itself."
       >
         <Panel
           title="Detail pass"
@@ -420,10 +420,10 @@ export function BoundaryTreeGallery() {
                 input('strength', 'strength', 'FLOAT', 'Blend'),
               ],
             },
-            input('seed', 'seed', 'INT', 'Grain'),
+            input('steps', 'steps', 'INT', 'Sampler'),
             output('result', 'result', 'IMAGE', 'Blend'),
           ]}
-          selected="seed"
+          selected="steps"
         />
       </Example>
       <Example
@@ -495,7 +495,7 @@ export function BoundaryTreeGallery() {
             output('result', 'result', 'IMAGE', 'Detail pass'),
           ]}
           selected="detail"
-          settings={problemSettings}
+          settings={problemSettings()}
         />
       </Example>
       <Example
