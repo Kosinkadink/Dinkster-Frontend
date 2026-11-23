@@ -793,11 +793,12 @@ export function deriveSceneOverlays(args: {
       !(runErrorsByNode.has(n.id) && line.diagnostic.origin === 'runtime'))
     const errorLines = problemLines.filter((line) => line.kind === 'error')
     const warningLines = problemLines.filter((line) => line.kind === 'warning')
-    if (errorLines.length > 0) {
-      list.push(problemBadge(errorLines.some((line) =>
-        line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')
-        ? UNAVAILABLE_BADGE
-        : PROBLEM_ERROR_BADGE, errorLines.length))
+    // A node that cannot run here says so on its tab, with no count.
+    if (errorLines.some((line) =>
+      line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')) {
+      list.push(UNAVAILABLE_BADGE)
+    } else if (errorLines.length > 0) {
+      list.push(problemBadge(PROBLEM_ERROR_BADGE, errorLines.length))
     }
     if (warningLines.length > 0) list.push(problemBadge(PROBLEM_WARNING_BADGE, warningLines.length))
     if (n.isSubgraph) {

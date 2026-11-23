@@ -15,6 +15,7 @@ import {
   type BadgePlacement,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
+  outputRowKey,
   type BadgeMap,
   type NodeBadge,
   type ProblemKind,
@@ -1300,7 +1301,8 @@ export class CanvasRenderer {
     const badges = this.badges[node.id] ?? []
     const state = this.nodeStates[node.id]?.state
     const missing = node.unrecognized === true || node.missingSchema === true
-    const strong = missing || state === 'running' || state === 'done' || state === 'error'
+    const strong = missing || state === 'running' || state === 'done' || state === 'error' ||
+      badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
     const paint = canvasPaintTokens.node.outline
     const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
       this.viewport.scale, strong ? paint.strongScreen : paint.screen)
@@ -3427,28 +3429,33 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.bypassWash
       ctx.fill()
     }
-    // State border. A document problem draws nothing at the node's edge: it
-    // outlines its row and shows its tab below the node instead.
+    // State border. A node with a document Error keeps an emphasized dashed
+    // outline, the one sign that still reads zoomed out or on a minimized
+    // node; a Warning adds nothing to the outline. Document errors and
+    // runtime errors win over running because they stop execution.
+    const hasDocumentError = (this.badges[node.id] ?? []).some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
     const runtimeError = progress?.state === 'error'
     const running = progress?.state === 'running'
     const outlineColor = unrecognized
       ? t.colors.error
       : runtimeError
         ? t.stateColors.error
-        : running
-          ? t.stateColors.running
-          : progress
-            ? t.stateColors[progress.state]
-            : t.colors.nodeIdleOutline
-    const strongOutline = unrecognized || runtimeError || running || progress?.state === 'done'
+        : hasDocumentError
+          ? t.colors.error
+          : running
+            ? t.stateColors.running
+            : progress
+              ? t.stateColors[progress.state]
+              : t.colors.nodeIdleOutline
+    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || progress?.state === 'done'
     const outline = canvasPaintTokens.node.outline
     const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
-    const outlineDash = unrecognized || runtimeError
+    const outlineDash = unrecognized || runtimeError || hasDocumentError
       ? nodeStateDash('error', scale)
       : running
         ? undefined
         : nodeStateDash(progress?.state, scale)
-    const outlineOwnsDash = unrecognized || runtimeError || running || progress !== undefined
+    const outlineOwnsDash = unrecognized || runtimeError || hasDocumentError || running || progress !== undefined
     const dash = outlineOwnsDash ? outlineDash : modeDash(mode, scale)
     if (running) this.drawRunningGlow(ctx, node.x, node.y, l.width, l.height)
     if (dash !== undefined) ctx.setLineDash(dash)
@@ -3634,19 +3641,23 @@ export class CanvasRenderer {
           // Ghost (dynamic affordance) labels render dimmed: connect/edit
           // materializes them; until then they are an offer, not a member.
           const rowAlpha = ctx.globalAlpha
-          const inputProblem = row.input === undefined ? undefined : this.rowProblemColor(sceneNode.id, row.input.portId)
-          if (inputProblem !== undefined) {
-            // An input drawn without a field outlines its row; with an output
-            // on the same line it outlines only the input's half.
-            const innerWidth = l.width - t.padX * 2
-            const chrome = widgetChromeRect(node.x + t.padX, rowY, row.output === undefined ? innerWidth : innerWidth / 2,
+          // An input drawn without a field, or an output, outlines its row;
+          // when an input and an output share the line each outlines its half.
+          const innerWidth = l.width - t.padX * 2
+          const halves = row.input !== undefined && row.output !== undefined
+          const outlineSide = (color: string | undefined, right: boolean): void => {
+            if (color === undefined) return
+            const width = halves ? innerWidth / 2 : innerWidth
+            const chrome = widgetChromeRect(node.x + t.padX + (right && halves ? width : 0), rowY, width,
               row.height, t.rowGeometry.fieldInsetY)
-            ctx.strokeStyle = inputProblem
+            ctx.strokeStyle = color
             ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
             ctx.beginPath()
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.stroke()
           }
+          if (row.input !== undefined) outlineSide(this.rowProblemColor(sceneNode.id, row.input.portId), false)
+          if (row.output !== undefined) outlineSide(this.rowProblemColor(sceneNode.id, outputRowKey(row.output.portId)), true)
           if (row.input) {
             if (row.input.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity

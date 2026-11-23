@@ -10,7 +10,7 @@ import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
 import { paintToolboxIcon } from '../src/icons.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
-import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
+import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
@@ -1245,6 +1245,22 @@ describe('diagnostic paint on the live renderer', () => {
       call.args[2] === defaultTokens.pinRadius + 3.5)).toBe(false)
   })
 
+  it('a problem on an output outlines the output row', () => {
+    const scene = fixtureScene('clean')
+    const source = scene.nodes.find((node) => node.layout.rows.some((candidate) => candidate.kind === 'ports' && candidate.output !== undefined))!
+    const row = source.layout.rows.find((candidate) => candidate.kind === 'ports' && candidate.output !== undefined)
+    if (row?.kind !== 'ports' || row.output === undefined) throw new Error('fixture has no output row')
+    const calls = paintWith(scene, (renderer) => renderer.setRowMarks({ [source.id]: { [outputRowKey(row.output!.portId)]: 'warning' } }))
+    const innerWidth = source.layout.width - defaultTokens.padX * 2
+    const width = row.input === undefined ? innerWidth : innerWidth / 2
+    const chrome = widgetChromeRect(source.x + defaultTokens.padX + (row.input === undefined ? 0 : width), source.y + row.y, width,
+      row.height, defaultTokens.rowGeometry.fieldInsetY)
+    const outline = calls.findIndex((call) =>
+      call.method === 'roundRect' && call.args[0] === chrome.x && call.args[1] === chrome.y && call.args[2] === chrome.width)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    expect(paintedAfter(calls, outline, 'stroke')?.strokeStyle).toBe(PROBLEM_WARNING_BADGE.color)
+  })
+
   it.each([66, 300, 1200])('bounds panned drawing work for %i nodes without rebuilding link lookups', (count) => {
     const doc = loadDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: `paint-${count}`, root: 'g0',
@@ -2072,8 +2088,9 @@ describe('node chrome paint on the live renderer', () => {
     const node = nodeOf(scene, 'c1')
     const calls = paintWith(scene, (renderer) => {
       renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
+      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })
     })
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.stateColors.running)
+    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.error)
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
   })
 
@@ -2142,14 +2159,25 @@ describe('node chrome paint on the live renderer', () => {
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
-  it('a document problem tab draws nothing at the node edge: the node keeps its idle or run outline', () => {
+  it('a document-error tab wins over running with an emphasized red node outline', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const idle = paintWith(scene, (renderer) => renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] }))
+    const calls = paintWith(scene, (renderer) => {
+      renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
+      renderer.setBadges({ c1: [problemBadge(PROBLEM_ERROR_BADGE, 2)] })
+    })
+    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.error)
+    expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
+  })
+
+  it('a warning tab leaves the node outline as its run state draws it', () => {
+    const scene = fixtureScene('clean')
+    const node = nodeOf(scene, 'c1')
+    const idle = paintWith(scene, (renderer) => renderer.setBadges({ c1: [PROBLEM_WARNING_BADGE] }))
     expect(nodeBorder(idle, node)?.strokeStyle).toBe(defaultTokens.colors.nodeIdleOutline)
     const running = paintWith(scene, (renderer) => {
       renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE] })
+      renderer.setBadges({ c1: [PROBLEM_WARNING_BADGE] })
     })
     expect(nodeBorder(running, node)?.strokeStyle).toBe(defaultTokens.stateColors.running)
   })

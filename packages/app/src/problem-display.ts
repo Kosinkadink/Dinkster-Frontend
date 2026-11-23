@@ -12,7 +12,7 @@ import {
   type Severity,
   type WorkflowDocument,
 } from '@dinkster/core'
-import type { ProblemKind, RowProblemMap } from '@dinkster/canvas'
+import { outputRowKey, type ProblemKind, type RowProblemMap } from '@dinkster/canvas'
 
 export interface ProblemSchemaRegistry {
   readonly resolve: (type: string) => NodeSchema | undefined
@@ -25,9 +25,9 @@ export interface NodeProblemLine {
   readonly kind: NodeProblemKind
   readonly diagnostic: Diagnostic
   /**
-   * The row the problem belongs to: its stored value key, or the input's port
-   * id when the input has no field. Absent for a problem about the node as a
-   * whole.
+   * The row the problem belongs to: its stored value key, the input's port id
+   * when the input has no field, or outputRowKey for an output. Absent for a
+   * problem about the node as a whole.
    */
   readonly row?: string
 }
@@ -122,12 +122,21 @@ function diagnosticNodeTargets(
 export const problemKindOf = (diagnostic: Diagnostic): NodeProblemKind =>
   diagnosticBlocksExecution(diagnostic) ? 'error' : 'warning'
 
+/** Which side of a node a port id names, when the view knows it. */
+export type PortSideOf = (nodeId: string, port: string) => 'input' | 'output' | undefined
+
 /** The row of one node a diagnostic is about, if any. */
-function diagnosticRow(diagnostic: Diagnostic, nodeId: string): string | undefined {
+function diagnosticRow(diagnostic: Diagnostic, nodeId: string, portSideOf: PortSideOf | undefined): string | undefined {
   const port = diagnostic.anchor?.port
-  if (port !== undefined && port.node === nodeId) return port.port
+  if (port !== undefined && port.node === nodeId) {
+    return portSideOf?.(nodeId, port.port) === 'output' ? outputRowKey(port.port) : port.port
+  }
   for (const ref of diagnostic.refs ?? []) {
-    if (ref.nodeId !== nodeId || ref.direction === 'output') continue
+    if (ref.nodeId !== nodeId) continue
+    if (ref.direction === 'output') {
+      if (ref.portId !== undefined) return outputRowKey(ref.portId)
+      continue
+    }
     const row = ref.valueKey ?? ref.portId
     if (row !== undefined) return row
   }
@@ -144,6 +153,8 @@ export function deriveProblemProjection(args: {
   readonly document?: WorkflowDocument
   readonly graphId: string
   readonly instancePath: readonly string[] | undefined
+  /** Tells an anchored output port from an input; anchors default to inputs. */
+  readonly portSideOf?: PortSideOf
 }): ProblemProjection {
   const lines: Record<string, NodeProblemLine[]> = {}
   const seen = new Set<string>()
@@ -169,7 +180,7 @@ export function deriveProblemProjection(args: {
     }
     const kind = problemKindOf(diagnostic)
     for (const nodeId of nodeIds) {
-      const row = diagnosticRow(diagnostic, nodeId)
+      const row = diagnosticRow(diagnostic, nodeId, args.portSideOf)
       const key = JSON.stringify([nodeId, row ?? null, diagnostic.code, diagnostic.message])
       if (seen.has(key)) continue
       seen.add(key)

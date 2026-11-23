@@ -9,6 +9,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { outputRowKey } from '@dinkster/canvas'
 import { composeCanvasProblemDiagnostics, deriveNodeProblems, deriveProblemProjection, groupProblemDiagnostics, problemDisplay } from '../src/problem-display.js'
 
 const schema: NodeSchema = {
@@ -181,6 +182,25 @@ describe('deriveNodeProblems', () => {
       ['steps', 'warning', 'widget.INT.aboveMax'],
     ])
     expect(projection.rows).toEqual({ 'n5-a1b2': { width: 'error', steps: 'warning' } })
+  })
+
+  it('puts a problem on an output on the output row, apart from an input with the same id', () => {
+    const viaRef = diag('warning', 'compile', 'out.ref', 'unused output', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'image', direction: 'output' }],
+    })
+    const viaAnchor = diag('warning', 'compile', 'out.anchor', 'stale output', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') }, port: { node: asNodeId('n5-a1b2'), port: asPortId('latent') } },
+    })
+    const onInput = diag('error', 'compile', 'in.anchor', 'missing image', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') }, port: { node: asNodeId('n5-a1b2'), port: asPortId('image') } },
+    })
+    const projection = deriveProblemProjection({
+      document: document(), graphId: 'g0', instancePath: [], diagnostics: [viaRef, viaAnchor, onInput],
+      portSideOf: (_node, port) => port === 'latent' ? 'output' : 'input',
+    })
+    expect(projection.rows).toEqual({
+      'n5-a1b2': { [outputRowKey('image')]: 'warning', [outputRowKey('latent')]: 'warning', image: 'error' },
+    })
   })
 
   it('uses exact occurrence paths, filters other graphs and info, and deduplicates ref plus anchor', () => {

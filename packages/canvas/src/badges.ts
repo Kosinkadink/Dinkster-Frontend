@@ -69,10 +69,13 @@ export function executionNodePresentation(
 /** A problem that stops a run is an error; every other problem is a warning. */
 export type ProblemKind = 'error' | 'warning'
 /**
- * Strongest problem per node per row. A row is keyed by its stored value key
- * or, for an input drawn without a field, its input port id.
+ * Strongest problem per node per row. A row is keyed by its stored value key,
+ * by its input port id for an input drawn without a field, or by
+ * outputRowKey for an output.
  */
 export type RowProblemMap = Readonly<Record<string, Readonly<Record<string, ProblemKind>>>>
+/** The row key of an output, kept apart from an input with the same port id. */
+export const outputRowKey = (portId: string): string => `\u0000output\u0000${portId}`
 
 export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'boxes', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2

@@ -10,6 +10,7 @@ import {
   type NodeOutputText,
   type OutputTextMap,
   type PinLayout,
+  outputRowKey,
   type RowProblemMap,
   type Scene,
   type SceneLinkEnd,
@@ -260,7 +261,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     for (const pin of node.layout.pins) {
       const name = pinName(node, pin)
       const count = connections.get(pinConnectionKeyOf(node.id, pin)) ?? 0
-      const problem = pin.direction === 'in' ? source.rowProblems[node.id]?.[pin.portId] : undefined
+      const problem = source.rowProblems[node.id]?.[pin.direction === 'in' ? pin.portId : outputRowKey(pin.portId)]
       const traits = [
         presentedType(defaultTokens, pin.type).label,
         ...(pin.matchVariable !== undefined ? [`match ${pin.matchVariable}`] : []),

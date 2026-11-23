@@ -4487,6 +4487,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         document: tab.store.doc,
         graphId: gid,
         instancePath: viewInstancePath(tab),
+        portSideOf: (nodeId, port) => {
+          const pins = scene.nodes.find((node) => node.id === nodeId)?.layout.pins ?? []
+          if (pins.some((pin) => pin.direction === 'in' && pin.address.port === port)) return 'input'
+          return pins.some((pin) => pin.direction === 'out' && pin.address.port === port) ? 'output' : undefined
+        },
       })
       nodeProblems = projectedProblems.nodes
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, type Scene } from '@dinkster/canvas'
+import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
 import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -1041,6 +1041,18 @@ describe('deriveSceneOverlays', () => {
       PROBLEM_WARNING_BADGE,
     ])
     expect(m.badges['n1']?.map((badge) => badge.glyph)).toEqual(['Error', 'Error 2', 'Warning'])
+  })
+
+  it('labels the error tab Unavailable with no count while the node cannot run here', () => {
+    const m = deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'n1' }]),
+      nodeProblems: { n1: [
+        { kind: 'error', diagnostic: { severity: 'error', origin: 'compile', code: 'dinksterGraph.nodeUnavailable', message: 'not here' } },
+        { kind: 'error', diagnostic: { severity: 'error', origin: 'compile', code: 'other', message: 'other' } },
+      ] },
+    })
+    expect(m.badges['n1']).toEqual([UNAVAILABLE_BADGE])
   })
 
   it('does not duplicate a pure runtime diagnostic as a document-error badge', () => {
