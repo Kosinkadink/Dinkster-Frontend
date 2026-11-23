@@ -155,8 +155,13 @@ describe('badge layout', () => {
     expect(hovered.at(-1)!.x + hovered.at(-1)!.width).toBeLessThanOrEqual(159)
     const stacked = { ...scene, nodes: [node] }
     const expanded = hovered.at(-1)!
-    const hit = hitTestBadge(stacked, { [node.id]: badges }, expanded.x + 1, expanded.y + 1, () => hovered)
-    expect(hit?.badge.id).toBe('detail.1')
+    const hitAt = (x: number) => hitTestBadge(stacked, { [node.id]: badges }, x, expanded.y + 1, () => hovered)?.badge.id
+    // The grown tab covers its neighbors, yet the pointer still reaches each one at its resting strip.
+    const covered = entries.slice(0, 3).filter((entry) => entry.x >= expanded.x && entry.x + entry.width <= expanded.x + expanded.width)
+    expect(covered.map((entry) => entry.badge.id)).toEqual(['detail.0', 'detail.1', 'detail.2'])
+    for (const entry of covered) expect(hitAt(entry.x + entry.width / 2)).toBe(entry.badge.id)
+    // A point on the grown tab that no resting tab covers stays on it.
+    expect(hitAt(entries[1]!.x + entries[1]!.width + 1)).toBe('detail.1')
     const overflow = entries[3]!
     expect(hitTestBadge(stacked, { [node.id]: badges }, overflow.x + 1, overflow.y + 1, () => entries)?.overflow).toEqual(badges.slice(3))
   })
