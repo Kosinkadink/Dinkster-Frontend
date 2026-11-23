@@ -170,6 +170,55 @@ describe('dragging a wire off a field', () => {
   })
 })
 
+describe('renaming a Switch\'s branch', () => {
+  const STRING = { kind: 'concrete', name: 'STRING' } as const
+  const text = schemaOf('Text', [
+    input('value', STRING, { widgetType: 'STRING', options: {} }),
+    { kind: 'output', id: 'STRING', type: STRING, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false })
+  const all = (type: string) => type === 'Text' ? text : resolve(type)
+  const docWith = (nodes: Record<string, { type: string; values?: Record<string, unknown> }>, links: [string, string, string, string][],
+    labels: Record<string, Record<string, string>>) => {
+    const doc = docOf(nodes, links)
+    for (const [id, memberLabels] of Object.entries(labels)) {
+      const node = doc.graphs['g0']!.nodes[id] as NodeData
+      ;(doc.graphs['g0']!.nodes as Record<string, NodeData>)[id] = { ...node, dynamic: { branch: { members: ['a', 'b'], memberLabels } } } as NodeData
+    }
+    return new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
+  }
+  const rename = (store: DocumentStore, nodeId: string, member: string, label: string) =>
+    store.dispatch({ command: 'dynamic.labelMember', params: { graphId: 'g0', nodeId, construct: 'branch', member, label } })
+  const valueOf = (store: DocumentStore, nodeId: string) => store.doc.graphs['g0']!.nodes[nodeId]!.values['value']
+
+  it('gives a Choice holding the old name the new one, in the same undo step', () => {
+    const store = docWith({ choice: { type: 'Choice', values: { value: 'Detailed' } }, s1: { type: 'Switch' } },
+      [['choice', 'COMBO', 's1', 'pick']], { s1: { a: 'Quick', b: 'Detailed' } })
+    expect(rename(store, 's1', 'b', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Final')
+    expect(store.undo()).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Detailed')
+    expect(store.doc.graphs['g0']!.nodes['s1']!.dynamic?.['branch']?.memberLabels?.['b']).toBe('Detailed')
+  })
+
+  it('keeps the old name when another Switch the Choice feeds has no branch with the new one', () => {
+    const store = docWith({ choice: { type: 'Choice', values: { value: 'Detailed' } }, s1: { type: 'Switch' }, s2: { type: 'Switch' } },
+      [['choice', 'COMBO', 's1', 'pick'], ['choice', 'COMBO', 's2', 'pick']],
+      { s1: { a: 'Quick', b: 'Detailed' }, s2: { a: 'Detailed', b: 'Quick' } })
+    expect(rename(store, 's1', 'b', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Detailed')
+    // Once both Switches call it Final, the Choice follows.
+    expect(rename(store, 's2', 'a', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Final')
+  })
+
+  it('leaves a Text primitive on Pick as it is', () => {
+    const store = docWith({ label: { type: 'Text', values: { value: 'Detailed' } }, s1: { type: 'Switch' } },
+      [['label', 'STRING', 's1', 'pick']], { s1: { a: 'Quick', b: 'Detailed' } })
+    expect(rename(store, 's1', 'b', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'label')).toBe('Detailed')
+  })
+})
+
 describe('plugging a primitive into a field', () => {
   const storeOf = (doc: WorkflowDocument) =>
     new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
