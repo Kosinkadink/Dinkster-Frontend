@@ -1117,7 +1117,7 @@ describe('a type variable fed two different types', () => {
       expect.objectContaining({
         severity: 'error',
         code: 'solve.varConflict',
-        message: 'These inputs must be the same type: first is IMAGE, second is LATENT',
+        message: 'These inputs must be the same type: first is IMAGE, second is LATENT.',
         anchor: { port: { node: 'pair', port: 'second' }, link: 'l1' },
         data: { node: 'pair', edges: ["link 'l0'", "link 'l1'"] },
       }),
@@ -1134,7 +1134,7 @@ describe('a type variable fed two different types', () => {
         l1: { from: ['sw', 'out'], to: ['pair', 'first'] },
         l2: { from: ['lat', 'out'], to: ['pair', 'second'] },
       },
-    }))).toEqual([{ severity: 'error', message: 'These inputs must be the same type: first is IMAGE, second is LATENT', node: 'pair' }])
+    }))).toEqual([{ severity: 'error', message: 'These inputs must be the same type: first is IMAGE, second is LATENT.', node: 'pair' }])
   })
 
   it('stays a warning when the engine would run the node', () => {
@@ -1188,7 +1188,7 @@ describe('a type variable fed two different types', () => {
       },
     })
     expect(conflicts(switchWith('runtime'))).toEqual([
-      { severity: 'error', message: 'These inputs must be the same type: branch 1 is IMAGE, branch 2 is LATENT', node: 'sw' },
+      { severity: 'error', message: 'These inputs must be the same type: branch 1 is IMAGE, branch 2 is LATENT.', node: 'sw' },
     ])
     expect(conflicts(switchWith('known')).map((c) => c.severity)).toEqual(['warning'])
     expect(conflicts(switchWith('stored')).map((c) => c.severity)).toEqual(['warning'])
