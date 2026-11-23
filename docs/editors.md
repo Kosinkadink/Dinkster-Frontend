@@ -6,7 +6,7 @@ document state. This document pins the editor seam so future surfaces
 external-tool bridges) arrive as registry descriptors, never as shell
 rewrites or bolted-on views.
 
-## The contract (user-approved architecture pin, 2026-07-25)
+## The contract (user-approved architecture)
 
 - A tab is conceptually **(document, editorKind)**. `Tab.editorKind` names
   the editor that renders it; the built-in kinds are `graph` (the node
@@ -342,10 +342,18 @@ as "Execute up to Selection" and disables it whenever the toolbox up-to action
 is disabled.
 
 Open Subgraph, Extract, and Flatten use folder-open, group, and ungroup icons
-from the same canvas icon painter as the other toolbox controls. Subgraph
-header badges use the boxes icon. When a definition is referenced by two or
-more occurrences, the badge adds the document-derived linked count; a single
-occurrence keeps the compact icon-only badge.
+from the same canvas icon painter as the other toolbox controls. A subgraph
+node's mark at the right end of its title bar uses the boxes icon. When a
+definition is referenced by two or more occurrences, the mark adds the
+document-derived linked count; a single occurrence keeps the icon-only mark.
+
+A subgraph node acts like any node: double-clicking its title minimizes or
+restores it. The mark is the way in. One click opens its panel with the
+subgraph's name, node count and Open Subgraph; a double-click enters the
+subgraph and closes that panel. The toolbox's and the node menu's Open
+Subgraph enter it too. The mark takes the pointer over a 20px square, though
+drawn at 16px, and its tooltip names the subgraph and adds "Double-click to open." A press on
+the mark that drags moves the node.
 
 Right-click a linked subgraph occurrence and choose **Make Unique** to clone
 its definition and repoint only that occurrence. The command clones the

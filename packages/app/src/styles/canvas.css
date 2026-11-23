@@ -262,16 +262,21 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(260px, calc(100% - 20px));
+  width: min(160px, calc(100% - 20px));
   pointer-events: none;
 }
+.canvas-corner-controls[data-minimap-size='medium'] { width: min(196px, calc(100% - 20px)); }
+.canvas-corner-controls[data-minimap-size='large'] { width: min(256px, calc(100% - 20px)); }
+.canvas-corner-controls[data-minimap-size='medium'] .minimap { height: 118px; }
+.canvas-corner-controls[data-minimap-size='large'] .minimap { height: 150px; }
+.canvas-corner-controls[data-minimap-size='small'] :is([data-testid='canvas-zoom-out'], [data-testid='canvas-zoom-in']) { display: none; }
 
 .minimap {
   display: block;
   width: 100%;
-  height: 150px;
+  height: 96px;
   background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-subtle);
+  border: 0;
   border-radius: var(--dinkster-radius-card);
   box-shadow: var(--dinkster-elevation-high);
   cursor: pointer;
@@ -284,10 +289,10 @@
 .canvas-corner-bar {
   display: flex;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 0;
   padding: 3px;
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-card);
   background: var(--dinkster-surface-panel);
   box-shadow: var(--dinkster-elevation-low);
@@ -296,9 +301,17 @@
 }
 
 .canvas-corner-controls .canvas-corner-button {
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 28px;
+  min-height: 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   pointer-events: auto;
+}
+.canvas-corner-controls .canvas-corner-button[aria-pressed='true'] {
+  color: var(--dinkster-accent-foreground);
+  background: transparent;
+  border-color: transparent;
 }
 .canvas-corner-button svg { width: 16px; height: 16px; }
 
@@ -340,12 +353,8 @@
 @media (prefers-reduced-motion: reduce) {
   .minimap-switch > span { transition-duration: var(--dinkster-motion-reduced); }
 }
-.minimap-bar-controls, .canvas-zoom-controls { display: flex; gap: 2px; }
-.canvas-zoom-controls .canvas-zoom-level { min-width: 50px; font-variant-numeric: tabular-nums; }
-@media (max-width: 520px) {
-  .minimap { height: 122px; }
-  .canvas-zoom-controls .canvas-corner-button { padding: 0 4px; }
-}
+.minimap-bar-controls, .canvas-zoom-controls { display: contents; }
+.canvas-zoom-controls .canvas-zoom-level { min-width: 40px; width: 40px; font-variant-numeric: tabular-nums; }
 /* Single top row for canvas chrome: view/lens controls left, workflow queue
    right. Composing them in one flex row (wrapping at narrow widths) makes
    control overlap impossible by construction. The container ignores pointer
@@ -416,9 +425,10 @@
 .workflow-queue-toggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--dinkster-space-8);
-  max-width: min(220px, 38vw);
-  padding: var(--dinkster-space-8) var(--dinkster-space-12);
+  justify-content: center;
+  gap: var(--dinkster-space-4);
+  min-width: var(--dinkster-control-compact-height);
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
   border-left: 0;
   border-radius: 0 var(--dinkster-radius-control) var(--dinkster-radius-control) 0;
   color: var(--dinkster-text-secondary);
@@ -429,13 +439,8 @@
 .workflow-queue-submit:focus-visible,
 .workflow-queue-toggle:focus-visible { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .workflow-queue-submit:disabled { color: var(--dinkster-text-disabled); border-color: var(--dinkster-border-subtle); background: var(--dinkster-surface-raised); cursor: default; }
-.workflow-queue-caret {
-  width: 0;
-  height: 0;
-  border-right: 4px solid transparent;
-  border-left: 4px solid transparent;
-  border-top: 5px solid currentColor;
-}
+.workflow-queue-toggle svg { width: 15px; height: 15px; }
+.workflow-queue-toggle[data-running='true'] { color: var(--dinkster-accent-foreground); }
 .workflow-queue-progress {
   display: grid;
   grid-template-columns: auto minmax(72px, 1fr) auto;

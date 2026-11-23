@@ -8,8 +8,8 @@
  * - Widgets own the full row width unless sibling placement shares a line;
  *   outputs never pair with widgets. Overflow outputs
  *   get dedicated rows.
- * - Rows have fixed type-appropriate heights (a multiline string previews a
- *   few lines; depth lives in the expanded editor).
+ * - Rows have fixed type-appropriate heights. A multiline text box is as
+ *   many lines tall as the user sized it, else as its widget declares.
  * - Auto-size: a node's natural size is a pure function of its row stack +
  *   tokens. Manual overrides are editing implementation (stored in view state, min-clamped).
  *
@@ -140,6 +140,13 @@ export type LayoutRow =
       readonly representationId?: string
       /** Effective controller mode. Absent document state defaults to randomize. */
       readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+      /**
+       * Inside a subgraph: this field is on the subgraph node without a wire
+       * (BoundaryItem.wireHidden, or a value source shown as a field). Names
+       * the boundary input it became and that input's name on the subgraph
+       * node; painted as the cyan subgraph icon before the field's name.
+       */
+      readonly subgraphMark?: { readonly item: string; readonly label: string }
       readonly optional?: boolean
       /**
        * Value not stored in node.values (DynamicCombo selector: the selected
@@ -166,6 +173,12 @@ export type LayoutRow =
         readonly construct: string
         readonly valueKey: string
       }
+      /**
+       * Set for an Inputs panel field whose value is a value source's own
+       * value: edits dispatch valueSource.setValue and
+       * valueSource.setController, never node.setValue.
+       */
+      readonly valueSourceOwner?: { readonly graphId: string; readonly valueSourceId: string }
     } & DynamicAnnotations)
   | {
       /**
@@ -259,39 +272,55 @@ export interface NodeLayout {
   readonly minHeight: number
   /** Difference between visible height and the persisted expanded-view request. */
   readonly resizeHeightOffset?: number
+  /** The manual size stored in view state, when the user resized the node. */
+  readonly sizeOverride?: { readonly width: number; readonly height: number }
   readonly headerHeight: number
   readonly title: string
+  /** Quieter text after the title of a subgraph's Inputs panel ("of Soften", "defaults"). */
+  readonly subtitle?: string
   /** True only when an override differs from the schema/fallback display name. */
   readonly titleRenamed?: boolean
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
   readonly minimized?: true
+  /** On a minimized node: the preview region's height on the open node, which a caption-opened preview takes. */
+  readonly openPreviewHeight?: number
   /** Expanded Advanced enclosure, including the header and every member row. */
   readonly advancedGroup?: {
     readonly y: number
     readonly height: number
   }
-  /** Optional imagery area appended inside the node body after all rows. */
+  /**
+   * Optional imagery area appended inside the node body after all rows: the
+   * "Preview" caption row on top, then the picture.
+   */
   readonly preview?: {
     readonly x: number
     readonly y: number
     readonly width: number
     readonly height: number
-    /** Discoverable pre-execution surface without preview content. */
+    /** Only the caption row: no picture yet, or a folded preview. */
     readonly compact?: true
+    /** A preview with a picture, folded to its caption row, which opens it again. */
+    readonly folded?: true
   }
-  /** Optional recorded string result appended inside the body after all rows. */
+  /** Optional recorded string result appended inside the body after all rows, under its caption row. */
   readonly textOutput?: {
     readonly x: number
     readonly y: number
     readonly width: number
     readonly height: number
+    /** Folded to its caption row, which opens it again. */
+    readonly folded?: true
   }
 }
 
+/** Offset from a node's left edge to its title, past the minimize arrow's target. */
+export const TITLE_START: number = canvasPaintTokens.node.minimizeArrow.left + canvasPaintTokens.node.minimizeArrow.target
+
 /** Shared visible bounds for registry widget chrome and its overlay states. */
-export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number): {
+export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
   readonly x: number
   readonly y: number
   readonly width: number
@@ -299,13 +328,13 @@ export function widgetChromeRect(x: number, rowY: number, width: number, rowHeig
   readonly radius: number
 } {
   const paint = canvasPaintTokens.widget
-  return { x, y: rowY + paint.verticalInset, width, height: rowHeight - paint.verticalInset * 2, radius: paint.radius }
+  return { x, y: rowY + insetY, width, height: rowHeight - insetY * 2, radius: paint.radius }
 }
 
 /** Floating label band plus padded multiline content rows. */
 export function multilineWidgetHeight(rows: number, tokens: DesignTokens): number {
   // The content budget lives inside widgetChromeRect's top/bottom inset.
-  return canvasPaintTokens.widget.verticalInset * 2 + tokens.multilineText.labelHeight +
+  return tokens.rowGeometry.fieldInsetY * 2 + tokens.multilineText.labelHeight +
     rows * tokens.multilineText.lineHeight + tokens.multilineText.padding * 2
 }
 
@@ -315,24 +344,86 @@ const previewPanelMinHeight = (tokens: DesignTokens): number =>
 const previewPanelDefaultHeight = (tokens: DesignTokens): number =>
   tokens.previewDefaultHeight + tokens.previewCaptionHeight
 
+/** A text box the user sizes stays within its line limits. */
+export const clampTextBoxLines = (lines: number): number => Math.min(
+  canvasPaintTokens.widget.textBoxEdge.maxLines,
+  Math.max(canvasPaintTokens.widget.textBoxEdge.minLines, Math.round(lines)),
+)
+
+const isTextBoxRow = (row: LayoutRow): row is Extract<LayoutRow, { kind: 'widget' }> =>
+  row.kind === 'widget' && row.viewId === 'core.text'
+
+/**
+ * Indexes of the rows the node's own bottom edge sizes. A node with a
+ * preview gives that height to the preview, so none of its text boxes take
+ * it; otherwise only the last text box does. Every other text box keeps the
+ * height it was given in lines.
+ */
 const flexibleTextRowIndexes = (layout: NodeLayout): number[] => {
+  if (layout.preview !== undefined) return []
+  let last = -1
   const lines = new Set<number>()
-  return layout.rows.flatMap((row, index) => {
-    if (row.kind !== 'widget' || row.viewId !== 'core.text' || row.inactive || lines.has(row.y)) return []
+  for (const [index, row] of layout.rows.entries()) {
+    if (!isTextBoxRow(row) || row.inactive || lines.has(row.y)) continue
     lines.add(row.y)
-    return [index]
-  })
+    last = index
+  }
+  return last < 0 ? [] : [last]
 }
 
 const flexibleLineHeight = (layout: NodeLayout, row: LayoutRow, tokens: DesignTokens): number =>
   Math.max(...layout.rows.filter((sibling) => sibling.y === row.y).map((sibling) =>
-    sibling.kind === 'widget' && sibling.viewId === 'core.text'
-      ? multilineWidgetHeight(sibling.rows, tokens) : sibling.height))
+    isTextBoxRow(sibling) ? multilineWidgetHeight(sibling.rows, tokens) : sibling.height))
+
+/** Reflow text boxes back to their own heights, without any resize surplus. */
+const ownHeightRows = (layout: NodeLayout, tokens: DesignTokens): LayoutRow[] =>
+  reflowRows(layout, (row) => isTextBoxRow(row) ? flexibleLineHeight(layout, row, tokens) : row.height)
+
+const remappedPins = (layout: NodeLayout, rows: readonly LayoutRow[]): PinLayout[] =>
+  layout.pins.map((pin) => {
+    const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
+    if (rowIndex < 0) return pin
+    return { ...pin, y: rows[rowIndex]!.y + pin.y - layout.rows[rowIndex]!.y }
+  })
+
+/**
+ * The layout after one text box takes `lines` lines, while every other row,
+ * the preview, and the text output keep their heights. Used for the live
+ * drag of a text box's bottom edge; the committed layout is the same.
+ */
+export function projectTextBoxLines(
+  layout: NodeLayout,
+  valueKey: string,
+  lines: number,
+  tokens: DesignTokens,
+): NodeLayout {
+  const index = layout.rows.findIndex((row) => isTextBoxRow(row) && row.valueKey === valueKey)
+  if (index < 0) return layout
+  const target = multilineWidgetHeight(lines, tokens)
+  const reflowed = reflowRows(layout, (row, rowIndex) => rowIndex === index ? target : row.height)
+  const row = reflowed[index] as Extract<LayoutRow, { kind: 'widget' }>
+  const rows = reflowed.map((candidate, rowIndex) => rowIndex === index ? { ...row, rows: lines } : candidate)
+  const bottom = (rs: readonly LayoutRow[]): number =>
+    rs.reduce((max, candidate) => Math.max(max, candidate.y + candidate.height), layout.headerHeight)
+  const delta = bottom(rows) - bottom(layout.rows)
+  if (delta === 0 && row.rows === lines) return layout
+  return {
+    ...layout,
+    height: layout.height + delta,
+    // The node's own resize surplus on this box is replaced, not kept.
+    minHeight: layout.minHeight + bottom(rows) - bottom(ownHeightRows(layout, tokens)),
+    rows,
+    pins: remappedPins(layout, rows),
+    ...projectedAdvancedGroup(layout, rows),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, y: layout.preview.y + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, y: layout.textOutput.y + delta } }),
+  }
+}
 
 /** Reflow physical lines without separating widgets that share one line. */
 function reflowRows(layout: NodeLayout, heightOf: (row: LayoutRow, index: number) => number): LayoutRow[] {
   let sourceY = -1
-  let lineY = layout.headerHeight
+  let lineY = layout.rows[0]?.y ?? layout.headerHeight
   let bottom = lineY
   return layout.rows.map((row, index) => {
     if (sourceY !== row.y) {
@@ -371,8 +462,9 @@ const projectedAdvancedGroup = (
 /** Reserve the one-line preview surface available before execution. */
 export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignTokens): NodeLayout {
   if (layout.preview !== undefined) return layout
+  const compactHeight = tokens.previewCaptionHeight
   if (layout.minimized) {
-    const height = layout.minHeight + tokens.previewGap + tokens.rowHeight
+    const height = layout.minHeight + tokens.previewGap + compactHeight
     return {
       ...layout,
       height,
@@ -381,47 +473,31 @@ export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignToken
         x: tokens.padX,
         y: layout.headerHeight + tokens.previewGap,
         width: Math.max(0, layout.width - tokens.padX * 2),
-        height: tokens.rowHeight,
+        height: compactHeight,
         compact: true,
       },
     }
   }
-  const flexibleIndexes = flexibleTextRowIndexes(layout)
-  const compactHeight = tokens.rowHeight
+  // The node's resize surplus is the preview's: its text boxes keep their
+  // own heights, and the request opens the panel at that size later.
   const defaultHeight = previewPanelDefaultHeight(tokens)
-  const panelFloor = flexibleIndexes.length > 0 ? defaultHeight : previewPanelMinHeight(tokens)
-  const defaultActiveHeight = layout.minHeight + tokens.previewGap + defaultHeight
+  const baseHeight = boxedMinHeight(layout, tokens)
+  const defaultActiveHeight = baseHeight + tokens.previewGap + defaultHeight
   const activeHeight = layout.height > layout.minHeight
-    ? Math.max(layout.minHeight + tokens.previewGap + panelFloor, layout.height)
+    ? Math.max(baseHeight + tokens.previewGap + previewPanelMinHeight(tokens), layout.height)
     : defaultActiveHeight
   const bodyExtra = Math.max(0, activeHeight - defaultActiveHeight)
-  const activePanelHeight = activeHeight - layout.minHeight - tokens.previewGap - bodyExtra
-  const minHeight = layout.minHeight + tokens.previewGap + compactHeight
+  const activePanelHeight = activeHeight - baseHeight - tokens.previewGap - bodyExtra
+  const minHeight = baseHeight + tokens.previewGap + compactHeight
   const height = minHeight + bodyExtra
-  const share = flexibleIndexes.length === 0 ? 0 : Math.floor(bodyExtra / flexibleIndexes.length)
-  const remainder = flexibleIndexes.length === 0 ? 0 : bodyExtra - share * flexibleIndexes.length
-  const flexible = new Set(flexibleIndexes)
-  let flexibleIndex = 0
-  const rows = reflowRows(layout, (row, index) => {
-    const rowHeight = flexible.has(index)
-      ? flexibleLineHeight(layout, row, tokens) +
-        share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
-      : row.height
-    if (flexible.has(index)) flexibleIndex += 1
-    return rowHeight
-  })
-  const pins = layout.pins.map((pin) => {
-    const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
-    if (rowIndex < 0) return pin
-    return { ...pin, y: rows[rowIndex]!.y + pin.y - layout.rows[rowIndex]!.y }
-  })
+  const rows = ownHeightRows(layout, tokens)
   return {
     ...layout,
     height,
     minHeight,
     resizeHeightOffset: compactHeight - activePanelHeight,
     rows,
-    pins,
+    pins: remappedPins(layout, rows),
     ...projectedAdvancedGroup(layout, rows),
     preview: {
       x: tokens.padX,
@@ -433,18 +509,31 @@ export function withCompactPreviewRegion(layout: NodeLayout, tokens: DesignToken
   }
 }
 
+/** Fold a preview that has a picture to its caption row. */
+export function withFoldedPreviewRegion(layout: NodeLayout, tokens: DesignTokens): NodeLayout {
+  const compact = withCompactPreviewRegion(layout, tokens)
+  return { ...compact, preview: { ...compact.preview!, folded: true } }
+}
+
 /**
  * Activate the in-body preview region while preserving the persisted total
- * size as a request. Multiline text keeps first claim on resize surplus;
- * only nodes without an active text row grow the preview itself.
+ * size as a request. The preview takes all of the node's resize surplus;
+ * text boxes keep their own heights.
  */
 export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): NodeLayout {
-  if (layout.minimized) return withCompactPreviewRegion(layout, tokens)
+  if (layout.minimized) {
+    // Opened by its caption, a minimized node's preview takes the height it
+    // has on the open node.
+    const compact = withCompactPreviewRegion(layout, tokens)
+    const height = layout.openPreviewHeight ?? previewPanelDefaultHeight(tokens)
+    const extra = height - compact.preview!.height
+    const { compact: _compact, ...preview } = compact.preview!
+    return { ...compact, height: compact.height + extra, minHeight: compact.minHeight + extra, preview: { ...preview, height } }
+  }
   if (layout.preview?.compact === true) {
-    const flexible = flexibleTextRowIndexes(layout).length > 0
-    const compactHeight = tokens.rowHeight
-    const panelMinHeight = flexible ? previewPanelDefaultHeight(tokens) : previewPanelMinHeight(tokens)
-    const compactSurplus = flexible ? 0 : Math.max(0, layout.height - layout.minHeight)
+    const compactHeight = tokens.previewCaptionHeight
+    const panelMinHeight = previewPanelMinHeight(tokens)
+    const compactSurplus = Math.max(0, layout.height - layout.minHeight)
     const requestedPanelHeight = Math.max(panelMinHeight, compactHeight - (layout.resizeHeightOffset ?? 0))
     const { resizeHeightOffset: _resizeHeightOffset, ...base } = layout
     const { compact: _compact, ...preview } = layout.preview
@@ -460,133 +549,92 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
     }
   }
   if (layout.preview !== undefined) return layout
-  const flexibleIndexes = flexibleTextRowIndexes(layout)
-  // Preview-only nodes can shrink the panel down to its hard floor; nodes
-  // with flexible text rows keep the default panel because surplus height
-  // belongs to the text, so the panel itself never resizes.
-  const panelMinHeight = flexibleIndexes.length === 0
-    ? previewPanelMinHeight(tokens)
-    : previewPanelDefaultHeight(tokens)
-  const minHeight = layout.minHeight + tokens.previewGap + panelMinHeight
+  const panelMinHeight = previewPanelMinHeight(tokens)
+  const minHeight = boxedMinHeight(layout, tokens) + tokens.previewGap + panelMinHeight
   // A layout without manual-resize surplus carries no size request for the
   // panel: open it at the default height rather than the shrink floor.
   const height = layout.height > layout.minHeight
     ? Math.max(minHeight, layout.height)
-    : layout.minHeight + tokens.previewGap + previewPanelDefaultHeight(tokens)
-  const extra = Math.max(0, height - minHeight)
-  const share = flexibleIndexes.length === 0 ? 0 : Math.floor(extra / flexibleIndexes.length)
-  const remainder = flexibleIndexes.length === 0 ? 0 : extra - share * flexibleIndexes.length
-  const flexible = new Set(flexibleIndexes)
-  let flexibleIndex = 0
-  const rows = reflowRows(layout, (row, index) => {
-    const rowHeight = flexible.has(index)
-      ? flexibleLineHeight(layout, row, tokens) +
-        share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
-      : row.height
-    if (flexible.has(index)) flexibleIndex += 1
-    return rowHeight
-  })
+    : boxedMinHeight(layout, tokens) + tokens.previewGap + previewPanelDefaultHeight(tokens)
+  const rows = ownHeightRows(layout, tokens)
   const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
-  const pins = layout.pins.map((pin) => {
-    const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
-    if (rowIndex < 0) return pin
-    return { ...pin, y: rows[rowIndex]!.y + pin.y - layout.rows[rowIndex]!.y }
-  })
-  const previewHeight = panelMinHeight + (flexibleIndexes.length === 0 ? extra : 0)
   return {
     ...layout,
     height,
     minHeight,
     rows,
-    pins,
+    pins: remappedPins(layout, rows),
     ...projectedAdvancedGroup(layout, rows),
     preview: {
       x: tokens.padX,
       y: y + tokens.previewGap,
       width: Math.max(0, layout.width - tokens.padX * 2),
-      height: previewHeight,
+      height: panelMinHeight + Math.max(0, height - minHeight),
     },
   }
 }
 
 /**
- * Activate the capped Standard-view string result region. Image previews use
- * their separate region and take precedence before this helper is called.
+ * Activate the Standard-view string result region. Image previews use their
+ * separate region and take precedence before this helper is called. Open, the
+ * region takes the node's resize surplus in whole rows, at least
+ * `textOutputMinRows`; without a size request it fits the result up to
+ * `textOutputMaxRows`. Folded, it is only its caption row. Text boxes keep
+ * their own heights.
  */
-export function withTextOutputRegion(layout: NodeLayout, tokens: DesignTokens, lineCount: number = canvasPaintTokens.node.textOutputMaxRows): NodeLayout {
+export function withTextOutputRegion(
+  layout: NodeLayout,
+  tokens: DesignTokens,
+  lineCount: number = canvasPaintTokens.node.textOutputMaxRows,
+  folded = false,
+): NodeLayout {
   if (layout.textOutput !== undefined) return layout
+  const { textOutputMinRows: minRows, textOutputMaxRows: maxRows } = canvasPaintTokens.node
   if (layout.minimized) {
-    const compact = withCompactPreviewRegion(layout, tokens)
-    const { preview, ...base } = compact
+    const regionHeight = tokens.previewCaptionHeight + (folded
+      ? 0
+      : tokens.rowHeight * Math.max(minRows, Math.min(maxRows, Math.trunc(lineCount))))
+    const { preview, ...base } = withCompactPreviewRegion(layout, tokens)
+    const extra = regionHeight - preview!.height
     return {
       ...base,
-      textOutput: {
-        x: preview!.x,
-        y: preview!.y,
-        width: preview!.width,
-        height: preview!.height,
-      },
+      height: base.height + extra,
+      minHeight: base.minHeight + extra,
+      textOutput: { x: preview!.x, y: preview!.y, width: preview!.width, height: regionHeight, ...(folded ? { folded: true as const } : {}) },
     }
   }
-  const regionHeight = tokens.rowHeight * Math.max(1, Math.min(canvasPaintTokens.node.textOutputMaxRows, Math.trunc(lineCount)))
-  if (layout.preview?.compact === true) {
-    const expansion = regionHeight - tokens.rowHeight
-    const { preview: compactPreview, ...base } = layout
-    return {
-      ...base,
-      height: layout.height + expansion,
-      minHeight: layout.minHeight + expansion,
-      resizeHeightOffset: regionHeight - previewPanelDefaultHeight(tokens),
-      textOutput: {
-        x: compactPreview.x,
-        y: compactPreview.y,
-        width: compactPreview.width,
-        height: compactPreview.height + expansion,
-      },
-    }
-  }
-  const minHeight = layout.minHeight + tokens.previewGap + regionHeight
-  const height = Math.max(minHeight, layout.height)
-  const flexibleIndexes = flexibleTextRowIndexes(layout)
-  const extra = Math.max(0, height - minHeight)
-  const share = flexibleIndexes.length === 0 ? 0 : Math.floor(extra / flexibleIndexes.length)
-  const remainder = flexibleIndexes.length === 0 ? 0 : extra - share * flexibleIndexes.length
-  const flexible = new Set(flexibleIndexes)
-  let flexibleIndex = 0
-  const rows = reflowRows(layout, (row, index) => {
-    const rowHeight = flexible.has(index)
-      ? flexibleLineHeight(layout, row, tokens) +
-        share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
-      : row.height
-    if (flexible.has(index)) flexibleIndex += 1
-    return rowHeight
-  })
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
-  const pins = layout.pins.map((pin) => {
-    const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
-    if (rowIndex < 0) return pin
-    return { ...pin, y: rows[rowIndex]!.y + pin.y - layout.rows[rowIndex]!.y }
-  })
+  const { preview: _preview, resizeHeightOffset: _resizeHeightOffset, ...open } = layout
+  const captionBottom = boxedMinHeight(open, tokens) + tokens.previewGap + tokens.previewCaptionHeight
+  const rowCount = folded
+    ? 0
+    : open.height > open.minHeight
+      ? Math.max(minRows, Math.floor((open.height - captionBottom) / tokens.rowHeight))
+      : Math.max(minRows, Math.min(maxRows, Math.trunc(lineCount)))
+  const regionHeight = tokens.previewCaptionHeight + tokens.rowHeight * rowCount
+  const rows = ownHeightRows(open, tokens)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight)
   return {
-    ...layout,
-    height,
-    minHeight,
+    ...open,
+    height: captionBottom + tokens.rowHeight * rowCount,
+    minHeight: captionBottom + (folded ? 0 : tokens.rowHeight * minRows),
     rows,
-    pins,
-    ...projectedAdvancedGroup(layout, rows),
+    pins: remappedPins(open, rows),
+    ...projectedAdvancedGroup(open, rows),
     textOutput: {
       x: tokens.padX,
       y: y + tokens.previewGap,
-      width: Math.max(0, layout.width - tokens.padX * 2),
+      width: Math.max(0, open.width - tokens.padX * 2),
       height: regionHeight,
+      ...(folded ? { folded: true as const } : {}),
     },
   }
 }
 
 /**
- * Reflow only height-flexible multiline rows for an in-flight resize preview.
- * The scene remains committed; the renderer uses this projected layout until
- * the pointer gesture commits the same size through view.setNodeSize.
+ * Reflow the row the node's bottom edge sizes for an in-flight resize
+ * preview. The scene remains committed; the renderer uses this projected
+ * layout until the pointer gesture commits the same size through
+ * view.setNodeSize.
  */
 export function projectNodeLayoutHeight(
   layout: NodeLayout,
@@ -595,22 +643,19 @@ export function projectNodeLayoutHeight(
 ): NodeLayout {
   const height = Math.max(layout.minHeight, requestedHeight)
   if (height === layout.height) return layout
-  const flexibleIndexes = flexibleTextRowIndexes(layout)
-  if (flexibleIndexes.length === 0) {
-    if (layout.preview === undefined) return { ...layout, height }
-    if (layout.preview.compact === true) {
-      const extra = Math.max(0, height - layout.minHeight)
-      return {
-        ...layout,
-        height,
-        preview: {
-          ...layout.preview,
-          y: layout.minHeight - tokens.rowHeight - tokens.padBottom + extra,
-          height: tokens.rowHeight,
-        },
-      }
+  const extra = Math.max(0, height - layout.minHeight)
+  if (layout.preview?.compact === true) {
+    return {
+      ...layout,
+      height,
+      preview: {
+        ...layout.preview,
+        y: layout.minHeight - tokens.previewCaptionHeight - tokens.padBottom + extra,
+        height: tokens.previewCaptionHeight,
+      },
     }
-    const extra = Math.max(0, height - layout.minHeight)
+  }
+  if (layout.preview !== undefined) {
     return {
       ...layout,
       height,
@@ -620,28 +665,23 @@ export function projectNodeLayoutHeight(
       },
     }
   }
-
-  const extra = Math.max(0, height - layout.minHeight)
-  const share = Math.floor(extra / flexibleIndexes.length)
-  const remainder = extra - share * flexibleIndexes.length
-  const flexible = new Set(flexibleIndexes)
-  let flexibleIndex = 0
-  const rows = reflowRows(layout, (row, index) => {
-    const rowHeight = flexible.has(index)
-      ? flexibleLineHeight(layout, row, tokens) +
-        share + (flexibleIndex === flexibleIndexes.length - 1 ? remainder : 0)
-      : row.height
-    if (flexible.has(index)) flexibleIndex += 1
-    return rowHeight
-  })
-  const pins = layout.pins.map((pin) => {
-    const rowIndex = layout.rows.findIndex((row) => pin.y >= row.y && pin.y < row.y + row.height)
-    if (rowIndex < 0) return pin
-    return { ...pin, y: rows[rowIndex]!.y + pin.y - layout.rows[rowIndex]!.y }
-  })
-  const preview = layout.preview === undefined
-    ? undefined
-    : { ...layout.preview, y: rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight) + tokens.previewGap }
+  if (layout.textOutput !== undefined && layout.textOutput.folded !== true) {
+    // An open text result takes the height in whole rows.
+    const rowsTall = Math.floor(extra / tokens.rowHeight)
+    return {
+      ...layout,
+      height: layout.minHeight + rowsTall * tokens.rowHeight,
+      textOutput: {
+        ...layout.textOutput,
+        height: tokens.previewCaptionHeight + (canvasPaintTokens.node.textOutputMinRows + rowsTall) * tokens.rowHeight,
+      },
+    }
+  }
+  const flexibleIndexes = flexibleTextRowIndexes(layout)
+  if (flexibleIndexes.length === 0) return { ...layout, height }
+  const rows = reflowRows(layout, (row, index) => isTextBoxRow(row)
+    ? flexibleLineHeight(layout, row, tokens) + (flexibleIndexes.includes(index) ? extra : 0)
+    : row.height)
   const textOutput = layout.textOutput === undefined
     ? undefined
     : { ...layout.textOutput, y: rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight) + tokens.previewGap }
@@ -649,9 +689,8 @@ export function projectNodeLayoutHeight(
     ...layout,
     height,
     rows,
-    pins,
+    pins: remappedPins(layout, rows),
     ...projectedAdvancedGroup(layout, rows),
-    ...(preview === undefined ? {} : { preview }),
     ...(textOutput === undefined ? {} : { textOutput }),
   }
 }
@@ -677,6 +716,8 @@ export interface LayoutOptions {
   readonly sectionOverrides?: Readonly<Record<string, boolean>>
   /** Client-owned named widget representation selections by value key. */
   readonly widgetRepresentations?: Readonly<Record<string, string>>
+  /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
+  readonly textBoxLines?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -903,9 +944,13 @@ export function layoutNode(
     // Widget measures are host-supplied: a zero, negative, fractional, or
     // non-finite row count would fold rows onto each other and poison every
     // downstream y coordinate. Normalize to a positive whole number of rows.
+    // A text box the user sized keeps that height in lines.
+    const storedLines = measured.viewId === 'core.text' ? options.textBoxLines?.[valueKey] : undefined
     const w = {
       ...measured,
-      rows: Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
+      rows: storedLines !== undefined && Number.isFinite(storedLines)
+        ? clampTextBoxLines(storedLines)
+        : Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
     }
     const selector = item.origin.kind === 'selector' ? { construct: item.origin.construct } : undefined
     pending.push({
@@ -1001,7 +1046,9 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
-  const rowBaseHeight = (row: PendingRow): number => row.kind !== 'widget'
+  const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
+    ? tokens.rowGeometry.portRowHeight
+    : row.kind !== 'widget'
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
@@ -1012,19 +1059,17 @@ export function layoutNode(
   )
   const naturalRowsHeight = [...new Set(lines.values())].reduce((height, line) =>
     height + lineBaseHeight(line), 0)
-  const naturalHeight = tokens.headerHeight + naturalRowsHeight + tokens.padBottom
+  const stackInsets = rowStackInsets(pending[0]?.kind, pending.at(-1)?.kind, tokens)
+  const naturalHeight = tokens.headerHeight + stackInsets.top + naturalRowsHeight + stackInsets.bottom
   const requestedExtra = options.size === undefined
     ? 0
     : Math.max(0, options.size.height - naturalHeight)
-  const flexibleRows = pending.filter((row) =>
+  // Only the last text box takes the node's resize surplus; every other text
+  // box keeps the height it was given in lines.
+  const flexibleRow = pending.filter((row) =>
     row.kind === 'widget' && row.widget!.viewId === 'core.text' && !row.widget!.inactive &&
       lines.get(row)!.find((sibling) => sibling.widget?.viewId === 'core.text' && !sibling.widget.inactive) === row,
-  )
-  const flexibleShare = flexibleRows.length === 0 ? 0 : Math.floor(requestedExtra / flexibleRows.length)
-  const flexibleRemainder = flexibleRows.length === 0
-    ? 0
-    : requestedExtra - flexibleShare * flexibleRows.length
-  let flexibleIndex = 0
+  ).at(-1)
 
   // Vertical placement.
   const rows: LayoutRow[] = []
@@ -1032,7 +1077,7 @@ export function layoutNode(
   const sectionRowY = new Map<string, number>() // header CENTER y by section id
   let advancedBounds: { y: number; bottom: number } | undefined
   const lineBottoms = new Map<PendingRow[], number>()
-  let y = tokens.headerHeight
+  let y = tokens.headerHeight + stackInsets.top
   for (const row of pending) {
     if (row.kind === 'section') {
       const s = row.section!
@@ -1060,7 +1105,7 @@ export function layoutNode(
       }
       y += height
     } else if (row.kind === 'ports') {
-      const height = tokens.rowHeight
+      const height = tokens.rowGeometry.portRowHeight
       rows.push({
         kind: 'ports',
         y,
@@ -1076,15 +1121,10 @@ export function layoutNode(
       y += height
     } else {
       const w = row.widget!
-      const flexible = flexibleRows.includes(row)
-      const baseHeight = lineBaseHeight(lines.get(row)!)
-      const height = baseHeight + (flexible
-        ? flexibleShare + (flexibleIndex === flexibleRows.length - 1 ? flexibleRemainder : 0)
-        : 0)
-      if (flexible) flexibleIndex += 1
+      const height = lineBaseHeight(lines.get(row)!) + (row === flexibleRow ? requestedExtra : 0)
       // Keep the capsule and its edge controls clear of sockets on either
       // border. The symmetric side also reserves space for output widgets.
-      const inset = tokens.pinRadius + WIDGET_PIN_GAP
+      const inset = tokens.rowGeometry.fieldInsetX
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
       if (!w.socketless) pins.push({
@@ -1123,7 +1163,7 @@ export function layoutNode(
   const titleRenamed = node.title !== undefined && node.title !== schema.displayName
   const title = node.title ?? schema.displayName
   const titleWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title')
-  let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
+  let width = Math.max(tokens.nodeMinWidth, titleWidth + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
     let content = 0
     if (row.kind === 'ports') {
@@ -1183,16 +1223,19 @@ export function layoutNode(
   }
 
   if (options.minimized) {
+    // Minimizing only hides the body, so the node keeps its open width. The
+    // open layout is measured separately because this pass also lays out
+    // rows the open node hides (collapsed sections, hidden widgets) to keep
+    // their pins, and those rows must not widen it.
+    const { minimized: _minimized, ...openOptions } = options
+    const open = layoutNode(schema, node, tokens, measure, widgetMeasure, openOptions)
     const minimizedHeight = tokens.headerHeight + tokens.padBottom
-    const minimizedWidth = Math.min(
-      tokens.nodeMaxAutoWidth,
-      Math.max(MINIMIZED_NODE_MIN_WIDTH, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding),
-    )
     return {
-      width: minimizedWidth,
+      width: open.width,
       height: minimizedHeight,
-      minWidth: MINIMIZED_NODE_MIN_WIDTH,
+      minWidth: open.minWidth,
       minHeight: minimizedHeight,
+      openPreviewHeight: withPreviewRegion(open, tokens).preview!.height,
       headerHeight: tokens.headerHeight,
       title,
       titleRenamed,
@@ -1211,6 +1254,7 @@ export function layoutNode(
     height,
     minWidth,
     minHeight,
+    ...(sizeOverride ? { sizeOverride: { width: sizeOverride.width, height: sizeOverride.height } } : {}),
     headerHeight: tokens.headerHeight,
     title,
     titleRenamed,
@@ -1222,11 +1266,47 @@ export function layoutNode(
   }
 }
 
-/** Minimized nodes may be narrower than ordinary editable node bodies. */
-export const MINIMIZED_NODE_MIN_WIDTH = canvasPaintTokens.node.minimizedMinWidth
-
 /** Visual gap between a pin circle and widget chrome. */
 export const WIDGET_PIN_GAP = canvasPaintTokens.node.widgetPinGap
+
+/**
+ * Space above the first row and below the last. A pin row's text has space
+ * of its own inside the row, while a boxed row's edge is the first thing
+ * seen, so the node's inset depends on the kind of row at each end.
+ */
+export function rowStackInsets(
+  first: LayoutRow['kind'] | undefined,
+  last: LayoutRow['kind'] | undefined,
+  tokens: DesignTokens,
+): { readonly top: number; readonly bottom: number } {
+  const geometry = tokens.rowGeometry
+  return {
+    top: first === undefined ? 0 : first === 'ports' ? geometry.pinTopInset : geometry.boxedTopInset,
+    bottom: last === 'ports' ? geometry.pinBottomInset : tokens.padBottom,
+  }
+}
+
+/** Shift rows and pins below the header by the top inset of the row stack. */
+export function insetRowStack(
+  rows: LayoutRow[],
+  pins: PinLayout[],
+  tokens: DesignTokens,
+): { readonly top: number; readonly bottom: number } {
+  const insets = rowStackInsets(rows[0]?.kind, rows.at(-1)?.kind, tokens)
+  if (insets.top !== 0) {
+    rows.splice(0, rows.length, ...rows.map((row) => ({ ...row, y: row.y + insets.top })))
+    pins.splice(0, pins.length, ...pins.map((pin) => ({ ...pin, y: pin.y + insets.top })))
+  }
+  return insets
+}
+
+/**
+ * Minimum height of a layout as if its rows ended in a boxed region, so a
+ * preview or text output placed after the rows keeps the boxed bottom inset.
+ */
+function boxedMinHeight(layout: NodeLayout, tokens: DesignTokens): number {
+  return layout.minHeight - rowStackInsets(undefined, layout.rows.at(-1)?.kind, tokens).bottom + tokens.padBottom
+}
 
 /** One boundary item rendered as a pseudo-node row (scene supplies these). */
 export interface BoundarySlotInfo {
@@ -1237,6 +1317,15 @@ export interface BoundarySlotInfo {
   readonly type?: TypeExpr
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
+  /**
+   * Inputs panel only: the field rows the subgraph node outside shows for
+   * this input (a dropdown that leads options brings its option's fields).
+   * The panel shows the same fields, with the input's pin on the right of
+   * the first.
+   */
+  readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
+  /** Fields drawn without their wire, or a value source's field: no pin. */
+  readonly pinless?: true
 }
 
 /**
@@ -1264,6 +1353,7 @@ export function layoutBoundaryNode(
   slots: readonly BoundarySlotInfo[],
   tokens: DesignTokens,
   measure: TextMeasurer,
+  subtitle?: string,
 ): NodeLayout {
   const direction = side === 'inputs' ? 'out' : 'in'
   const title = side === 'inputs' ? 'Inputs' : 'Outputs'
@@ -1271,9 +1361,18 @@ export function layoutBoundaryNode(
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
   for (const slot of slots) {
+    const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
+    if (slot.fields !== undefined && slot.fields.length > 0 && direction === 'out') {
+      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type })
+      for (const [index, field] of slot.fields.entries()) {
+        const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
+        rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
+        y += height
+      }
+      continue
+    }
     const height = tokens.rowHeight
     const label = slot.label
-    const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
     const portSlot: PortSlot = { portId: slot.id, label, type, address: { port: slot.id }, ...(slot.regionIndex ? { regionIndex: true } : {}) }
     rows.push({
       kind: 'ports',
@@ -1281,7 +1380,7 @@ export function layoutBoundaryNode(
       height,
       ...(direction === 'in' ? { input: portSlot } : { output: { ...portSlot, index: pins.length } }),
     })
-    pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + height / 2, type, ...(slot.regionIndex ? { regionIndex: true } : {}) })
+    if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + height / 2, type, ...(slot.regionIndex ? { regionIndex: true } : {}) })
     y += height
   }
   {
@@ -1313,8 +1412,15 @@ export function layoutBoundaryNode(
     y += height
   }
 
-  let width = Math.max(tokens.nodeMinWidth, measure(title, 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
+  const titleWidth = measure(title, 'title') +
+    (subtitle === undefined ? 0 : canvasPaintTokens.boundary.subtitleGap + measure(subtitle, 'label'))
+  let width = Math.max(tokens.nodeMinWidth, titleWidth + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding)
   for (const row of rows) {
+    if (row.kind === 'widget') {
+      const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
+      width = Math.max(width, mark + measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      continue
+    }
     if (row.kind !== 'ports') continue
     const slot = row.input ?? row.output
     if (!slot) continue
@@ -1322,7 +1428,8 @@ export function layoutBoundaryNode(
   }
   width = Math.min(width, tokens.nodeMaxAutoWidth)
 
-  const height = y + tokens.padBottom
+  const stackInsets = insetRowStack(rows, pins, tokens)
+  const height = y + stackInsets.top + stackInsets.bottom
   return {
     width,
     height,
@@ -1330,6 +1437,7 @@ export function layoutBoundaryNode(
     minHeight: height,
     headerHeight: tokens.headerHeight,
     title,
+    ...(subtitle !== undefined ? { subtitle } : {}),
     rows,
     pins,
   }

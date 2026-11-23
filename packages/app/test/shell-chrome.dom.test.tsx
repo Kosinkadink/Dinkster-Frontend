@@ -17,7 +17,7 @@ import {
   DinksterAppMenu,
   dispatchAppCommandKey,
 } from '../src/App.js'
-import { DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
+import { ActivityBarButton, DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
 import { CanvasViewControls } from '../src/CanvasHost.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
@@ -1132,6 +1132,34 @@ describe('DockZoneHost', () => {
     dispose()
   })
 
+  it('left dock titles follow selection and retain panel state and placement actions', () => {
+    const panels = [
+      zonePanel('one', {
+        allowedPlacements: ['dock', 'floating'],
+        component: () => <input aria-label="Panel draft" />,
+      }),
+      zonePanel('two', { allowedPlacements: ['dock', 'floating'] }),
+    ]
+    const { root, setActiveId, onRequestClose, dispose } = renderZone({ zone: 'left', titleOnly: true, panels, onFloat: () => {} })
+    const title = () => root.querySelector<HTMLElement>('[data-panel-title]')!
+    expect(title().textContent).toBe('Panel one')
+    const draft = root.querySelector<HTMLInputElement>('[aria-label="Panel draft"]')!
+    draft.value = 'Keep this draft'
+    setActiveId('two')
+    expect(title().textContent).toBe('Panel two')
+    setActiveId('one')
+    expect(root.querySelector<HTMLInputElement>('[aria-label="Panel draft"]')?.value).toBe('Keep this draft')
+    title().focus()
+    rightClick(title(), { clientX: 0, clientY: 0 })
+    expect(menuItems(root).map((item) => item.textContent?.trim())).toEqual(['Float'])
+    root.querySelector('[data-testid="context-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
+    expect(document.activeElement).toBe(title())
+    click(root.querySelector('[data-testid="dock-zone-close"]')!)
+    expect(onRequestClose).toHaveBeenCalledOnce()
+    dispose()
+  })
+
   it('activating a tab reports the id; the host stays controlled', () => {
     const { root, activeId, dispose } = renderZone()
     click([...root.querySelectorAll('[role="tab"]')][1]!)
@@ -1590,6 +1618,44 @@ describe('left rail tooltip hover session', () => {
     expect(controller.visible).toBeUndefined()
     vi.advanceTimersByTime(1)
     expect(controller.visible?.lines).toEqual(['Backends'])
+  })
+
+  it('shows icon-only activity help immediately even when selected, without changing other hover delays', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <>
+      <ActivityBarButton label="Library" accessibleName="Library" tooltip="Browse saved workflows" pressed={true} onActivate={() => {}} />
+      <ActivityBarButton label="Pack" accessibleName="Pack" tooltip="Pack" pressed={false} onActivate={() => {}} />
+      <button data-tooltip-label="Delayed help">Other control</button>
+    </>, root)
+    const [library, pack, other] = [...root.querySelectorAll('button')]
+    const controller = new TooltipController(() => 900)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+
+    expect(library!.getAttribute('aria-label')).toBe('Library')
+    expect(library!.textContent).toBe('')
+    expect(pack!.querySelector('svg')).not.toBeNull()
+    library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
+    library!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(controller.visible).toBeUndefined()
+    library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
+    library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    pack!.focus()
+    expect(controller.visible?.lines).toEqual(['Pack'])
+    pack!.blur()
+    other!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible).toBeUndefined()
+    vi.advanceTimersByTime(899)
+    expect(controller.visible).toBeUndefined()
+    vi.advanceTimersByTime(1)
+    expect(controller.visible?.lines).toEqual(['Delayed help'])
+    detach()
+    dispose()
   })
 
   it('switches immediately without hiding after the first adjacent tooltip appears', () => {

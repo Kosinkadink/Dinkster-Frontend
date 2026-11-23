@@ -8,8 +8,12 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import type { NodeSchema } from '../src/schema/model.js'
 import { asGraphDefId, asLineageId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
+import { documentResolver } from '../src/compile/compile.js'
+import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
+import type { NodeSchema } from '../src/schema/model.js'
+import { createMenuRegistry, type MenuActionItem } from '../src/menus/contract.js'
+import { coreMenuContributions } from '../src/menus/core-items.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -271,10 +275,10 @@ describe('boundary item lifecycle commands', () => {
     } as unknown as NodeSchema
     const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegistry(), 200, undefined,
       () => ({ kind: 'initial', schemaResolverFor: () => (type: string) => type === 'Batch' ? batch : undefined }))
-    // Only a construct is shown whole.
+    // Only a construct is shown whole; a row without a field is not shown at all.
     const plain = makeStore(subDoc([]))
     const notConstruct = plain.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'modeless' } })
-    expect(!notConstruct.ok && notConstruct.diagnostics[0]!.code).toBe('boundary.notAConstruct')
+    expect(!notConstruct.ok && notConstruct.diagnostics[0]!.code).toBe('boundary.notField')
     // The choice is shown whole: it owns every row inside it.
     const store = makeStore(subDoc([]))
     expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
@@ -361,5 +365,181 @@ describe('boundary item lifecycle commands', () => {
     const missing = unbind('inputs', 'fan', 'missing')
     expect(missing.ok).toBe(false)
     expect(!missing.ok && missing.diagnostics[0]!.code).toBe('boundary.bindMissing')
+  })
+})
+
+describe('showing a field on the subgraph node', () => {
+  const int = { kind: 'concrete', name: 'INT' } as const
+  const image = { kind: 'concrete', name: 'IMAGE' } as const
+  const schemas: Record<string, NodeSchema> = {
+    Blur: {
+      type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: true,
+      body: [
+        { kind: 'input', id: 'image', type: image, optional: false },
+        { kind: 'input', id: 'radius', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 4 } },
+        { kind: 'output', id: 'IMAGE', type: image },
+      ],
+    },
+    Weigh: {
+      type: 'Weigh', displayName: 'Weigh', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{
+        kind: 'group', id: 'weights',
+        value: { kind: 'input', id: 'w', type: int, optional: true, widget: { widgetType: 'INT', options: {}, default: 1 } },
+        keys: { kind: 'numbered', prefix: 'w', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4,
+      }],
+    },
+    Modal: {
+      type: 'Modal', displayName: 'Modal', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'choice', id: 'mode', options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }], shared: [], required: true }],
+    },
+    IntSource: {
+      type: 'IntSource', displayName: 'IntSource', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'out', type: int }],
+    },
+  }
+  const resolve = (type: string): NodeSchema | undefined => schemas[type]
+  const fieldDoc = (boundary: { inputs: BoundaryItem[]; outputs: BoundaryItem[] } = { inputs: [], outputs: [] }, links: GraphDef['links'] = {}): WorkflowDocument => doc({
+    g0: graph({ id: 'g0', name: 'root', nodes: {
+      s: { id: asNodeId('s'), type: '#sub', values: { radius: 9 } },
+      top: { id: asNodeId('top'), type: 'Blur', values: { radius: 1 } },
+    } }),
+    sub: graph({
+      id: 'sub', name: 'sub', links, boundary,
+      nodes: {
+        blur: { id: asNodeId('blur'), type: 'Blur', values: { radius: 6 } },
+        weigh: { id: asNodeId('weigh'), type: 'Weigh', values: { 'weights.w0': 2 }, dynamic: { weights: { members: ['w0'], seq: 1 } } },
+        modal: { id: asNodeId('modal'), type: 'Modal', values: {}, dynamic: { mode: { selected: 'a' } } },
+        source: { id: asNodeId('source'), type: 'IntSource', values: {} },
+      },
+    }),
+  })
+  const schemaStore = (document: WorkflowDocument) =>
+    new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+  const show = (store: DocumentStore, params: Record<string, Json>) =>
+    store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', ...params } })
+  const derivedInput = (store: DocumentStore, id: string) =>
+    deriveBoundarySchema(store.doc.graphs.sub!, documentResolver(store.doc, resolve)).schema?.body.find((row) => row.kind === 'input' && row.id === id)
+
+  it('adds the field as a promoted input drawn without a wire, in one undo step', () => {
+    const store = schemaStore(fieldDoc())
+    const before = store.doc
+    expect(show(store, { node: 'blur', port: 'radius' }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
+      { id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true, wireHidden: true },
+    ])
+    expect(derivedInput(store, 'radius')).toMatchObject({ widget: { default: 6 } })
+    expect(store.doc.graphs.g0!.nodes.s!.values).toEqual({ radius: 9 })
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(before)
+  })
+
+  it.each([
+    ['the top-level workflow', 'boundary.topLevel', fieldDoc(), { graphId: 'g0', node: 'top', port: 'radius' }],
+    ['a field with a wire coming in', 'boundary.inputDriven',
+      fieldDoc(undefined, { l: { id: 'l', from: { node: asNodeId('source'), port: asPortId('out') }, to: { node: asNodeId('blur'), port: asPortId('radius') } } } as unknown as GraphDef['links']),
+      { node: 'blur', port: 'radius' }],
+    ['a field already on the subgraph node', 'boundary.duplicateBind',
+      fieldDoc({ inputs: [{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], outputs: [] }),
+      { node: 'blur', port: 'radius' }],
+    ['a row with no stored value', 'boundary.notField', fieldDoc(), { node: 'weigh', port: 'weights.w3' }],
+    ['a socket without a field', 'boundary.notField', fieldDoc(), { node: 'blur', port: 'image' }],
+  ] as const)('refuses %s without changing the document', (_case, code, document, params) => {
+    const store = schemaStore(document)
+    const before = store.doc
+    const outcome = show(store, params as unknown as Record<string, Json>)
+    expect(outcome.ok).toBe(false)
+    expect(!outcome.ok && outcome.diagnostics[0]!.code).toBe(code)
+    expect(store.doc).toBe(before)
+  })
+
+  it('shows a group or a choice whole, with its wire drawn and no setting to hide it yet', () => {
+    const store = schemaStore(fieldDoc())
+    expect(show(store, { node: 'weigh', port: 'weights' }).ok).toBe(true)
+    expect(show(store, { node: 'modal', port: 'mode' }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
+      { id: 'weights', binds: { kind: 'construct', node: 'weigh', port: 'weights' } },
+      { id: 'mode', binds: { kind: 'construct', node: 'modal', port: 'mode' } },
+    ])
+    const shown = store.doc
+    const hide = store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'sub', itemId: 'mode', hidden: true } })
+    expect(!hide.ok && hide.diagnostics[0]!.code).toBe('boundary.notField')
+    // A field inside a construct shown whole is the construct's.
+    const member = show(store, { node: 'weigh', port: 'weights.w0' })
+    expect(!member.ok && member.diagnostics[0]!.code).toBe('boundary.constructOwned')
+    expect(store.doc).toBe(shown)
+  })
+
+  it('makes a field, not a pin, from an Inputs panel wire, and draws the wire of a field shown without one', () => {
+    const store = schemaStore(fieldDoc())
+    const addItem = (port: string) => store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'blur', port } })
+    expect(addItem('image').ok).toBe(true)
+    expect(addItem('radius').ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs.map((item) => [item.id, item.promoted])).toEqual([['image', undefined], ['radius', true]])
+    expect(derivedInput(store, 'radius')).toMatchObject({ widget: { default: 6 } })
+
+    const hidden = schemaStore(fieldDoc())
+    expect(show(hidden, { node: 'blur', port: 'radius' }).ok).toBe(true)
+    expect(hidden.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'blur', port: 'radius' } }).ok).toBe(true)
+    expect(hidden.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    expect(hidden.doc.graphs.g0!.nodes.s!.values).toEqual({ radius: 9 })
+  })
+
+  it('hides and draws the wire of a field row, keeping its id', () => {
+    const store = makeStore(fieldDoc({ inputs: [
+      { id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true },
+      { id: 'img', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('image') } },
+    ], outputs: [] }))
+    const setHidden = (itemId: string, hidden: boolean) => store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'sub', itemId, hidden } })
+    expect(setHidden('r', true).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs[0]).toMatchObject({ id: 'r', wireHidden: true })
+    expect(setHidden('r', false).ok).toBe(true)
+    expect('wireHidden' in store.doc.graphs.sub!.boundary!.inputs[0]!).toBe(false)
+    const pin = setHidden('img', true)
+    expect(!pin.ok && pin.diagnostics[0]!.code).toBe('boundary.notField')
+  })
+
+  it('offers the entries on a field inside a subgraph and runs them', () => {
+    const registry = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) registry.register(contribution)
+    const entries = (store: DocumentStore, graphId: string, nodeId: string, port: string, construct?: true) => registry.resolve({
+      doc: store.doc, graphId,
+      target: { kind: 'widget', nodeId, inputId: port, address: { port }, ...(construct ? { construct } : {}) },
+      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+    }).flatMap((group) => group.items).filter((item) => item.id.startsWith('core.widget.subgraphNode')) as MenuActionItem[]
+    const run = (store: DocumentStore, item: MenuActionItem) => {
+      if (item.action.kind !== 'command') throw new Error('expected a command')
+      return store.dispatch(item.action.invocation)
+    }
+    const store = schemaStore(fieldDoc())
+    expect(entries(store, 'g0', 'top', 'radius')).toEqual([])
+    expect(entries(store, 'sub', 'blur', 'radius', true)).toEqual([])
+    const [showEntry] = entries(store, 'sub', 'blur', 'radius')
+    expect(showEntry!.label).toBe('Show on subgraph node')
+    expect(run(store, showEntry!).ok).toBe(true)
+    const shown = entries(store, 'sub', 'blur', 'radius')
+    expect(shown.map((item) => item.label)).toEqual(['Remove from subgraph node'])
+    expect(run(store, shown[0]!).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([])
+
+    const wired = schemaStore(fieldDoc({ inputs: [{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], outputs: [] }))
+    const wiredEntries = entries(wired, 'sub', 'blur', 'radius')
+    expect(wiredEntries.map((item) => item.label)).toEqual(['Remove from subgraph node', 'Hide wire'])
+    expect(run(wired, wiredEntries[1]!).ok).toBe(true)
+    expect(wired.doc.graphs.sub!.boundary!.inputs[0]).toMatchObject({ id: 'r', wireHidden: true })
+
+    const linked = schemaStore(fieldDoc(undefined, { l: { id: 'l', from: { node: asNodeId('source'), port: asPortId('out') }, to: { node: asNodeId('blur'), port: asPortId('radius') } } } as unknown as GraphDef['links']))
+    expect(entries(linked, 'sub', 'blur', 'radius')).toEqual([])
+  })
+
+  it('replays in a shared session without a schema', () => {
+    const original = fieldDoc()
+    const command = coreCommandRegistry().get('boundary.showOnSubgraphNode')!
+    const prepared = command.prepareForSharedReplay!(original, { graphId: 'sub', node: 'blur', port: 'radius' }, { kind: 'initial', schemaResolverFor: () => resolve }, undefined)!
+    expect(prepared.ok).toBe(true)
+    const replay = new DocumentStore(original, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(replay.dispatch({ command: 'boundary.showOnSubgraphNode', params: prepared.ok ? prepared.params : null }).ok).toBe(true)
+    expect(replay.doc.graphs.sub!.boundary!.inputs).toEqual([
+      { id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true, wireHidden: true },
+    ])
   })
 })

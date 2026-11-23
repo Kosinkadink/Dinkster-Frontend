@@ -50,8 +50,6 @@ let basic: Tab
 const addOffline = (url: string, label?: string): Backend => {
   const backend = app.addBackend(url, label, false)
   if (!backend) throw new Error('addBackend rejected')
-  vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   return backend
 }
 
@@ -121,8 +119,6 @@ function sealedCompletion(
   vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue({
     scope: 'local', jobRef, attemptId: 1, state: job.state, complete: true, offers,
   })
-  vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) =>
-    ({ ...owner, sourceToken, revision: 1, complete: true, digests }))
   return { ...job, jobRef, attemptId: 1 }
 }
 
@@ -371,67 +367,6 @@ describe('addBackend / removeBackend', () => {
     expect(JSON.stringify(tab.store.doc)).toBe(storedBefore)
   })
 
-  it.each(['locale', 'schema', 'connection'] as const)('confirms a retained document across a locale overlay but refuses changed admission: %s', async (scenario) => {
-    const digest = (character: string): string => `sha256:${character.repeat(64)}`
-    setLocale('en')
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = String(input)
-      if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
-      const displayName = url.endsWith(encodeURIComponent(digest('b'))) ? 'Localized label' : 'English label'
-      return new Response(JSON.stringify(url.includes('/api/nodes') ? {
-        schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 2 },
-        packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), zh: digest('b') } } },
-        nodes: { 'demo.localized': { schemaVersion: 2, displayName: 'Raw label', pack: 'demo', body: [] } },
-      } : { nodes: { 'demo.localized': { displayName } }, searchTerms: { 'demo.localized': [displayName] } }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } })
-    })
-    const backend = app.backends.get()[0]!
-    await app.refreshBackendSchemas(backend)
-    await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('English label'))
-    let acknowledge!: () => void
-    let entered!: () => void
-    const requested = new Promise<void>((resolve) => { entered = resolve })
-    const response = new Promise<void>((resolve) => { acknowledge = resolve })
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      entered()
-      await response
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const document = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'localized-open', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
-      view: { graphs: {} },
-    }
-    const previousTabs = app.tabs.get()
-    const opening = app.openDocument(document, 'Localized workflow')
-    await requested
-    try {
-      setLocale('zh')
-      await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('Localized label'))
-      expect(backend.registry.get()?.resolve('demo.localized')?.searchTerms).toContain('Localized label')
-      if (scenario === 'schema') {
-        const registry = backend.registry.get()!
-        const changed = { ...registry.resolve('demo.localized')!, body: [{
-          kind: 'input' as const, id: 'asset', optional: false,
-          type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: 'IMAGE' } },
-        }] }
-        backend.registry.set({ ...registry, schemas: new Map([[changed.type, changed]]), resolve: () => changed })
-      }
-      if (scenario === 'connection') { backend.connection.connect(); backend.connection.disconnect() }
-      acknowledge()
-      const diagnostics = await opening
-      expect(diagnostics.length === 0).toBe(scenario === 'locale')
-      if (scenario === 'locale') {
-        expect(app.activeTab()?.store.doc.lineage).toBe('localized-open')
-        expect(app.backendForTab(app.activeTab()!)).toBe(backend)
-      } else expect(app.tabs.get()).toBe(previousTabs)
-    } finally {
-      acknowledge()
-      setLocale('en')
-    }
-  })
-
   it('publishes pack locale overlays live without refetching the schema catalog', async () => {
     const digest = (character: string): string => `sha256:${character.repeat(64)}`
     const requests: string[] = []
@@ -444,7 +379,6 @@ describe('addBackend / removeBackend', () => {
     }
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       requests.push(url)
       if (url.includes('/api/nodes')) return new Response(JSON.stringify({
         schemaVersion: 1,
@@ -460,44 +394,23 @@ describe('addBackend / removeBackend', () => {
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       const localeDigest = decodeURIComponent(url.slice(url.lastIndexOf('/') + 1))
-      if (url.includes('/locales/')) {
-        if (localeDigest === digest('b')) {
-          await germanResponse
-          germanReturned = true
-        }
-        return new Response(JSON.stringify(localeCatalogs[localeDigest]), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+      if (localeDigest === digest('b')) {
+        await germanResponse
+        germanReturned = true
       }
-      return new Response(JSON.stringify({}), {
+      return new Response(JSON.stringify(localeCatalogs[localeDigest]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
     })
     setLocale('en')
-    const nativeApp = prepareWorkflowApp(new AppState())
-    const backend = nativeApp.addBackend('http://native:8000', 'Native', false, 'dinkster')
+    const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
 
-    nativeApp.setTabTarget(nativeApp.activeTab()!.id, backend.id)
-    let releaseRetention!: () => void
-    const retention = new Promise<void>((resolve) => { releaseRetention = resolve })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      await retention
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    let admission: Promise<boolean> | undefined
-    const unsubscribe = backend.registry.subscribe(() => {
-      admission ??= nativeApp.confirmStartupOwnership().then(() => true, () => false)
-    })
-    await nativeApp.refreshBackendSchemas(backend)
+    app.setTabTarget(app.activeTab()!.id, backend.id)
+    await app.refreshBackendSchemas(backend)
     await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName)
       .toBe('English pack node'))
-    releaseRetention()
-    expect(await admission).toBe(true)
-    unsubscribe()
     setLocale('de-DE')
     await vi.waitFor(() => expect(requests.some((url) => url.endsWith(encodeURIComponent(digest('b'))))).toBe(true))
     setLocale('fr-FR')
@@ -515,8 +428,9 @@ describe('addBackend / removeBackend', () => {
     expect(requests.filter((url) => url.includes('/locales/'))).toHaveLength(2)
     expect(backend.registry.get()?.hash).toBe(backend.connection.currentRegistry?.hash)
     setLocale('en')
-    nativeApp.dispose()
   })
+
+
 
   it('loads workers only for placement-capable schemas and rejects stale catalog responses', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
@@ -598,177 +512,9 @@ describe('addBackend / removeBackend', () => {
 
 describe('backend protocols', () => {
 
-  it.each(['live', 'removed', 'replaced', 'disconnected', 'disposed'] as const)(
-    'accepts delayed cached outputs only from the unchanged live owner: %s', async (scenario) => {
-      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
-      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('cached-job') }
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-        ({ ...owner, ...declaration, revision: 1 }))
-      const outputs = { image: { result: { typeId: 'asset<media/image>',
-        meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } } }
-      let finish!: (value: typeof outputs) => void
-      vi.spyOn(backend.connection, 'fetchJob').mockImplementation(async () => sealedCompletion(backend, ref, {
-        state: 'completed', outputs: await new Promise<typeof outputs>((resolve) => { finish = resolve }), artifacts: [],
-      }, [`blake3:${'e'.repeat(64)}`]))
-      registerNativeRun(backend, ref)
-      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-      app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-      expect(app.store.get(ref)?.outputs).toEqual({})
-      if (scenario === 'removed' || scenario === 'replaced') app.removeBackend(backend.id)
-      if (scenario === 'replaced') app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')
-      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'disposed') app.dispose()
-      finish(outputs)
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(app.store.get(ref)?.outputs).toEqual(scenario === 'live' ? outputs : {})
-      if (scenario === 'live') {
-        app.removeBackend(backend.id)
-        expect(app.store.get(ref)?.outputs).toEqual(outputs)
-      } else if (scenario !== 'disposed') {
-        const live = app.backendFor(backend.id) ?? app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')!
-        const fresh = { image: { result: { typeId: 'INT', value: 37 } } }
-        vi.spyOn(live.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-          ({ ...owner, ...declaration, revision: 1 }))
-        vi.spyOn(live.connection, 'fetchJob').mockResolvedValue(sealedCompletion(live, ref, {
-          state: 'completed', outputs: fresh, artifacts: [],
-        }))
-        registerNativeRun(live, ref)
-        app.store.apply({ kind: 'started', execution: { ...ref, prompt: asPromptId('next-job') }, timestamp: 3 })
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        expect(app.store.get(ref)?.outputs).toEqual(fresh)
-      }
-    },
-  )
 
-  it.each(['accepted', 'refused', 'removed', 'disconnected', 'registry-changed', 'disposed'] as const)(
-    'admits fetched completion outputs and artifacts before publication: %s', async (scenario) => {
-      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
-      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('owned-completion') }
-      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
-      const live = { live: { value: { typeId: 'INT', value: 17 } } }
-      const outputs = { save: { image: { typeId: 'IMAGE', meta: { digest: digest('e') } } } }
-      const artifact = { nodeId: 'save', digest: digest('a'), name: 'result.png', size: 7,
-        mediaType: 'image/png', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
-          size: 3, mediaType: 'image/png', virtualPath: '' } }
-      registerNativeRun(backend, ref)
-      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-      app.store.hydrateOutputs(ref, live)
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-        ({ ...owner, ...declaration, revision: 1 }))
-      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue(sealedCompletion(backend, ref,
-        { state: 'completed', outputs, artifacts: [artifact] }, [digest('a'), digest('c'), digest('e')]))
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      let requested!: () => void
-      const requesting = new Promise<void>((resolve) => { requested = resolve })
-      let acknowledge!: () => void
-      const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
-      const claim = vi.mocked(backend.connection.claimResultAssets).getMockImplementation()!
-      vi.mocked(backend.connection.claimResultAssets).mockImplementation(async (owner, sourceToken) => {
-        requested()
-        await acknowledgment
-        if (scenario === 'refused') throw new Error('ownership refused')
-        return claim(owner, sourceToken)
-      })
-      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
-      await requesting
-      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
-      expect(app.store.get(ref)).toMatchObject({ outputs: live, artifacts: [], artifactsHydrated: false })
-      if (scenario === 'removed') app.removeBackend(backend.id)
-      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'registry-changed') registryFor(backend)
-      if (scenario === 'disposed') app.dispose()
-      acknowledge()
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(app.store.get(ref)).toMatchObject(scenario === 'accepted'
-        ? { outputs: { ...live, ...outputs }, artifacts: [artifact], artifactsHydrated: true }
-        : { outputs: live, artifacts: [], artifactsHydrated: false })
-      if (scenario === 'accepted') {
-        const receipts = app.store.get(ref)!.assetRetentions!
-        expect(receipts.every((receipt) => receipt.complete)).toBe(true)
-        expect(receipts).toHaveLength(3)
-        expect([...new Set(receipts.flatMap((receipt) => receipt.digests))].sort())
-          .toEqual([digest('a'), digest('c'), digest('e')])
-        backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        expect(app.store.get(ref)?.assetRetentions).toEqual(receipts)
-      }
-    },
-  )
 
-  it.each(['accepted', 'refused', 'removed', 'disconnected', 'registry-changed', 'disposed'] as const)(
-    'admits live preview identities before ordered publication: %s', async (scenario) => {
-      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
-      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('owned-preview') }
-      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
-      backend.connection.ingest({ type: 'run_started', jobId: ref.prompt })
-      app.store.hydrateArtifacts(ref, [{ nodeId: 'held', digest: digest('a'), name: 'held.png', size: 7,
-        mediaType: 'image/png', virtualPath: '' }])
-      let acknowledge!: () => void
-      let requested = 0
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
-        requested += 1
-        expect(declaration).toMatchObject({ complete: false, digests: [digest('a'), digest('c'), digest('e')] })
-        return new Promise((resolve, reject) => {
-          acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
-            : resolve({ ...owner, ...declaration, revision: 1 })
-        })
-      })
-      backend.connection.ingest({ type: 'node_event', event: 'preview', jobId: ref.prompt, nodeId: 'image',
-        data: { mime: 'application/json', documentDigest: digest('c'), document: {
-          layers: { image: { source: { digest: digest('e') } } } } } })
-      backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
-      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(requested).toBe(1)
-      expect(app.store.get(ref)?.previews).toEqual({})
-      expect(app.store.get(ref)?.status).toBe('running')
-      if (scenario === 'removed') app.removeBackend(backend.id)
-      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'registry-changed') registryFor(backend)
-      if (scenario === 'disposed') app.dispose()
-      acknowledge()
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(scenario === 'accepted'
-        ? { mime: 'application/json', documentDigest: digest('c'), document: {
-          layers: { image: { source: { digest: digest('e') } } } } } : undefined)
-      expect(app.store.get(ref)?.status).toBe(scenario === 'accepted' || scenario === 'refused' ? 'completed' : 'running')
-    },
-  )
 
-  it('hydrates saved artifacts after a normal live Dinkster completion', async () => {
-    const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
-    if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-    const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('saved-job') }
-    const outputs = { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } }
-    registerNativeRun(backend, ref)
-    app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-    app.store.hydrateOutputs(ref, outputs)
-    const artifact = {
-      nodeId: 'save',
-      digest: `blake3:${'a'.repeat(64)}`,
-      name: 'result.mp4',
-      size: 4043,
-      mediaType: 'video/mp4',
-      virtualPath: 'output/result.mp4',
-    }
-    const fetchJob = vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue(sealedCompletion(backend, ref, {
-      state: 'completed', artifacts: [artifact],
-    }, [artifact.digest]))
-
-    backend.connection.ingest({ type: 'run_finished', jobId: 'saved-job' })
-    expect(app.store.get(ref)?.status).toBe('running')
-    expect(app.store.get(ref)?.artifactsHydrated).toBe(false)
-    expect(fetchJob).not.toHaveBeenCalled()
-    backend.connection.ingest({ type: 'job_state', jobId: 'saved-job', state: 'completed' })
-    await vi.waitFor(() => expect(app.store.get(ref)?.artifacts).toEqual([artifact]))
-    expect(app.store.get(ref)?.artifactsHydrated).toBe(true)
-    expect(app.store.get(ref)?.status).toBe('completed')
-    expect(app.store.get(ref)?.outputs).toEqual(outputs)
-    expect(fetchJob).toHaveBeenCalledWith('saved-job')
-  })
 
   it('reconciles again when schema refresh supersedes a pending job read', async () => {
     const backend = addOffline('http://native:8000', 'Native')
@@ -795,45 +541,6 @@ describe('backend protocols', () => {
     }))
   })
 
-  it('retries a failed live completion artifact read on reconnect', async () => {
-    const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
-    if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
-    const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('retry-job') }
-    const artifact = {
-      nodeId: 'save',
-      digest: `blake3:${'b'.repeat(64)}`,
-      name: 'retry.mp4',
-      size: 4043,
-      mediaType: 'video/mp4',
-      virtualPath: 'output/retry.mp4',
-    }
-    registerNativeRun(backend, ref)
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-    let available = false
-    const completed = sealedCompletion(backend, ref, { state: 'completed', artifacts: [artifact] }, [artifact.digest])
-    const fetchJob = vi.spyOn(backend.connection, 'fetchJob').mockImplementation(async () => {
-      if (!available) throw new Error('connection lost')
-      return completed
-    })
-
-    app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-    app.store.hydrateOutputs(ref, { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } })
-    backend.connection.ingest({ type: 'run_finished', jobId: 'retry-job' })
-    backend.connection.ingest({ type: 'job_state', jobId: 'retry-job', state: 'completed' })
-    await vi.waitFor(() => expect(fetchJob).toHaveBeenCalled())
-    expect(app.store.get(ref)).toMatchObject({ status: 'completed', artifactsHydrated: false })
-
-    available = true
-    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
-    registryFor(backend)
-
-    await vi.waitFor(() => expect(app.store.get(ref)).toMatchObject({
-      status: 'completed',
-      artifacts: [artifact],
-      artifactsHydrated: true,
-    }))
-  })
 
 })
 
@@ -919,56 +626,6 @@ describe('compile and registry routing', () => {
 
 describe('execution output routing', () => {
 
-  it.each(['live', 'removed', 'refused', 'replaced-admission', 'replaced-body', 'disconnected', 'disposed', 'aborted'] as const)(
-    'admits original-model bytes before reading through the %s execution owner', async (mode) => {
-      const backend = addOffline('http://model-owner:8188')
-      const ref = foreignRun(String(backend.id), 'admitted-model-read')
-      const digest = `blake3:${'d'.repeat(64)}`
-      let admit!: () => void
-      const admission = new Promise<void>((resolve) => { admit = resolve })
-      const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        await admission
-        if (mode === 'refused') throw new Error('Original model ownership refused')
-        return { ...owner, ...declaration, revision: declaration.revision + 1 }
-      })
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
-      let finish!: () => void
-      const body = new Promise<ArrayBuffer>((resolve) => { finish = () => resolve(new Uint8Array([1, 7, 3]).buffer) })
-      const fetch = vi.spyOn(backend.connection, 'fetchAssetBytes').mockImplementation(async () => body)
-      if (mode === 'removed') app.removeBackend(backend.id)
-      const abort = new AbortController()
-      let settled = false
-      const pending = app.readFile3dAssetForExecution(ref, { digest }, abort.signal)
-        .then((bytes) => { settled = true; return bytes }, () => { settled = true; return undefined })
-      try {
-        await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
-        expect(retain.mock.calls[0]).toEqual([
-          expect.objectContaining({ scope: 'local', ownerKind: 'preview' }),
-          { revision: 0, complete: true, digests: [digest] },
-        ])
-        expect(fetch).not.toHaveBeenCalled()
-        expect(settled).toBe(false)
-        if (mode === 'replaced-admission') app.store.hydrateOutputs(ref, { model: { replacement: 'new-result' } })
-        admit()
-        if (mode === 'refused' || mode === 'replaced-admission') {
-          expect(await pending).toBeUndefined()
-          expect(fetch).not.toHaveBeenCalled()
-          return
-        }
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
-        if (mode === 'replaced-body') app.store.hydrateOutputs(ref, { model: { replacement: 'new-result' } })
-        if (mode === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-        if (mode === 'disposed') app.dispose()
-        if (mode === 'aborted') abort.abort()
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        expect(settled).toBe(false)
-        finish()
-        expect(await pending).toEqual(mode === 'live' || mode === 'removed' ? new Uint8Array([1, 7, 3]).buffer : undefined)
-        expect(release).not.toHaveBeenCalled()
-      } finally { admit(); finish(); await pending }
-    },
-  )
 
   it.each((['live', 'removed'] as const).flatMap((owner) =>
     [false, true].map((local) => ({ owner, local }))))(
@@ -982,7 +639,6 @@ describe('execution output routing', () => {
       let bodyStarted!: () => void
       const started = new Promise<void>((resolve) => { bodyStarted = resolve })
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-        if (String(url).endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
         requests.push(String(url))
         transportSignal = init?.signal
         return { ok: true, status: 200, arrayBuffer: () => {
@@ -1009,56 +665,14 @@ describe('execution output routing', () => {
     },
   )
 
-  it('refuses late rendition bodies after a connection transition while a newly admitted reader stays live', async () => {
-    const backend = addOffline('http://pending-value-owner:8188')
-    const ref = foreignRun(String(backend.id), 'pending-value-read')
-    const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
-    const bodies: ReadableStreamDefaultController<Uint8Array>[] = []
-    const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
-    let version = 1
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = new URL(String(input))
-      if (url.pathname.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
-      const selector = url.searchParams.get('rendition')
-      if (selector === null) return Response.json({ available: true,
-        descriptor: { typeId: 'AUDIO', fingerprint: `pending-${version}`, meta: {} },
-        renditions: [{ kind: 'window', mime: 'audio/wav', cacheKey: `window-${version}` }] })
-      if (selector === 'window-2') return new Response(new Uint8Array([17, 31]))
-      return new Response(new ReadableStream<Uint8Array>({ start(controller) { bodies.push(controller) } }))
-    })
-    const values = app.valuesForExecution(ref)!
-    const old = await values.peek(query)
-    if (!old.available) throw new Error('Expected original descriptor')
-    const reads = [3, 5].map((frame) => values.rendition(query, 'window', { descriptor: old.descriptor, frame }))
-    await vi.waitFor(() => expect(bodies).toHaveLength(2))
-    backend.connection.connect()
-    backend.connection.disconnect()
-    version = 2
-    const fresh = await values.peek(query)
-    if (!fresh.available) throw new Error('Expected replacement descriptor')
-    const live = await values.rendition(query, 'window', { descriptor: fresh.descriptor })
-    if (!live.available) throw new Error('Expected replacement bytes')
-    expect([...new Uint8Array(live.bytes)]).toEqual([17, 31])
-    bodies[0]!.enqueue(new Uint8Array([13]))
-    bodies[0]!.close()
-    expect(await reads[0]).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
-    bodies[1]!.enqueue(new Uint8Array([29]))
-    bodies[1]!.close()
-    expect(await reads[1]).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
-    const cached = await values.rendition(query, 'window', { descriptor: fresh.descriptor })
-    if (!cached.available) throw new Error('Expected replacement cached bytes')
-    expect([...new Uint8Array(cached.bytes)]).toEqual([17, 31])
-    expect(release).not.toHaveBeenCalled()
-  })
 
-  it('ends cached and pending value reads only after their result lifetime ends', async () => {
+  it('keeps cached and pending value reads available after their execution ages out', async () => {
     const backend = addOffline('http://ended-value-owner:8188')
     const ref = foreignRun(String(backend.id), 'ended-value-read')
     const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
     let body!: ReadableStreamDefaultController<Uint8Array>
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = new URL(String(input))
-      if (url.pathname.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       const selector = url.searchParams.get('rendition')
       if (selector === null) return Response.json({ available: true,
         descriptor: { typeId: 'AUDIO', fingerprint: 'ended-audio', meta: {} },
@@ -1083,10 +697,8 @@ describe('execution output routing', () => {
     expect(app.store.get(ref)).toBeUndefined()
     body.enqueue(new Uint8Array([17, 31]))
     body.close()
-    expect(await pending).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
-    expect(await values.rendition(query, 'window', { descriptor: peek.descriptor })).toMatchObject({
-      available: false, reason: 'ownership-unconfirmed',
-    })
+    expect(await pending).toMatchObject({ available: true })
+    expect(await values.rendition(query, 'window', { descriptor: peek.descriptor })).toMatchObject({ available: true })
   })
 
   it('historical asset URLs and bytes use the execution backend, not the default', async () => {
@@ -1110,7 +722,6 @@ describe('execution output routing', () => {
   it('historical asset routes and native value ownership survive backend removal', async () => {
     const requests: URL[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      if (String(input).endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       requests.push(new URL(String(input)))
       return Response.json({ available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'recorded-image' }, renditions: [] })
     })

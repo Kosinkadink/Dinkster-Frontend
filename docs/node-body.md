@@ -148,6 +148,17 @@ default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
 
+A stored key that names an option the pack no longer has is treated as no
+pick when the document opens: a required choice goes to its start key, an
+optional choice and an optional type choice go to none, and a required type
+choice has nothing selected, so the document opens and a run is refused until
+a variant is picked. Opening stores that change in one undoable edit; the old
+values stay in the document. Stored state for a removed group or choice also
+stays in the document but contributes no live rows. Malformed state is still
+refused when opening the file. Problems lists one warning per adjusted node
+under "Upgraded on open"; selecting it moves the canvas to the node, and
+undoing the edit restores the old key without dismissing the warning.
+
 ## Type choices
 
 A type choice is led by the type plugged into its pin. Connecting a producer

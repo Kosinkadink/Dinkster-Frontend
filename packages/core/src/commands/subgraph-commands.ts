@@ -378,6 +378,7 @@ function remapNestedItem(
     binds: remapBinding(nested.binds, ids.nodes, ids.reroutes, ids.valueSources),
     ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes, ids.valueSources)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
+    ...(nested.wireHidden === true ? { wireHidden: true } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
   }
 }

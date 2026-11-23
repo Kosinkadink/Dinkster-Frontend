@@ -109,10 +109,9 @@ structurally impossible. Keep it that way.
 `traceEndpoint` in `packages/core/src/reroute.ts` is the ONLY code that
 answers "what really drives this endpoint". The compiler, the semantic hash,
 and the scene builder all call it. Never write a second upstream-walking loop,
-even a "simpler local one" - the hash-vs-compiler divergence bug caught in
-review (undriven chains hashed as dangling pairs while the compiler omitted
-them) is exactly what a second implementation produces. If you need different
-trace output, extend `RerouteTrace`, do not fork the walk.
+even a "simpler local one" - separate implementations can diverge when one
+hashes undriven chains as dangling pairs while the compiler omits them. If you
+need different trace output, extend `RerouteTrace`, do not fork the walk.
 
 Failure mode if broken: frozen views dirty (or fail to dirty) on edits that
 do (or do not) change execution; sync badges lie to the user.
@@ -199,8 +198,6 @@ Concrete rules that fell out of those bugs:
 
 `traceEndpoint` is O(chain length) and runs at scene-build/compile/hash time,
 never per-frame. Keep tracing calls out of `render()`/pointer-move paths.
-Historical reroute-heavy measurements remain in [Performance baselines](perf.md);
-the uncalibrated browser timing cases are not a regression gate.
 
 ### R10. Importer absorption stays import-only
 
@@ -438,7 +435,7 @@ bug again the moment a key is recomputed from a member's position.
   tale - if a feature "just needs a little mirror state", derive it or put it
   in the document.
 
-## Lessons from the pack audit (see docs/archive/node-pack-extension-audit.md)
+## Extension contract failure modes
 
 Failure modes observed in the wild that our contracts must not re-enable:
 

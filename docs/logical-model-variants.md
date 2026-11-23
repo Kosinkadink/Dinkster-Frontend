@@ -81,7 +81,7 @@ therefore share a logical row and receive the core's symmetric conflict flags.
 Renamed same-digest files remain one variant and expose every observed basename
 and virtual path as aliases. A non-primary alias that equals another digest's
 primary basename currently remains in a separate logical row without a conflict
-flag. This is a known interim limitation until the backend S3 catalog supplies
+flag. This is a known interim limitation until the backend catalog supplies
 authoritative logical identity. Kind still comes only from the declared
 model-kind input and is never inferred from a filename.
 

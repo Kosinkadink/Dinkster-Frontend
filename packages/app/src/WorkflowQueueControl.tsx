@@ -2,6 +2,10 @@ import { For, Show, createSignal as createSolidSignal, createUniqueId, onCleanup
 import type { ExecutionState } from '@dinkster/client'
 import type { ExecutionRef, LineageId } from '@dinkster/core'
 import Play from 'lucide-solid/icons/play'
+import List from 'lucide-solid/icons/list'
+import { ProductRunActivity } from '@dinkster/ui'
+import { executionActivity } from './execution-activity.js'
+import { useAppMessage } from './locale.js'
 import { ExecutionActivityCard, executionProgress } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -22,6 +26,7 @@ export function WorkflowQueueControl(props: {
   readonly onQueue: () => void
   readonly onOpenExecution: (ref: ExecutionRef) => void
 }) {
+  const message = useAppMessage()
   const [open, setOpen] = createSolidSignal(false)
   const popoverId = `workflow-queue-popover-${createUniqueId()}`
   let root!: HTMLDivElement
@@ -33,15 +38,13 @@ export function WorkflowQueueControl(props: {
     return active === undefined ? undefined : executionProgress(active)
   }
 
+  const activity = () => executionActivity(props.executions)
   const summary = (): string => {
-    const queued = props.executions.filter((entry) => entry.status === 'queued').length
-    const running = props.executions.filter((entry) => entry.status === 'running').length
-    const active = [
-      ...(queued > 0 ? [`${queued} queued`] : []),
+    const { running, waiting } = activity()
+    return [
       ...(running > 0 ? [`${running} running`] : []),
-    ]
-    if (active.length > 0) return active.join(', ')
-    return props.executions.length > 0 ? `${props.executions.length} recent` : 'No jobs'
+      ...(waiting > 0 ? [`${waiting} queued`] : []),
+    ].join(', ') || 'No active jobs'
   }
 
   const close = (restoreFocus = false): void => {
@@ -81,20 +84,22 @@ export function WorkflowQueueControl(props: {
           type="button"
           class="workflow-queue-submit"
           data-testid="queue-button"
-          aria-label={`Queue ${props.owner.title}`}
-          data-tooltip-label="Queue workflow"
+          aria-label={`Run ${props.owner.title}`}
+          data-tooltip-label={message('command.workflow.queue')}
           data-tooltip-detail="Ctrl+Enter"
           disabled={!props.canQueue}
           onClick={props.onQueue}
         >
-          <Icon icon={Play} /> Queue
+          <Icon icon={Play} /> {message('appView.queue')}
         </button>
         <button
           ref={toggle}
           type="button"
           class="workflow-queue-toggle"
           data-testid="workflow-queue-toggle"
-          aria-label={`${summary()}: ${open() ? 'Hide' : 'Show'} queue for ${props.owner.title}`}
+          aria-label={`${summary()}: ${open() ? 'Hide' : 'Show'} runs for ${props.owner.title}`}
+          data-tooltip-label={summary()}
+          data-running={activity().running > 0}
           aria-expanded={open()}
           aria-controls={popoverId}
           onClick={() => setOpen((value) => !value)}
@@ -108,8 +113,10 @@ export function WorkflowQueueControl(props: {
             }
           }}
         >
-          <span data-testid="workflow-queue-summary" aria-live="polite">{summary()}</span>
-          <span class="workflow-queue-caret" aria-hidden="true" />
+          <span data-testid="workflow-queue-summary" class="dinkster-visually-hidden" aria-live="polite">{summary()}</span>
+          <Show when={activity().running > 0 || activity().waiting > 0} fallback={<Icon icon={List} />}>
+            <ProductRunActivity running={activity().running} waiting={activity().waiting} label={summary()} />
+          </Show>
         </button>
       </div>
       <Show when={progress()}>
@@ -169,7 +176,7 @@ export function WorkflowQueueControl(props: {
                     testId="workflow-queue-entry"
                     compact
                     cancelControl={<Show when={props.app}>{(app) => <CancelExecutionButton app={app()} execution={entry} />}</Show>}
-                    onOpen={() => props.onOpenExecution(entry.ref)}
+                    onOpen={() => { close(); props.onOpenExecution(entry.ref) }}
                   />
                 )}
               </For>

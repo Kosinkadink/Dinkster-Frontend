@@ -10,7 +10,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, subgraphMarkPoint, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -64,7 +64,7 @@ test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
@@ -173,12 +173,9 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   ])
   await shot(page, 'outside')
 
-  const header = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  // The subgraph mark on the header enters the subgraph.
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await identityViewport(page)
@@ -214,8 +211,10 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   await page.getByTestId('graph-canvas').focus()
   const strength = await widgetPoint(page, 'm', 'mode.strength')
   await page.mouse.click(strength.x, strength.y)
-  await page.getByTestId('widget-editor').locator('input').fill('0.65')
-  await page.getByTestId('widget-editor-commit').click()
+  const editor = page.getByTestId('widget-editor').locator('input')
+  await expect(editor).toBeVisible()
+  await editor.fill('0.65')
+  await editor.press('Enter')
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.values['look.strength']).toBe(0.65)
   expect((await activeDoc(page)).graphs['sub']!.nodes['m']!.values).toEqual({})
   await page.keyboard.press('Control+z')
