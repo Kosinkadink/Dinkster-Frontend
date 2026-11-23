@@ -36,6 +36,30 @@ const boot = async (page: Page): Promise<void> => {
   await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
 }
 
+for (const theme of ['dark', 'light'] as const) {
+  test(`side and bottom panel selected tabs in ${theme} theme`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await boot(page)
+    await closeGallery(page)
+    await page.getByTestId('bottom-panel-toggle').click()
+    await page.evaluate(() => window.__dinksterTest!.app.dock.dock('node-help', 'bottom'))
+    for (const zone of ['right', 'bottom'] as const) {
+      const panel = page.getByTestId(`dock-zone-${zone}`)
+      const selected = panel.getByRole('tab', { selected: true })
+      const inactive = panel.getByRole('tab', { selected: false }).filter({ visible: true }).first()
+      await expect(selected).toBeVisible()
+      await expect(inactive).toBeVisible()
+      const id = await inactive.getAttribute('data-tab-id')
+      await inactive.click()
+      await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await page.mouse.move(600, 400)
+      await expect(panel).toHaveScreenshot(`panel-tabs-${zone}-${theme}.png`, { animations: 'disabled' })
+    }
+  })
+}
+
 const closeGallery = async (page: Page): Promise<void> => {
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible()))
