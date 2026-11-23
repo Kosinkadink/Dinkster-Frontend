@@ -21,7 +21,7 @@ import type {
   WidgetView,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
+import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, specialValueLabel, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -63,6 +63,8 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
 
 function rangeDiags(value: number, spec: WidgetSpec, type: string): Diagnostic[] {
+  // A declared special value is allowed outside the limits.
+  if (specialValueLabel(value, spec) !== undefined) return []
   const out: Diagnostic[] = []
   const min = spec.options['min']
   const max = spec.options['max']
@@ -84,6 +86,7 @@ function integerRangeDiags(value: IntegerWidgetValue, spec: WidgetSpec): Diagnos
   }
   const out: Diagnostic[] = []
   const numeric = BigInt(value)
+  if (specialValueLabel(numeric, spec) !== undefined) return out
   const min = spec.options['min']
   const max = spec.options['max']
   if ((Number.isSafeInteger(min) || isCanonicalUnsafeInteger(min)) && numeric < BigInt(min as number | string)) {
@@ -715,7 +718,7 @@ function drawCompactNumber(
 export const numberView: WidgetView<IntegerWidgetValue> = {
   ...makeCompactView<IntegerWidgetValue>('core.number', 'INT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, String(value))
+    drawCompactNumber(ctx, value, spec, state, formatWidgetValue(value, spec))
   },
 }
 export const floatNumberView: WidgetView<number> = {
