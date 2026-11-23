@@ -35,12 +35,20 @@ export type RowListLookupState =
 
 export type RowListLookupFailure = 'failed' | 'timeout' | 'wrong-shape' | 'offline'
 
-/** One sentence per failure; the details go to the doctor. */
+/** A few words on the status line; the author's details go to the doctor. */
 const FAILURE_TEXT: Readonly<Record<RowListLookupFailure, string>> = {
   failed: 'Could not load options',
   timeout: 'Timed out',
   'wrong-shape': 'Could not load options',
   offline: 'Backend not connected',
+}
+
+/** One sentence per failure for the side part's problem line. */
+const FAILURE_REASON: Readonly<Record<RowListLookupFailure, string>> = {
+  failed: 'The pack could not provide this list.',
+  timeout: 'The pack took too long to answer.',
+  'wrong-shape': 'The pack answered with something other than a list.',
+  offline: 'The backend is not connected.',
 }
 
 export interface RowListLookup {
@@ -200,7 +208,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     if (state === undefined || lookup === undefined) return undefined
     const tryAgain = { id: 'retry', label: 'Try again', disabled: refreshing(), onClick: () => lookup.refresh() }
     switch (state.kind) {
-      case 'waiting': return { tone: 'notice', text: state.check === true ? `Waiting for ${state.input} to be checked` : `Waiting for ${state.input}` }
+      case 'waiting': return { tone: 'notice', text: state.check === true ? `Checking ${state.input}` : `Waiting for ${state.input}` }
       case 'loading': return { tone: 'busy', text: 'Loading options' }
       case 'off': return { tone: 'notice', text: 'Not loaded in preview' }
       case 'paused': return { tone: 'notice', text: 'Rate limited' }
@@ -336,7 +344,10 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
         ),
       }]),
     ]
-    const problem = props.commitError() ?? (missing() ? 'Not in the current list. Kept until you choose another.' : undefined)
+    const state = lookupState()
+    const problem = props.commitError()
+      ?? (state?.kind === 'unavailable' && !state.refreshing ? FAILURE_REASON[state.reason] : undefined)
+      ?? (missing() ? 'Not in the current list. Kept until you choose another.' : undefined)
     // A field with nothing to say beside it has no side part.
     if (facts.length === 0 && problem === undefined && inRow.help === undefined) return undefined
     return (
