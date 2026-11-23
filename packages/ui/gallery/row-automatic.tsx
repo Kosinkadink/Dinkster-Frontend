@@ -270,7 +270,10 @@ function automaticPainter(
 ): WidgetPainter {
   if (automatic === undefined) return inner;
   const shown = String(automatic.value);
-  const warning = semanticTokensForTheme(theme).meaning.warning.foreground;
+  const semantic = semanticTokensForTheme(theme);
+  const warning = semantic.meaning.warning.foreground;
+  // The open field's room between auto and its hint, so the word stays put.
+  const wordGap = semantic.space[8];
   return (args) => {
     if (args.row.valueKey !== "frame_rate") {
       inner(args);
@@ -287,13 +290,14 @@ function automaticPainter(
             }
             object.save();
             object.fillStyle = args.tokens.colors.valueMark;
-            const words = `auto ${shown}`;
-            object.fillText(words, x, y);
+            object.fillText(shown, x, y);
+            const wordRight = x - object.measureText(shown).width - wordGap;
+            object.fillText("auto", wordRight, y);
             if (automatic.state === "default") {
               const radius = 3;
               const dotX =
-                x -
-                object.measureText(words).width -
+                wordRight -
+                object.measureText("auto").width -
                 canvasPaintTokens.widget.modeIconGap -
                 radius;
               object.fillStyle = warning;
