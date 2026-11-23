@@ -807,6 +807,8 @@ export interface TypeChoiceSpec {
   readonly required: boolean
   /** Node-level type variable bound by the chosen variant. */
   readonly typeVariable?: string
+  /** On a subgraph node that shows it whole: the variant the definition picks, used while the node stores none. */
+  readonly default?: string
   readonly outer?: OuterScope
 }
 

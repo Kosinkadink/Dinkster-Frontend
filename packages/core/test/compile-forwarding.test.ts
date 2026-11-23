@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
 import { definitionPick, occurrenceDynamicView } from '../src/compile/occurrence-view.js'
+import { elaborateInterface } from '../src/schema/elaborate.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
@@ -588,7 +589,11 @@ describe('whole constructs shown on a subgraph node', () => {
     expect(prompt['first.d.n']!.slotVariants).toEqual({ src: 'mask' })
     // Nothing stored outside: the middle definition's value is used.
     expect(prompt['second.d.n']!.inputs).toEqual({ src: ['b', 0], 'src.sharpen': 3 })
-    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })
+    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })    // A subgraph node that stores no variant shows, and runs, the one its definition picks.
+    const third = { ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs.g0!, links: {}, nodes: { third: { id: asNodeId('third'), type: '#outer', values: {} } } } } }
+    const shown = documentResolver(third, (type) => constructSchemas[type])('#outer')!
+    expect(elaborateInterface(shown, { values: {} }).choices).toEqual({ pick: 'image' })
+    expect(okConstructPrompt(third)['third.d.n']!.slotVariants).toEqual({ src: 'image' })
   })
 
   it('a whole described row keeps each instance\'s description and values through two boundaries', () => {

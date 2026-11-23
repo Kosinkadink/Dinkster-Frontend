@@ -1263,7 +1263,8 @@ function elaboratePass(
       return
     }
     const variants = row.variants.map(({ key, type }) => ({ key, type }))
-    const key = stateOf(path)?.selected
+    // On a subgraph node that shows the type choice whole, the default is the definition's pick.
+    const key = stateOf(path)?.selected ?? (shownWhole(scope) ? row.default : undefined)
     const variant = row.variants.find((item) => item.key === key)
     if (key !== undefined && variant === undefined) {
       report('prompt.bad_dynamic_choice', `type choice '${path}' has unknown variant '${key}'`, path)

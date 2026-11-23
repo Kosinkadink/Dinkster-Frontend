@@ -572,8 +572,10 @@ function withStoredDefaults<T extends OptionRow>(row: T, prefix: string, node: N
     }
     case 'typeChoice': {
       const path = prefix + r.id
+      const selected = node.dynamic?.[path]?.selected
       return {
         ...r,
+        ...(selected !== undefined && r.variants?.some((variant) => variant.key === selected) ? { default: selected } : {}),
         rows: under(r.rows, `${path}.`),
         ...(r.variants !== undefined ? { variants: r.variants.map((variant) => ({ ...variant, rows: under(variant.rows, `${path}.`) })) } : {}),
       } as unknown as T
