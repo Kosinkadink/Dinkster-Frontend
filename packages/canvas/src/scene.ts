@@ -16,6 +16,7 @@ import {
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   documentNodeResolver,
+  documentPrimitiveResolver,
   documentValueSourceResolver,
   effectiveOccurrenceTopology,
   elabInputsOf,
@@ -1124,9 +1125,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
   const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, sourceId, path) => {
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     return resolveSource(graphId, sourceId, path)
+  }, (graphId, node, path) => {
+    resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
+    return resolvePrimitive(graphId, node, path)
   })
   const view = input.document.view.graphs[input.graphId]
   const positioned = positionedSceneCache.get(def)

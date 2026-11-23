@@ -126,7 +126,11 @@ export function effectivePrimitiveSpec(
   const label = labels.size === 1 ? [...labels][0] : undefined
 
   const widgetType = declared?.widgetType ?? fedWidgets[0]?.widgetType
-  if (widgetType === undefined) return { ...(label !== undefined ? { label } : {}), derived: new Set(), diagnostics }
+  if (widgetType === undefined) {
+    // A choice that feeds no field with options is typed in as text.
+    const typed = shape.value.type.kind === 'concrete' && shape.value.type.name === 'COMBO'
+    return { ...(typed ? { spec: { widgetType: 'STRING', options: {} } } : {}), ...(label !== undefined ? { label } : {}), derived: new Set(), diagnostics }
+  }
   const merge = specMergeFor(widgetType)
   let options: Record<string, unknown> = { ...(declared?.options ?? {}) }
   let base = declared
