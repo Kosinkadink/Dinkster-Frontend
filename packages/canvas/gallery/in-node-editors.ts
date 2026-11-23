@@ -101,6 +101,15 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
     editor('curve', 'CURVE'),
     output('curve', 'CURVE'),
   ]),
+  // A node turns the strips on in its curve's declaration, each with its colors from low to high.
+  schema('Brightness curve', [
+    editor('curve', 'CURVE', { input_strip: ['#000000', '#ffffff'], output_strip: ['#000000', '#ffffff'] }),
+    output('curve', 'CURVE'),
+  ]),
+  schema('Red channel curve', [
+    editor('curve', 'CURVE', { input_strip: ['#000000', '#ff0000'] }),
+    output('curve', 'CURVE'),
+  ]),
   ...[16, undefined].map((maxMembers) => schema(maxMembers === undefined ? 'Palette' : 'Palette of 16', [
     {
       kind: 'group', id: 'colors', displayName: 'Colors', value: field('color', 'COLOR', '#ffffff'),
@@ -231,6 +240,13 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-unfolded', card: 34, caption: 'The curve large in the node, a point selected', type: 'Curve editor',
     values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
     view: unfold('curve'), states: { curve: { selected: 1 } } },
+  { id: 'curve-strips', card: 34, caption: 'Both strips declared, black to white; the pointer shows where a point would go',
+    type: 'Brightness curve',
+    values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.35, value: 0.5 }, { position: 1, value: 1 }] } },
+    view: unfold('curve'), states: { curve: { hover: { position: 0.7, value: 0.45 } } } },
+  { id: 'curve-input-strip', card: 34, caption: 'Only the input strip declared, black to red', type: 'Red channel curve',
+    values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.5, value: 0.35 }, { position: 1, value: 0.9 }] } },
+    view: unfold('curve') },
   { id: 'curve-folded', card: 35, caption: 'Folded: its sketch and the number of points', type: 'Curve editor',
     values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } } },
   { id: 'curve-histogram', card: 36, caption: "A histogram wired in: after a run, behind the line", type: 'Curve editor',

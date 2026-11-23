@@ -608,8 +608,15 @@
 .dinkster-gallery-angle-ring { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1.5; }
 .dinkster-gallery-angle-dot { fill: var(--dinkster-accent-border); }
 .dinkster-gallery-angle-dot[data-hollow='true'] { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-accent-border); stroke-width: 2; }
-.dinkster-gallery-curve-grid { stroke: var(--dinkster-border-subtle); stroke-width: 1; }
+.dinkster-gallery-curve { cursor: crosshair; }
+.dinkster-gallery-curve-plot { fill: var(--dinkster-surface-raised); }
+.dinkster-gallery-curve-border { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dinkster-gallery-curve-grid { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dinkster-gallery-curve-identity { stroke: var(--dinkster-text-muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .dinkster-gallery-curve-histogram { fill: var(--dinkster-border-group); }
+.dinkster-gallery-curve-strip { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dinkster-gallery-curve-hover { pointer-events: none; fill: none; stroke: var(--dinkster-text-secondary); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.dinkster-gallery-curve-hover text { fill: var(--dinkster-text-secondary); stroke: none; font-size: var(--dinkster-type-metadata-size); font-family: var(--dinkster-font-family); }
 .dinkster-gallery-curve-line { fill: none; stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-gallery-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-gallery-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }

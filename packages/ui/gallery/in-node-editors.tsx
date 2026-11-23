@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, untrack, type JSX } from 'solid-js'
 import type { WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -131,27 +131,92 @@ function AnglePicture(props: { horizontal?: number; vertical: number; hollow?: b
   )
 }
 
-/** The curve drawn large, with its grid, points and an optional histogram behind the line. */
-function CurvePicture(props: { points: readonly { position: number; value: number }[]; selected?: number; histogram?: boolean }) {
-  const x = (position: number) => 10 + position * 300
-  const y = (value: number) => 170 - value * 160
+/** A strip's two colors, low end first, as a curve's widget declares them. */
+type Strip = readonly [string, string]
+
+/**
+ * The curve drawn large inside its plot: the border is where a point may go,
+ * grid lines in quarters run from border to border, a dashed line shows the
+ * curve that changes nothing, and a wired histogram sits behind the grid. A
+ * declared strip runs under the plot along the input and at its left along
+ * the output. Inside the plot and off a point, a dashed point shows where a
+ * double-click adds one, with its position and value.
+ */
+function CurvePicture(props: {
+  points: readonly { position: number; value: number }[]
+  selected?: number
+  histogram?: boolean
+  inputStrip?: Strip
+  outputStrip?: Strip
+  /** Where the pointer starts, for the page's still picture. */
+  hover?: { position: number; value: number }
+}) {
+  const id = createUniqueId()
+  const pad = 8
+  const stripRoom = 9
+  const left = () => pad + (props.outputStrip ? stripRoom : 0)
+  const right = 320 - pad
+  const top = pad
+  const bottom = () => 180 - pad - (props.inputStrip ? stripRoom : 0)
+  const x = (position: number) => left() + position * (right - left())
+  const y = (value: number) => bottom() - value * (bottom() - top)
+  const [hover, setHover] = createSignal(untrack(() => props.hover))
+  const track = (event: PointerEvent) => {
+    const svg = event.currentTarget as SVGSVGElement
+    const matrix = svg.getScreenCTM()
+    if (!matrix) return
+    const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    const position = (at.x - left()) / (right - left())
+    const value = (bottom() - at.y) / (bottom() - top)
+    const inside = position >= 0 && position <= 1 && value >= 0 && value <= 1
+    const onPoint = props.points.some((point) => Math.hypot(x(point.position) - at.x, y(point.value) - at.y) <= 8)
+    setHover(inside && !onPoint ? { position, value } : undefined)
+  }
+  const label = (h: { position: number; value: number }) => `${h.position.toFixed(2)}, ${h.value.toFixed(2)}`
   return (
-    <svg viewBox="0 0 320 180" aria-hidden="true">
-      <For each={[0.25, 0.5, 0.75]}>
-        {(at) => (
-          <>
-            <line class="dinkster-gallery-curve-grid" x1={x(at)} y1="10" x2={x(at)} y2="170" />
-            <line class="dinkster-gallery-curve-grid" x1="10" y1={y(at)} x2="310" y2={y(at)} />
-          </>
-        )}
-      </For>
+    <svg viewBox="0 0 320 180" aria-hidden="true" class="dinkster-gallery-curve"
+      onPointerMove={track} onPointerLeave={() => setHover(undefined)}>
+      <defs>
+        <Show when={props.inputStrip}>
+          {(strip) => (
+            <linearGradient id={`${id}-in`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color={strip()[0]} /><stop offset="1" stop-color={strip()[1]} />
+            </linearGradient>
+          )}
+        </Show>
+        <Show when={props.outputStrip}>
+          {(strip) => (
+            <linearGradient id={`${id}-out`} x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0" stop-color={strip()[0]} /><stop offset="1" stop-color={strip()[1]} />
+            </linearGradient>
+          )}
+        </Show>
+      </defs>
+      <rect class="dinkster-gallery-curve-plot" x={left()} y={top} width={right - left()} height={bottom() - top} />
       <Show when={props.histogram}>
         <For each={Array.from({ length: 30 }, (_, index) => index)}>
           {(index) => {
-            const height = 20 + Math.abs(Math.sin(index / 4)) * 90
-            return <rect class="dinkster-gallery-curve-histogram" x={x(index / 30)} y={170 - height} width="9" height={height} />
+            const height = (0.12 + Math.abs(Math.sin(index / 4)) * 0.55) * (bottom() - top)
+            return <rect class="dinkster-gallery-curve-histogram" x={x(index / 30)} y={bottom() - height}
+              width={(right - left()) / 30 - 1} height={height} />
           }}
         </For>
+      </Show>
+      <For each={[0.25, 0.5, 0.75]}>
+        {(at) => (
+          <>
+            <line class="dinkster-gallery-curve-grid" x1={x(at)} y1={top} x2={x(at)} y2={bottom()} />
+            <line class="dinkster-gallery-curve-grid" x1={left()} y1={y(at)} x2={right} y2={y(at)} />
+          </>
+        )}
+      </For>
+      <line class="dinkster-gallery-curve-identity" x1={x(0)} y1={y(0)} x2={x(1)} y2={y(1)} />
+      <rect class="dinkster-gallery-curve-border" x={left()} y={top} width={right - left()} height={bottom() - top} />
+      <Show when={props.inputStrip}>
+        <rect class="dinkster-gallery-curve-strip" x={left()} y={bottom() + 3} width={right - left()} height="6" fill={`url(#${id}-in)`} />
+      </Show>
+      <Show when={props.outputStrip}>
+        <rect class="dinkster-gallery-curve-strip" x={pad} y={top} width="6" height={bottom() - top} fill={`url(#${id}-out)`} />
       </Show>
       <polyline class="dinkster-gallery-curve-line" points={props.points.map((point) => `${x(point.position)},${y(point.value)}`).join(' ')} />
       <For each={props.points}>
@@ -160,6 +225,21 @@ function CurvePicture(props: { points: readonly { position: number; value: numbe
             cx={x(point.position)} cy={y(point.value)} r="5" />
         )}
       </For>
+      <Show when={hover()}>
+        {(h) => {
+          const hx = () => x(h().position)
+          const hy = () => y(h().value)
+          const flip = () => hx() > right - 70
+          return (
+            <g class="dinkster-gallery-curve-hover">
+              <line x1={left()} y1={hy()} x2={hx()} y2={hy()} />
+              <line x1={hx()} y1={hy()} x2={hx()} y2={bottom()} />
+              <circle cx={hx()} cy={hy()} r="5" />
+              <text x={flip() ? hx() - 9 : hx() + 9} y={hy() - 8} text-anchor={flip() ? 'end' : 'start'}>{label(h())}</text>
+            </g>
+          )
+        }}
+      </Show>
     </svg>
   )
 }
@@ -183,7 +263,7 @@ function GalleryNumbers(props: { label: string; value: readonly number[] }) {
 }
 
 /** What one unfolded editor's controls show in an example, by its view. */
-function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX.Element {
+function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declared: Readonly<Record<string, unknown>> }): JSX.Element {
   const state = (): EditorExampleState => props.example.states?.[props.row.valueKey] ?? {}
   const stored = () => props.example.values?.[props.row.valueKey] as { name?: string } | undefined
   const picture = (content: JSX.Element, extra: { message?: string; loading?: boolean; actions?: JSX.Element } = {}) => (
@@ -354,10 +434,19 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
       const value = props.example.values?.[props.row.valueKey] as { points?: { position: number; value: number }[] } | undefined
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
+      const strip = (key: string): Strip | undefined => {
+        const colors = props.declared[key]
+        return Array.isArray(colors) && colors.length === 2 && colors.every((color) => typeof color === 'string')
+          ? [colors[0] as string, colors[1] as string] : undefined
+      }
+      const hover = state()['hover'] as { position: number; value: number } | undefined
+      const inputStrip = strip('input_strip')
+      const outputStrip = strip('output_strip')
       return (
         <>
           {picture(
-            <CurvePicture points={points} {...(selected === undefined ? {} : { selected })} histogram={state()['histogram'] === true} />,
+            <CurvePicture points={points} {...(selected === undefined ? {} : { selected })} histogram={state()['histogram'] === true}
+              {...(inputStrip ? { inputStrip } : {})} {...(outputStrip ? { outputStrip } : {})} {...(hover ? { hover } : {})} />,
           )}
           <CanvasEditorLine>
             <GalleryChoice label="Interpolation" value={state()['histogram'] === true ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
@@ -447,7 +536,10 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
     if (!node) return []
     return node.layout.rows
       .filter((row): row is SpaceRow => row.kind === 'editorSpace')
-      .map((row) => ({ row, node }))
+      .map((row) => {
+        const field = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === row.valueKey)
+        return { row, node, declared: field?.kind === 'widget' ? field.spec.options : {} }
+      })
   }
   return (
     <figure class="dinkster-canvas-example">
@@ -455,14 +547,14 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         <canvas ref={canvas} role="img" aria-label={`${props.example.caption} in ${props.theme} theme`}
           data-testid={`in-node-editor-${props.example.id}`} />
         <For each={spaces()}>
-          {({ row, node }) => (
+          {({ row, node, declared }) => (
             <CanvasEditorSpace ref={(element) => {
               element.style.left = `${node.x + row.inset}px`
               element.style.top = `${node.y + row.y}px`
               element.style.width = `${row.width ?? node.layout.width - row.inset * 2}px`
               element.style.height = `${row.height}px`
             }}>
-              <EditorBody row={row} example={props.example} />
+              <EditorBody row={row} example={props.example} declared={declared} />
             </CanvasEditorSpace>
           )}
         </For>
