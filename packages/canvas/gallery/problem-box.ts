@@ -57,7 +57,7 @@ export interface ProblemBoxGalleryCard {
 }
 
 const NODE_WIDTH = 260
-const GAP = 40
+const GAP = 72
 const TOP = 16
 const LEFT = 16
 
@@ -222,7 +222,7 @@ export function problemBoxGallery(
   return [
     {
       id: 'at-rest',
-      caption: 'At rest. Width and height are 0 and steps is 12000: two rows are outlined red and steps yellow, and nothing is drawn at the node\'s edge. The tabs read Error 2 and Warning. Selecting the node or pointing at it opens nothing.',
+      caption: 'At rest. Width and height are 0 and steps is 12000: two rows are outlined red and steps yellow, and nothing is drawn at the node\'s edge. The tabs read Error 2 and Warning. Selecting the node or pointing at it opens nothing. This part offers only actions that change no stored value, such as Edit field; fix buttons such as "Use 10000" on the steps line come with the later part that adds fixes.',
       scene: scene([{ id: 'gen', schema: generateImage, x: column(0), values: BROKEN }]),
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
@@ -238,7 +238,7 @@ export function problemBoxGallery(
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines, highlighted: brokenLines[1]!.key }],
       highlight: { nodeId: 'gen', row: 'height' },
-      room: 250,
+      room: 126,
       width: widthOf(1) + 160,
     },
     {
@@ -251,7 +251,7 @@ export function problemBoxGallery(
         line('error', 'width', 'Width is required.', [EDIT]),
         line('error', 'width', 'Width could not be inferred from the image.', [EDIT]),
       ] }],
-      room: 190,
+      room: 96,
       width: widthOf(1) + 160,
     },
     {
@@ -264,7 +264,7 @@ export function problemBoxGallery(
         line('error', undefined, 'Width times height must be at least 4096 pixels.'),
         line('warning', 'steps', 'Steps exceeds 10000.', [EDIT]),
       ] }],
-      room: 170,
+      room: 96,
       width: widthOf(1) + 160,
     },
     {
@@ -274,7 +274,7 @@ export function problemBoxGallery(
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines }],
-      room: 250,
+      room: 126,
       width: widthOf(1) + 160,
     },
     {
@@ -305,7 +305,7 @@ export function problemBoxGallery(
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
-      room: 110,
+      room: 76,
       width: widthOf(3),
     },
     {
@@ -318,7 +318,7 @@ export function problemBoxGallery(
         line('error', undefined, 'This node needs a graphics card, and this machine has none.'),
         line('warning', 'scale', 'Scale exceeds 8.', [EDIT]),
       ] }],
-      room: 170,
+      room: 96,
       width: widthOf(1) + 160,
     },
     {
@@ -334,7 +334,7 @@ export function problemBoxGallery(
         { nodeId: 'short', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
         { nodeId: 'long', nodeTitle: 'Load model', lines: [line('error', 'model', 'sdxl_base.safetensors is not in any model folder on this machine, and no download source is declared for it in the workflow or in its node pack.', ['Locate or replace'])] },
       ],
-      room: 150,
+      room: 116,
       width: widthOf(2) + 200,
     },
   ]

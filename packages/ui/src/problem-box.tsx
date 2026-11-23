@@ -1,10 +1,11 @@
 /**
- * The node's problem box: one line per problem, each starting with its row's
- * name, with the line's actions on their own line under its message. It hangs
- * below the node at one screen size; the caller places it.
+ * The node's problem box, drawn as a part of the node: one row-high line per
+ * problem with the kind's icon, its row's name, the message and its action at
+ * the right end, the action drawn as a node row button. It hangs below the
+ * node at one screen size; the caller places it.
  */
 import { createEffect, For, Show } from 'solid-js'
-import { ProductButton } from './controls.js'
+import { CircleX, TriangleAlert } from 'lucide-solid'
 
 export type ProblemBoxKind = 'error' | 'warning'
 
@@ -71,6 +72,12 @@ export function ProblemBox(props: {
             data-highlighted={props.highlighted === line.key ? 'true' : undefined}
             onPointerEnter={() => props.onPointLine?.(line)}
           >
+            <Show
+              when={line.kind === 'error'}
+              fallback={<TriangleAlert class="problem-box-icon" aria-hidden="true" />}
+            >
+              <CircleX class="problem-box-icon" aria-hidden="true" />
+            </Show>
             <p class="problem-box-text">
               <Show when={line.rowName}>
                 {(name) => <span class="problem-box-row">{name()}: </span>}
@@ -79,13 +86,14 @@ export function ProblemBox(props: {
             </p>
             <For each={line.actions}>
               {(action) => (
-                <ProductButton
+                <button
                   type="button"
+                  class="problem-box-action"
                   data-testid={`problem-box-${action.id}`}
                   onClick={() => props.onAction?.(line, action.id)}
                 >
                   {action.label}
-                </ProductButton>
+                </button>
               )}
             </For>
           </div>
