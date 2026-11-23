@@ -1953,8 +1953,9 @@ function compileImpl(
     // Schema default, then the widget kind's intrinsic value - a tapped INT
     // widget showing 0 taps as 0; only kinds with no intrinsic value (ASSET,
     // remote COMBO, ...) leave the tap valueless.
+    // An automatic field with nothing stored taps the value it has in use.
     const widget = input.input.spec.widget
-    const fallback = widget ? effectiveWidgetDefault(widget) : undefined
+    const fallback = input.input.automatic?.value ?? (widget ? effectiveWidgetDefault(widget) : undefined)
     return fallback === undefined ? undefined : { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId }
   }
 
@@ -2469,6 +2470,9 @@ function compileImpl(
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
       if (spec.hidden === true) continue
+      // An automatic field with nothing stored stays out of the prompt: the
+      // engine works it out when the run is queued.
+      if (spec.automatic !== undefined) continue
       if (spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the

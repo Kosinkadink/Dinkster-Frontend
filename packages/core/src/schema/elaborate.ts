@@ -491,10 +491,11 @@ function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
 
 /**
  * A worked-out value as the field stores it, or undefined when it is not a
- * value of the field: a decimal never fills a whole-number field, a whole
- * number fills a decimal one, and a choice is one of its static options.
+ * value of the field: a decimal fills a whole-number field only when it is
+ * exactly whole, a whole number fills a decimal one, and a choice is one of
+ * its static options.
  */
-function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec, answered: boolean): Json | undefined {
+function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec): Json | undefined {
   if (kind === 'bool') return typeof value === 'boolean' ? value : undefined
   if (kind === 'text' || kind === 'choice') {
     if (typeof value !== 'string') return undefined
@@ -505,9 +506,7 @@ function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: 
   }
   if (typeof value === 'bigint') return Number.isSafeInteger(Number(value)) ? Number(value) : undefined
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
-  // A formula's whole number is a bigint and its decimal a number; a lookup's
-  // JSON answer cannot tell 3 from 3.0, and the pack checked its type.
-  return kind !== 'int' || (answered && Number.isInteger(value)) ? value : undefined
+  return kind !== 'int' || Number.isInteger(value) ? value : undefined
 }
 
 /** Formula values worked out only when the formula reads them. */
@@ -731,7 +730,7 @@ function elaboratePass(
       if (outcome.kind === 'failed') return standIn('failed')
       found = outcome.value
     }
-    const value = automaticValueOf(kind, found, row, call !== undefined)
+    const value = automaticValueOf(kind, found, row)
     if (value === undefined) return standIn('wrong-type', call)
     return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}) }
   }

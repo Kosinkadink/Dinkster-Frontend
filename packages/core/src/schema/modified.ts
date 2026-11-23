@@ -35,8 +35,12 @@ export interface ResettableWidget {
   readonly item: ElaboratedInput
   /** node.values key (valueKeyOf) - the reset write target. */
   readonly valueKey: string
-  /** The live schema default - the reset write value. */
-  readonly defaultValue: Json
+  /**
+   * The live schema default - the reset write value. Absent on a field that
+   * declares `automatic`: reset removes its stored value, so it follows its
+   * formula or lookup again.
+   */
+  readonly defaultValue?: Json
   /** Stored value differs (canonical JSON) from the live default. */
   readonly modified: boolean
 }
@@ -67,6 +71,11 @@ export function resettableWidgetsOf(
     if (ghost || materializeFramesOf(elaborated.items, item) !== undefined) continue
     const valueKey = valueKeyOf(item)
     const stored = values[valueKey]
+    if (item.spec.automatic !== undefined) {
+      // Any stored value fixes an automatic field, even one equal to the default.
+      out.push({ item, valueKey, modified: stored !== undefined })
+      continue
+    }
     const defaultValue = widget.default as Json
     out.push({
       item,

@@ -447,6 +447,26 @@ describe('value handling', () => {
     expect(inputs['batch_size']).toBeDefined()
     expect(inputs['color']).toBeDefined()
   })
+
+  it('leaves an automatic field with nothing stored for the engine to work out', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = schema.body.map((row) =>
+        row.kind === 'input' && (row.id === 'batch_size' || row.id === 'color') ? { ...row, automatic: { formula: 'width' } } : row)
+      return { ...schema, body }
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, color: 5 }
+    const result = compile(compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    expect(inputs['batch_size']).toBeUndefined()
+    expect(inputs['color']).toBe(5)
+    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing')).toBe(false)
+  })
 })
 
 describe('semantic hash', () => {

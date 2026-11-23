@@ -12,7 +12,7 @@ import { canonicalTypeIdOf } from '../src/schema/model.js'
 import type { DynamicPortState, Json } from '../src/format/document.js'
 
 const FIXTURE = new URL('./fixtures/flatten_v2.json', import.meta.url)
-const FIXTURE_SHA256 = 'b864f2d8adfb2cddf9a050f097945319cb4414d0f399b781fd3e7d241b7d7d23'
+const FIXTURE_SHA256 = 'c5da7d6e0e226310b8a28b614102b78c352a0530d26dd9f23f463e0967b366bf'
 
 interface FlattenCase {
   readonly id: string
