@@ -1,4 +1,9 @@
 {
+  "frozen.label": "Frozen",
+  "frozen.editHint": "Open as copy to edit.",
+  "frozen.refusal": "Frozen. {hint}",
+  "frozen.openCopy": "Open as copy",
+  "frozen.goLive": "Go to live",
   "shell.panel.runs.title": "Runs",
   "runs.scope": "Runs scope",
   "runs.clear.action": "Clear finished",
@@ -15,7 +20,6 @@
   "runs.stored.empty": "No finished runs are stored",
   "runs.loading": "Loading retained outputs...",
   "runs.loadError": "Could not load outputs: {error}",
-  "runs.openSnapshot": "Open snapshot",
   "runs.agent": "agent",
   "problems.selection.only": "Selection only",
   "problems.selection.none": "Nothing selected",

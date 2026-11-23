@@ -6,7 +6,8 @@
  * panels that once lived only in one zone now dock in any zone.
  */
 import type { Locator, Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { waitForProductFonts } from '../visual.js'
+import { expect, test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 type DockZone = 'left' | 'right' | 'bottom'
@@ -46,6 +47,8 @@ const zoneSections = (page: Page, zone: DockZone): Promise<readonly (readonly st
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await waitForProductFonts(page)
   await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 })
 

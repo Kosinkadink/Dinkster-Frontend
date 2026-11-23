@@ -102,7 +102,7 @@ test('pins are per tab, keyed to the run lineage, and survive tab switches', asy
   await expect(page.getByTestId('sync-chip')).toHaveAttribute('data-overlay-mode', 'pinned')
 
   // The explicit Open action opens the frozen view without changing the pin.
-  await (await executionDetails(rows.first())).locator('.execution-open').click()
+  await rows.first().locator('.execution-open').click()
   await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
 })

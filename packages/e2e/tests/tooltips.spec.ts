@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, test as seededTest } from './fixtures.js'
+import { expect, nativeTest as test, test as seededTest, waitForWorkspaceReady } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -23,7 +23,7 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
 })
 
 test('icon-only activity items show immediate name-first help on hover and focus, selected or not', async ({ page }, testInfo) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled()
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   await page.evaluate(() => window.__dinksterTest!.app.panels.register({
     id: 'long-pack-panel',
@@ -41,11 +41,17 @@ test('icon-only activity items show immediate name-first help on hover and focus
   if (await library.getAttribute('aria-pressed') === 'true') await library.click()
   const tooltip = page.getByTestId('app-tooltip')
   const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
+<<<<<<< HEAD
   const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
   await expect(long).toHaveAccessibleName('Image review workspace')
   await expect(long).toHaveText('')
   await expect(long.locator('svg')).toBeVisible()
   await expect(library).toHaveText('')
+=======
+  const libraryHelp = 'Browse packs, templates, and saved workflows'
+  expect(await long.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(true)
+  expect(await library.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(false)
+>>>>>>> origin/main
 
   await page.mouse.move(600, 400)
   await long.hover()

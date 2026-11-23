@@ -8,7 +8,7 @@ of work, decisions, and deferred items.
 
 A change edits a document only when a fact a reader relies on changes, and it edits the existing sentence instead of adding a bullet.
 
-Update the active document that owns current behavior; archived audits are historical and are not update targets.
+Update the active document that owns current behavior.
 
 # Locale catalogs
 
@@ -158,7 +158,3 @@ Every slice or big change gets a code review (oracle or equivalent reviewer)
 after it ships, before the next slice starts. Review findings are fixed or
 explicitly deferred to a GitHub issue - never silently dropped. When a group
 of slices completes, review the affected area as a whole.
-
-# Performance record
-
-`docs/perf.md` holds historical performance measurements. Preserve the recorded measurements rather than overwriting history.
