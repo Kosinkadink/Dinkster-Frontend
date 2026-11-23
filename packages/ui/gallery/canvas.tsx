@@ -140,7 +140,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
   boxes:
-    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds, gathers the pins of its wired fields on its row and marks a changed value with a dot. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it.',
+    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:

@@ -1116,14 +1116,35 @@ describe('sections', () => {
     expect(pinIds).toEqual(['in:a', 'in:b', 'in:w', 'out:w', 'out:x'])
   })
 
-  it('collapsing hides member rows and unconnected member pins', () => {
+  it('collapsing hides member rows; a socket keeps its pin and an unwired field has none', () => {
     const l = layout({ sectionOverrides: { adv: true } })
     // Output x pairs into input a's socket row (top-down pairing), so hiding
     // b's row leaves just the paired row and the section header.
     expect(l.rows.map((r) => r.kind)).toEqual(['ports', 'section'])
     expect(l.rows[1]).toMatchObject({ kind: 'section', collapsed: true })
     const pinIds = l.pins.map((p) => `${p.direction}:${p.portId}`).sort()
-    expect(pinIds).toEqual(['in:a', 'out:x'])
+    expect(pinIds).toEqual(['in:a', 'in:b', 'out:x'])
+    expect(l.pins.find((p) => p.portId === 'b')).toMatchObject({ collapsedSection: 'adv', label: 'b' })
+  })
+
+  it('draws at most three pins on a closed box side, wired first, and stacks further wires on the last', () => {
+    const sockets = ['s1', 's2', 's3', 's4', 's5']
+    const schema = schemaOf([section('more', sockets.map((id) => input(id)), { displayName: 'More', collapsedByDefault: true })])
+    const pinsOf = (wired: readonly string[]) => layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+      connectedPorts: new Set(wired.map((id) => `in:${id}`)),
+    }).pins
+    const center = (pins: ReturnType<typeof pinsOf>) => pins.find((pin) => pin.portId === 's1')!.y
+    // One wire: the wired pin leads, then the first unwired ones; s3 and s5 are not drawn.
+    const one = pinsOf(['s4'])
+    expect(one.map((pin) => pin.portId)).toEqual(['s4', 's1', 's2'])
+    expect(one.map((pin) => pin.y - center(one))).toEqual([-5, 0, 5])
+    expect(one.some((pin) => pin.stacked)).toBe(false)
+    // Five wires: three are drawn; s4 and s5 end on s3, the last drawn pin.
+    const all = pinsOf(sockets)
+    expect(all.map((pin) => [pin.portId, pin.stacked ?? false])).toEqual([
+      ['s1', false], ['s2', false], ['s3', false], ['s4', true], ['s5', true],
+    ])
+    expect(new Set(all.slice(2).map((pin) => pin.y)).size).toBe(1)
   })
 
   it('connected members of a collapsed section keep pins anchored on the header row', () => {

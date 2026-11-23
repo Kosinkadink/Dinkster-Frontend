@@ -4097,6 +4097,7 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
+      if (pin.stacked === true) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -4185,7 +4186,9 @@ export class CanvasRenderer {
           py,
           this.viewport.scale,
           pin.maybeAbsent === true ||
-            (pin.direction === 'in' && (pin.optional === true || pin.familyMember === true)),
+            (pin.direction === 'in' && (pin.optional === true || pin.familyMember === true ||
+              // An unwired input on a closed box's row is hollow.
+              (pin.collapsedSection !== undefined && !connected))),
           pin.direction,
           radius,
           acceptsList,

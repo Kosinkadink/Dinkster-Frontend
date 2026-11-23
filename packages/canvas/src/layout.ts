@@ -333,10 +333,12 @@ export interface PinLayout extends DynamicAnnotations {
   /** Output pin whose producer may deliberately emit no value (OutputSpec.optional). */
   readonly maybeAbsent?: true
   /**
-   * Present when this pin is a visible proxy for a connected port hidden by
-   * a collapsed section. Proxies share the section header row's center.
+   * Present when this pin stands on a closed box's row for a port inside
+   * it; the pins of one side press together around the row's middle.
    */
   readonly collapsedSection?: string
+  /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
+  readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
   /**
@@ -1023,8 +1025,9 @@ export function layoutNode(
     }
   }
 
-  // Connected ports hidden by a closed box: pins gather on its closed row.
-  const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
+  // Ports hidden by a closed box whose pins the open box shows at rest:
+  // they gather on its closed row.
+  const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
   const staticWidgetInputs = new Set<string>()
   const hiddenPorts = new Map<string, HiddenPort[]>()
   const hidePort = (at: string, port: HiddenPort): void => {
@@ -1089,9 +1092,10 @@ export function layoutNode(
           ...annotate(item), portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
           ...(spec.optional ? { maybeAbsent: true as const } : {}),
         })
-        if (isConnected('out', spec.id)) {
-          collapsedPins.push({ sectionId: closedAt(chain)!, portId: spec.id, direction: 'out', type: spec.type, ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item) })
-        }
+        collapsedPins.push({
+          sectionId: closedAt(chain)!, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
+          connected: isConnected('out', spec.id), ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item),
+        })
         continue
       }
       outputs.push({
@@ -1124,9 +1128,11 @@ export function layoutNode(
           ...(widget && !spec.forceInput ? { widgetBacked: true as const } : {}),
         })
       }
-      if (!spec.socketless && isConnected('in', spec.id)) {
+      // A field's input pin shows at rest only while wired; a socket's always.
+      const inputWired = isConnected('in', spec.id)
+      if (!spec.socketless && (asSocket || inputWired)) {
         collapsedPins.push({
-          sectionId: at, portId: spec.id, direction: 'in', type: spec.type,
+          sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'in', type: spec.type, connected: inputWired,
           ...(spec.optional ? { optional: true as const } : {}), ...annotate(item),
         })
       }
@@ -1135,7 +1141,7 @@ export function layoutNode(
       // outgoing noodle from the scene.
       if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
-          sectionId: at, portId: spec.id, direction: 'out', type: spec.type, widgetTap: true,
+          sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type, connected: true, widgetTap: true,
           ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
         })
       }
@@ -1486,20 +1492,27 @@ export function layoutNode(
   const placed = requestedExtra > 0 && flexibleRows.length > 0 ? place(flexibleShare, flexibleRemainder) : natural
   const { rows, pins, rowDepth, anchorY, rowIndex } = placed
 
-  // Connected-but-hidden ports keep a pin on their closed box's row, the
-  // pins of each side gathered in one tight cluster at its middle.
+  // A closed box's row carries the pins of the fields inside it, each side
+  // pressed together around the row's middle. Wired pins come first and at
+  // most `clusterMax` are drawn; a further wire ends on the last drawn pin.
   const clusters = new Map<string, typeof collapsedPins>()
   for (const p of collapsedPins) {
     const key = `${p.sectionId}\n${p.direction}`
     clusters.set(key, [...(clusters.get(key) ?? []), p])
   }
-  for (const cluster of clusters.values()) {
-    const center = anchorY.get(cluster[0]!.sectionId)
+  for (const all of clusters.values()) {
+    const center = anchorY.get(all[0]!.sectionId)
     if (center === undefined) continue
-    const pitch = cluster.length === 2 ? box.clusterPitch.two : cluster.length === 3 ? box.clusterPitch.three : box.clusterPitch.more
-    for (const [index, p] of cluster.entries()) {
+    const ordered = [...all.filter((p) => p.connected), ...all.filter((p) => !p.connected)]
+    const drawn = Math.min(ordered.length, box.clusterMax)
+    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
+    for (const [index, p] of ordered.entries()) {
+      const stacked = index >= drawn
+      if (stacked && !p.connected) break
+      const slot = Math.min(index, drawn - 1)
       pins.push({
-        ...annotationsOf(p), portId: p.portId, direction: p.direction, y: center + (index - (cluster.length - 1) / 2) * pitch, type: p.type, collapsedSection: p.sectionId,
+        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + (slot - (drawn - 1) / 2) * pitch, type: p.type, collapsedSection: p.sectionId,
+        ...(stacked ? { stacked: true as const } : {}),
         ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
         ...(p.widgetTap ? { widgetTap: true as const } : {}),
         ...(p.staticWidgetTap ? { staticWidgetTap: true as const } : {}),

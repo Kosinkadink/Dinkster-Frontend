@@ -333,19 +333,27 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
   const bPin = hitTestBoundaryPin(scene, wx, wy, pinHitRadius)
   if (bPin) return bPin
 
-  for (let i = scene.nodes.length - 1; i >= 0; i--) {
+  // Pins pressed together on a closed box's row overlap: the nearest center
+  // wins, and a field's output pin wins a tie.
+  let tap: Extract<Hit, { kind: 'widgetTap' }> | undefined
+  let tapDistance = pinHitRadius
+  for (let i = scene.nodes.length - 1; i >= 0 && tap === undefined; i--) {
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap !== true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
+      if (pin.widgetTap !== true || pin.stacked === true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
       const x = node.x + node.layout.width
       const y = node.y + pin.y
-      if (Math.hypot(wx - x, wy - y) <= pinHitRadius)
-        return { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
+      const distance = Math.hypot(wx - x, wy - y)
+      if (distance <= tapDistance) {
+        tapDistance = distance
+        tap = { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
+      }
     }
   }
   const pin = hitTestPin(scene, wx, wy, opts?.pinRevealed, pinHitRadius)
-  if (pin) return pin
+  if (pin && (tap === undefined || Math.hypot(wx - pin.x, wy - pin.y) < tapDistance)) return pin
+  if (tap) return tap
 
   // Body passes also run in reverse paint order: selector boxes and value
   // source pills paint ABOVE boundary and regular nodes, so they must win
@@ -905,7 +913,7 @@ export function hitTestPin(
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap === true) continue
+      if (pin.widgetTap === true || pin.stacked === true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
       const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y

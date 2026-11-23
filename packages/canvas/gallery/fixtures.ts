@@ -1620,6 +1620,36 @@ export function createCanvasGalleryFixture(
       at: column(2),
       closed: { sampling: true },
     })
+    // Four wires into a closed box draw three pins; the fourth wire ends on
+    // the last one, and the unwired layer has no pin.
+    nextRow()
+    add(
+      'Closed, more wires than pins',
+      schema('Layers', [
+        section('layers', 'Layers', [
+          ...['layer1', 'layer2', 'layer3', 'layer4', 'layer5'].map((id) =>
+            socket(id, 'IMAGE'),
+          ),
+          { kind: 'output', id: 'flat', type: concrete('IMAGE') },
+        ]),
+      ]),
+      {},
+      16,
+      false,
+      {
+        at: column(1),
+        closed: { layers: true },
+        wired: {
+          ports: {
+            layer2: 'IMAGE',
+            layer3: 'IMAGE',
+            layer4: 'IMAGE',
+            layer5: 'IMAGE',
+          },
+          at: { x: 24, y: rowY },
+        },
+      },
+    )
     // A wire held over the closed row names the field it would reach.
     const source = fixture.scene.nodes.find((node) => node.id === 'Wire source')!
     const held = fixture.scene.nodes.find(

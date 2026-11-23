@@ -199,7 +199,9 @@ export const canvasPaintTokens = {
       /** Name, arrow, dot and count room beside a header's text. */
       widthPadding: 40,
       /** Center distance of the pins a closed box gathers at one end, by how many there are. */
-      clusterPitch: { two: 7, three: 5, more: 4 },
+      clusterPitch: { two: 7, three: 5 },
+      /** Most pins drawn at one end of a closed box. */
+      clusterMax: 3,
     },
     section: {
       horizontalInset: 1,

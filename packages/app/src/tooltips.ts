@@ -301,7 +301,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const row = t.hit.node.layout.rows.find((candidate: any) =>
       candidate.kind === 'widget' && candidate.inputId === t.hit.input)
     return {
-      title: `Output: ${row?.label ?? t.hit.input}`,
+      title: `Output: ${row?.label ?? t.hit.pin.label ?? t.hit.input}`,
       lines: [type.tooltip],
     }
   }
