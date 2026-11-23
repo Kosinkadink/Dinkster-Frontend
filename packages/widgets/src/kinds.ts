@@ -1085,20 +1085,9 @@ export const resolutionView: WidgetView<null> = {
 export const saveTargetView: WidgetView<SaveTarget | null> = {
   ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
   drawCompact(ctx, value, spec, state) {
-    if (value === null) {
-      compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-        t('saveTargetWidget.default'), state, 'widget.edit', true)
-      return
-    }
-    // A long prefix keeps its mount and last segment: `shorter` is tried
-    // before the text is cut. The prefix is relative to the mount and is
-    // never a filesystem path.
-    const segments = value.prefix.split('/')
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      `${value.mount}/${value.prefix}`, state, 'widget.edit', false,
-      segments.length > 1 ? { shorter: [`${value.mount}/.../${segments.at(-1)!}`] } : {})
+      value === null ? t('saveTargetWidget.default') : `${value.mount}/${value.prefix}`, state, 'widget.edit', value === null)
   },
-  readout: (value) => [value === null ? t('saveTargetWidget.default') : `${value.mount}/${value.prefix}`],
 }
 
 /**

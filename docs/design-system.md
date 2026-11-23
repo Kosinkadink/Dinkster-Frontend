@@ -775,9 +775,8 @@ unless less of it would stay visible than the count, which then stands alone
 (`3 selected`, `3 items`, `3 assets`). Colors show as many squares as fit, then
 `+N`, or `N colors` when not one square fits. Markdown shows its first line
 with text and its line count, `# Heading (3 lines)`. A crop region reads
-`x 8, y 12; 512 x 768`, a video edit its trim and crop numbers, and a save
-target `mount/prefix`, each with a shorter form for a narrow row (`8, 12 /
-512 x 768`, `Trim + crop`, `mount/.../last`); a value that fails its kind's
+`x 8, y 12; 512 x 768` and a video edit its trim and crop numbers, each with
+a shorter form for a narrow row (`8, 12 / 512 x 768`, `Trim + crop`); a value that fails its kind's
 validation reads `Invalid value` with its problem outline. The 3D, image
 comparison and camera angle rows say what they open (`Open 3D viewport`,
 `Open image comparison`, `Open camera angle`). Pointing at a row shows its

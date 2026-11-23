@@ -158,14 +158,6 @@ describe('a value that does not fit gives way in order', () => {
       expect('Trim + crop'.startsWith(form.slice(0, -3))).toBe(true)
   })
 
-  it('keeps a save target\'s mount and last part before cutting', () => {
-    const forms = formsOf(specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'portraits/2026/session/frame' })
-    expect(forms).toContain('renders/portraits/2026/session/frame')
-    expect(forms).toContain('renders/.../frame')
-    // The full prefix is never cut; only the shortened form is.
-    for (const form of forms.filter((text) => text.endsWith('...') && text !== 'renders/.../frame'))
-      expect('renders/.../frame'.startsWith(form.slice(0, -3))).toBe(true)
-  })
 })
 
 describe('a value arriving down a wire uses the same summary', () => {

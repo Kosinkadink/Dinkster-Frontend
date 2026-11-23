@@ -245,7 +245,6 @@ const invalid = schema('Saved values with problems', [
 const trims = schema('Video edits', [
   field('trimmed', 'VIDEO_EDIT', {}, { features: ['trim', 'crop'] }),
   field('no_duration', 'VIDEO_EDIT', {}, { features: ['trim', 'crop'] }),
-  field('target', 'SAVE_TARGET', null),
 ])
 
 /** A crop field whose default the side part names while its row has the keyboard. */
@@ -285,11 +284,6 @@ export const rowSummaryReadouts: readonly RowSummaryReadout[] = [
       trim: { start_time: 1.5, duration: 2 },
       crop: { x: 8, y: 12, width: 512, height: 768 },
     },
-  },
-  {
-    label: 'target',
-    spec: specOf(trims, 'target'),
-    value: { mount: 'renders', prefix: 'portraits/2026/session/frame' },
   },
 ]
 
@@ -454,7 +448,7 @@ export function rowSummariesGallery(
     { id: 'blanks', schema: blanks, x: 0, width: NODE_WIDTH },
   ])
 
-  card('A trim without its duration names the trim; a long save target keeps its mount and last part', [
+  card('A trim without its duration names the trim', [
     {
       id: 'trims',
       schema: trims,
@@ -463,7 +457,6 @@ export function rowSummariesGallery(
       values: {
         trimmed: { trim: { start_time: 1.5, duration: 2 } },
         no_duration: { trim: { start_time: 1.5 } },
-        target: { mount: 'renders', prefix: 'portraits/2026/session/frame' },
       },
     },
   ])
