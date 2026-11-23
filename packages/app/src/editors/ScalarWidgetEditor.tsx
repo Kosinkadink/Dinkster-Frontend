@@ -105,10 +105,17 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     return value
   }
 
-  const commit = (raw: string, closeOnInvalid = false, skipUnchanged = false): Promise<boolean> => {
-    if (!live || props.commitPending()) return Promise.resolve(false)
+  // A field cannot always show a text as it is stored: a one-line field drops
+  // line breaks, and a text box gives "\r\n" back as "\n". Whether the person
+  // changed a text is judged against what its field showed when it opened, so
+  // a text left unchanged stores nothing, however the field is left.
+  let shown: string | undefined
+  const commit = (field: TextControl, closeOnInvalid = false, skipUnchanged = false): Promise<boolean> => {
+    if (!live) return Promise.resolve(false)
+    if (text && field.value === shown) { props.close(); return Promise.resolve(true) }
+    if (props.commitPending()) return Promise.resolve(false)
     setError(undefined)
-    const value = parse(raw)
+    const value = parse(field.value)
     if (value === undefined) {
       if (closeOnInvalid) props.close()
       return Promise.resolve(closeOnInvalid)
@@ -134,7 +141,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     if (!event.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
-      void commit(event.currentTarget.value).then((closed) => { if ((closed || !live) && queue?.enabled?.() !== false) queue?.run() })
+      void commit(event.currentTarget).then((closed) => { if ((closed || !live) && queue?.enabled?.() !== false) queue?.run() })
       return
     }
     if (completionKeyDown(event)) return
@@ -143,7 +150,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     event.preventDefault()
     const from = { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
     const direction = event.shiftKey ? -1 : 1
-    void commit(event.currentTarget.value).then((closed) => { if (closed || !live) moveRow(from, direction) })
+    void commit(event.currentTarget).then((closed) => { if (closed || !live) moveRow(from, direction) })
   }
 
   const clickAway = (): void => {
@@ -153,7 +160,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     }
     const field = popover?.querySelector<TextControl>('input, textarea')
     if (field == null || field.value === initialText) props.close()
-    else commit(field.value, true, true)
+    else commit(field, true, true)
   }
   host.bindClickAway?.(clickAway)
   onCleanup(() => host.bindClickAway?.(undefined))
@@ -218,7 +225,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     }
     return <div ref={(el) => { root = el; queueMicrotask(align) }} class="widget-editor widget-editor-in-node" data-testid="widget-editor" data-editor-target="input" data-editor-mode="STRING" data-editor-surface="in-node" role="dialog" aria-label={`Edit ${ed.label} STRING`} style={{ left: `${anchor().x + snap().x}px`, top: `${anchor().y + snap().y}px`, width: `${anchor().width}px`, height: `${anchor().height}px`, 'border-radius': `${4 * scale()}px`, '--box-label': `${box.labelHeight * scale()}px`, '--box-padding': `${box.padding * scale()}px`, '--box-scrollbar-width': `${box.scrollbarWidth * scale()}px`, '--box-scrollbar-inset': `${box.scrollbarInset * scale()}px`, '--box-track-height': `${(ed.rect.height - box.labelHeight) * scale()}px`, '--box-thumb-top': `${(scroll()?.top ?? 0) * scale()}px`, '--box-thumb-height': `${(scroll()?.height ?? 0) * scale()}px`, '--box-edge-left': `${(ed.rect.width - edge.width) / 2 * scale()}px`, '--box-edge-top': `${(ed.rect.height + (ed.rowInsetY ?? 0) - edge.bottomOffset) * scale()}px`, '--box-edge-width': `${edge.width * scale()}px`, '--box-edge-height': `${edge.height * scale()}px`, '--box-edge-radius': `${edge.radius * scale()}px` }}>
       <div class="widget-editor-in-node-surface"><span ref={label} class="widget-editor-in-node-label" style={{ width: '100%', height: `${box.labelHeight * scale()}px`, 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.fontSize * scale()}px`, 'padding-left': `${6 * scale()}px`, position: 'relative', top: `${-lift().label}px` }}>{ed.label}</span>
-        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { field = el; completions.anchor(el); queueMicrotask(() => placeCaret(el)) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${box.fontSize * scale()}px`, 'line-height': `${box.lineHeight * scale()}px`, padding: `${box.padding * scale() - lift().text}px ${box.padding * scale()}px ${box.padding * scale() + lift().text}px ${box.textInset * scale()}px`, width: `calc(100% - ${box.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${box.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={multilineKeyDown} />
+        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { field = el; completions.anchor(el); queueMicrotask(() => { shown = el.value; placeCaret(el) }) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${box.fontSize * scale()}px`, 'line-height': `${box.lineHeight * scale()}px`, padding: `${box.padding * scale() - lift().text}px ${box.padding * scale()}px ${box.padding * scale() + lift().text}px ${box.textInset * scale()}px`, width: `calc(100% - ${box.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${box.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => commit(event.currentTarget)} onKeyDown={multilineKeyDown} />
         {/* Text scrolled into the padding is hidden, as the canvas clips it. */}
         <span class="widget-editor-in-node-mask widget-editor-in-node-mask-top" />
         <span class="widget-editor-in-node-mask widget-editor-in-node-mask-bottom" />
@@ -241,13 +248,13 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
       <ProductSlider ariaLabel={`${ed.label} slider`} value={Number.isFinite(Number(draft())) ? Number(draft()) : Number(ed.initial ?? 0)} min={Number(ed.spec!.options['min'])} max={Number(ed.spec!.options['max'])} step={Number(numericStepConstraints(ed.spec!).step)} onInput={(value) => { setError(undefined); const parsed = parse(String(value)); if (typeof parsed === 'number') setDraft(String(parsed)) }} />
     </Show>
     <ProductField controlId="widget-editor-value" label="Value" layout="compact" message={error()} messageTestId="widget-editor-error" invalid={error() !== undefined}>
-      <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completions.anchor(el); queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={draft()} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setDraft(event.currentTarget.value); setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
-        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => el.focus())} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />
+      <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completions.anchor(el); queueMicrotask(() => { shown = el.value; el.focus(); if (numeric) el.select() }) }} value={draft()} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setDraft(event.currentTarget.value); setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget) } }} />}>
+        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => { shown = el.value; el.focus() })} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget) } }} />
       </Show>
     </ProductField>
     <Suggestions />
     <div class="widget-editor-meta" data-testid="widget-editor-meta"><Show when={numeric}><dl class="widget-numeric-constraints" data-testid="widget-numeric-constraints" aria-label="Numeric constraints"><dt>Minimum</dt><dd>{Number.isFinite(ed.spec!.options['min']) || isCanonicalUnsafeInteger(ed.spec!.options['min']) ? String(ed.spec!.options['min']) : 'unbounded'}</dd><dt>Maximum</dt><dd>{Number.isFinite(ed.spec!.options['max']) || isCanonicalUnsafeInteger(ed.spec!.options['max']) ? String(ed.spec!.options['max']) : 'unbounded'}</dd><dt>Step</dt><dd>{(Number.isFinite(ed.spec!.options['step']) && Number(ed.spec!.options['step']) > 0) || isCanonicalUnsafeInteger(ed.spec!.options['step']) ? String(ed.spec!.options['step']) : `${numericStepConstraints(ed.spec!).step} (default)`}</dd></dl></Show><Show when={ed.multiline}>{ed.spec ? 'Ctrl+Enter to commit' : 'JSON'}</Show></div>
-    <ProductActionFooter><button type="button" data-testid="widget-editor-cancel" onPointerDown={(event) => event.preventDefault()} onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" class="primary" data-testid="widget-editor-commit" onPointerDown={(event) => event.preventDefault()} onClick={(event) => { const field = event.currentTarget.closest('.widget-editor')?.querySelector<TextControl>('input, textarea'); if (field) commit(field.value) }}><Icon icon={Check} /> Commit</button></ProductActionFooter>
+    <ProductActionFooter><button type="button" data-testid="widget-editor-cancel" onPointerDown={(event) => event.preventDefault()} onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" class="primary" data-testid="widget-editor-commit" onPointerDown={(event) => event.preventDefault()} onClick={(event) => { const field = event.currentTarget.closest('.widget-editor')?.querySelector<TextControl>('input, textarea'); if (field) commit(field) }}><Icon icon={Check} /> Commit</button></ProductActionFooter>
   </div>
 }
 

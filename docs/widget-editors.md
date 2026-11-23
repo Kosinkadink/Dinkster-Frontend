@@ -886,8 +886,12 @@ height.
 Ctrl+Enter commits through the existing widget command path.
 Escape cancels. An outside pointer explicitly blurs the field before the same
 pointer continues to its target, so click-away commits changed text even though
-the canvas is not a normal focus target. Opening and clicking away unchanged
-does not create a revision, undo step, or ghost materialization.
+the canvas is not a normal focus target. A text left unchanged, in this box or
+in a popover and however it is left (click away, Enter, Tab, Ctrl+Enter or
+Commit), does not create a revision, undo step, or ghost materialization.
+Unchanged means the field still shows what it showed when it opened, so text a
+field cannot show exactly (a one-line field drops line breaks; a text box
+shows "\r\n" as "\n") is stored as it was.
 
 Controller-enabled INT/FLOAT and remote COMBO rows expose their controller only
 through the compact canvas chip and its detailed menu. Expanded editors do not
