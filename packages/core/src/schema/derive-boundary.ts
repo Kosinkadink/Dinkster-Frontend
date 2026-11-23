@@ -1074,6 +1074,9 @@ export function deriveBoundarySchema(
     // satisfiable without a connection only when EVERY target is (each
     // falls back to its own stored value or optionality).
     let satisfiable = inner.optional || inner.widget !== undefined
+    // The subgraph input takes a whole list only when every target does;
+    // one single-value target would receive the list unmapped.
+    let acceptsList = inner.acceptsList === true
     let fanoutOk = true
     if (item.alsoBinds !== undefined) {
       const seenTargets = new Set<string>([targetKeyOf(item.binds)])
@@ -1114,6 +1117,7 @@ export function deriveBoundarySchema(
           diags.push(diag('warning', 'schema', 'boundary.fanoutTypeMismatch', `[${def.id}] boundary input '${item.id}' fan-out target '${b.node}/${b.port}' does not accept the boundary type`))
         }
         if (!(targetSlot.optional || targetSlot.widget !== undefined)) satisfiable = false
+        if (targetSlot.acceptsList !== true) acceptsList = false
       }
     }
     if (!fanoutOk) continue
@@ -1137,6 +1141,7 @@ export function deriveBoundarySchema(
       // A widget-backed inner input has a stored value, so the boundary
       // input is satisfiable without a connection.
       optional: satisfiable,
+      ...(acceptsList ? { acceptsList: true as const } : {}),
       ...([item.binds, ...(item.alsoBinds ?? [])].some((binding) => {
         if (binding.kind !== 'port') return false
         const target = def.nodes[binding.node]

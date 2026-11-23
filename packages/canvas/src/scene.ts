@@ -2267,6 +2267,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           id: item.id,
           label,
           ...(spec !== undefined ? { type: spec.type } : {}),
+          ...(spec?.kind === 'input' && spec.acceptsList ? { acceptsList: true as const } : {}),
           ...(item.binds.kind === 'family' ? { family: true as const } : {}),
           ...(fields !== undefined ? { fields: pinless ? fields.map((field, index) => index === 0 ? { ...field, subgraphMark: { item: item.id, label } } : field) : fields } : {}),
           ...(pinless ? { pinless: true as const } : {}),

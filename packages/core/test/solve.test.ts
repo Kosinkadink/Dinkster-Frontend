@@ -336,6 +336,54 @@ describe('concrete and union edges', () => {
     },
   )
 
+  it.each([
+    ['a type variable', T('T')],
+    ['IMAGE', { kind: 'concrete', name: 'IMAGE' } as TypeExpr],
+  ])('admits a list into a subgraph input only when every inner input it feeds accepts lists (%s)', (_, type) => {
+    // Shaped like a joining node: one value or a list in, a list out.
+    const whole = schemaOf('Whole', [
+      { ...input('in', type), acceptsList: true as const },
+      output('out', { kind: 'list', element: type }),
+    ])
+    const listSink = schemaOf('ListSink', [input('in', { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } })])
+    const resolveInner: SchemaResolver = (name) => (name === 'Whole' ? whole : name === 'ListSink' ? listSink : schemas[name])
+    for (const alsoSingle of [false, true]) {
+      const innerDef = {
+        id: 'gsub',
+        name: 'wrap',
+        nodes: {
+          whole: { id: 'whole', type: 'Whole', values: {} },
+          single: { id: 'single', type: 'ImageSink', values: {} },
+        },
+        links: {},
+        nets: {},
+        reroutes: {},
+        boundary: {
+          inputs: [{
+            id: 'in',
+            binds: { kind: 'port', node: 'whole', port: 'in' },
+            ...(alsoSingle ? { alsoBinds: [{ kind: 'port', node: 'single', port: 'in' }] } : {}),
+          }],
+          outputs: [{ id: 'out', binds: { kind: 'port', node: 'whole', port: 'out' } }],
+        },
+        nextOrdinal: 1,
+      } as unknown as GraphDef
+      const derived = deriveBoundarySchema(innerDef, resolveInner).schema!
+      const result = solveGraphTypes(
+        defOf({
+          nodes: { source: { type: 'ListImageSrc' }, sub: { type: derived.type }, sink: { type: 'ListSink' } },
+          links: {
+            edge: { from: ['source', 'out'], to: ['sub', 'in'] },
+            joined: { from: ['sub', 'out'], to: ['sink', 'in'] },
+          },
+        }),
+        (name) => (name === derived.type ? derived : resolveInner(name)),
+      )
+      expect(result.linkVerdicts.get('edge' as never)).toBe(alsoSingle ? 'mismatch' : 'ok')
+      expect(result.diagnostics.length > 0).toBe(alsoSingle)
+    }
+  })
+
   it('does not admit a nested or differently typed list into an opted-in concrete input', () => {
     const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
     const whole = schemaOf('Whole', [
