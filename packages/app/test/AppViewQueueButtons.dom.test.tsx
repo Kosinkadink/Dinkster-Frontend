@@ -42,7 +42,7 @@ describe('App View queue button component', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AppView app={app} />, root)
-    expect(root.querySelector('[data-testid="app-view-queue"]')?.textContent).toContain('Queue')
+    expect(root.querySelector('[data-testid="app-view-queue"]')?.textContent).toContain('Run')
 
     const tab = app.activeTab()!
     tab.store.dispatch({ command: 'app.layout.add', params: {

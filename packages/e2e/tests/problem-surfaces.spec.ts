@@ -23,16 +23,12 @@ test.beforeAll(() => {
 const railTab = (page: Page, id: string): Locator =>
   page.getByTestId('dock-zone-right').locator(`.product-tab[data-tab-id="${id}"]`)
 
-// At the default rail width the trailing tabs (Focused, Problems) are
-// clipped into the all-tabs menu; End on the resize separator widens the
-// rail to its maximum, where every rail tab fits.
+// Widen the rail so the complete tab labels and indicator fit.
 const widenRail = async (page: Page): Promise<void> => {
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('End')
   await expect(railTab(page, 'problems')).toBeVisible()
 }
-
-const contextKind = (page: Page): Locator => page.getByTestId('context-summary')
 
 const reportTwoProblems = (page: Page): Promise<void> =>
   page.evaluate(() => {
@@ -196,39 +192,40 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
   })
 }
 
-test('the Focused tab follows canvas focus and shows only that context\'s problems', async ({ page }) => {
+test('Selection only follows canvas selection without changing the full problem count', async ({ page }) => {
   await reportTwoProblems(page)
   await widenRail(page)
-  const tab = railTab(page, 'context')
-  await expect(tab).toContainText('Focused')
+  const tab = railTab(page, 'problems')
   await tab.click()
-  const panel = page.getByTestId('context-panel')
-  await expect(panel).toBeVisible()
-
-  // Nothing focused: the whole document is the context, every problem shows.
-  await expect(contextKind(page)).toHaveAttribute('data-context-kind', 'document')
+  const panel = page.getByTestId('problems-panel')
   await expect(panel.locator('details.problem')).toHaveCount(2)
-
-  // Selecting a node on canvas narrows the context without any document
-  // change; only that node's problem remains.
   const revisionBefore = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+  await panel.getByRole('checkbox', { name: 'Selection only' }).check()
+  await expect(panel.getByTestId('problems-selection')).toHaveText('Nothing selected')
+  await expect(panel.locator('details.problem')).toHaveCount(0)
+  await expect(tab.getByTestId('panel-indicator').locator('[aria-hidden="true"]')).toHaveText('2')
   await page.evaluate(() => { window.__dinksterTest!.controller!.setSelection(['source']) })
-  await expect(contextKind(page)).toHaveAttribute('data-context-kind', 'node')
-  await expect(panel).toContainText('Source proof')
+  await expect(panel.getByTestId('problems-selection')).toHaveText('Source proof')
   await expect(panel.locator('details.problem')).toHaveCount(1)
   await expect(panel.locator('details.problem')).toContainText('proof.sourceBroken')
-  await capture(page, 'context-tab-focused-node')
-
-  // Clearing the selection returns to the document context.
+  await capture(page, 'problems-selection-node')
   await page.evaluate(() => { window.__dinksterTest!.controller!.setSelection([]) })
-  await expect(contextKind(page)).toHaveAttribute('data-context-kind', 'document')
+  await expect(panel.locator('details.problem')).toHaveCount(0)
+  await panel.getByRole('checkbox', { name: 'Selection only' }).uncheck()
   await expect(panel.locator('details.problem')).toHaveCount(2)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revisionBefore)
 })
 
 test('the problem indicator is discoverable from every right-panel state and clears at zero', async ({ page }) => {
-  // The default active rail tab is Executions, so Problems starts INACTIVE;
-  // at the default rail width it is clipped into the all-tabs menu.
+  // Extra panels make clipping explicit rather than depending on core tab count.
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    for (let index = 0; index < 3; index++) app.panels.register({
+      id: `attention-fixture-${index}`, title: `Additional panel ${index + 1}`,
+      placement: 'rail', allowedPlacements: ['rail'], order: index, when: () => true,
+      component: () => document.createElement('div'),
+    })
+  })
   const problemsTab = railTab(page, 'problems')
   const overflowButton = page.getByTestId('dock-zone-right').getByTestId('dock-zone-overflow-button')
   await expect(problemsTab).toHaveAttribute('aria-selected', 'false')
@@ -281,17 +278,14 @@ test('the whole-document list navigates to a problem\'s owning context', async (
 
   const row = problemsPanel.locator('details.problem', { hasText: 'proof.targetSuspicious' })
   await row.locator('summary').click()
-  await row.getByRole('button', { name: 'Show in focused' }).click()
-
-  // The owner is focused on canvas and the Focused tab takes over, showing
-  // exactly the owner's problems.
-  await expect(railTab(page, 'context')).toHaveAttribute('aria-selected', 'true')
+  await expect(row.getByRole('button', { name: 'Show in focused' })).toHaveCount(0)
+  await row.getByRole('button', { name: 'Show on canvas' }).click()
+  await expect(railTab(page, 'problems')).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
-  await expect(contextKind(page)).toHaveAttribute('data-context-kind', 'node')
-  const contextPanel = page.getByTestId('context-panel')
-  await expect(contextPanel).toContainText('Target proof')
-  await expect(contextPanel.locator('details.problem')).toHaveCount(1)
-  await expect(contextPanel.locator('details.problem')).toContainText('proof.targetSuspicious')
+  await problemsPanel.getByRole('checkbox', { name: 'Selection only' }).check()
+  await expect(problemsPanel.getByTestId('problems-selection')).toHaveText('Target proof')
+  await expect(problemsPanel.locator('details.problem')).toHaveCount(1)
+  await expect(problemsPanel.locator('details.problem')).toContainText('proof.targetSuspicious')
 })
 
 test('rail tabs, counts, and problem navigation stay keyboard and screen-reader accessible', async ({ page }) => {
@@ -305,20 +299,15 @@ test('rail tabs, counts, and problem navigation stay keyboard and screen-reader 
 
   // Roving tabindex: focus the active tab, then arrow through enabled tabs.
   // Selection follows focus, so arrowing alone activates the Problems tab.
-  const contextTab = railTab(page, 'context')
-  await contextTab.click()
-  await expect(contextTab).toHaveAttribute('aria-selected', 'true')
-  await contextTab.focus()
-  await expect(contextTab).toBeFocused()
+  const runsTab = railTab(page, 'runs')
+  await runsTab.click()
+  await expect(runsTab).toHaveAttribute('aria-selected', 'true')
+  await runsTab.focus()
+  await expect(runsTab).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(problemsTab).toBeFocused()
+  await expect(problemsTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('problems-panel')).toBeVisible()
   await page.keyboard.press('ArrowRight')
   await expect(railTab(page, 'node-help')).toBeFocused()
-  await page.keyboard.press('ArrowRight')
-  await expect(railTab(page, 'problems')).toBeFocused()
-  await expect(railTab(page, 'problems')).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('problems-panel')).toBeVisible()
-
-  // The context problem count is announced with an explicit label.
-  await railTab(page, 'context').click()
-  const count = page.locator('.context-problems-title .problems-group-count')
-  await expect(count).toHaveAttribute('aria-label', '2 problems')
 })

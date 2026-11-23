@@ -4,11 +4,11 @@
 
 Keep docs concise. No delegation ledgers, promise ledgers, handoff records,
 or coordination narratives in this repo: GitHub issues and PRs are the record
-of work, decisions, and deferred items. Every user-facing feature or system
-(including a lens, panel, interaction mode, or shortcut) must be documented
-under `docs/` in the same commit that ships it. Update the active document
-that owns current behavior; archived audits are historical and are not update
-targets. Undocumented features are unfinished.
+of work, decisions, and deferred items.
+
+A change edits a document only when a fact a reader relies on changes, and it edits the existing sentence instead of adding a bullet.
+
+Update the active document that owns current behavior; archived audits are historical and are not update targets.
 
 # Locale catalogs
 
@@ -161,7 +161,4 @@ of slices completes, review the affected area as a whole.
 
 # Performance record
 
-`docs/perf.md` holds measured baselines from
-`packages/e2e/tests/perf.spec.ts`. Any change expected to move those numbers
-(renderer, scene build, CanvasHost structure, document pipeline) must append
-a new dated row with before/after numbers rather than overwriting history.
+`docs/perf.md` holds historical performance measurements. Preserve the recorded measurements rather than overwriting history.
