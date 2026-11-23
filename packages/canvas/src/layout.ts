@@ -239,6 +239,7 @@ export type LayoutRow =
        */
       readonly kind: 'editorSpace'
       readonly y: number
+      /** With the band under the editor's outline, `fieldInsetY` high, that its controls leave free. */
       readonly height: number
       /** The editor row's left edge; the space is as wide as that row. */
       readonly inset: number
@@ -1517,7 +1518,9 @@ export function layoutNode(
           valueKey: w.valueKey,
           viewId: w.viewId,
           ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
-          height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap),
+          // The editor's outline stops `fieldInsetY` above the space's bottom,
+          // as every row's box does; its controls fill the space above that.
+          height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,
           ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
         },
       }

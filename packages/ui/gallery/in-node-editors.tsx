@@ -600,7 +600,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
               element.style.left = `${node.x + row.inset}px`
               element.style.top = `${node.y + row.y}px`
               element.style.width = `${row.width ?? node.layout.width - row.inset * 2}px`
-              element.style.height = `${row.height}px`
+              element.style.height = `${row.height - defaultTokens.rowGeometry.fieldInsetY}px`
             }}>
               <EditorBody row={row} example={props.example} declared={declared} />
             </CanvasEditorSpace>

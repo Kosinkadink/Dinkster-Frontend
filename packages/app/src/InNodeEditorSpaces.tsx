@@ -51,7 +51,8 @@ export function editorSpaceItems(nodes: readonly {
         row,
         field,
         node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
-        space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height },
+        // The controls stop at the editor's outline, above the row's bottom band.
+        space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
         value: node.node.values?.[row.valueKey],
       }]
     })
