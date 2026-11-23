@@ -184,6 +184,26 @@ describe('deriveNodeProblems', () => {
     expect(projection.rows).toEqual({ 'n5-a1b2': { width: 'error', steps: 'warning' } })
   })
 
+  it('counts a failed node rule once when the editor and compile both report it', () => {
+    const fromEditor = diag('error', 'compile', 'node.rule.failed', 'Width must be positive.', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'width', valueKey: 'width', direction: 'input' }],
+      data: { rule: 0, hasFix: false, fields: ['width'] },
+    })
+    const fromCompile = diag('error', 'compile', 'node.rule.failed', '[n5-a1b2] Width must be positive.', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') }, port: { node: asNodeId('n5-a1b2'), port: asPortId('width') } },
+      data: { rule: 0, hasFix: false, fields: ['width'] },
+    })
+    const otherRule = diag('error', 'compile', 'node.rule.failed', 'Width must be positive.', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
+      data: { rule: 1, hasFix: false, fields: ['width', 'height'] },
+    })
+    const lines = deriveProblemProjection({
+      document: document(), graphId: 'g0', instancePath: [],
+      diagnostics: composeCanvasProblemDiagnostics({ owned: [fromCompile], scene: [fromEditor, otherRule] }),
+    }).nodes['n5-a1b2']
+    expect(lines?.map((line) => [line.row, line.diagnostic.data?.['rule']])).toEqual([['width', 0], [undefined, 1]])
+  })
+
   it('puts a problem on an output on the output row, apart from an input with the same id', () => {
     const viaRef = diag('warning', 'compile', 'out.ref', 'unused output', {
       refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'image', direction: 'output' }],

@@ -181,7 +181,12 @@ export function deriveProblemProjection(args: {
     const kind = problemKindOf(diagnostic)
     for (const nodeId of nodeIds) {
       const row = diagnosticRow(diagnostic, nodeId, args.portSideOf)
-      const key = JSON.stringify([nodeId, row ?? null, diagnostic.code, diagnostic.message])
+      // A failed node rule reaches the view from the editor and from compile,
+      // whose copy prefixes the node's name; the rule's index names the cause.
+      const rule = diagnostic.code === 'node.rule.failed' ? diagnostic.data?.['rule'] : undefined
+      const key = JSON.stringify(rule === undefined
+        ? [nodeId, row ?? null, diagnostic.code, diagnostic.message]
+        : [nodeId, diagnostic.code, rule])
       if (seen.has(key)) continue
       seen.add(key)
       ;(lines[nodeId] ??= []).push({ kind, diagnostic, ...(row === undefined ? {} : { row }) })
