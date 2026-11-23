@@ -1231,6 +1231,9 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
+  // An automatic value that cannot be worked out: the field's warning, also
+  // listed in Problems, where picking it moves to the field.
+  const automaticDiagnostics: Diagnostic[] = []
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
@@ -1253,6 +1256,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     const elaborated = schema
       ? elaborateInterface(schema, occurrenceNode, connectivityOf(node.id))
       : undefined
+    for (const diagnostic of elaborated?.diagnostics ?? []) {
+      const port = diagnostic.data?.['input']
+      if (diagnostic.code !== 'automatic.default' || typeof port !== 'string') continue
+      automaticDiagnostics.push({ ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } })
+    }
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
           ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
@@ -2024,7 +2032,7 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, valueSources, selectors, netStubs, groups, boundaryNodes,
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? [])],
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {
