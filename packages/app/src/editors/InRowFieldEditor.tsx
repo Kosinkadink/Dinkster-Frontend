@@ -1,7 +1,7 @@
-import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, type Component, type JSX } from 'solid-js'
 import { effectiveWidgetDefault, jsonSameValue, numericStepConstraints, randomNumericValue, type IntegerWidgetValue, type Json } from '@dinkster/core'
 import { floatKind, intKind, numberFieldFacts } from '@dinkster/widgets'
-import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, type CanvasSeedMode } from '@dinkster/ui'
+import { CanvasRowField, CanvasSeedModeIcon, CanvasSideLink, CanvasSideModes, CanvasSidePart, ProductSpinner, type CanvasSeedMode } from '@dinkster/ui'
 import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
@@ -20,9 +20,14 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const spec = ed.spec!
   const inRow = ed.inRow!
   const numeric = spec.widgetType === intKind.type || spec.widgetType === floatKind.type
+  // An automatic field is empty while its value is automatic, with the value
+  // in use as its hint; emptying a fixed one makes it automatic again.
+  const automatic = inRow.automatic
+  const unfixed = automatic !== undefined && inRow.storedAtOpen === null
   // The field holds the full stored value, not the row's formatted text.
-  const initialText = ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
+  const initialText = unfixed || ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
   const [draft, setDraft] = createSignal(initialText)
+  const emptied = (): boolean => automatic !== undefined && draft().trim() === ''
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   const bounds = visibleCanvas(host.boundary)
   let live = true
@@ -48,9 +53,9 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   })
 
   const typed = createMemo(() =>
-    numeric && draft() !== initialText ? resolveTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue) : undefined)
+    numeric && draft() !== initialText && !emptied() ? resolveTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue) : undefined)
   const note = (): string | undefined =>
-    numeric && draft() === initialText ? storedNumberNote(spec, ed.initial as IntegerWidgetValue) : undefined
+    numeric && !unfixed && draft() === initialText ? storedNumberNote(spec, ed.initial as IntegerWidgetValue) : undefined
   const problemId = createUniqueId()
   // A kept stored number's note is not a problem, so it does not mark the field invalid.
   const problem = (): string | undefined => props.commitError() ?? invalid() ?? typed()?.problem
@@ -110,14 +115,29 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     }
     return props.commitValue(value)
   }
+  // Removing the stored value makes an automatic field automatic again.
+  const clearValue = (): Promise<boolean> => {
+    if (ed.target.kind !== 'input') return Promise.resolve(false)
+    return props.commitCommand({ command: 'node.setValues', params: {
+      graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
+      nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
+      values: {},
+      clear: [ed.target.familyOwner?.valueKey ?? ed.target.valueKey],
+    } })
+  }
 
   // What leaving the field would do now: close (nothing changed), store a
   // value, or stay open, while a store is in flight or the value fails the
   // check every value passes before it is written.
   const [invalid, setInvalid] = createSignal<string>()
-  type Plan = { readonly kind: 'close' } | { readonly kind: 'blocked' } | { readonly kind: 'store'; readonly value: Json }
+  type Plan =
+    | { readonly kind: 'close' }
+    | { readonly kind: 'blocked' }
+    | { readonly kind: 'automatic' }
+    | { readonly kind: 'store'; readonly value: Json }
   const plan = (): Plan => {
     if (!live || props.commitPending()) return { kind: 'blocked' }
+    if (emptied()) return unfixed ? { kind: 'close' } : { kind: 'automatic' }
     if (draft() === initialText) return { kind: 'close' }
     let value: Json
     if (numeric) {
@@ -140,7 +160,8 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     const next = plan()
     if (next.kind === 'blocked') return Promise.resolve(false)
     if (next.kind === 'close') { props.close(); return Promise.resolve(true) }
-    const store = numeric ? props.commitValue(next.value) : commitText(next.value as string)
+    const store = next.kind === 'automatic' ? clearValue()
+      : numeric ? props.commitValue(next.value) : commitText(next.value as string)
     return store.then((closed) => closed || !live)
   }
   // A press elsewhere stores the field and goes on to what it pressed, unless
@@ -203,36 +224,66 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
 
   // The side part's first line is a refusal or a failed check when there is
   // one; otherwise what Enter would store. The "default" line is a link that
-  // stores the default, as "Reset to default" does.
+  // stores the default, as "Reset to default" does. On an automatic field it
+  // reads "automatic (24)", or "automatic (not known)" while the value cannot
+  // be worked out, and its link empties the field, which makes the value
+  // automatic.
   const defaultValue = effectiveWidgetDefault(spec)
   const storeDefault = (): void => {
-    setDraft(defaultValue === undefined || defaultValue === null ? '' : String(defaultValue))
+    setDraft(automatic !== undefined || defaultValue === undefined || defaultValue === null ? '' : String(defaultValue))
     void commit()
+  }
+  const automaticText = automatic === undefined ? undefined
+    : typeof automatic.value === 'string' ? automatic.value : JSON.stringify(automatic.value)
+  const defaultLink = (text: string): JSX.Element => automatic === undefined
+    ? <CanvasSideLink onClick={storeDefault}>{text}</CanvasSideLink>
+    : (
+        <span class="dinkster-canvas-side-loading">
+          {automatic.state === 'loading' ? <ProductSpinner /> : null}
+          <CanvasSideLink onClick={storeDefault}>
+            {automatic.state === 'worked-out' ? `automatic (${automaticText})` : 'automatic (not known)'}
+          </CanvasSideLink>
+        </span>
+      )
+  // While the field is empty: the warning when the default is used, or one
+  // plain line saying why a lookup's answer is not fresh.
+  const automaticWarning = (): string | undefined => automatic?.state === 'default' && emptied()
+    ? `Could not work out ${ed.label}. Using the default, ${automaticText}.`
+    : undefined
+  const lookupNote = (): string | undefined => {
+    if (!emptied()) return undefined
+    if (automatic?.kept === 'stale') return 'Could not refresh'
+    if (automatic?.kept === 'paused') return 'Paused'
+    return automatic?.state === 'not-known' ? 'Offline' : undefined
   }
   const side = createMemo(() => {
     const facts = numeric
       ? numberFieldFacts(spec).map((fact) => ({
           key: fact.key,
-          value: fact.key === 'default' && defaultValue !== undefined
-            ? <CanvasSideLink onClick={storeDefault}>{fact.text}</CanvasSideLink>
-            : fact.text,
+          value: fact.key === 'default' && defaultValue !== undefined ? defaultLink(fact.text) : fact.text,
         }))
       : []
     const resolved = typed()
     const blocked = props.commitError() ?? invalid()
-    const line = shownProblem()
+    const line = shownProblem() ?? automaticWarning()
     const result = blocked === undefined && resolved?.kind === 'store' ? resolved.result : undefined
-    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined) return undefined
+    const noteLine = lookupNote()
+    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && noteLine === undefined) return undefined
     return (
       <CanvasSidePart
-        {...(inRow.controllerMode === undefined ? {} : {
+        {...(inRow.controllerMode === undefined && noteLine === undefined ? {} : {
           children: (
-            <CanvasSideModes
-              current={mode()!}
-              step={String(numericStepConstraints(spec).step)}
-              onMode={chooseMode}
-              onNewSeed={newSeed}
-            />
+            <>
+              {inRow.controllerMode === undefined ? null : (
+                <CanvasSideModes
+                  current={mode()!}
+                  step={String(numericStepConstraints(spec).step)}
+                  onMode={chooseMode}
+                  onNewSeed={newSeed}
+                />
+              )}
+              {noteLine === undefined ? null : <p class="dinkster-canvas-side-note">{noteLine}</p>}
+            </>
           ),
         })}
         facts={facts}
@@ -293,7 +344,8 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
           queueMicrotask(() => placeCursor(element))
         }}
         inputLabel={ed.label}
-        {...(typeof spec.options['placeholder'] === 'string' ? { placeholder: spec.options['placeholder'] } : {})}
+        {...(automaticText !== undefined ? { placeholder: automaticText }
+          : typeof spec.options['placeholder'] === 'string' ? { placeholder: spec.options['placeholder'] } : {})}
         {...(numeric ? {
           onStep: (direction: -1 | 1, fast: boolean) => {
             setDraft(stepTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue, direction, fast))
@@ -301,7 +353,8 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
           },
         } : {})}
         {...(fill() === undefined ? {} : { fill: fill()! })}
-        {...(inRow.controllerMode === undefined ? {} : { mark: <CanvasSeedModeIcon mode={mode()!} /> })}
+        {...(inRow.controllerMode !== undefined ? { mark: <CanvasSeedModeIcon mode={mode()!} /> }
+          : emptied() ? { mark: <span>auto</span> } : {})}
         zoomed={placement().scale > 1}
         place={placement().place}
         sideTop={placement().sideTop}

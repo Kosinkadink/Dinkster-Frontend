@@ -27,6 +27,15 @@ before "auto" and the value is the default. A fixed row shows its value as any
 field does. The minus and plus steppers of an automatic number step from the
 value in use and store the result at once, which fixes the field.
 
+An opened automatic field is empty, with "auto" and the value in use as its
+hint, so leaving it without typing keeps it automatic. Emptying a fixed field
+and leaving it removes the stored value, which makes it automatic again. The
+side part's default line reads "automatic (24)", or "automatic (not known)"
+when the value cannot be worked out, with a spinner while a lookup loads, and
+its link empties the field. While the field is empty, the side part also gives
+the warning, or one plain line when a lookup's answer is not fresh: "Could not
+refresh", "Paused" or "Offline".
+
 ## Working the value out
 
 The editor works the value out whenever it elaborates the node, over the

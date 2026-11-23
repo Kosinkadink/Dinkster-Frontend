@@ -4990,7 +4990,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const value =
         hit.row.derivedValue !== undefined
           ? hit.row.derivedValue
-          : stored !== undefined ? stored : effectiveWidgetDefault(spec)
+          : stored !== undefined ? stored : hit.row.automatic?.value ?? effectiveWidgetDefault(spec)
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
@@ -5030,6 +5030,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const fieldInsetY = tokens.rowGeometry.fieldInsetY
       const inputItem = schema?.body.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
       const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
+      const automatic = hit.row.automatic ?? hit.row.automaticIfEmptied
 
       // Keep the graph as the focus origin before an optional editor takes
       // focus. ASSET uses native modal restoration; other families open an
@@ -5076,6 +5077,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(automatic === undefined ? {} : { automatic }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),

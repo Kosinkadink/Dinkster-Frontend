@@ -216,6 +216,8 @@ export interface ElaboratedInput {
   readonly materialize?: readonly MaterializeFrame[]
   /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
   readonly automatic?: AutomaticState
+  /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
+  readonly automaticIfEmptied?: AutomaticState
 }
 
 /** Why an automatic value could not be worked out, so the default is used. */
@@ -706,6 +708,8 @@ function elaboratePass(
 
   /** Fields that declare `automatic` with nothing stored and no wire, and the scope each sits in. */
   const sites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
+  /** Fields that declare `automatic` and hold a fixed value: worked out only for the open field. */
+  const fixedSites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
   const outcomes = new Map<string, AutomaticState>()
   const working = new Set<string>()
   /** Set once the walk has found every site: formulas then work sites out as they read them. */
@@ -953,7 +957,11 @@ function elaboratePass(
       ...common(scope),
       ...extra,
     })
-    if (row.automatic !== undefined && !scope.dormant && !stored(path)) sites.set(path, { row: spec, scope })
+    if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
+      const site = { row: spec, scope }
+      if (Object.hasOwn(node.values, path)) fixedSites.set(path, site)
+      else sites.set(path, site)
+    }
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
@@ -1634,6 +1642,11 @@ function elaboratePass(
     inUse.set(path, outcome.state === 'loading' ? UNKNOWN : outcome.value)
   }
   for (const [index, item] of items.entries()) {
+    const fixed = item.kind === 'input' ? fixedSites.get(item.address.port) : undefined
+    if (fixed !== undefined && item.kind === 'input') {
+      items[index] = { ...item, automaticIfEmptied: workOutAutomatic(fixed) }
+      continue
+    }
     const outcome = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
     if (outcome === undefined || item.kind !== 'input') continue
     items[index] = { ...item, automatic: outcome }

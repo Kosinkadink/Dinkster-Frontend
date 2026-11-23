@@ -1078,6 +1078,24 @@ describe('automatic values', () => {
       automatic: { value: 24, state: 'not-known', reason: 'offline' }, warned: false,
     })
   })
+
+  it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'rate * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const reads = intInput('reads', {
+      automatic: { formula: 'doubled + 1' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborated = elaborateInterface(schemaOf([rate, doubled, reads]), { values: { rate: 50, doubled: 7 } }, EMPTY_CONNECTIVITY)
+    const inputs = elabInputsOf(elaborated)
+    const fixed = inputs.find((input) => input.spec.id === 'doubled')!
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 100, state: 'worked-out' })
+    expect(inputs.find((input) => input.spec.id === 'reads')!.automatic).toEqual({ value: 8, state: 'worked-out' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(false)
+  })
 })
 
 describe('buildGraphConnectivity', () => {
