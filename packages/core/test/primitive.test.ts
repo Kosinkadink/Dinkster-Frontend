@@ -83,6 +83,10 @@ describe('a primitive works out its value widget', () => {
     const value = inputsOf(drawn).find((row) => row.id === 'value')!
     expect(value.widget?.options).toMatchObject({ min: 5, max: 8 })
     expect(value.displayName).toBe('Steps')
+    // The empty Maximum shows the fed fields' 8 as an automatic value; the set Minimum does not.
+    const limit = (id: string) => inputsOf(drawn).find((row) => row.id === id)!.widget
+    expect(limit('maximum')).toMatchObject({ default: 8, automatic: true })
+    expect(limit('minimum')?.automatic).toBeUndefined()
   })
 
   it('reports fields that share no range and keeps the value and the wires', () => {

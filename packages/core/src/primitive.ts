@@ -67,9 +67,18 @@ export function primitiveForField(schemas: Iterable<NodeSchema>, field: InputSpe
  * and, when the fed fields share one, under their label.
  */
 export function withPrimitiveValue(schema: NodeSchema, shape: PrimitiveShape, effective: EffectivePrimitiveSpec): NodeSchema {
-  if (effective.spec === undefined && effective.label === undefined) return schema
+  if (effective.spec === undefined && effective.label === undefined && effective.derived.size === 0) return schema
+  // An empty limit field shows the limit worked out from the fed fields.
+  const automatic = new Map<string, unknown>()
+  for (const limit of effective.derived) {
+    const inputId = shape.limits[limit as KnownValueLimit]
+    if (inputId !== undefined) automatic.set(inputId, effective.spec?.options[limit])
+  }
   const patch = <T extends BodyRow | OptionRow>(rows: readonly T[]): T[] => rows.map((row): T => {
     if (row.kind === 'section' || row.kind === 'row') return { ...row, rows: patch(row.rows) }
+    if (row.kind === 'input' && automatic.has(row.id) && row.widget !== undefined) {
+      return { ...row, widget: { ...row.widget, default: automatic.get(row.id), automatic: true } }
+    }
     if (row.kind !== 'input' || row.id !== shape.value.id) return row
     return {
       ...row,
