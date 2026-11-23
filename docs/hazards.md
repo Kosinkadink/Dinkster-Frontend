@@ -199,8 +199,6 @@ Concrete rules that fell out of those bugs:
 
 `traceEndpoint` is O(chain length) and runs at scene-build/compile/hash time,
 never per-frame. Keep tracing calls out of `render()`/pointer-move paths.
-Historical reroute-heavy measurements remain in [Performance baselines](perf.md);
-the uncalibrated browser timing cases are not a regression gate.
 
 ### R10. Importer absorption stays import-only
 
@@ -524,7 +522,7 @@ position.
   tale - if a feature "just needs a little mirror state", derive it or put it
   in the document.
 
-## Lessons from the pack audit (see docs/archive/node-pack-extension-audit.md)
+## Extension contract failure modes
 
 Failure modes observed in the wild that our contracts must not re-enable:
 

@@ -60,9 +60,8 @@ counting checks require camera-only reuse, bounded image copies and reuse of
 distant images during node edits for the fixed 66-, 300- and 1200-node fixtures. Comparison canvases explicitly disable
 frequent-readback optimization so retained and fresh references request the
 same readback policy throughout repeated pixel inspection.
-This affects comparison setup only, not production rendering. Frame-time tools
-and measured results are documented in [Performance baselines](perf.md);
-timings are reports, not CI assertions.
+This affects comparison setup only, not production rendering. Frame timings
+are reports, not CI assertions.
 
 ## Numeric edits and comparison diagnostics
 
