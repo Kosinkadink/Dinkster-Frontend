@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, untrack, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js'
 import type { WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -152,13 +152,23 @@ function CurvePicture(props: {
   hover?: { position: number; value: number }
 }) {
   const id = createUniqueId()
-  const pad = 8
+  // The plot fills the picture; its border sits on the half pixel so it stays one pixel wide.
+  const [size, setSize] = createSignal({ width: 320, height: 180 })
+  let svgElement: SVGSVGElement | undefined
+  onMount(() => {
+    const observer = new ResizeObserver(() => {
+      if (svgElement) setSize({ width: svgElement.clientWidth, height: svgElement.clientHeight })
+    })
+    observer.observe(svgElement!)
+    onCleanup(() => observer.disconnect())
+  })
+  const edge = 0.5
   const stripRoom = 9
-  const left = () => pad + (props.outputStrip ? stripRoom : 0)
-  const right = 320 - pad
-  const top = pad
-  const bottom = () => 180 - pad - (props.inputStrip ? stripRoom : 0)
-  const x = (position: number) => left() + position * (right - left())
+  const left = () => edge + (props.outputStrip ? stripRoom : 0)
+  const right = () => size().width - edge
+  const top = edge
+  const bottom = () => size().height - edge - (props.inputStrip ? stripRoom : 0)
+  const x = (position: number) => left() + position * (right() - left())
   const y = (value: number) => bottom() - value * (bottom() - top)
   const [hover, setHover] = createSignal(untrack(() => props.hover))
   const track = (event: PointerEvent) => {
@@ -166,7 +176,7 @@ function CurvePicture(props: {
     const matrix = svg.getScreenCTM()
     if (!matrix) return
     const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
-    const position = (at.x - left()) / (right - left())
+    const position = (at.x - left()) / (right() - left())
     const value = (bottom() - at.y) / (bottom() - top)
     const inside = position >= 0 && position <= 1 && value >= 0 && value <= 1
     const onPoint = props.points.some((point) => Math.hypot(x(point.position) - at.x, y(point.value) - at.y) <= 8)
@@ -174,7 +184,7 @@ function CurvePicture(props: {
   }
   const label = (h: { position: number; value: number }) => `${h.position.toFixed(2)}, ${h.value.toFixed(2)}`
   return (
-    <svg viewBox="0 0 320 180" aria-hidden="true" class="dinkster-gallery-curve"
+    <svg ref={svgElement} viewBox={`0 0 ${size().width} ${size().height}`} aria-hidden="true" class="dinkster-gallery-curve"
       onPointerMove={track} onPointerLeave={() => setHover(undefined)}>
       <defs>
         <Show when={props.inputStrip}>
@@ -192,13 +202,13 @@ function CurvePicture(props: {
           )}
         </Show>
       </defs>
-      <rect class="dinkster-gallery-curve-plot" x={left()} y={top} width={right - left()} height={bottom() - top} />
+      <rect class="dinkster-gallery-curve-plot" x={left()} y={top} width={right() - left()} height={bottom() - top} />
       <Show when={props.histogram}>
         <For each={Array.from({ length: 30 }, (_, index) => index)}>
           {(index) => {
             const height = (0.12 + Math.abs(Math.sin(index / 4)) * 0.55) * (bottom() - top)
             return <rect class="dinkster-gallery-curve-histogram" x={x(index / 30)} y={bottom() - height}
-              width={(right - left()) / 30 - 1} height={height} />
+              width={(right() - left()) / 30 - 1} height={height} />
           }}
         </For>
       </Show>
@@ -206,17 +216,17 @@ function CurvePicture(props: {
         {(at) => (
           <>
             <line class="dinkster-gallery-curve-grid" x1={x(at)} y1={top} x2={x(at)} y2={bottom()} />
-            <line class="dinkster-gallery-curve-grid" x1={left()} y1={y(at)} x2={right} y2={y(at)} />
+            <line class="dinkster-gallery-curve-grid" x1={left()} y1={y(at)} x2={right()} y2={y(at)} />
           </>
         )}
       </For>
       <line class="dinkster-gallery-curve-identity" x1={x(0)} y1={y(0)} x2={x(1)} y2={y(1)} />
-      <rect class="dinkster-gallery-curve-border" x={left()} y={top} width={right - left()} height={bottom() - top} />
+      <rect class="dinkster-gallery-curve-border" x={left()} y={top} width={right() - left()} height={bottom() - top} />
       <Show when={props.inputStrip}>
-        <rect class="dinkster-gallery-curve-strip" x={left()} y={bottom() + 3} width={right - left()} height="6" fill={`url(#${id}-in)`} />
+        <rect class="dinkster-gallery-curve-strip" x={left()} y={bottom() + 3} width={right() - left()} height="6" fill={`url(#${id}-in)`} />
       </Show>
       <Show when={props.outputStrip}>
-        <rect class="dinkster-gallery-curve-strip" x={pad} y={top} width="6" height={bottom() - top} fill={`url(#${id}-out)`} />
+        <rect class="dinkster-gallery-curve-strip" x={edge} y={top} width="6" height={bottom() - top} fill={`url(#${id}-out)`} />
       </Show>
       <polyline class="dinkster-gallery-curve-line" points={props.points.map((point) => `${x(point.position)},${y(point.value)}`).join(' ')} />
       <For each={props.points}>
@@ -229,13 +239,24 @@ function CurvePicture(props: {
         {(h) => {
           const hx = () => x(h().position)
           const hy = () => y(h().value)
-          const flip = () => hx() > right - 70
+          const flip = () => hx() > right() - 70
+          // The readout sits on the plot's fill, 2 px around the text, so no grid line runs through it.
+          const [box, setBox] = createSignal<DOMRect>()
+          let text: SVGTextElement | undefined
+          createEffect(() => {
+            label(h())
+            flip()
+            if (text) setBox(text.getBBox())
+          })
           return (
             <g class="dinkster-gallery-curve-hover">
               <line x1={left()} y1={hy()} x2={hx()} y2={hy()} />
               <line x1={hx()} y1={hy()} x2={hx()} y2={bottom()} />
               <circle cx={hx()} cy={hy()} r="5" />
-              <text x={flip() ? hx() - 9 : hx() + 9} y={hy() - 8} text-anchor={flip() ? 'end' : 'start'}>{label(h())}</text>
+              <Show when={box()}>
+                {(b) => <rect class="dinkster-gallery-curve-readout" x={b().x - 2} y={b().y - 2} width={b().width + 4} height={b().height + 4} />}
+              </Show>
+              <text ref={text} x={flip() ? hx() - 9 : hx() + 9} y={hy() - 8} text-anchor={flip() ? 'end' : 'start'}>{label(h())}</text>
             </g>
           )
         }}

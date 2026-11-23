@@ -608,7 +608,10 @@
 .dinkster-gallery-angle-ring { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1.5; }
 .dinkster-gallery-angle-dot { fill: var(--dinkster-accent-border); }
 .dinkster-gallery-angle-dot[data-hollow='true'] { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-accent-border); stroke-width: 2; }
-.dinkster-gallery-curve { cursor: crosshair; }
+.dinkster-gallery-curve { cursor: crosshair; overflow: visible; }
+/* The framed plot takes the picture's place: no second panel around it. */
+.dinkster-canvas-editor-picture:has(> .dinkster-gallery-curve) { overflow: visible; border-radius: 0; background: none; }
+.dinkster-gallery-curve-hover .dinkster-gallery-curve-readout { fill: var(--dinkster-surface-raised); stroke: none; }
 .dinkster-gallery-curve-plot { fill: var(--dinkster-surface-raised); }
 .dinkster-gallery-curve-border { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .dinkster-gallery-curve-grid { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
