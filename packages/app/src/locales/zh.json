@@ -1107,6 +1107,7 @@
   "problems.migration.apply": "应用替换",
   "fixesNotice.adjusted": "已调整 {count} 项",
   "fixesNotice.undone": "已撤销调整",
+  "fixesNotice.undoneKept": "已撤销调整。保留了你之后修改过的 {count} 个节点。",
   "fixesNotice.review": "查看",
   "fixesNotice.undo": "撤销",
   "fixesNotice.redo": "重做调整",

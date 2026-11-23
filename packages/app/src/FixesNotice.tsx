@@ -70,13 +70,16 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
           <ProductFixesNotice
             changes={changes()}
             state={current()}
-            strings={strings()}
+            strings={notice()!.undone?.kept ? { ...strings(), undone: message('fixesNotice.undoneKept', { count: notice()!.undone!.kept }) } : strings()}
             reviewOpen={notice()!.reopened === true}
             onChoose={choose}
             onUndo={() => props.app.undoAdjustments(props.tab.id)}
             onRedo={() => props.app.redoAdjustments(props.tab.id)}
             onDismiss={() => props.app.dismissAdjustmentNotice(props.tab.id)}
-            onSettings={() => props.app.modalPanel.set('settings')}
+            onSettings={() => {
+              props.app.settingsOpenRequest.set({ category: 'execution', id: 'execution.reviewUpgrades' })
+              props.app.modalPanel.set('settings')
+            }}
           />
         </div>
       )}

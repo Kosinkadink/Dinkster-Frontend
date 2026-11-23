@@ -1105,6 +1105,7 @@
   "problems.migration.apply": "Apply replacement",
   "fixesNotice.adjusted": "{count, plural, one {# thing was adjusted} other {# things were adjusted}}",
   "fixesNotice.undone": "Adjustments undone",
+  "fixesNotice.undoneKept": "Adjustments undone. {count, plural, one {# node you changed since was kept} other {# nodes you changed since were kept}}.",
   "fixesNotice.review": "Review",
   "fixesNotice.undo": "Undo",
   "fixesNotice.redo": "Redo adjustments",

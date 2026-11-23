@@ -42,6 +42,8 @@ import {
   type HistorySnapshotRecord,
   type PatchOp,
   replayHistoryOps,
+  jsonSameValue,
+  invertOps,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -1407,6 +1409,8 @@ export interface AdjustmentNotice {
   readonly reopened?: boolean
   /** The tab's revision at which Undo or Redo was refused, until the document changes. */
   readonly refusedAt?: number
+  /** The last Undo: what Redo puts back, and how many values the user had changed since and Undo kept. */
+  readonly undone?: { readonly redo: readonly PatchOp[]; readonly kept: number }
 }
 
 /** `ready`: Undo takes everything back; `undone`: Redo puts it back; `refused`: something changed since. */
@@ -1428,6 +1432,28 @@ const holdsRecorded = (document: WorkflowDocument, ops: readonly PatchOp[]): boo
   } catch {
     return false
   }
+}
+
+const pathsOverlap = (a: readonly (string | number)[], b: readonly (string | number)[]): boolean =>
+  a.slice(0, Math.min(a.length, b.length)).every((segment, index) => segment === b[index])
+
+/** The nodes a recorded op belongs to: the node itself, its view entry, or both ends of a link. */
+const opNodeKeys = (op: PatchOp): readonly string[] => {
+  const path = op.path
+  if (path[0] === 'graphs' && path[2] === 'nodes' && path.length >= 4) return [`${path[1]}/${path[3]}`]
+  if (path[0] === 'view' && path[1] === 'graphs' && path[3] === 'nodes' && path.length >= 5) return [`${path[2]}/${path[4]}`]
+  if (path[0] !== 'graphs' || path[2] !== 'links' || path.length < 4) return []
+  const ends = new Set<string>()
+  const collect = (value: Json | undefined): void => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return
+    const object = value as JsonObject
+    if (typeof object['node'] === 'string') ends.add(`${path[1]}/${object['node']}`)
+    collect(object['from'])
+    collect(object['to'])
+  }
+  if (op.op !== 'remove') collect(op.value)
+  if (op.op !== 'add') collect(op.oldValue)
+  return [...ends]
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -5204,36 +5230,76 @@ export class AppState {
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (notice === undefined || tab === undefined) return undefined
     if (notice.refusedAt === tab.store.revision) return 'refused'
-    const document = tab.store.doc
-    if (holdsRecorded(document, [...notice.records].reverse().flatMap((record) => record.inverse))) return 'ready'
-    if (holdsRecorded(document, notice.records.flatMap((record) => record.forward))) return 'undone'
-    return 'refused'
+    if (holdsRecorded(tab.store.doc, this.adjustmentRedoOps(notice))) return 'undone'
+    return this.adjustmentUndoPlan(tab, notice) === undefined ? 'refused' : 'ready'
   }
 
-  /** Takes back every change the notice lists in one undo step, leaving every other edit alone. */
+  private adjustmentRedoOps(notice: AdjustmentNotice): readonly PatchOp[] {
+    return notice.undone?.redo ?? notice.records.flatMap((record) => record.forward)
+  }
+
+  /**
+   * What the notice's Undo puts back. A node whose adjusted value the user
+   * changed since, in an edit still on their undo history, is left as it is
+   * and counted as kept. Any other changed value, such as one another person
+   * changed in a shared session, refuses the whole Undo (undefined).
+   */
+  private adjustmentUndoPlan(tab: Tab, notice: AdjustmentNotice): { readonly ops: readonly PatchOp[]; readonly kept: number } | undefined {
+    const inverse = [...notice.records].reverse().flatMap((record) => record.inverse)
+    const recorded = notice.records.flatMap((record) => [...record.forward, ...record.inverse])
+    // The user's own edits: their undo history without the notice's batches or its own Undo and Redo.
+    const own = tab.store.historySnapshot().undo.flatMap((record) => record.forward)
+      .filter((op) => !recorded.some((candidate) => jsonSameValue(op as unknown as Json, candidate as unknown as Json)))
+    const kept = new Set<string>()
+    for (;;) {
+      const ops = inverse.filter((op) => !opNodeKeys(op).some((key) => kept.has(key)))
+      if (ops.length === 0) return undefined
+      let stale: PatchOp | undefined
+      try {
+        stale = replayHistoryOps(tab.store.doc, ops, { requireRecordedValues: true }).stale
+      } catch {
+        return undefined
+      }
+      if (stale === undefined) return { ops, kept: kept.size }
+      const keys = opNodeKeys(stale)
+      if (keys.length === 0 || keys.every((key) => kept.has(key)) || !own.some((op) => pathsOverlap(op.path, stale.path))) return undefined
+      for (const key of keys) kept.add(key)
+    }
+  }
+
+  /**
+   * Takes back every change the notice lists in one undo step, leaving every
+   * other edit alone, and nodes whose adjusted values the user changed since.
+   */
   undoAdjustments(tabId: string): boolean {
-    return this.replayAdjustments(tabId, 'ready', (records) => [...records].reverse().flatMap((record) => record.inverse))
-  }
-
-  /** Puts back the changes the notice lists, as they were recorded, in one undo step. */
-  redoAdjustments(tabId: string): boolean {
-    return this.replayAdjustments(tabId, 'undone', (records) => records.flatMap((record) => record.forward))
-  }
-
-  private replayAdjustments(
-    tabId: string,
-    from: AdjustmentNoticeState,
-    ops: (records: readonly HistorySnapshotRecord[]) => readonly PatchOp[],
-  ): boolean {
     const notice = this.adjustmentNotices.get().get(tabId)
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
-    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== from) return false
-    if (tab.store.replayRecorded(ops(notice.records))) {
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'ready') return false
+    const plan = this.adjustmentUndoPlan(tab, notice)!
+    if (!this.replayAdjustments(tab, notice, plan.ops)) return false
+    const undone = { redo: invertOps(plan.ops), kept: plan.kept }
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, undone }))
+    return true
+  }
+
+  /** Puts back what the notice's Undo took back, in one undo step. */
+  redoAdjustments(tabId: string): boolean {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'undone') return false
+    if (!this.replayAdjustments(tab, notice, this.adjustmentRedoOps(notice))) return false
+    const { undone: _, ...rest } = notice
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, rest))
+    return true
+  }
+
+  private replayAdjustments(tab: Tab, notice: AdjustmentNotice, ops: readonly PatchOp[]): boolean {
+    if (tab.store.replayRecorded(ops)) {
       reconcileGraphNavigation(tab)
       return true
     }
     const refusedAt = tab.store.revision
-    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, refusedAt }))
+    this.adjustmentNotices.update((current) => new Map(current).set(tab.id, { ...notice, refusedAt }))
     return false
   }
 

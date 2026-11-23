@@ -164,7 +164,7 @@ describe('native open-time replacement', () => {
     expect(tab.store.canUndo).toBe(false)
   })
 
-  it('takes back every upgrade in one step, keeps later edits, and refuses once an upgraded value changed', async () => {
+  it('takes back every upgrade in one step, keeps later edits, and keeps a node whose upgraded value the user changed', async () => {
     loadSchemas(app)
     const original = document()
     await app.openDocument(original, 'Historical document')
@@ -187,10 +187,18 @@ describe('native open-time replacement', () => {
     expect(tab.store.dispatch({ command: 'node.setValues', params: {
       graphId: 'g0', nodeId: 'second', values: { amount: 30 },
     } }).ok).toBe(true)
-    const edited = tab.store.doc
-    expect(app.adjustmentNoticeState(tab.id)).toBe('refused')
-    expect(app.undoAdjustments(tab.id)).toBe(false)
-    expect(tab.store.doc).toBe(edited)
+    // The user's own edit of an upgraded value: Undo takes back the other node and keeps this one as edited.
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect([graph().nodes.first!.type, graph().nodes.second!.type]).toEqual(['Previous', 'Current'])
+    expect([graph().nodes.first!.values, graph().nodes.second!.values]).toEqual([{ oldAmount: 11 }, { amount: 30 }])
+    expect(graph().links.lost).toBeUndefined()
+    expect(app.adjustmentNoticeState(tab.id)).toBe('undone')
+    expect(app.adjustmentNotices.get().get(tab.id)!.undone!.kept).toBe(1)
+    expect(app.redoAdjustments(tab.id)).toBe(true)
+    expect([graph().nodes.first!.type, graph().nodes.first!.values]).toEqual(['Current', { amount: 11 }])
+    expect(graph().nodes.second!.values).toEqual({ amount: 30 })
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
   })
 
   it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes the notice only for a batch stored in the open tab: %s', async (completion) => {

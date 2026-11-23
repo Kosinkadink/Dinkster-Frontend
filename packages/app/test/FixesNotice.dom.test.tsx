@@ -109,6 +109,20 @@ describe('the notice of the editor\'s own fixes', () => {
     app.dispose()
   })
 
+  it('keeps a node whose adjusted value the user changed since, puts back the rest, and says how many it kept', async () => {
+    const { app, tab, root, unmount } = await openOutdated(3)
+    expect(tab.store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n2', values: { amount: 50 } } }).ok).toBe(true)
+    button(root, 'Undo')!.click()
+    expect(types(tab)).toEqual(['Previous', 'Current', 'Previous'])
+    expect(tab.store.doc.graphs.g0!.nodes.n2!.values).toEqual({ amount: 50 })
+    expect(root.querySelector('.dinkster-fixes-title')?.textContent).toBe('Adjustments undone. 1 node you changed since was kept.')
+    button(root, 'Redo adjustments')!.click()
+    expect(types(tab)).toEqual(Array(3).fill('Current'))
+    expect(root.querySelector('.dinkster-fixes-title')?.textContent).toBe('3 things were adjusted')
+    unmount()
+    app.dispose()
+  })
+
   it('closes only Review on Escape and leaves a count after the cross until the workflow is cleared', async () => {
     const { app, tab, root, unmount } = await openOutdated(3)
     button(root, 'Review')!.click()
@@ -121,6 +135,9 @@ describe('the notice of the editor\'s own fixes', () => {
     app.reopenAdjustmentNotice(tab.id)
     await Promise.resolve()
     expect(root.querySelector('.dinkster-fixes-review')).not.toBeNull()
+    button(root, 'Automatic fixes...')!.click()
+    expect(app.modalPanel.get()).toBe('settings')
+    expect(app.settingsOpenRequest.get()).toEqual({ category: 'execution', id: 'execution.reviewUpgrades' })
     app.clearAdjustmentNotice(tab.id)
     await Promise.resolve()
     expect(root.querySelector('.dinkster-fixes-notice')).toBeNull()
