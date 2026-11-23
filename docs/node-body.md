@@ -148,6 +148,14 @@ default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
 
+A shared choice has one stored key, and each `Use` of it may offer fewer of
+its options with `only`. When retention, flattening or a replacement reads an
+option that is not chosen, a stored key that place leaves out is not a
+problem. The place reads as its start key: its default when it offers it,
+otherwise its first offered option. Nothing is stored or changed. A stored key
+that no option of the shared choice declares is refused once for the choice,
+and so is a key the chosen option leaves out.
+
 ## Type choices
 
 A type choice is led by the type plugged into its pin. Connecting a producer
