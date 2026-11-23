@@ -458,6 +458,12 @@ export function memberSpans(layout: NodeLayout, construct: string): MemberSpan[]
     if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder?.construct !== construct) continue
     const own = row.kind === 'member' ? layout.boxes?.find((candidate) => candidate.id === row.memberId) : undefined
     const x = own?.x ?? (row.kind === 'widget' ? row.inset : (group?.x ?? 0) + box.stroke + box.fieldGap)
+    // One span per member, however many rows it draws.
+    const last = spans.at(-1)
+    if (last?.member === row.reorder.member) {
+      spans[spans.length - 1] = { ...last, bottom: own === undefined ? row.y + row.height : own.y + own.height }
+      continue
+    }
     spans.push({
       member: row.reorder.member,
       top: own?.y ?? row.y,
@@ -1055,13 +1061,15 @@ export function layoutNode(
   const isHidden = (chain: readonly string[]): boolean => closedAt(chain) !== undefined
   /** A row that is a whole member of a group growing by hand, with no member box of its own. */
   const removable = (item: ElaboratedInput, chain: readonly string[]): boolean =>
-    item.origin.kind === 'member' && chain.at(-1) === groupBoxKey(item.origin.construct) &&
+    tokens.memberRemoveCross && item.origin.kind === 'member' && chain.at(-1) === groupBoxKey(item.origin.construct) &&
     decls.get(chain.at(-1)!)!.byHand === true
   /** A stored member of a group that can be reordered, from its group's declaration. */
   const gripOf = (construct: string, member: string): PendingGrip | undefined => {
     const group = decls.get(groupBoxKey(construct))
     if (group?.reorderable !== true) return undefined
-    return { construct, member, ...(group.members === 1 ? { alone: true as const } : {}) }
+    // Only stored members move: offered ones the group shows to reach its least count do not.
+    const stored = node.dynamic?.[construct]?.members?.length ?? 0
+    return { construct, member, ...(stored === 1 ? { alone: true as const } : {}) }
   }
   /** A row that is a whole stored member, with no member box of its own. */
   const rowGrip = (item: ElaboratedInput, chain: readonly string[]): PendingGrip | undefined =>
@@ -1548,9 +1556,11 @@ export function layoutNode(
         // A choice's dropdown reaches the outline of its option box instead.
         const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
         rowIndex.set(row, rows.length)
+        // A member drawn as one line of fields has its cross and grip once, at the line's end.
+        const lineEnd = lines.get(row)!.at(-1) === row
         push({
-          kind: 'widget', y, height, inset, ...w, ...(row.removable ? { crossInset: inset } : {}),
-          ...(row.reorder ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
+          kind: 'widget', y, height, inset, ...w, ...(row.removable && lineEnd ? { crossInset: inset } : {}),
+          ...(row.reorder && lineEnd ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
         // Socketless controls keep their editor and outgoing value tap.
         if (!w.socketless) pins.push({
@@ -1702,8 +1712,8 @@ export function layoutNode(
     const gripRoom = row.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap
     const right = width - (row.crossInset ?? fieldInset(rowDepth[index]!)) - crossRoom
     const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: right - box.gripWidth / 2 } }
-    if (row.kind === 'widget' && row.width === undefined && crossRoom + gripRoom > 0)
-      rows[index] = { ...row, width: width - row.inset * 2 - crossRoom - gripRoom, ...reorder }
+    if (row.kind === 'widget' && crossRoom + gripRoom > 0)
+      rows[index] = { ...row, width: (row.width ?? width - row.inset * 2) - crossRoom - gripRoom, ...reorder }
     else if (row.reorder !== undefined)
       rows[index] = { ...row, ...reorder }
   }

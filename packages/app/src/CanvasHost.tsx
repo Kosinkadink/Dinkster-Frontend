@@ -3364,7 +3364,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         // A member of a group that can be reordered moves one place up or
         // down, through the same command as dragging its grip.
-        const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node as SceneNode : undefined
+        const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node : undefined
         const member = memberNode === undefined ? undefined : memberAt(memberNode.layout, worldY - memberNode.y)
         if (memberNode !== undefined && member !== undefined) {
           const move = (index: number): CommandInvocation => ({

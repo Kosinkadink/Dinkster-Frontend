@@ -984,7 +984,7 @@ describe('sections', () => {
     expect(layout().rows.find((r) => r.kind === 'section')).not.toHaveProperty('hiddenPorts')
   })
 
-  it('ends each one-row member of a group grown by hand with a remove cross', () => {
+  it('ends each one-row member of a group grown by hand with a remove cross, once the cross is on', () => {
     const group = (grows: 'button' | 'link'): NodeSchema['body'][number] => ({
       kind: 'group',
       id: 'prompts',
@@ -993,8 +993,8 @@ describe('sections', () => {
       grows,
       minMembers: 2,
     })
-    const fields = (grows: 'button' | 'link') => {
-      const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, defaultTokens, measure, widgetMeasure)
+    const fields = (grows: 'button' | 'link', tokens = { ...defaultTokens, memberRemoveCross: true }) => {
+      const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, tokens, measure, widgetMeasure)
       return l.rows.flatMap((r) => r.kind === 'widget'
         ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2) }]
         : [])
@@ -1009,6 +1009,8 @@ describe('sections', () => {
       expect(member.right - member.inset).toBe(cross.size + cross.fieldGap)
     }
     expect(fields('link').every((field) => field.cross === undefined)).toBe(true)
+    // The editor draws no cross until pressing it removes the member.
+    expect(fields('button', defaultTokens).every((field) => field.cross === undefined && field.right === field.inset)).toBe(true)
   })
 
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
