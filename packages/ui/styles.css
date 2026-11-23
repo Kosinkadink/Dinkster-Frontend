@@ -575,7 +575,7 @@
 .dinkster-canvas-editor-section[open] > summary > .dinkster-canvas-editor-section-arrow { transform: rotate(90deg); }
 /* A row the canvas does not paint, drawn as the canvas draws it closed; it opens in place over itself. */
 .dinkster-canvas-editor-field-slot { position: relative; flex: 1; min-width: 0; }
-.dinkster-canvas-closed-row { width: 100%; box-sizing: border-box; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.dinkster-canvas-closed-row { width: 100%; box-sizing: border-box; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .dinkster-canvas-closed-row:focus-visible, .dinkster-canvas-closed-row-open:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
 .dinkster-canvas-closed-row .dinkster-canvas-field-step { width: var(--dinkster-space-24); }
 .dinkster-canvas-closed-row-open { display: flex; flex: 1; align-items: center; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -585,11 +585,11 @@
 .dinkster-canvas-closed-row-chevron .dinkster-canvas-field-step-glyph { stroke-width: 1.5; }
 .dinkster-canvas-editor-field-slot > .dinkster-canvas-field { top: calc(-1 * var(--dinkster-border-width)); left: calc(-1 * var(--dinkster-border-width)); }
 .dinkster-canvas-editor-section-rows { display: flex; flex-direction: column; }
-.dinkster-canvas-editor-fact { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); box-sizing: border-box; height: var(--dinkster-input-canvas-height); padding: 0 calc(var(--dinkster-space-4) * 1.5); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); }
+.dinkster-canvas-editor-fact { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); box-sizing: border-box; height: var(--dinkster-input-canvas-height); padding: 0 calc(var(--dinkster-space-4) * 1.5); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); }
 .dinkster-canvas-editor-fact-label { flex: 0 1 auto; min-width: 2em; overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-editor-fact-value { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--dinkster-text-primary); white-space: nowrap; text-overflow: ellipsis; }
 /* The recorder's strip: the round button, the status over the time, the waveform, the icons. Two rows tall. */
-.dinkster-canvas-recorder { height: calc((var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)) * 2); padding: 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); }
+.dinkster-canvas-recorder { height: calc((var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)) * 2); padding: 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); }
 .dinkster-canvas-recorder-status { display: flex; flex: none; flex-direction: column; min-width: calc(var(--dinkster-space-32) * 3); }
 .dinkster-canvas-recorder-detail { color: var(--dinkster-text-secondary); }
 .dinkster-canvas-recorder-wave { flex: 1; min-width: 0; height: 70%; }
