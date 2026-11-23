@@ -382,6 +382,46 @@ describe('stableActorId', () => {
   })
 })
 
+describe('the notice of the editor\'s own fixes in a shared workflow', () => {
+  it('refuses Undo for the whole notice once another person changed an adjusted value, and keeps their value', async () => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    for (const app of [appA, appB]) for (const backend of app.backends.get()) {
+      backend.registry.set(buildDinksterRegistry(asConnectionId(backend.id), {
+        schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-collab', schemaWire: 2 }, packs: {},
+        nodes: { Current: {
+          body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 7 }],
+          replacements: [{ from: 'Previous', cases: [{ to: 'Current', inputs: { amount: { kind: 'copy', input: 'oldAmount' } } }] }],
+        } },
+      }))
+    }
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'notice-collab', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+        n1: { id: 'n1', type: 'Previous', values: { oldAmount: 11 } },
+        n2: { id: 'n2', type: 'Previous', values: { oldAmount: 29 } },
+      } } },
+      view: { graphs: { g0: { nodes: {} } } },
+    }, 'Shared upgrade')).toEqual([])
+    const tabA = activeTab(appA)
+    await until(() => appA.adjustmentNoticeState(tabA.id) === 'ready', 'notice on open')
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('ready')
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    const tabB = activeTab(appB)
+    await until(() => tabB.store.doc.graphs.g0?.nodes.n2?.type === 'Current', 'peer catch-up')
+    expect(tabB.store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n2', values: { amount: 30 } } }).ok).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    const sharedA = () => appA.tabs.get().find((tab) => tab.id === tabA.id)!
+    await until(() => sharedA().store.doc.graphs.g0!.nodes.n2!.values.amount === 30, 'foreign edit')
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('refused')
+    expect(appA.undoAdjustments(tabA.id)).toBe(false)
+    expect(sharedA().store.doc.graphs.g0!.nodes.n2!.values).toEqual({ amount: 30 })
+    expect(sharedA().store.doc.graphs.g0!.nodes.n1!.type).toBe('Current')
+  })
+})
+
 describe('share', () => {
 
   it.each(['option', 'group', 'choice', 'slot'] as const)('shares removed %s data without stripping leftovers', async (part) => {
@@ -406,7 +446,8 @@ describe('share', () => {
     } } } }
     expect(await app.openDocument(incoming, 'Updated pack')).toEqual([])
     const tab = activeTab(app)
-    await vi.waitFor(() => expect(app.problems.get().some((entry) => entry.code === 'upgrade.removedDynamicParts')).toBe(true))
+    await vi.waitFor(() => expect(app.adjustmentNotices.get().has(tab.id) ||
+      app.problems.get().some((entry) => entry.code === 'upgrade.removedDynamicParts')).toBe(true))
     const snapshot = structuredClone(tab.store.doc)
     expect(await app.shareActiveTab()).toBeUndefined()
     expect(app.collabFor(tab.id)).toBeDefined()

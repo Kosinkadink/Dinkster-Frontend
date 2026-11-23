@@ -100,7 +100,9 @@ async function openMigration(page: Page, lineage: string): Promise<void> {
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
 }
 
-test('open-time lossy upgrades show one navigable notice and undo together', async ({ page }, testInfo) => {
+const noticeTitle = (page: Page) => page.getByTestId('fixes-notice').locator('.dinkster-fixes-title')
+
+test('open-time lossy upgrades show one notice on the canvas that navigates and undoes together', async ({ page }, testInfo) => {
   await migrationCatalog(page)
   await openMigration(page, 'automatic-migration')
   expect(await page.evaluate(() => {
@@ -113,14 +115,23 @@ test('open-time lossy upgrades show one navigable notice and undo together', asy
   expect(await page.evaluate(() => Object.values(window.__dinksterTest!.renderer!.getBadges())
     .flatMap((badges) => badges.map((badge) => badge.id)))).not.toContain('core.deprecated')
   await expect(page.getByTestId('badge-popover')).toHaveCount(0)
+  const notice = page.getByTestId('fixes-notice')
+  await expect(noticeTitle(page)).toHaveText('2 things were adjusted')
+  // The notice is in the canvas's bottom right corner.
+  expect(await page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const line = document.querySelector('[data-testid=fixes-notice] .dinkster-fixes-line')!.getBoundingClientRect()
+    return line.right <= canvas.right && line.right > canvas.right - 40 && line.bottom > canvas.top + canvas.height / 2
+  })).toBe(true)
   await openRailPanel(page, 'Problems')
-  const notice = page.getByTestId('migration-notice')
-  await expect(notice).toHaveCount(1)
-  await expect(notice).toContainText('Workflow upgraded')
-  await expect(notice.locator('.problem')).toHaveCount(2)
+  await expect(page.getByTestId('problems-panel')).not.toContainText('Workflow upgraded')
+  await expect(page.getByTestId('problems-panel')).not.toContainText('Upgraded on open')
+  await notice.getByRole('button', { name: 'Review', exact: true }).click()
+  const rows = notice.locator('.dinkster-fixes-review-row')
+  await expect(rows).toHaveCount(2)
+  await expect(notice).toContainText('replaced older node')
   await expect(notice).toContainText('will be removed')
-  await expect(notice.getByRole('button', { name: /Apply/ })).toHaveCount(0)
-  await notice.getByRole('button', { name: 'first: Previous -> Current', exact: true }).click()
+  await rows.first().click()
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   await expect.poll(() => page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
@@ -132,31 +143,72 @@ test('open-time lossy upgrades show one navigable notice and undo together', asy
       (node.y + node.layout.height / 2) * viewport.scale + viewport.y - canvas.height / 2,
     )
   })).toBeLessThan(2)
-  await page.screenshot({ path: testInfo.outputPath('migration-notice.png') })
-  await notice.getByRole('button', { name: 'Undo upgrades', exact: true }).click()
-  await expect(notice).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('fixes-notice-review.png') })
+  await page.keyboard.press('Escape')
+  await notice.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(noticeTitle(page)).toHaveText('Adjustments undone')
   expect(await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     const graph = tab.store.doc.graphs.g0!
     return { types: Object.values(graph.nodes).map((node) => node.type), values: graph.nodes.first!.values,
-      dynamic: graph.nodes.first!.dynamic, link: graph.links.lost, canUndo: tab.store.canUndo }
+      dynamic: graph.nodes.first!.dynamic, link: graph.links.lost }
   })).toEqual({ types: ['Previous', 'Previous'], values: { oldAmount: 11 }, dynamic: { format: { selected: 'webm_av1' } },
-    link: { id: 'lost', from: { node: 'first', port: 'discarded' }, to: { node: 'second', port: 'unmapped' } }, canUndo: false })
+    link: { id: 'lost', from: { node: 'first', port: 'discarded' }, to: { node: 'second', port: 'unmapped' } } })
   // Undo must not introduce default-mode manual approval controls.
   expect(await page.evaluate(() => Object.values(window.__dinksterTest!.renderer!.getBadges())
     .flatMap((badges) => badges.map((badge) => badge.id)))).not.toContain('core.deprecated')
   await expect(page.getByTestId('badge-apply-replacement')).toHaveCount(0)
+  await notice.getByRole('button', { name: 'Redo adjustments', exact: true }).click()
+  await expect(noticeTitle(page)).toHaveText('2 things were adjusted')
+  expect(await page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes).map((node) => node.type)))
+    .toEqual(['Current', 'Current'])
 })
 
-test('migration notices dismiss, clear on save or close, and never persist', async ({ page }) => {
+test('twelve changes on open are grouped in Review and one Undo takes all twelve back', async ({ page }, testInfo) => {
+  await migrationCatalog(page)
+  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'twelve-migrations', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 13, nets: {}, reroutes: {}, links: {},
+      nodes: Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`n${index + 1}`,
+        { id: `n${index + 1}`, type: 'Previous', title: `Old node ${index + 1}`, values: { oldAmount: index } }])),
+    } },
+    view: { graphs: { g0: { nodes: Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`n${index + 1}`,
+      { position: { x: 60 + (index % 4) * 260, y: 60 + Math.floor(index / 4) * 160 } }])) } } },
+  }, 'Twelve migrations')))).toEqual([])
+  const notice = page.getByTestId('fixes-notice')
+  await expect(noticeTitle(page)).toHaveText('12 things were adjusted')
+  await notice.getByRole('button', { name: 'Review', exact: true }).click()
+  await expect(notice.locator('.dinkster-fixes-review-kind')).toHaveText(['Nodes replaced by newer ones (12)'])
+  await expect(notice.locator('.dinkster-fixes-review-row')).toHaveCount(12)
+  await notice.locator('.dinkster-fixes-review-row').nth(5).click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  await page.screenshot({ path: testInfo.outputPath('fixes-notice-twelve.png') })
+  const undoDepth = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.historySnapshot().undo.length)
+  const before = await undoDepth()
+  await notice.getByRole('button', { name: 'Undo', exact: true }).click()
+  const types = () => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes).map((node) => node.type))
+  expect(await types()).toEqual(Array(12).fill('Previous'))
+  expect(await undoDepth()).toBe(before + 1)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(await types()).toEqual(Array(12).fill('Current'))
+})
+
+test('the notice dismisses to a status bar count that brings it back, clears on save or close, and never persists', async ({ page }, testInfo) => {
   await migrationCatalog(page)
   await openMigration(page, 'dismiss-migration')
-  await openRailPanel(page, 'Problems')
-  const notice = page.getByTestId('migration-notice')
+  const notice = page.getByTestId('fixes-notice')
+  const count = page.getByTestId('status-adjusted')
+  await expect(count).toHaveCount(0)
   await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
   await expect(notice).toHaveCount(0)
+  await expect(count).toHaveText('2 adjusted')
+  await page.screenshot({ path: testInfo.outputPath('fixes-notice-count.png') })
+  await count.getByRole('button').click()
+  await expect(notice.locator('.dinkster-fixes-review')).toBeVisible()
   await openMigration(page, 'save-migration')
   await expect(notice).toHaveCount(1)
+  // Each workflow tab has its own notice and count.
+  await expect(count).toHaveCount(0)
   let uploaded = ''
   await page.route('**/api/assets', async (route) => {
     uploaded = route.request().postData() ?? ''
@@ -168,24 +220,28 @@ test('migration notices dismiss, clear on save or close, and never persist', asy
   })
   await page.keyboard.press('Control+s')
   await expect(notice).toHaveCount(0)
+  await expect(count).toHaveCount(0)
   expect(JSON.parse(uploaded).graphs.g0.nodes.first).toEqual({
     id: 'first', type: 'Current', values: { amount: 11, format: 'webm_av1' },
   })
-  expect(uploaded).not.toContain('replace.applied')
+  expect(uploaded).not.toContain('replaced older node')
   expect(uploaded).not.toContain('will be removed')
   expect(await page.evaluate(async (saved) => (await window.__dinksterTest!.app.openDocument(JSON.parse(saved), 'Saved migration')), uploaded)).toEqual([])
   await expect(notice).toHaveCount(0)
+  await expect(count).toHaveCount(0)
   await openMigration(page, 'close-migration')
   await expect(notice).toHaveCount(1)
-  await page.evaluate(() => {
+  const closed = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    app.closeTab(app.activeTab()!.id)
+    const id = app.activeTab()!.id
+    app.closeTab(id)
+    return id
   })
   await expect(notice).toHaveCount(0)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.migrationNotices.get().size)).toBe(0)
+  expect(await page.evaluate((id) => window.__dinksterTest!.app.adjustmentNotices.get().has(id), closed)).toBe(false)
 })
 
-test('deprecated resize imports its authored size and undoes from the migration notice', async ({ page }, testInfo) => {
+test('deprecated resize imports its authored size and undoes from the notice', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'resize-migration-fixture', schemaWire: 2 },
     nodes: { ImageScaleToMaxDimension: {
@@ -216,16 +272,17 @@ test('deprecated resize imports its authored size and undoes from the migration 
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values))
     .toEqual({ largest_size: 1536, upscale_method: 'lanczos' })
-  await openRailPanel(page, 'Problems')
-  const notice = page.getByTestId('migration-notice')
-  await expect(notice).toContainText('ImageScaleToMaxDimension')
+  const notice = page.getByTestId('fixes-notice')
+  await notice.getByRole('button', { name: 'Review', exact: true }).click()
+  await expect(notice).toContainText('Scale image to maximum dimension')
+  await expect(notice).toContainText('replaced older node')
   await page.screenshot({ path: testInfo.outputPath('resize-import-migrated.png') })
-  await notice.getByRole('button', { name: 'Undo upgrades', exact: true }).click()
-  await expect(notice).toHaveCount(0)
+  await notice.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(noticeTitle(page)).toHaveText('Adjustments undone')
   expect(await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
-    return { type: tab.store.doc.graphs.g0!.nodes.n1!.type, values: tab.store.doc.graphs.g0!.nodes.n1!.values, canUndo: tab.store.canUndo }
-  })).toEqual({ type: 'ResizeImagesByLongerEdge', values: { longer_edge: 1536 }, canUndo: false })
+    return { type: tab.store.doc.graphs.g0!.nodes.n1!.type, values: tab.store.doc.graphs.g0!.nodes.n1!.values }
+  })).toEqual({ type: 'ResizeImagesByLongerEdge', values: { longer_edge: 1536 } })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes[0]?.unrecognized))
     .toBe(true)
   await page.screenshot({ path: testInfo.outputPath('resize-import-undone.png') })
@@ -238,7 +295,7 @@ test('only opt-in review holds a lossy migration for badge Apply', async ({ page
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.reviewUpgrades', true))
   await openMigration(page, 'review-migration')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.first!.type)).toBe('Previous')
-  await expect(page.getByTestId('migration-notice')).toHaveCount(0)
+  await expect(page.getByTestId('fixes-notice')).toHaveCount(0)
   const point = await badgePoint(page, 'first')
   await page.mouse.click(point.x, point.y)
   const popover = page.getByTestId('badge-popover')

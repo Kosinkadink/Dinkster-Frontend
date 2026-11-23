@@ -1,6 +1,7 @@
 .statusbar-state { flex-wrap: nowrap; overflow: hidden; overflow-wrap: normal; }
 .status-items { display: flex; align-items: center; gap: var(--dinkster-space-8); width: 100%; min-width: 0; white-space: nowrap; }
 .status-item.product-button { flex: none; min-height: 0; padding: 0 var(--dinkster-space-4); gap: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: inherit; line-height: inherit; }
+.status-adjusted { flex: none; display: inline-flex; }
 .status-item .dinkster-icon { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
 .status-connection-dot { width: var(--dinkster-space-8); height: var(--dinkster-space-8); border-radius: 50%; background: var(--dinkster-success-foreground); }
 .status-connection:not([data-state='connected']) { color: var(--dinkster-warning-foreground); }

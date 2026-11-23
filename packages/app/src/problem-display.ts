@@ -268,7 +268,7 @@ export interface ProblemGroup {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-export const problemSections = ['execution', 'workflow', 'upgrade', 'packs', 'collaboration'] as const
+export const problemSections = ['execution', 'workflow', 'packs', 'collaboration'] as const
 export type ProblemSection = typeof problemSections[number]
 
 export const problemSectionForOrigin = {
@@ -277,7 +277,7 @@ export const problemSectionForOrigin = {
   compile: 'workflow',
   invariant: 'workflow',
   environment: 'workflow',
-  import: 'upgrade',
+  import: 'workflow',
   schema: 'packs',
   extension: 'packs',
   command: 'packs',

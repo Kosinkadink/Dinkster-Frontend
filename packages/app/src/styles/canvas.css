@@ -280,6 +280,8 @@
   width: min(160px, calc(100% - 20px));
   pointer-events: none;
 }
+/* The notice of the editor's own fixes sits above the corner controls, as wide as its line. */
+.canvas-fixes-notice { align-self: flex-end; width: max-content; pointer-events: auto; }
 .canvas-corner-controls[data-minimap-size='medium'] { width: min(196px, calc(100% - 20px)); }
 .canvas-corner-controls[data-minimap-size='large'] { width: min(256px, calc(100% - 20px)); }
 .canvas-corner-controls[data-minimap-size='medium'] .minimap { height: 118px; }

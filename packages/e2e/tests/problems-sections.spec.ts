@@ -3,7 +3,7 @@ import { evidencePath } from './evidence-output.js'
 
 test.use({ seedWorkflows: false })
 
-test('removed pack parts open with anchored upgrade rows and preserve their stored values', async ({ page }) => {
+test('removed pack parts open with a notice for the replaced option, anchored rows for the rest, and their stored values kept', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
@@ -31,12 +31,16 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
       } } } },
     }, 'After a pack update')
   })
+  // The removed option is replaced and reported in the notice; the parts it cannot replace stay problems.
+  const notice = page.getByTestId('fixes-notice')
+  await expect(notice.locator('.dinkster-fixes-title')).toHaveText('1 thing was adjusted')
+  await notice.getByRole('button', { name: 'Review', exact: true }).click()
+  await expect(notice).toContainText("option 'removed' of 'Mode' is no longer in the pack. It is now 'current'.")
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
-  await expect(panel.locator('.problems-group-title')).toContainText(['Upgraded on open'])
-  const upgrades = panel.locator('[data-section="upgrade"]')
-  await expect(upgrades.locator('details.problem')).toHaveCount(3)
-  await expect(upgrades).toContainText("option 'removed' of 'Mode' is no longer in the pack. It is now 'current'.")
+  await expect(panel.locator('.problems-group-title')).not.toContainText(['Upgraded on open'])
+  const upgrades = panel.locator('[data-section="workflow"] details.problem').filter({ hasText: 'is no longer part of this node' })
+  await expect(upgrades).toHaveCount(2)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.option!.dynamic!.mode!.selected)).toBe('current')
   await expect(page.getByTestId('status-bar')).not.toContainText('Workflow dynamic identities are invalid')
   await page.screenshot({ path: evidencePath('removed-pack-parts', 'opened.png'), animations: 'disabled' })
@@ -48,7 +52,7 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
   })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 } }, choice: { old: { selected: 'previous' } } })
 })
 
-test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {
+test('Problems presents four ordered sections with one-line rows and debug-only codes', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
@@ -81,11 +85,11 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
   await expect(panel.locator('.problems-group-title')).toHaveText([
-    'Execution', 'This workflow', 'Upgraded on open', 'Packs and backend', 'Collaboration',
+    'Execution', 'This workflow', 'Packs and backend', 'Collaboration',
   ])
   const rows = panel.locator('details.problem summary')
   await expect(rows).toHaveCount(5)
-  await panel.screenshot({ path: evidencePath('problems-sections', 'five-sections.png'), animations: 'disabled' })
+  await panel.screenshot({ path: evidencePath('problems-sections', 'four-sections.png'), animations: 'disabled' })
   for (const row of await rows.all()) {
     await expect(row).not.toContainText(/\[(error|warning|info)\]|(?:runtime|schema|compile|import|collab)\./)
     const line = row.locator('.problem-message')

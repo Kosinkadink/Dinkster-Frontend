@@ -357,7 +357,7 @@ interface DinksterTestBridge {
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    migrationNotices: { get(): ReadonlyMap<string, unknown> }
+    adjustmentNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
       | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>

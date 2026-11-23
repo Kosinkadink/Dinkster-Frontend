@@ -103,15 +103,15 @@ describe('native open-time replacement', () => {
       .toMatchObject({ largest_size: 1536, upscale_method: 'lanczos' })
     expect(tab.store.doc.ext!['importer.comfyWorkflow']).toEqual(source)
     expect(JSON.stringify(source)).toBe(original)
-    await vi.waitFor(() => expect(resizeApp.migrationNotices.get().has(tab.id)).toBe(true))
-    expect(resizeApp.migrationNotices.get().get(tab.id)!.entries).toHaveLength(1)
-    expect(resizeApp.undoMigrationNotice(tab.id)).toBe(true)
+    await vi.waitFor(() => expect(resizeApp.adjustmentNotices.get().has(tab.id)).toBe(true))
+    expect(resizeApp.adjustmentNotices.get().get(tab.id)!.adjustments).toHaveLength(1)
+    expect(resizeApp.undoAdjustments(tab.id)).toBe(true)
     const restored = tab.store.doc.graphs[nested ? 'inner' : 'g0']!
     expect(restored.nodes.n2!.type).toBe('ResizeImagesByLongerEdge')
     expect(restored.nodes.n2!.values).toEqual({ longer_edge: 1536 })
     expect(restored.links.l1!.to).toEqual({ node: 'n2', port: 'images' })
     expect(restored.links.l2!.from).toEqual({ node: 'n2', port: 'images' })
-    expect(tab.store.canUndo).toBe(false)
+    expect(resizeApp.adjustmentNoticeState(tab.id)).toBe('undone')
     resizeApp.dispose()
   })
 
@@ -131,12 +131,12 @@ describe('native open-time replacement', () => {
     expect([graph.nodes.first!.type, graph.nodes.second!.type]).toEqual(['Current', 'Current'])
     expect([graph.nodes.first!.values, graph.nodes.second!.values]).toEqual([{ amount: 11 }, { amount: 29 }])
     expect(graph.links).toEqual({})
-    await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
-    const notice = app.migrationNotices.get().get(tab.id)!
-    expect(notice.entries).toHaveLength(2)
-    expect(notice.entries.map((entry) => entry.anchor?.occurrence?.node)).toEqual(['first', 'second'])
-    expect(notice.entries.flatMap((entry) => entry.data!.warnings as string[]).join(' ')).toContain('will be removed')
-    expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('replace.applied')
+    await vi.waitFor(() => expect(app.adjustmentNotices.get().has(tab.id)).toBe(true))
+    const notice = app.adjustmentNotices.get().get(tab.id)!
+    expect(notice.adjustments).toHaveLength(2)
+    expect(notice.adjustments.map((entry) => entry.anchor?.occurrence?.node)).toEqual(['first', 'second'])
+    expect(notice.adjustments.flatMap((entry) => entry.details).join(' ')).toContain('will be removed')
+    expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('will be removed')
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
     expect(tab.store.doc.graphs.g0!.links.lost).toEqual(original.graphs.g0.links.lost)
@@ -145,8 +145,8 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.second!.type).toBe('Previous')
     expect(tab.store.redo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.second!.values).toEqual({ amount: 29 })
-    app.dismissMigrationNotice(tab.id)
-    expect(app.migrationNotices.get().has(tab.id)).toBe(false)
+    app.clearAdjustmentNotice(tab.id)
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
   })
 
   it('holds migrations only in opt-in review and applies through the existing command', async () => {
@@ -155,7 +155,7 @@ describe('native open-time replacement', () => {
     expect((await app.openDocument(document(), 'Review'))).toEqual([])
     const tab = app.activeTab()!
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
-    expect(app.migrationNotices.get().has(tab.id)).toBe(false)
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
     const items = app.scanTabReplacements(tab)
     expect(items).toHaveLength(2)
     expect(await app.applyReplacements(tab, items), JSON.stringify({ items, problems: app.problems.get() })).toBe(true)
@@ -164,34 +164,36 @@ describe('native open-time replacement', () => {
     expect(tab.store.canUndo).toBe(false)
   })
 
-  it('undoes the upgrade batch from its notice without undoing later edits', async () => {
+  it('takes back every upgrade in one step, keeps later edits, and refuses once an upgraded value changed', async () => {
     loadSchemas(app)
     const original = document()
     await app.openDocument(original, 'Historical document')
     const tab = app.activeTab()!
-    await vi.waitFor(() => expect(app.canUndoMigrationNotice(tab.id)).toBe(true))
-    expect(app.canUndoMigrationNotice(tab.id)).toBe(true)
+    await vi.waitFor(() => expect(app.adjustmentNoticeState(tab.id)).toBe('ready'))
     expect(tab.store.dispatch({ command: 'node.move', params: {
       graphId: 'g0', positions: { first: { x: 280, y: 190 } },
     } }).ok).toBe(true)
-    const edited = tab.store.doc
-    expect(app.canUndoMigrationNotice(tab.id)).toBe(false)
-    expect(app.undoMigrationNotice(tab.id)).toBe(false)
-    expect(tab.store.doc).toBe(edited)
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    const graph = () => tab.store.doc.graphs.g0!
+    expect([graph().nodes.first!.values, graph().nodes.second!.values]).toEqual([{ oldAmount: 11 }, { oldAmount: 29 }])
+    expect(graph().links.lost).toEqual(original.graphs.g0.links.lost)
+    expect(tab.store.doc.view.graphs.g0!.nodes.first!.position).toEqual({ x: 280, y: 190 })
+    expect(app.adjustmentNoticeState(tab.id)).toBe('undone')
+    // The notice's Undo is one ordinary undo step: undoing it puts both upgrades back at once.
     expect(tab.store.undo()).toBe(true)
-    expect(app.canUndoMigrationNotice(tab.id)).toBe(true)
-    expect(app.undoMigrationNotice(tab.id)).toBe(true)
-    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual({ oldAmount: 11 })
-    expect(tab.store.doc.graphs.g0!.nodes.second!.values).toEqual({ oldAmount: 29 })
-    expect(tab.store.doc.graphs.g0!.links.lost).toEqual(original.graphs.g0.links.lost)
-    expect(tab.store.canUndo).toBe(false)
-    expect(app.migrationNotices.get().has(tab.id)).toBe(false)
-    expect(app.undoMigrationNotice(tab.id)).toBe(false)
-    expect(tab.store.redo()).toBe(true)
-    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual({ amount: 11 })
+    expect([graph().nodes.first!.type, graph().nodes.second!.type]).toEqual(['Current', 'Current'])
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    expect(tab.store.dispatch({ command: 'node.setValues', params: {
+      graphId: 'g0', nodeId: 'second', values: { amount: 30 },
+    } }).ok).toBe(true)
+    const edited = tab.store.doc
+    expect(app.adjustmentNoticeState(tab.id)).toBe('refused')
+    expect(app.undoAdjustments(tab.id)).toBe(false)
+    expect(tab.store.doc).toBe(edited)
   })
 
-  it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes only the accepted live upgrade notice: %s', async (completion) => {
+  it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes the notice only for a batch stored in the open tab: %s', async (completion) => {
     await app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!
     const dispatch = app.dispatchTo.bind(app)
@@ -212,7 +214,7 @@ describe('native open-time replacement', () => {
       return delivered as unknown as CommandOutcome
     })
     loadSchemas(app)
-    expect(app.migrationNotices.get().has(tab.id)).toBe(false)
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
     if (completion === 'closed') app.closeTab(tab.id)
     if (completion === 'replaced') {
@@ -223,9 +225,10 @@ describe('native open-time replacement', () => {
     await delivered
     await Promise.resolve()
     await Promise.resolve()
-    expect(app.migrationNotices.get().has(tab.id)).toBe(completion === 'accepted')
-    if (completion === 'accepted') expect(app.undoMigrationNotice(tab.id)).toBe(true)
-    if (completion === 'later edit') expect(app.undoMigrationNotice(tab.id)).toBe(false)
+    const published = completion === 'accepted' || completion === 'later edit'
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(published)
+    // A move made after the batch touches nothing it changed, so Undo still takes the batch back.
+    if (published) expect(app.undoAdjustments(tab.id)).toBe(true)
     if (completion === 'replaced') expect(app.activeTab()!.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
   })
 })

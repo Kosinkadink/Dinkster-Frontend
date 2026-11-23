@@ -103,6 +103,13 @@ export interface DocumentSession extends DocumentStoreContract {
    * successor's document is identical to this session's).
    */
   historySnapshot(): HistorySnapshot
+  /**
+   * Replay recorded patches, such as an earlier history record's inverse, as
+   * one new undo step. Refused, changing nothing, when the document no longer
+   * holds the values they were recorded against, when they no longer fit it,
+   * or when the result breaks an invariant.
+   */
+  replayRecorded(ops: readonly PatchOp[]): boolean
   /** Stage an exact candidate without publishing or submitting shared operations. */
   prepareDispatch?(invocation: CommandInvocation): PreparedDocumentDispatch
 }
@@ -258,6 +265,10 @@ class LocalDocumentSession implements DocumentSession {
 
   historySnapshot(): HistorySnapshot {
     return this.store.historySnapshot()
+  }
+
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    return this.store.replayRecorded(ops)
   }
 
   onOp(listener: (op: SessionOp) => void): () => void {

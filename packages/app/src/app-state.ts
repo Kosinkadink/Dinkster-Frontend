@@ -40,6 +40,8 @@ import {
   connectSharedSession,
   type HistorySnapshot,
   type HistorySnapshotRecord,
+  type PatchOp,
+  replayHistoryOps,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -1377,10 +1379,55 @@ export type ProblemOwner = string | symbol
 /** A Problems entry: the diagnostic plus the owner it belongs to. */
 export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 
-export interface MigrationNotice {
+/** A change the editor made by itself, reported in its tab's notice. */
+export interface Adjustment {
+  /** `replaced`: a node replaced by a newer one; `removedChoice`: a choice its pack removed, replaced. */
+  readonly kind: 'replaced' | 'removedChoice'
+  readonly graphId: string
+  readonly nodeId: string
+  /** Where choosing the change in Review takes the canvas. */
+  readonly anchor?: DiagnosticAnchor
+  /** The node's name when the change was made. */
+  readonly node: string
+  /** What changed, worded by whoever made the change. */
+  readonly details: readonly string[]
+  /** Changed rows, outputs or replaced nodes this change counts as. */
+  readonly count: number
+}
+
+/** Each workflow tab's report of the editor's own changes, kept until it is saved or closed. */
+export interface AdjustmentNotice {
   readonly owner: string
-  readonly entries: readonly OwnedDiagnostic[]
-  readonly undoRecord: HistorySnapshotRecord
+  readonly adjustments: readonly Adjustment[]
+  /** The recorded patches of every batch that made them, oldest first. */
+  readonly records: readonly HistorySnapshotRecord[]
+  /** Dismissed by its cross: only the status bar count remains. */
+  readonly dismissed: boolean
+  /** Brought back by the status bar count, which opens it with Review. */
+  readonly reopened?: boolean
+  /** The tab's revision at which Undo or Redo was refused, until the document changes. */
+  readonly refusedAt?: number
+}
+
+/** `ready`: Undo takes everything back; `undone`: Redo puts it back; `refused`: something changed since. */
+export type AdjustmentNoticeState = 'ready' | 'undone' | 'refused'
+
+/** Each graph's instance path through its first reachable occurrence. */
+const firstOccurrencePaths = (document: WorkflowDocument): Map<string, readonly NodeId[]> => {
+  const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
+  for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+    const child = subgraphDefIdOf(node.type)
+    if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+  }
+  return paths
+}
+
+const holdsRecorded = (document: WorkflowDocument, ops: readonly PatchOp[]): boolean => {
+  try {
+    return replayHistoryOps(document, ops, { requireRecordedValues: true }).stale === undefined
+  } catch {
+    return false
+  }
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -2848,8 +2895,8 @@ export class AppState {
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly clearedTabResults = createSignal<ReadonlyMap<string, string>>(new Map())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
-  /** Session-only open-time migration summaries; never stored in documents. */
-  readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
+  /** Session-only reports of the editor's own changes, per tab; never stored in documents. */
+  readonly adjustmentNotices = createSignal<ReadonlyMap<string, AdjustmentNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
@@ -5133,43 +5180,105 @@ export class AppState {
     return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
-  canUndoMigrationNotice(tabId: string): boolean {
-    const notice = this.migrationNotices.get().get(tabId)
+  /**
+   * Adds the changes the editor made by itself in one stored batch to the
+   * tab's notice; an open Review keeps its place and selection. `record` is
+   * the batch's own patches, which the notice's Undo and Redo replay.
+   */
+  reportAdjustments(tab: Tab, record: HistorySnapshotRecord, adjustments: readonly Adjustment[]): void {
+    if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
+    this.adjustmentNotices.update((current) => {
+      const notice = current.get(tab.id)
+      return new Map(current).set(tab.id, {
+        owner: tab.id,
+        adjustments: [...notice?.adjustments ?? [], ...adjustments],
+        records: [...notice?.records ?? [], record],
+        dismissed: notice?.dismissed ?? false,
+      })
+    })
+  }
+
+  /** Whether the document still holds the notice's changes, holds what they replaced, or neither. */
+  adjustmentNoticeState(tabId: string): AdjustmentNoticeState | undefined {
+    const notice = this.adjustmentNotices.get().get(tabId)
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
-    if (notice === undefined || tab === undefined || !tab.store.canUndo) return false
-    return canonicalJson(tab.store.historySnapshot().undo.at(-1)) === canonicalJson(notice.undoRecord)
+    if (notice === undefined || tab === undefined) return undefined
+    if (notice.refusedAt === tab.store.revision) return 'refused'
+    const document = tab.store.doc
+    if (holdsRecorded(document, [...notice.records].reverse().flatMap((record) => record.inverse))) return 'ready'
+    if (holdsRecorded(document, notice.records.flatMap((record) => record.forward))) return 'undone'
+    return 'refused'
   }
 
-  undoMigrationNotice(tabId: string): boolean {
-    if (!this.canUndoMigrationNotice(tabId)) return false
-    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)!
-    if (!tab.store.undo()) return false
-    reconcileGraphNavigation(tab)
-    this.dismissMigrationNotice(tabId)
-    return true
+  /** Takes back every change the notice lists in one undo step, leaving every other edit alone. */
+  undoAdjustments(tabId: string): boolean {
+    return this.replayAdjustments(tabId, 'ready', (records) => [...records].reverse().flatMap((record) => record.inverse))
   }
 
-  dismissMigrationNotice(tabId: string): void {
-    if (!this.migrationNotices.get().has(tabId)) return
-    this.migrationNotices.update((current) => {
+  /** Puts back the changes the notice lists, as they were recorded, in one undo step. */
+  redoAdjustments(tabId: string): boolean {
+    return this.replayAdjustments(tabId, 'undone', (records) => records.flatMap((record) => record.forward))
+  }
+
+  private replayAdjustments(
+    tabId: string,
+    from: AdjustmentNoticeState,
+    ops: (records: readonly HistorySnapshotRecord[]) => readonly PatchOp[],
+  ): boolean {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== from) return false
+    if (tab.store.replayRecorded(ops(notice.records))) {
+      reconcileGraphNavigation(tab)
+      return true
+    }
+    const refusedAt = tab.store.revision
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, refusedAt }))
+    return false
+  }
+
+  /** The cross: the notice leaves the canvas and its count stays in the status bar. */
+  dismissAdjustmentNotice(tabId: string): void {
+    // Once everything was taken back nothing stays adjusted, so no count remains.
+    if (this.adjustmentNoticeState(tabId) === 'undone') this.clearAdjustmentNotice(tabId)
+    else this.setAdjustmentNoticeDismissed(tabId, true)
+  }
+
+  /** The status bar count brings the notice back. */
+  reopenAdjustmentNotice(tabId: string): void {
+    this.setAdjustmentNoticeDismissed(tabId, false)
+  }
+
+  private setAdjustmentNoticeDismissed(tabId: string, dismissed: boolean): void {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    if (notice === undefined || notice.dismissed === dismissed) return
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, dismissed, reopened: !dismissed }))
+  }
+
+  /** Saving, closing or replacing the tab clears its notice and count; the changed values stay. */
+  clearAdjustmentNotice(tabId: string): void {
+    if (!this.adjustmentNotices.get().has(tabId)) return
+    this.adjustmentNotices.update((current) => {
       const next = new Map(current)
       next.delete(tabId)
       return next
     })
   }
 
+  /**
+   * A choice or variant whose pack removed it is replaced on open, in one
+   * batch reported in the tab's notice. A state the editor cannot replace
+   * stays a problem.
+   */
   private adjustRemovedPartsOnOpen(tab: Tab): Promise<void> | undefined {
     const registry = this.registryForTab(tab)
     if (registry === undefined) return
     const document = tab.store.doc
     const resolve = documentNodeResolver(document, this.resolverWithVirtualNodes(registry.resolve))
-    const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
-    for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
-      const child = subgraphDefIdOf(node.type)
-      if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
-    }
+    const paths = firstOccurrencePaths(document)
     const invocations: CommandInvocation[] = []
-    const entries: Diagnostic[] = []
+    const adjustments: Adjustment[] = []
+    const problems: Diagnostic[] = []
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5181,62 +5290,62 @@ export class AppState {
       const changes = [...new Map(diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
         'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
         .map((entry) => [JSON.stringify([entry.code, entry.data]), entry])).values()]
-      if (changes.length === 0) continue
+      const fixed: Diagnostic[] = []
+      const name = node.title ?? schema.displayName
+      const instancePath = paths.get(graph.id)
+      const anchor = instancePath === undefined ? undefined : { occurrence: { instancePath, node: node.id } }
       for (const entry of changes) {
-        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
-        const { construct, selected } = entry.data
-        if (typeof selected !== 'string' && selected !== null) continue
+        const selected = entry.data?.['selected']
+        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined || (typeof selected !== 'string' && selected !== null)) {
+          problems.push(diag('warning', 'import', 'upgrade.removedDynamicParts', `${name}: ${entry.message}`, {
+            refs: [{ graphId: graph.id, nodeId: node.id }],
+            ...(anchor === undefined ? {} : { anchor }),
+          }))
+          continue
+        }
+        fixed.push(entry)
         invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
-          graphId: graph.id, nodeId: node.id, construct,
+          graphId: graph.id, nodeId: node.id, construct: entry.data['construct'],
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      const instancePath = paths.get(graph.id)
-      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
-        `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
-          refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
-        }))
-    }
-    if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
-      { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
-        if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+      if (fixed.length > 0) adjustments.push({
+        kind: 'removedChoice', graphId: graph.id, nodeId: node.id, node: name, count: fixed.length,
+        details: [...new Set(fixed.map((entry) => entry.message))],
+        ...(anchor === undefined ? {} : { anchor }),
       })
-    if (entries.length > 0 && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+    }
+    if (problems.length > 0) this.reportProblems(tab.id, problems)
+    if (invocations.length === 0) return
+    const store = tab.store
+    return Promise.resolve(this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
+      if (outcome.ok && tab.store === store) this.reportAdjustments(tab, outcome, adjustments)
+    })
   }
 
+  /** Node replacements found on open are applied in one batch and reported in the tab's notice. */
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.settings.get<boolean>('execution.reviewUpgrades')) return
+    const registry = this.registryForTab(tab)
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
-    if (items.length === 0) return
+    const invocation = registry === undefined || items.length === 0 ? undefined : replacementInvocation(items, tab.store.doc, registry.resolve)
+    if (registry === undefined || invocation === undefined) return
     const store = tab.store
-    const revision = store.revision
-    return this.applyReplacements(tab, items).then((accepted) => {
-      // A notice must identify this batch, never a later edit's undo record.
-      if (!accepted || !this.tabs.get().includes(tab) || tab.store !== store || store.revision !== revision + 1) return
-      // A shared definition has one notice line; navigate through its first
-      // reachable occurrence, not an arbitrary sibling's instance path.
-      const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
-      for (const [graphId, path] of paths) {
-        for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
-          const child = subgraphDefIdOf(node.type)
-          if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
-        }
-      }
-      const entries = items.map((item): OwnedDiagnostic => {
+    return Promise.resolve(this.dispatchTo(tab, invocation)).then((outcome) => {
+      if (!outcome.ok || tab.store !== store) return
+      // A shared definition has one line; it goes to its first reachable
+      // occurrence, not an arbitrary sibling's instance path.
+      const paths = firstOccurrencePaths(tab.store.doc)
+      this.reportAdjustments(tab, outcome, items.map((item): Adjustment => {
         const instancePath = paths.get(item.graphId)
+        const node = tab.store.doc.graphs[item.graphId]?.nodes[item.nodeId]
         return {
-          ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
-            'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
-              refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
-              ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
-              data: { warnings: item.diagnostics.map((entry) => entry.message) },
-            }),
-          owner: tab.id,
+          kind: 'replaced', graphId: item.graphId, nodeId: item.nodeId, count: 1,
+          node: node?.title ?? registry.resolve(item.terminalType)?.displayName ?? item.nodeId,
+          details: item.diagnostics.map((entry) => entry.message),
+          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
         }
-      })
-      const undoRecord = tab.store.historySnapshot().undo.at(-1)!
-      this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
+      }))
     })
   }
 
@@ -5980,7 +6089,7 @@ export class AppState {
   }
 
   private cleanupClosedTab(id: string): void {
-    this.dismissMigrationNotice(id)
+    this.clearAdjustmentNotice(id)
     if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
@@ -6630,7 +6739,7 @@ export class AppState {
         tab.instancePath.set(replaceFrozen.instancePath.get())
       }
       if (replacesExisting) this.workspaceReplacements.add(tab)
-      this.dismissMigrationNotice(tab.id)
+      this.clearAdjustmentNotice(tab.id)
       // Load/translation warnings belong to the tab they describe: a
       // same-lineage replacement swaps them out; other tabs keep theirs.
       this.replaceProblems(tab.id, loaded.diagnostics)
@@ -7075,7 +7184,7 @@ export class AppState {
           this.showTransientStatus(`Save closed: ${filename}`)
           return false
         }
-        this.dismissMigrationNotice(tab.id)
+        this.clearAdjustmentNotice(tab.id)
         this.dismissImportProblems(tabId)
         this.showTransientStatus(`Saved: ${result.name}`)
         return true
@@ -7090,7 +7199,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
-      this.dismissMigrationNotice(tab.id)
+      this.clearAdjustmentNotice(tab.id)
       this.dismissImportProblems(tabId)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
@@ -7392,7 +7501,7 @@ export class AppState {
       const unchanged = tab.store.revision === revision && current.title === tab.title
       if (unchanged) {
         this.markTabClean(tab.id)
-        this.dismissMigrationNotice(tab.id)
+        this.clearAdjustmentNotice(tab.id)
       }
       const background = this.activeTab()?.id === tab.id ? '' : ` ${tab.title}`
       this.showTransientStatus(unchanged

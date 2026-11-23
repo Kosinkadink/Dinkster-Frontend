@@ -435,7 +435,6 @@ export function App(props: {
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
-  const migrationNotices = useSignal(app.migrationNotices)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
@@ -1566,13 +1565,12 @@ export function App(props: {
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
     const list = problemDiagnostics()
-    const notice = migrationNotices().get(activeTabId())
     const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
-    if (list.length === 0 && notice === undefined && missingPackCount === 0) return undefined
+    if (list.length === 0 && missingPackCount === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') || notice?.entries.some((d) => d.severity === 'warning') ? 'warning' : 'info'
-    const count = list.length + (notice === undefined ? 0 : 1) + missingPackCount
+      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+    const count = list.length + missingPackCount
     return {
       count,
       severity,
@@ -1684,7 +1682,6 @@ export function App(props: {
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
         importedNodes={importedNodes}
-        migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,

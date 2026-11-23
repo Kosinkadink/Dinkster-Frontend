@@ -30,7 +30,7 @@ import {
   type DocumentStoreContract,
   type TransactionRecord,
 } from './contract.js'
-import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
+import { applyOwnedOps, getAtPath, invertOps, type PatchOp } from './patch.js'
 import { nodesChangedBy, storeStartState } from './start-state.js'
 
 export type BoundaryPositionResolver = (
@@ -664,6 +664,32 @@ export class DocumentStore implements DocumentStoreContract {
     this.revisionCounter += 1
     const revision = this.revisionCounter
     this.commit(doc, Object.freeze({ kind: 'redo' as const, record, revision, patch: applied }))
+    return true
+  }
+
+  /**
+   * Replay recorded patches, such as an earlier record's inverse, as one new
+   * undo step on top of whatever was done since. Refused, changing nothing,
+   * when the document no longer holds the values the patches were recorded
+   * against, when they no longer fit it, or when the result breaks an
+   * invariant: an edit made since is never overwritten.
+   */
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    let replay: ReturnType<typeof replayHistoryOps>
+    try {
+      replay = replayHistoryOps(this.doc, ops, { requireRecordedValues: true })
+    } catch {
+      return false
+    }
+    if (replay.stale || replay.applied.length === 0) return false
+    if (hasErrors(this.validateCommit?.(this.doc, replay.doc, this.historySnapshot()) ?? [])) return false
+    this.publishDispatch(Object.freeze({ command: 'history.replay', params: null }), {
+      ok: true,
+      doc: replay.doc,
+      forward: Object.freeze(replay.applied),
+      inverse: Object.freeze(invertOps(replay.applied)),
+      diagnostics: [],
+    })
     return true
   }
 

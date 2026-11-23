@@ -416,6 +416,27 @@ class SharedDocumentSession implements DocumentSession {
     this.redoStack.length = 0
   }
 
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    // The same recorded-value guard as undo: a foreign actor's edit to any
+    // recorded path refuses the whole replay instead of being overwritten.
+    let applied: readonly PatchOp[]
+    let document: WorkflowDocument
+    try {
+      const replay = replayHistoryOps(this.store.doc, ops, { requireRecordedValues: true })
+      if (replay.stale || replay.applied.length === 0) return false
+      applied = replay.applied
+      document = replay.doc
+    } catch {
+      return false
+    }
+    if (hasErrors(this.validateCommit?.(this.store.doc, document, this.historySnapshot()) ?? [])) return false
+    const prepared = this.prepareRun({
+      command: sessionPatchCommand.id,
+      params: { ops: toWirePatch(applied) as unknown as Json },
+    }, 'session.replay', true)
+    return prepared.ok && prepared.commit().ok
+  }
+
   historySnapshot(): HistorySnapshot {
     const detach = (records: readonly HistoryRecord[]): HistorySnapshot['undo'] =>
       records.map((record) => ({ forward: record.forward, inverse: record.inverse }))

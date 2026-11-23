@@ -94,18 +94,18 @@ describe('problemDisplay', () => {
 })
 
 describe('groupProblemDiagnostics', () => {
-  it('maps every origin to the five ordered user actions, including information notices', () => {
+  it('maps every origin to the four ordered user actions, including information notices', () => {
     const expected = {
       runtime: 'execution', validation: 'execution',
       compile: 'workflow', invariant: 'workflow', environment: 'workflow',
-      import: 'upgrade', schema: 'packs', extension: 'packs', command: 'packs', collab: 'collaboration',
+      import: 'workflow', schema: 'packs', extension: 'packs', command: 'packs', collab: 'collaboration',
     } satisfies Record<DiagnosticOrigin, string>
     const origins = Object.keys(expected) as DiagnosticOrigin[]
     for (const origin of origins) {
       expect(groupProblemDiagnostics([diag('info', origin, 'test', 'Notice')])[0]?.title).toBe(expected[origin])
     }
     const groups = groupProblemDiagnostics(origins.reverse().map((origin) => diag('info', origin, origin, 'Notice')))
-    expect(groups.map((group) => group.title)).toEqual(['execution', 'workflow', 'upgrade', 'packs', 'collaboration'])
+    expect(groups.map((group) => group.title)).toEqual(['execution', 'workflow', 'packs', 'collaboration'])
     expect(groups.every((group) => group.severity === 'info')).toBe(true)
     expect(groupProblemDiagnostics([])).toEqual([])
   })
