@@ -107,6 +107,8 @@ interface NoticeCard {
   readonly none?: boolean
   /** Adds a change while the card is open, as one arriving during Review. */
   readonly arrives?: readonly FixesNoticeChange[]
+  /** The notice's words after Undo, when they differ from the plain "Adjustments undone". */
+  readonly undoneText?: string
 }
 
 const cards: readonly NoticeCard[] = [
@@ -158,6 +160,15 @@ const cards: readonly NoticeCard[] = [
       'Undo put every old value back in one step. Redo adjustments puts back the changes as they were recorded; it does not work them out again.',
     changes: twelve,
     state: 'undone',
+  },
+  {
+    id: 'undone-kept',
+    title: 'After Undo, with your own edit kept',
+    description:
+      'You changed a value on one of the adjusted nodes after the editor made it. Undo put back every other node and left that one as you edited it, and the notice says how many it kept. Redo adjustments puts back only what Undo took back.',
+    changes: twelve,
+    state: 'undone',
+    undoneText: 'Adjustments undone. 1 node you changed since was kept.',
   },
   {
     id: 'refused',
@@ -296,7 +307,11 @@ function NoticeExample(props: {
                   <ProductFixesNotice
                     changes={changes()}
                     state={state()}
-                    strings={strings}
+                    strings={
+                      props.card.undoneText === undefined
+                        ? strings
+                        : { ...strings, undone: props.card.undoneText }
+                    }
                     reviewOpen={props.card.review === true || reopened()}
                     onChoose={(target) => setChosen(target)}
                     onUndo={() => setState('undone')}
