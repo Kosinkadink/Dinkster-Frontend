@@ -31,6 +31,7 @@ interface PaintCall {
 function fakeCtx() {
   const calls: PaintCall[] = []
   let pendingArc: { x: number; y: number } | undefined
+  let pendingRect: { x: number; y: number; w: number; h: number } | undefined
   let pendingLine: { x: number; y: number; x2?: number; y2?: number } | undefined
   const ctx = {
     fillStyle: '',
@@ -49,7 +50,9 @@ function fakeCtx() {
     strokeRect: (x: number, y: number, w: number, h: number) => {
       calls.push({ kind: 'stroke', x, y, w, h, style: String(ctx.strokeStyle), alpha: ctx.globalAlpha })
     },
+    roundRect: (x: number, y: number, w: number, h: number) => { pendingRect = { x, y, w, h } },
     beginPath: () => {
+      pendingRect = undefined
       pendingArc = undefined
       pendingLine = undefined
     },
@@ -60,6 +63,7 @@ function fakeCtx() {
       if (pendingLine) pendingLine = { ...pendingLine, x2: x, y2: y }
     },
     stroke: () => {
+      if (pendingRect) calls.push({ kind: 'stroke', ...pendingRect, style: String(ctx.strokeStyle), alpha: ctx.globalAlpha })
       if (pendingLine) {
         calls.push({
           kind: 'line',
@@ -76,6 +80,7 @@ function fakeCtx() {
       pendingArc = { x, y }
     },
     fill: () => {
+      if (pendingRect) calls.push({ kind: 'fill', ...pendingRect, style: String(ctx.fillStyle), alpha: ctx.globalAlpha })
       if (pendingArc) calls.push({ kind: 'arcFill', ...pendingArc, style: String(ctx.fillStyle), alpha: ctx.globalAlpha })
     },
     fillText: (text: string, x: number, y: number) => {
@@ -287,9 +292,9 @@ describe('drawMinimap', () => {
       viewport: { x: -100, y: -200, scale: 2, canvasWidth: 800, canvasHeight: 600 },
     })!
     const stroke = calls.find((c) => c.kind === 'stroke')!
-    expect(stroke.style).toBe('#F0F5F5')
-    expect(stroke.alpha).toBe(0.9)
-    const viewportFill = calls.find((c) => c.kind === 'fill' && c.style === '#F0F5F5' && c.alpha === 0.2)!
+    expect(stroke.style).toBe('#A4B5B7')
+    expect(stroke.alpha).toBe(0.5)
+    const viewportFill = calls.find((c) => c.kind === 'fill' && c.style === '#A4B5B7' && c.alpha === 0.06)!
     expect(viewportFill).toBeDefined()
     // Visible world rect: origin (50, 100), size (400, 300).
     expect(stroke.x).toBeCloseTo(50 * tf.scale + tf.offsetX)
@@ -306,8 +311,8 @@ describe('drawMinimap', () => {
       nodes: [box(0, 0, 1000, 1000)],
       viewport: { x: 0, y: 0, scale: 1, canvasWidth: 800, canvasHeight: 600 },
     })
-    expect(calls.find((c) => c.kind === 'stroke')).toMatchObject({ style: '#20252A', alpha: 0.9 })
-    expect(calls.find((c) => c.kind === 'fill' && c.alpha === 0.2)?.style).toBe('#20252A')
+    expect(calls.find((c) => c.kind === 'stroke')).toMatchObject({ style: '#58636D', alpha: 0.5 })
+    expect(calls.find((c) => c.kind === 'fill' && c.alpha === 0.06)?.style).toBe('#58636D')
   })
 
   it('keeps the painted viewport stroke inside the panel inset at edge zoom levels', () => {
@@ -318,7 +323,7 @@ describe('drawMinimap', () => {
         nodes: [box(0, 0, 2000, 1200)],
         viewport: { x: -1800 * scale, y: -1000 * scale, scale, canvasWidth: 1440, canvasHeight: 900 },
       })
-      const stroke = calls.find((c) => c.kind === 'stroke' && c.style === '#F0F5F5' && c.alpha === 0.9)!
+      const stroke = calls.find((c) => c.kind === 'stroke' && c.style === '#A4B5B7' && c.alpha === 0.5)!
       expect(stroke.x).toBeGreaterThanOrEqual(2)
       expect(stroke.y).toBeGreaterThanOrEqual(2)
       expect(stroke.x + stroke.w!).toBeLessThanOrEqual(218)
@@ -333,8 +338,8 @@ describe('drawMinimap', () => {
       nodes: [box(0, 0, 2000, 1200)],
       viewport: { x: -4000, y: -200, scale: 1, canvasWidth: 800, canvasHeight: 600 },
     })
-    expect(calls.some((c) => c.kind === 'fill' && c.style === '#F0F5F5' && c.alpha === 0.2)).toBe(false)
-    expect(calls.some((c) => c.kind === 'stroke' && c.style === '#F0F5F5' && c.alpha === 0.9)).toBe(false)
+    expect(calls.some((c) => c.kind === 'fill' && c.style === '#A4B5B7' && c.alpha === 0.06)).toBe(false)
+    expect(calls.some((c) => c.kind === 'stroke' && c.style === '#A4B5B7' && c.alpha === 0.5)).toBe(false)
   })
 
   it('draws labeled markers on top, clamped into the panel', () => {
@@ -381,8 +386,8 @@ describe('drawMinimap', () => {
     expect(remote.y).toBeCloseTo(200 * tf.scale + tf.offsetY)
     expect(remote.w).toBeCloseTo(400 * tf.scale)
     expect(remote.h).toBeCloseTo(300 * tf.scale)
-    // Painted BEFORE the local near-white rectangle so "where am I" wins.
-    const local = strokes.findIndex((c) => c.style === '#F0F5F5' && c.alpha === 0.9)
+    // Remote frames remain underneath the local viewport.
+    const local = strokes.findIndex((c) => c.style === '#A4B5B7' && c.alpha === 0.5)
     expect(strokes.indexOf(remote)).toBeLessThan(local)
   })
 
