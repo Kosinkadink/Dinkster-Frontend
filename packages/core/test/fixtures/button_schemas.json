@@ -1547,6 +1547,30 @@
   "displayName": "Translate text",
   "idempotent": true,
   "interface": [],
+  "menu": [
+   {
+    "id": "menu_translate",
+    "kind": "button",
+    "label": "Translate to English",
+    "steps": [
+     {
+      "args": [
+       "text",
+       "from_translate",
+       {
+        "formula": "\"en\""
+       },
+       "service_delay"
+      ],
+      "function": "dinkster_nodes_dev.buttons.translate_now",
+      "step": "call",
+      "writes": [
+       "text"
+      ]
+     }
+    ]
+   }
+  ],
   "nodeType": "dev.buttons.translate",
   "schemaVersion": 2,
   "version": 1
