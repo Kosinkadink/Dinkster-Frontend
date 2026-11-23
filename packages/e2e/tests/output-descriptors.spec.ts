@@ -388,6 +388,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
     return diagnostics
   })).toEqual([])
+  await openDescriptors(page)
   await page.getByRole('button', { name: 'Disconnect inactive clip output' }).click()
   await page.evaluate(async () => {
     // Guarded ingress must finish before preparing the next retained command.
