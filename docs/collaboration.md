@@ -473,7 +473,10 @@ per-backend membership identity, repeated-rejoin idempotence).
 
 Editor kinds follow the [editor contract](editors.md). These pins let retained
 document surfaces use collaboration and agent commands without reworking this
-layer; parked image editing surfaces are listed in the [rework queue](rework-queue.md).
+layer; parked image editing surfaces are recorded in
+[Image documents workspace](https://github.com/Kosinkadink/comfy-vibe-station/issues/1190),
+[Mask painter](https://github.com/Kosinkadink/comfy-vibe-station/issues/1191), and
+[Compositor editor](https://github.com/Kosinkadink/comfy-vibe-station/issues/1192).
 
 - **Commands are the only mutation path, namespaced per surface.** Editors
   mutate shared state only by dispatching maintained serializable commands
