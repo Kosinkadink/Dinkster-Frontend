@@ -171,6 +171,7 @@ test('a long list reaches its last entry past the render window and stores its e
   const many = await rowPoint(page, 'many')
   await page.mouse.click(many.x, many.y)
   // Never more than the window is rendered; the rest is one press away.
+  await expect(options(page).first()).toBeVisible()
   expect(await options(page).count()).toBeLessThanOrEqual(300)
   await page.keyboard.press('End')
   await expect(active(page)).toContainText('item 999')
@@ -181,6 +182,16 @@ test('a long list reaches its last entry past the render window and stores its e
   // item 99 and item 990..999 match, in source order.
   await expect(options(page)).toHaveCount(11)
   await expect(options(page).first()).toContainText('item 99')
+  // Clear filter, reached with Alt+Down, gives the keyboard back to the list.
+  await page.keyboard.type('zzz')
+  await expect(options(page)).toHaveCount(0)
+  await page.keyboard.press('Alt+ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(filter(page)).toHaveValue('')
+  await expect(active(page)).toContainText('item 999')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => value(page, 'many')).toBe(9980)
 })
 
 test('a pending pick blocks a second store and a refusal keeps the list open; the default link stores the declared default even when the list lacks it', async ({ page }) => {
@@ -200,8 +211,10 @@ test('a pending pick blocks a second store and a refusal keeps the list open; th
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-editor-surface="in-row-list"] [role=status]')).toContainText('Storing dpmpp_2m')
+  // Nothing reaches a second store while the first is pending: not Enter, Tab or a click on another option.
   await page.keyboard.press('Enter')
   await page.keyboard.press('Tab')
+  await options(page).first().dispatchEvent('click')
   expect(await page.evaluate(() => (window as unknown as { heldCalls: number }).heldCalls)).toBe(1)
   await page.evaluate(() => (window as unknown as { refuseHeld: () => void }).refuseHeld())
   await expect(page.locator('.widget-in-row-field .dinkster-canvas-side-problem')).toContainText('Refused for this test')

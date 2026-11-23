@@ -1687,6 +1687,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
 
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
+  // An in-row editor that handed its row to a popover, which leaves the row drawn.
+  const [rowHandedOff, setRowHandedOff] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   // The row the keyboard is on while nothing is open; only the keyboard sets it.
   const [rowFocus, setRowFocus] = createSolidSignal<RowFocusState | undefined>(undefined)
   const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET'
@@ -3432,7 +3434,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // A row edited in place is drawn by its field, so the canvas leaves it out.
     createEffect(() => {
       const ed = editor()
-      renderer.setOpenRow(ed?.inRow !== undefined && ed.target.kind === 'input'
+      renderer.setOpenRow(ed?.inRow !== undefined && ed !== rowHandedOff() && ed.target.kind === 'input'
         ? { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
         : undefined)
     })
@@ -5082,6 +5084,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodeTop: hit.node.y,
           nodeBottom: hit.node.y + hit.node.layout.height,
           storedAtOpen: stored ?? null,
+          handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),

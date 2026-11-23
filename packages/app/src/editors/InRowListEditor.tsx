@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, on, onCleanup, untrack, type Component } from 'solid-js'
 import { effectiveWidgetDefault, formatWidgetValue, type Json } from '@dinkster/core'
 import {
   CanvasListSideLink,
@@ -114,7 +114,24 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
       : storedOption()?.folder?.split('/').slice(0, entry.path.length).join('/') === entry.path.join('/'))
     return found < 0 ? undefined : found + (back() ? 1 : 0)
   }
-  const [highlight, setHighlight] = createSignal<number | undefined>(savedIndex() ?? (count() > 0 ? 0 : undefined))
+  const [highlight, setHighlightIndex] = createSignal<number | undefined>()
+  // The highlighted option's value, so a new answer keeps the highlight on it.
+  let highlightedValue: Json | undefined
+  const setHighlight = (index: number | undefined): void => {
+    setHighlightIndex(index)
+    const entry = index === undefined ? undefined : untrack(() => entryAt(index))
+    highlightedValue = entry?.kind === 'option' ? entry.option.value as Json : undefined
+  }
+  const entryAt = (index: number) => {
+    if (back() && index === 0) return { kind: 'back' as const }
+    return entries()[index - (back() ? 1 : 0)]
+  }
+  setHighlight(savedIndex() ?? (count() > 0 ? 0 : undefined))
+  createEffect(on(options, () => {
+    if (highlightedValue === undefined) return
+    const found = entries().findIndex((entry) => entry.kind === 'option' && entry.option.value === highlightedValue)
+    setHighlight(found >= 0 ? found + (back() ? 1 : 0) : savedIndex() ?? (count() > 0 ? 0 : undefined))
+  }, { defer: true }))
   // An answer that arrives after opening highlights the saved entry, or the first.
   createEffect((previous: number | undefined) => {
     const total = count()
@@ -124,14 +141,16 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   }, count())
   const [zone, setZone] = createSignal<Zone>({ kind: 'list' })
 
-  const window = createMemo(() => comboRenderWindow(count(), highlight() ?? 0))
+  const window = createMemo(() => comboRenderWindow(count(), highlight() ?? 0), undefined, {
+    equals: (a, b) => a.start === b.start && a.end === b.end,
+  })
   const label = (option: ComboOption): string => option.label
   const duplicates = createMemo(() => {
     const seen = new Map<string, number>()
     for (const option of options()) seen.set(option.label, (seen.get(option.label) ?? 0) + 1)
     return seen
   })
-  const shown = createMemo<readonly CanvasListOption[]>(() => {
+  const listed = createMemo<readonly CanvasListOption[]>(() => {
     const all: CanvasListOption[] = []
     if (back()) all.push({ key: 'back', label: 'Back to parent folder', kind: 'back' })
     const searching = query().trim() !== ''
@@ -143,7 +162,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
       const option = entry.option
       const parts = [searching ? option.folder : undefined, option.info].filter((part): part is string => part !== undefined && part !== '')
       // Two options with one label and nothing else to tell them apart show their values.
-      if (parts.length === 0 && (duplicates().get(option.label) ?? 0) > 1) parts.push(String(option.value))
+      if (parts.length === 0 && (duplicates().get(option.label) ?? 0) > 1) parts.push(JSON.stringify(option.value))
       all.push({
         key: `option:${index}`,
         label: label(option),
@@ -151,13 +170,9 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
         ...(isStored(option) ? { saved: true } : {}),
       })
     })
-    return all.slice(window().start, window().end)
+    return all
   })
-  const entryAt = (index: number) => {
-    if (back() && index === 0) return { kind: 'back' as const }
-    return entries()[index - (back() ? 1 : 0)]
-  }
-
+  const shown = createMemo(() => listed().slice(window().start, window().end))
   const target = ed.target
   const focusRow = (): void => {
     if (target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
@@ -199,7 +214,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     const tryAgain = (state?.kind === 'stale' || state?.kind === 'unavailable') && !state.refreshing
     if (lookup !== undefined && state?.kind !== 'waiting' && state?.kind !== 'off' && !tryAgain)
       list.push({ id: 'refresh', label: 'Refresh', disabled: refreshing(), onClick: () => lookup.refresh() })
-    if (editable) list.push({ id: 'edit', label: 'Edit options', onClick: () => setAuthoring(true) })
+    if (editable) list.push({ id: 'edit', label: 'Edit options', onClick: () => { inRow.handOff?.(); setAuthoring(true) } })
     return list
   })
   const status = createMemo<CanvasListStatus | undefined>(() => {
@@ -241,6 +256,11 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     { kind: 'filter' },
   ]
   const sameZone = (a: Zone, b: Zone): boolean => a.kind === b.kind && (a.kind !== 'action' || (b.kind === 'action' && a.id === b.id))
+  // An action that goes away once used, such as Clear filter, gives the keyboard back to the list.
+  createEffect(() => {
+    const current = zone()
+    if (current.kind === 'action' && !zones().some((candidate) => sameZone(candidate, current))) setZone({ kind: 'list' })
+  })
   const cycle = (direction: 1 | -1): void => {
     const all = zones()
     const at = all.findIndex((candidate) => sameZone(candidate, zone()))
