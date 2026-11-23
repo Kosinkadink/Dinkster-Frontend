@@ -209,6 +209,33 @@ describe('pairing', () => {
     expect(layout.pins.some((pin) => pin.widgetTap === true)).toBe(false)
   })
 
+  it.each([true, false])('draws a node\'s extra outputs above an ending box of outputs (closed: %s)', (closed) => {
+    const layout = layoutNode(
+      schemaOf([
+        input('a'),
+        { kind: 'section', id: 'settings', displayName: 'Settings', rows: [input('b')] },
+        output('image'),
+        output('mask'),
+        output('normal'),
+        { kind: 'section', id: 'more', displayName: 'More outputs', collapsedByDefault: true, rows: [output('extra')] },
+      ]),
+      nodeData, defaultTokens, measure, widgetMeasure,
+      { sectionOverrides: { more: closed } },
+    )
+    // A box that holds an input stays above them; the one of outputs ends the node.
+    expect(layout.rows.map((row) => row.kind === 'ports'
+      ? `${row.input?.portId ?? ''}|${row.output?.portId ?? ''}`
+      : row.kind === 'section' ? row.sectionId : row.kind)).toEqual([
+      'a|image',
+      'settings',
+      'b|',
+      '|mask',
+      '|normal',
+      'more',
+      ...(closed ? [] : ['|extra']),
+    ])
+  })
+
   it('keeps force-input widgets of a chosen option as socket rows', () => {
     const mode: NodeSchema['body'][number] = {
       kind: 'choice',
