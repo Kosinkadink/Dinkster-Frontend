@@ -11,7 +11,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
+import { boundaryBindingKey, boundaryItems, boundaryItemsWithPaths, isNodeBoundaryBinding, withBoundaryItems, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
 import { asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
 import { constructsAround, deriveBoundarySchema, familyStateAt, resolveBoundaryRoute } from '../schema/derive-boundary.js'
@@ -39,11 +39,11 @@ function findItem(
   def: GraphDef,
   side: Side,
   itemId: string,
-): { item: BoundaryItem; index: number } | undefined {
-  const items = def.boundary?.[side]
-  if (!items) return undefined
-  const index = items.findIndex((b) => b.id === itemId)
-  return index === -1 ? undefined : { item: items[index]!, index }
+): { item: BoundaryItem; index: number; path: (string | number)[] } | undefined {
+  const items = boundaryItemsWithPaths(def.boundary, side)
+  const index = items.findIndex(({ item }) => item.id === itemId)
+  if (index === -1) return undefined
+  return { item: items[index]!.item, index, path: ['graphs', def.id, 'boundary', ...items[index]!.path] }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ const boundaryAddBinding: CommandDefinition = {
     if (!def.nodes[params.node])
       return [err('node.missing', `boundary.addBinding: no node '${params.node}' in graph '${String(params.graphId)}'`)]
     const key = bindingTargetKey(params.node, params.port)
-    const existing = (def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+    const existing = boundaryItems(def.boundary, 'inputs').flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
     if (existing.some((b) => isNodeBoundaryBinding(b) && b.kind !== 'widgetTap' && bindingTargetKey(b.node, b.port) === key))
       return [
         err(
@@ -107,7 +107,7 @@ const boundaryAddBinding: CommandDefinition = {
     const entry = bindingFromParams(params, 'inputs')
     if (entry?.kind !== 'port') return [err('params.invalid', 'boundary.addBinding: params must identify an input port binding')]
     tx.set(
-      ['graphs', params.graphId as string, 'boundary', 'inputs', found.index, 'alsoBinds'],
+      [...found.path, 'alsoBinds'],
       [...(found.item.alsoBinds ?? []), entry] as unknown as Json,
     )
     return []
@@ -168,10 +168,10 @@ const boundaryRemoveBinding: CommandDefinition = {
         ),
       ]
     if (kept.length === 0) {
-      tx.remove(['graphs', params.graphId as string, 'boundary', 'inputs', found.index, 'alsoBinds'])
+      tx.remove([...found.path, 'alsoBinds'])
     } else {
       tx.set(
-        ['graphs', params.graphId as string, 'boundary', 'inputs', found.index, 'alsoBinds'],
+        [...found.path, 'alsoBinds'],
         kept as unknown as Json,
       )
     }
@@ -235,7 +235,7 @@ const newBindingParams = (doc: WorkflowDocument, params: JsonObject, context: Co
 /** The item that already shows `binding`'s row through a construct, or a row inside it. */
 function ownershipConflict(def: GraphDef, binding: NodeBoundaryBinding): BoundaryItem | undefined {
   if (binding.kind === 'widgetTap') return undefined
-  const items = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+  const items = [...boundaryItems(def.boundary, 'inputs'), ...(boundaryItems(def.boundary, 'outputs') ?? [])]
   return items.find((item) => [item.binds, ...(item.alsoBinds ?? [])].some((other) => {
     if ((other.kind !== 'port' && other.kind !== 'construct') || other.node !== binding.node) return false
     if (other.kind === 'construct' && (binding.port === other.port || binding.port.startsWith(`${other.port}.`))) return true
@@ -257,7 +257,7 @@ function itemConflict(command: string, def: GraphDef, binding: NodeBoundaryBindi
 }
 
 function idTaken(def: GraphDef, binding: NodeBoundaryBinding, id: string): boolean {
-  return [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])].some((item) => item.id === id ||
+  return [...boundaryItems(def.boundary, 'inputs'), ...(boundaryItems(def.boundary, 'outputs') ?? [])].some((item) => item.id === id ||
     (binding.kind === 'construct' && item.id.startsWith(`${id}.`)) ||
     (item.binds.kind === 'construct' && id.startsWith(`${item.id}.`)))
 }
@@ -278,7 +278,7 @@ const boundaryAddItem: CommandDefinition = {
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `boundary.addItem: unknown graph '${params.graphId}'`)]
     if (!def.nodes[params.node]) return [err('node.missing', `boundary.addItem: no node '${params.node}' in graph '${params.graphId}'`)]
-    const items = def.boundary?.[params.side] ?? []
+    const items = boundaryItems(def.boundary, params.side)
     const prepared = newBindingParams(doc, params, context)
     const binding = bindingFromParams(prepared, params.side)!
     const conflict = itemConflict('boundary.addItem', def, binding, params.itemId as string | undefined)
@@ -287,7 +287,7 @@ const boundaryAddItem: CommandDefinition = {
       ? items.findIndex((item) => item.wireHidden === true && bindingMatchesEndpoint(item.binds, binding))
       : -1
     if (pinless !== -1) {
-      tx.remove(['graphs', params.graphId, 'boundary', 'inputs', pinless, 'wireHidden'])
+      tx.remove(['graphs', params.graphId, 'boundary', ...boundaryItemsWithPaths(def.boundary, 'inputs')[pinless]!.path, 'wireHidden'])
       return []
     }
     if (params.side === 'inputs' && items.some((item) =>
@@ -315,7 +315,7 @@ function appendItem(
   binding: NodeBoundaryBinding,
   fields: { readonly itemId?: string; readonly displayName?: string; readonly promoted?: true; readonly wireHidden?: true },
 ): void {
-  const items = def.boundary?.[side] ?? []
+  const items = boundaryItems(def.boundary, side)
   let id = fields.itemId
   if (id === undefined) {
     const base = binding.kind === 'widgetTap' ? binding.tap : binding.port
@@ -324,15 +324,8 @@ function appendItem(
   }
   const { itemId: _itemId, ...rest } = fields
   const item = { id, ...(rest.displayName !== undefined ? { displayName: rest.displayName } : {}), binds: binding,
-    ...(rest.promoted ? { promoted: true } : {}), ...(rest.wireHidden ? { wireHidden: true } : {}) }
-  if (!def.boundary) {
-    tx.set(['graphs', def.id, 'boundary'], {
-      inputs: side === 'inputs' ? [item] : [],
-      outputs: side === 'outputs' ? [item] : [],
-    } as unknown as Json)
-  } else {
-    tx.set(['graphs', def.id, 'boundary', side], [...items, item] as unknown as Json)
-  }
+    ...(rest.promoted ? { promoted: true } : {}), ...(rest.wireHidden ? { wireHidden: true as const } : {}) }
+  tx.set(['graphs', def.id, 'boundary'], withBoundaryItems(def.boundary, side, [...items, item]) as unknown as Json)
 }
 
 /**
@@ -346,7 +339,7 @@ export function boundaryFieldState(
   target: PortRef,
 ): { readonly driven: boolean; readonly item?: BoundaryItem; readonly primary?: boolean; readonly field?: boolean } {
   const end: BoundaryBinding = { kind: 'port', node: target.node, port: target.port }
-  for (const item of def.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
     const index = [item.binds, ...(item.alsoBinds ?? [])].findIndex((binding) => bindingMatchesEndpoint(binding, end))
     if (index !== -1) return { driven: true, item, primary: index === 0, field: item.binds.kind === 'port' && item.promoted === true }
   }
@@ -402,7 +395,7 @@ function prepareShowParams(doc: WorkflowDocument, params: Json, context: Command
   // chosen) come from derivation: refuse when adding the row brings an error
   // the definition does not already have.
   const item: BoundaryItem = { id: 'show_on_subgraph_node', binds: { kind: 'port', ...target }, promoted: true }
-  const withItem: GraphDef = { ...def, boundary: { inputs: [...(def.boundary?.inputs ?? []), item], outputs: def.boundary?.outputs ?? [] } }
+  const withItem: GraphDef = { ...def, boundary: withBoundaryItems(def.boundary, 'inputs', [...boundaryItems(def.boundary, 'inputs'), item]) }
   const schemas = documentResolver(doc, resolve)
   const resolveNode = (inner: typeof node) => documentNodeResolver(doc, resolve)(graphId, inner)
   const errorsOf = (graph: GraphDef): Set<string> => new Set(
@@ -465,7 +458,7 @@ const boundarySetWireHidden: CommandDefinition = {
     const found = findItem(def, 'inputs', params.itemId)
     if (!found) return [err('boundary.itemMissing', `boundary.setWireHidden: no boundary input '${params.itemId}' in graph '${params.graphId}'`)]
     if (found.item.binds.kind !== 'port' || found.item.promoted !== true) return [err('boundary.notField', `boundary.setWireHidden: boundary input '${params.itemId}' is not shown as a field on the subgraph node`)]
-    const path = ['graphs', params.graphId, 'boundary', 'inputs', found.index, 'wireHidden']
+    const path = [...found.path, 'wireHidden']
     if (params.hidden === (found.item.wireHidden === true)) return []
     if (params.hidden) tx.set(path, true)
     else tx.remove(path)
@@ -490,10 +483,10 @@ const boundaryRenameItem: CommandDefinition = {
     if (!found) return [err('boundary.itemMissing', `boundary.renameItem: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${params.graphId}'`)]
     if (params.displayName === '') {
       if (found.item.displayName === undefined) return []
-      tx.remove(['graphs', params.graphId, 'boundary', params.side, found.index, 'displayName'])
+      tx.remove([...found.path, 'displayName'])
     } else {
       if (found.item.displayName === params.displayName) return []
-      tx.set(['graphs', params.graphId, 'boundary', params.side, found.index, 'displayName'], params.displayName)
+      tx.set([...found.path, 'displayName'], params.displayName)
     }
     return []
   },
@@ -516,17 +509,17 @@ const boundarySetBinding: CommandDefinition = {
     if (!found) return [err('boundary.itemMissing', `boundary.setBinding: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${params.graphId}'`)]
     const binding = bindingFromParams(params, params.side)!
     if (!def.nodes[binding.node]) return [err('node.missing', `boundary.setBinding: no node '${binding.node}' in graph '${params.graphId}'`)]
-    if (params.side === 'inputs' && (def.boundary?.inputs ?? []).some((item, index) => {
+    if (params.side === 'inputs' && boundaryItems(def.boundary, 'inputs').some((item, index) => {
       const bindings = index === found.index ? (item.alsoBinds ?? []) : [item.binds, ...(item.alsoBinds ?? [])]
       return bindings.some((candidate) => bindingMatchesEndpoint(candidate, binding))
     })) return [err('boundary.duplicateBind', `boundary.setBinding: inner input '${params.node}/${params.port}' is already bound by a boundary input`)]
     const current = found.item.binds
     if (bindingKey(current) === bindingKey(binding)) return []
-    tx.set(['graphs', params.graphId, 'boundary', params.side, found.index, 'binds'], binding as unknown as Json)
+    tx.set([...found.path, 'binds'], binding as unknown as Json)
     // A row that stops being a field on the subgraph node draws its wire again.
     const stillField = binding.kind === 'port' && found.item.promoted === true
     if (found.item.wireHidden === true && !stillField)
-      tx.remove(['graphs', params.graphId, 'boundary', params.side, found.index, 'wireHidden'])
+      tx.remove([...found.path, 'wireHidden'])
     return []
   },
 }
@@ -547,27 +540,29 @@ const boundaryUnbind: CommandDefinition = {
     const found = findItem(def, params.side, params.itemId)
     if (!found) return [err('boundary.itemMissing', `boundary.unbind: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${params.graphId}'`)]
     const target = bindingFromParams(params, params.side)!
-    const path = ['graphs', params.graphId, 'boundary', params.side] as const
-    const items = def.boundary![params.side]
+    const path = found.path
+    const side = params.side
+    const removeItem = (): void => tx.set(['graphs', params.graphId as string, 'boundary'], withBoundaryItems(def.boundary, side,
+      boundaryItems(def.boundary, side).filter((_, index) => index !== found.index)) as unknown as Json)
     if (params.side === 'outputs') {
       if (!bindingMatchesEndpoint(found.item.binds, target)) return [err('boundary.bindMissing', `boundary.unbind: boundary output '${params.itemId}' does not bind '${params.node}/${params.port}'`)]
-      tx.set(path, items.filter((_, index) => index !== found.index) as unknown as Json)
+      removeItem()
       return []
     }
     const also = found.item.alsoBinds ?? []
     const alsoIndex = also.findIndex((binding) => bindingMatchesEndpoint(binding, target))
     if (alsoIndex !== -1) {
       const kept = also.filter((_, index) => index !== alsoIndex)
-      if (kept.length) tx.set([...path, found.index, 'alsoBinds'], kept as unknown as Json)
-      else tx.remove([...path, found.index, 'alsoBinds'])
+      if (kept.length) tx.set([...path, 'alsoBinds'], kept as unknown as Json)
+      else tx.remove([...path, 'alsoBinds'])
       return []
     }
     if (!bindingMatchesEndpoint(found.item.binds, target)) return [err('boundary.bindMissing', `boundary.unbind: boundary input '${params.itemId}' does not bind '${params.node}/${params.port}'`)]
-    if (also.length === 0) tx.set(path, items.filter((_, index) => index !== found.index) as unknown as Json)
+    if (also.length === 0) removeItem()
     else {
-      tx.set([...path, found.index, 'binds'], also[0] as unknown as Json)
-      if (also.length === 1) tx.remove([...path, found.index, 'alsoBinds'])
-      else tx.set([...path, found.index, 'alsoBinds'], also.slice(1) as unknown as Json)
+      tx.set([...path, 'binds'], also[0] as unknown as Json)
+      if (also.length === 1) tx.remove([...path, 'alsoBinds'])
+      else tx.set([...path, 'alsoBinds'], also.slice(1) as unknown as Json)
     }
     return []
   },

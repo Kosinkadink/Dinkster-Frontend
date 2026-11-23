@@ -463,6 +463,65 @@ export const WORKFLOW_SCHEMA = {
     },
     boundaryBinding,
     boundaryItem,
+    boundaryInput: {
+      allOf: [
+        { $ref: '#/$defs/boundaryItem' },
+        { required: ['kind'], properties: { kind: { const: 'input' } } },
+        {
+          not: {
+            properties: { binds: { type: 'object', properties: { kind: { const: 'widgetTap' } }, required: ['kind'] } },
+            required: ['binds'],
+          },
+        },
+      ],
+    },
+    // Fan-out is input-side only: an output has exactly one source.
+    boundaryOutput: {
+      allOf: [
+        { $ref: '#/$defs/boundaryItem' },
+        { required: ['kind'], properties: { kind: { const: 'output' }, ownRow: { const: true } } },
+        { not: { required: ['alsoBinds'] } },
+        { not: { required: ['wireHidden'] } },
+        { properties: { binds: { not: { required: ['viaReroute'] } } } },
+        { properties: { binds: { properties: { kind: { enum: ['port', 'construct', 'widgetTap', 'unbound'] } } } } },
+      ],
+    },
+    // Sections and lines are layout only: they open no value scope.
+    boundaryEntry: {
+      type: 'object',
+      required: ['kind'],
+      properties: { kind: { enum: ['input', 'output', 'section', 'line'] } },
+      allOf: [
+        { if: { properties: { kind: { const: 'input' } } }, then: { $ref: '#/$defs/boundaryInput' } },
+        { if: { properties: { kind: { const: 'output' } } }, then: { $ref: '#/$defs/boundaryOutput' } },
+        {
+          if: { properties: { kind: { const: 'section' } } },
+          then: {
+            additionalProperties: false,
+            required: ['kind', 'id', 'rows'],
+            properties: {
+              kind: { const: 'section' },
+              id: { type: 'string', minLength: 1 },
+              displayName: { type: 'string' },
+              collapsedByDefault: { const: true },
+              openName: { const: false },
+              rows: { type: 'array', items: { $ref: '#/$defs/boundaryEntry' } },
+            },
+          },
+        },
+        {
+          if: { properties: { kind: { const: 'line' } } },
+          then: {
+            additionalProperties: false,
+            required: ['kind', 'rows'],
+            properties: {
+              kind: { const: 'line' },
+              rows: { type: 'array', minItems: 2, maxItems: 4, items: { $ref: '#/$defs/boundaryInput' } },
+            },
+          },
+        },
+      ],
+    },
     dynamicPortState,
     nodeData: {
       type: 'object',
@@ -638,41 +697,9 @@ export const WORKFLOW_SCHEMA = {
         selectors: { type: 'object', additionalProperties: { $ref: '#/$defs/selectorData' } },
         boundary: {
           type: 'object',
-          required: ['inputs', 'outputs'],
+          required: ['body'],
           properties: {
-            inputs: {
-              type: 'array',
-              items: {
-                allOf: [
-                  { $ref: '#/$defs/boundaryItem' },
-                  {
-                    not: {
-                      properties: {
-                        binds: {
-                          type: 'object',
-                          properties: { kind: { const: 'widgetTap' } },
-                          required: ['kind'],
-                        },
-                      },
-                      required: ['binds'],
-                    },
-                  },
-                ],
-              },
-            },
-            // Fan-out is input-side only: an output has exactly one source.
-            outputs: {
-              type: 'array',
-              items: {
-                allOf: [
-                  { $ref: '#/$defs/boundaryItem' },
-                  { not: { required: ['alsoBinds'] } },
-                  { not: { required: ['wireHidden'] } },
-                  { properties: { binds: { not: { required: ['viaReroute'] } } } },
-                  { properties: { binds: { properties: { kind: { enum: ['port', 'construct', 'widgetTap', 'unbound'] } } } } },
-                ],
-              },
-            },
+            body: { type: 'array', items: { $ref: '#/$defs/boundaryEntry' } },
           },
         },
         nextOrdinal: { type: 'integer', minimum: 0, maximum: 9007199254740991 },

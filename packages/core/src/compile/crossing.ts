@@ -9,6 +9,7 @@ import type { NodeId } from '../ids.js'
 import { constructRowOf, innerMemberKey, interiorMembersOf, outerMemberKey, resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
 import type { NodeSchema } from '../schema/model.js'
+import { boundaryItems } from '../format/document.js'
 
 /** Project schema-opted-in menus through promoted inputs without changing values. */
 export function projectEditableOptions(
@@ -18,7 +19,7 @@ export function projectEditableOptions(
 ): ReadonlyMap<NodeId, Readonly<Record<string, DynamicPortState>>> {
   const projected = new Map<NodeId, Readonly<Record<string, DynamicPortState>>>()
   const claimed = new Map<NodeId, Set<string>>()
-  for (const item of child.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(child.boundary, 'inputs') ?? []) {
     if (item.promoted !== true || item.binds.kind !== 'port') continue
     const options = instanceDynamic?.[item.id]?.options
     if (options === undefined) continue
@@ -92,7 +93,7 @@ export interface CrossingProblem {
  * exactly one source, so an output item carrying `alsoBinds` cannot lower.
  */
 export function boundaryOutputFanOutProblems(child: GraphDef): readonly CrossingProblem[] {
-  return (child.boundary?.outputs ?? [])
+  return (boundaryItems(child.boundary, 'outputs') ?? [])
     .filter((item) => item.alsoBinds !== undefined)
     .map((item) => ({
       code: 'compile.boundary.forwardUnresolved',
@@ -215,7 +216,7 @@ export function projectConstructs(
     valuesOf(node)[key] = value
     own(node, key, owner)
   }
-  for (const item of [...(child.boundary?.inputs ?? []), ...(child.boundary?.outputs ?? [])]) {
+  for (const item of [...(boundaryItems(child.boundary, 'inputs') ?? []), ...(boundaryItems(child.boundary, 'outputs') ?? [])]) {
     if (item.binds.kind === 'port' && item.promoted === true && Object.hasOwn(instance.values, item.id)) {
       // A field the subgraph node shows reaches its inner field before the
       // inner node's formulas read it, as a group count or a choice leader does.

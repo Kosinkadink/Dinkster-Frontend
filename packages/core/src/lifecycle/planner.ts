@@ -40,6 +40,7 @@ import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { innerConstructAddress, matchBoundaryItem, projectConstructs } from '../compile/crossing.js'
 import { rerouteInputTargets } from '../reroute.js'
+import { boundaryItems } from '../format/document.js'
 
 export const LIFECYCLE_PLAN_VERSION = 'subgraph-lifecycle-plan-v2'
 
@@ -212,7 +213,7 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
     if (isPortEndpoint(net.source)) add(net.source, 'output', 'net')
     for (const sink of net.sinks) if (isPortEndpoint(sink)) add(sink, 'input', 'net')
   }
-  for (const [side, items] of [['input', parent.boundary?.inputs ?? []], ['output', parent.boundary?.outputs ?? []]] as const) {
+  for (const [side, items] of [['input', boundaryItems(parent.boundary, 'inputs') ?? []], ['output', boundaryItems(parent.boundary, 'outputs') ?? []]] as const) {
     for (const item of items) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.node !== nodeId) continue
@@ -283,8 +284,8 @@ export function planFlattenBoundaryRoutes(
     if (schema !== undefined) schemaSnapshot[node.type] = schema
   }
   const items = [
-    ...(body.boundary?.inputs ?? []).map((item) => ({ side: 'input' as const, item })),
-    ...(body.boundary?.outputs ?? []).map((item) => ({ side: 'output' as const, item })),
+    ...(boundaryItems(body.boundary, 'inputs') ?? []).map((item) => ({ side: 'input' as const, item })),
+    ...(boundaryItems(body.boundary, 'outputs') ?? []).map((item) => ({ side: 'output' as const, item })),
   ]
   const boundaryPlan = items.map(({ side, item }) => {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -342,8 +343,8 @@ function planFlattenState(
   }> = []
   let refusal: FlattenRefusedStatePlan['refusal'] | undefined
   const items = [
-    ...(body.boundary?.inputs ?? []).map((item) => ({ side: 'input' as const, item })),
-    ...(body.boundary?.outputs ?? []).map((item) => ({ side: 'output' as const, item })),
+    ...(boundaryItems(body.boundary, 'inputs') ?? []).map((item) => ({ side: 'input' as const, item })),
+    ...(boundaryItems(body.boundary, 'outputs') ?? []).map((item) => ({ side: 'output' as const, item })),
   ]
   const fail = (code: FlattenStateRefusalCode, message: string, side?: 'input' | 'output', boundaryId?: string, key?: string, address?: FlattenPortAddress): void => {
     if (refusal === undefined) refusal = {
@@ -392,10 +393,10 @@ function planFlattenState(
     }
   }
 
-  const inputItems = new Map((body.boundary?.inputs ?? []).map((item) => [item.id, item]))
+  const inputItems = new Map((boundaryItems(body.boundary, 'inputs') ?? []).map((item) => [item.id, item]))
   // State the subgraph node keeps under a construct it shows whole moves
   // onto that construct's inner nodes.
-  const constructItems = new Set([...(body.boundary?.inputs ?? []), ...(body.boundary?.outputs ?? [])]
+  const constructItems = new Set([...(boundaryItems(body.boundary, 'inputs') ?? []), ...(boundaryItems(body.boundary, 'outputs') ?? [])]
     .filter((item) => item.binds.kind === 'construct').map((item) => item.id))
   const underConstruct = (key: string): boolean => constructItems.has(key.split('.', 1)[0]!)
   if (occurrenceSchema.schema !== undefined) {
@@ -433,7 +434,7 @@ function planFlattenState(
     }
   }
 
-  for (const item of body.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(body.boundary, 'inputs') ?? []) {
     if (item.promoted !== true) continue
     const targets = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding))
     const primaryBinding = item.binds
@@ -479,8 +480,8 @@ function planFlattenState(
 
   const enclosingRewrites: FlattenEnclosingBindingRewrite[] = []
   const enclosingSides = [
-    { side: 'input' as const, parentItems: parent.boundary?.inputs ?? [], childItems: body.boundary?.inputs ?? [] },
-    { side: 'output' as const, parentItems: parent.boundary?.outputs ?? [], childItems: body.boundary?.outputs ?? [] },
+    { side: 'input' as const, parentItems: boundaryItems(parent.boundary, 'inputs') ?? [], childItems: boundaryItems(body.boundary, 'inputs') ?? [] },
+    { side: 'output' as const, parentItems: boundaryItems(parent.boundary, 'outputs') ?? [], childItems: boundaryItems(body.boundary, 'outputs') ?? [] },
   ]
   for (const { side, parentItems, childItems } of enclosingSides) {
     for (const [itemIndex, parentItem] of parentItems.entries()) {
@@ -701,7 +702,7 @@ export const EMPTY_SUBGRAPH_DEFINITION: FreshDefinitionInitializer = {
   links: {},
   nets: {},
   reroutes: {},
-  boundary: { inputs: [], outputs: [] },
+  boundary: { body: [] },
   nextOrdinal: 0,
 }
 
@@ -840,7 +841,7 @@ export function lifecycleSelectionProjection(
     .sort((a, b) => compareStrings(a.id, b.id))
   const boundary: unknown[] = []
   for (const side of ['inputs', 'outputs'] as const) {
-    for (const [index, item] of (graph.boundary?.[side] ?? []).entries()) {
+    for (const [index, item] of boundaryItems(graph.boundary, side).entries()) {
       if (bindingSelected(item.binds, selected) || item.alsoBinds?.some((binding) => bindingSelected(binding, selected))) {
         boundary.push({ side, index, item })
       }
@@ -944,7 +945,7 @@ export function lifecycleFlattenProjection(
       .filter((net) => net.source.node === occurrenceNodeId || net.sinks.some((sink) => sink.node === occurrenceNodeId))
       .sort((a, b) => compareStrings(a.id, b.id)),
     boundary: [
-      ...['inputs', 'outputs'].flatMap((side) => (graph.boundary?.[side as 'inputs' | 'outputs'] ?? [])
+      ...['inputs', 'outputs'].flatMap((side) => boundaryItems(graph.boundary, side as 'inputs' | 'outputs')
         .map((item, index) => ({ side, index, item }))
         .filter(({ item }) => [item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.node === occurrenceNodeId))),
     ],
@@ -1229,7 +1230,7 @@ export function auditExtractionCuts(
 
   const boundaries: BoundaryCut[] = []
   for (const side of ['inputs', 'outputs'] as const) {
-    for (const [itemIndex, item] of (graph.boundary?.[side] ?? []).entries()) {
+    for (const [itemIndex, item] of boundaryItems(graph.boundary, side).entries()) {
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
       const movedBindings = bindings.filter((binding) => bindingSelected(binding, selected))
       const retainedBindings = bindings.filter((binding) => !bindingSelected(binding, selected))

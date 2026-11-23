@@ -63,6 +63,7 @@ import type {
   ReplacementRule,
 } from './model.js'
 import type { ReplacementScanItem } from './scan.js'
+import { boundaryItems } from '../format/document.js'
 
 // ---------------------------------------------------------------------------
 // Plan shape (command params for node.replace - plain Json by construction)
@@ -649,7 +650,7 @@ function planReplacementForCase(
     : Object.keys(document.view.graphs[graphId]?.nodes[nodeId]?.views ?? {})
       .filter((input) => migrationHistoricalInputs.has(input))
   const historicalViews = document.view.graphs[graphId]?.nodes[nodeId]?.views ?? {}
-  const boundaryHasHistoricalInput = (def.boundary?.inputs ?? []).some((item) =>
+  const boundaryHasHistoricalInput = (boundaryItems(def.boundary, 'inputs') ?? []).some((item) =>
     [item.binds, ...(item.alsoBinds ?? [])].some((binding) =>
       binding.kind !== 'widgetTap' && binding.node === nodeId && migrationHistoricalInputs.has(binding.port),
     ),
@@ -662,7 +663,7 @@ function planReplacementForCase(
       const inputPorts = [
         ...Object.values(def.links).flatMap((link) => isPortEndpoint(link.to) ? [link.to] : []),
         ...Object.values(def.nets).flatMap((net) => net.sinks),
-        ...(def.boundary?.inputs ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+        ...(boundaryItems(def.boundary, 'inputs') ?? []).flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
           .flatMap((binding) => binding.kind === 'port' ? [binding] : []),
       ].filter((endpoint) => endpoint.node === nodeId).map((endpoint) => endpoint.port as string)
       historicalFamilyMembers.set(mapping, memberKeysEvidenced(
@@ -1740,7 +1741,7 @@ function planReplacementForCase(
     if (to.port !== b.port)
       boundaryRewires.push({ item: itemId, side, fromPort: b.port, port: to.port, ...(alsoIndex !== undefined ? { alsoIndex } : {}) })
   }
-  for (const item of def.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
     migrateBinding('input', item.id, item.binds)
     if (item.binds.node === nodeId && item.promoted === true) {
       const to = item.binds.kind === 'port'
@@ -1753,10 +1754,10 @@ function planReplacementForCase(
     }
     item.alsoBinds?.forEach((a, i) => migrateBinding('input', item.id, a, i))
   }
-  for (const item of def.boundary?.outputs ?? []) migrateBinding('output', item.id, item.binds)
+  for (const item of boundaryItems(def.boundary, 'outputs') ?? []) migrateBinding('output', item.id, item.binds)
 
   const boundaryGuard: NonNullable<NodeReplacePlan['boundaryGuard']>[number][] = []
-  for (const item of def.boundary?.inputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
     if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'input', port: item.binds.port,
         ...(item.promoted === true ? { promoted: true } : {}) })
@@ -1767,7 +1768,7 @@ function planReplacementForCase(
       }
     })
   }
-  for (const item of def.boundary?.outputs ?? []) {
+  for (const item of boundaryItems(def.boundary, 'outputs') ?? []) {
     if (item.binds.node === nodeId && item.binds.kind === 'port') {
       boundaryGuard.push({ item: item.id, side: 'output', port: item.binds.port })
     }

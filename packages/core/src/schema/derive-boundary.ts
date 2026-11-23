@@ -55,6 +55,7 @@ import type {
   TypeChoiceSpec,
   TypeExpr,
 } from './model.js'
+import { boundaryItems } from '../format/document.js'
 
 /** Resolves node types and optional backend-declared editor roles. */
 export interface SchemaResolver {
@@ -621,7 +622,7 @@ export function deriveBoundarySchema(
     return { diagnostics: diags }
   }
 
-  const inputs = graph.boundary.inputs.map((item): BoundaryItem => {
+  const inputs = boundaryItems(graph.boundary, 'inputs').map((item): BoundaryItem => {
     const bindings = [item.binds, ...(item.alsoBinds ?? [])]
     if (bindings.every((binding) => binding.viaReroute === undefined)) return item
     const expanded = bindings.flatMap((binding): BoundaryBinding[] => {
@@ -641,7 +642,7 @@ export function deriveBoundarySchema(
     return { ...single, binds: expanded[0] ?? item.binds, ...(expanded.length > 1 ? { alsoBinds: expanded.slice(1) } : {}) }
   })
   if (diags.length) return { diagnostics: diags }
-  if (graph.boundary.outputs.some((item) => item.binds.viaReroute !== undefined)) {
+  if (boundaryItems(graph.boundary, 'outputs').some((item) => item.binds.viaReroute !== undefined)) {
     fail('boundary.rerouteSide', 'junction attachments are input-side only')
     return { diagnostics: diags }
   }
@@ -777,7 +778,7 @@ export function deriveBoundarySchema(
   // One owner per construct: a construct shown whole owns every row in it.
   const constructOwners: { readonly node: string; readonly path: string; readonly item: string }[] = []
   const shownRows = new Map<string, string>()
-  const everyItem = [...def.boundary.inputs, ...def.boundary.outputs]
+  const everyItem = [...boundaryItems(def.boundary, 'inputs'), ...boundaryItems(def.boundary, 'outputs')]
   for (const item of everyItem) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if (binding.kind === 'port' && !shownRows.has(JSON.stringify([binding.node, binding.port]))) shownRows.set(JSON.stringify([binding.node, binding.port]), item.id)
@@ -872,7 +873,7 @@ export function deriveBoundarySchema(
   }
 
   const valueSourceInputs = new Map<string, string>()
-  for (const item of def.boundary.inputs) {
+  for (const item of boundaryItems(def.boundary, 'inputs')) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'construct') {
       const row = constructRow(item, 'input')
@@ -998,7 +999,7 @@ export function deriveBoundarySchema(
     })
   }
 
-  for (const item of def.boundary.outputs) {
+  for (const item of boundaryItems(def.boundary, 'outputs')) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'construct') {
       if (item.alsoBinds !== undefined) {
@@ -1102,16 +1103,16 @@ export function deriveBoundarySchema(
   let derivedItems = items
   if (region !== undefined) {
     const items = derivedItems as (InputSpec | OutputSpec)[]
-    if (!def.boundary.outputs.some((output) => output.id !== region.continueOutput) && !isOutputNode) {
+    if (!boundaryItems(def.boundary, 'outputs').some((output) => output.id !== region.continueOutput) && !isOutputNode) {
       fail('doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
     }
     const elements = new Set(region.elementPorts ?? [])
     const state = new Set(region.statePorts ?? [])
     const outputRoles = region.outputRoles ?? {}
-    const inputRoleLabels = regionBoundaryLabels(def.boundary?.inputs ?? [], region, 'inputs')
-    const outputRoleLabels = regionBoundaryLabels(def.boundary?.outputs ?? [], region, 'outputs')
-    const explicitInputLabels = new Set((def.boundary?.inputs ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
-    const explicitOutputLabels = new Set((def.boundary?.outputs ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
+    const inputRoleLabels = regionBoundaryLabels(boundaryItems(def.boundary, 'inputs') ?? [], region, 'inputs')
+    const outputRoleLabels = regionBoundaryLabels(boundaryItems(def.boundary, 'outputs') ?? [], region, 'outputs')
+    const explicitInputLabels = new Set((boundaryItems(def.boundary, 'inputs') ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
+    const explicitOutputLabels = new Set((boundaryItems(def.boundary, 'outputs') ?? []).filter((item) => item.displayName !== undefined).map((item) => item.id))
     const stateInputTypes = new Map(
       items.flatMap((item) => item.kind === 'input' && state.has(item.id) ? [[item.id, item.type] as const] : []),
     )

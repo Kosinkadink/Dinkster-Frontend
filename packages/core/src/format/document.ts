@@ -530,6 +530,132 @@ export interface BoundaryItem {
   readonly ext?: ExtData
 }
 
+/** An input of the subgraph node, at its place in the boundary body. */
+export interface BoundaryInputEntry extends BoundaryItem {
+  readonly kind: 'input'
+}
+
+/** An output of the subgraph node, at its place in the boundary body. */
+export interface BoundaryOutputEntry extends BoundaryItem {
+  readonly kind: 'output'
+  /** Layout only: on the node, never share the line of the input pin above. */
+  readonly ownRow?: true
+}
+
+/** A box that opens and closes. Layout only: it opens no scope. */
+export interface BoundarySectionEntry {
+  readonly kind: 'section'
+  /** Unique among the boundary's sections. */
+  readonly id: string
+  readonly displayName?: string
+  readonly collapsedByDefault?: true
+  /** False: the open box shows no name, only the tab that closes it. */
+  readonly openName?: false
+  readonly rows: readonly BoundaryEntry[]
+}
+
+/** Two to four inputs side by side on one line. Layout only. */
+export interface BoundaryLineEntry {
+  readonly kind: 'line'
+  readonly rows: readonly BoundaryInputEntry[]
+}
+
+export type BoundaryEntry = BoundaryInputEntry | BoundaryOutputEntry | BoundarySectionEntry | BoundaryLineEntry
+
+/**
+ * A subgraph definition's boundary: one ordered body in the order the
+ * subgraph node draws it. Inputs and outputs keep their ids wherever they
+ * sit; sections and lines are layout and never change a value, a wire or a
+ * cache key.
+ */
+export interface Boundary {
+  readonly body: readonly BoundaryEntry[]
+}
+
+/** Path segments from a boundary to one of its items. */
+export type BoundaryItemPath = readonly (string | number)[]
+
+/** A boundary's items of one side in body order, with the path to each. */
+export function boundaryItemsWithPaths(
+  boundary: Boundary | undefined,
+  side: 'inputs' | 'outputs',
+): readonly { readonly item: BoundaryItem; readonly path: BoundaryItemPath }[] {
+  const kind = side === 'inputs' ? 'input' : 'output'
+  const found: { item: BoundaryItem; path: BoundaryItemPath }[] = []
+  const visit = (entries: readonly BoundaryEntry[], path: BoundaryItemPath): void => {
+    for (const [index, entry] of entries.entries()) {
+      if (entry.kind === 'section' || entry.kind === 'line') visit(entry.rows, [...path, index, 'rows'])
+      else if (entry.kind === kind) found.push({ item: entry, path: [...path, index] })
+    }
+  }
+  if (boundary !== undefined) visit(boundary.body, ['body'])
+  return found
+}
+
+/** A boundary's items of one side, in body order. */
+export const boundaryItems = (boundary: Boundary | undefined, side: 'inputs' | 'outputs'): readonly BoundaryItem[] =>
+  boundaryItemsWithPaths(boundary, side).map(({ item }) => item)
+
+const entryOf = (item: BoundaryItem, side: 'inputs' | 'outputs'): BoundaryInputEntry | BoundaryOutputEntry =>
+  side === 'inputs' ? { ...item, kind: 'input' } : { ...item, kind: 'output' }
+
+/** A fresh boundary: the inputs, then the outputs. */
+export const boundaryOf = (inputs: readonly BoundaryItem[], outputs: readonly BoundaryItem[]): Boundary => ({
+  body: [...inputs.map((item) => entryOf(item, 'inputs')), ...outputs.map((item) => entryOf(item, 'outputs'))],
+})
+
+/**
+ * Replaces each item of a boundary by `map(item, side, index)`, keeping every
+ * item's place among sections and lines. `undefined` removes the item; a line
+ * left with one input becomes that input's own row, and an empty line goes.
+ */
+export function mapBoundaryItems(
+  boundary: Boundary,
+  map: (item: BoundaryItem, side: 'inputs' | 'outputs', index: number) => BoundaryItem | undefined,
+): Boundary {
+  const next = { inputs: 0, outputs: 0 }
+  const visit = (entries: readonly BoundaryEntry[]): BoundaryEntry[] => entries.flatMap((entry): BoundaryEntry[] => {
+    if (entry.kind === 'section') return [{ ...entry, rows: visit(entry.rows) }]
+    if (entry.kind === 'line') {
+      const rows = visit(entry.rows) as BoundaryInputEntry[]
+      return rows.length > 1 ? [{ ...entry, rows }] : rows
+    }
+    const side = entry.kind === 'input' ? 'inputs' : 'outputs'
+    const { kind: _kind, ...item } = entry
+    const mapped = map(item, side, next[side]++)
+    if (mapped === undefined) return []
+    const { kind: _drop, ...plain } = mapped as BoundaryItem & { kind?: unknown }
+    return [{ ...plain, kind: entry.kind, ...(entry.kind === 'output' && entry.ownRow ? { ownRow: true as const } : {}) } as BoundaryEntry]
+  })
+  return { body: visit(boundary.body) }
+}
+
+/**
+ * Sets one side's items to `items`, in that order of ids: an item whose id the
+ * boundary holds keeps its place among sections and lines, an item it lacks
+ * is added, and an item `items` lacks is removed. A new input goes at the end
+ * of the top level before the outputs that end it; a new output goes at the
+ * very end.
+ */
+export function withBoundaryItems(
+  boundary: Boundary | undefined,
+  side: 'inputs' | 'outputs',
+  items: readonly BoundaryItem[],
+): Boundary {
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const kept = mapBoundaryItems(boundary ?? { body: [] }, (item, itemSide) =>
+    itemSide !== side ? item : byId.get(item.id))
+  const present = new Set(boundaryItems(kept, side).map((item) => item.id))
+  const added = items.filter((item) => !present.has(item.id)).map((item) => entryOf(item, side))
+  if (added.length === 0) return kept
+  const body = [...kept.body]
+  if (side === 'outputs') return { body: [...body, ...added] }
+  let at = body.length
+  while (at > 0 && body[at - 1]!.kind === 'output') at--
+  body.splice(at, 0, ...added)
+  return { body }
+}
+
 // ---------------------------------------------------------------------------
 // Sparse occurrence-local topology overlays
 // ---------------------------------------------------------------------------
@@ -646,10 +772,7 @@ export interface GraphDef {
   /** Optional (absent = none) to keep existing v1 documents valid unchanged. */
   readonly selectors?: Readonly<Record<string, SelectorData>>
   /** Present only on subgraph definitions (absent on the root graph). */
-  readonly boundary?: {
-    readonly inputs: readonly BoundaryItem[]
-    readonly outputs: readonly BoundaryItem[]
-  }
+  readonly boundary?: Boundary
   /** Monotonic ID allocation cursor; IDs are never reused within a definition. */
   readonly nextOrdinal: number
   /**

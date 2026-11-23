@@ -33,6 +33,7 @@ import type {
 } from '../format/document.js'
 import { isRerouteRef, occurrenceKey } from '../ids.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
+import { boundaryItems, type BoundaryItem } from '../format/document.js'
 
 /** Serialize JSON with object keys sorted, so equal values hash equally. */
 export function canonicalJson(value: unknown): string {
@@ -274,8 +275,12 @@ function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): J
     ),
     links: semanticConnections(g),
     nets: g.nets,
-    // Whether a boundary input's wire is drawn is presentation only.
-    ...(g.boundary ? { boundary: { ...g.boundary, inputs: g.boundary.inputs.map(({ wireHidden: _wireHidden, ...item }) => item) } } : {}),
+    // Where a row sits among sections and lines, whether it keeps its own
+    // row, and whether a boundary input's wire is drawn are presentation only.
+    ...(g.boundary ? { boundary: {
+      inputs: boundaryItems(g.boundary, 'inputs').map(({ kind: _kind, wireHidden: _wireHidden, ...item }: BoundaryItem & { kind?: unknown }) => item),
+      outputs: boundaryItems(g.boundary, 'outputs').map(({ kind: _kind, ownRow: _ownRow, ...item }: BoundaryItem & { kind?: unknown; ownRow?: unknown }) => item),
+    } } : {}),
     // Guarded on non-empty so `selectors: {}` and absent hash identically.
     ...(selectors.length > 0
       ? { selectors: Object.fromEntries(selectors.map(([k, s]) => [k, semanticSelector(s)])) }

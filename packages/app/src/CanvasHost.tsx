@@ -180,6 +180,7 @@ import {
 } from './CanvasSemanticNavigator.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
+import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
 
@@ -870,7 +871,7 @@ export function selectionDeleteInvocation(args: {
     if (link.from.kind === 'boundary' && link.to.kind === 'port') {
       const boundaryFrom = link.from
       const primaryDeleted = boundaryFrom.side === 'inputs' &&
-        deletedNodes.has(def.boundary?.inputs.find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
+        deletedNodes.has(boundaryItems(def.boundary, 'inputs').find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
       if (deletedNodes.has(link.to.node) || primaryDeleted) continue
       boundaryOps.push({
         command: 'boundary.unbind',
@@ -917,7 +918,7 @@ export function selectionDeleteInvocation(args: {
       if (!deletedNodes.has(net.source.node)) continue
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
-    for (const item of def.boundary?.inputs ?? []) {
+    for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
       if (item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
@@ -3299,7 +3300,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onBoundaryRenameRequest: (side, itemId, screenX, screenY) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return
-        const item = tab.store.doc.graphs[currentGraphId(tab)]?.boundary?.[side]?.find((i) => i.id === itemId)
+        const item = boundaryItems(tab.store.doc.graphs[currentGraphId(tab)]?.boundary, side).find((i) => i.id === itemId)
         if (!item) return
         closePalette()
         setEditor(undefined)

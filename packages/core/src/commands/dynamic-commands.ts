@@ -29,6 +29,7 @@ import { constructsOf } from '../schema/body.js'
 import type { ChoiceSpec, GroupSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { allNodesOf, storeStartState } from './start-state.js'
+import { boundaryItems } from '../format/document.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -451,7 +452,7 @@ const dynamicCompact: CommandDefinition = {
     }
     if (unresolvedOverlay) return []
 
-    for (const item of [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]) {
+    for (const item of [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind === 'port') add(binding)
       }

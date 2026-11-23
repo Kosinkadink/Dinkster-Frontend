@@ -8,6 +8,7 @@ import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, Occurre
 import type { ImportLitegraphResult } from './import-litegraph.js'
 import { ownJson } from './json.js'
 import { validateDocumentShape } from './validate.js'
+import { boundaryItems, boundaryOf } from './document.js'
 
 type Mutable = { [key: string]: any }
 type FlatImporter = (
@@ -541,7 +542,7 @@ export function importLitegraphSubgraphs(
       nodes: Object.fromEntries(Object.entries(nativeBody.nodes).filter(([key]) => key !== `n${def.inputNode}` && key !== `n${def.outputNode}`)),
       links: Object.fromEntries(Object.entries(nativeBody.links).filter(([, link]) =>
         !nodeEnd(link.from, `n${def.inputNode}`) && !nodeEnd(link.to, `n${def.outputNode}`))),
-      boundary: { inputs: boundary('inputs').map((item) => {
+      boundary: boundaryOf(boundary('inputs').map((item) => {
         const rawSlot = def.raw['inputs'].find((slot: Mutable) => slot['id'] === item.id)
         if (!authoredInstances.length || authoredInstances.some(({ graph, node }) =>
           (node['inputs'] ?? def.raw['inputs']).some((input: Mutable, index: number) =>
@@ -570,7 +571,7 @@ export function importLitegraphSubgraphs(
           ...(bindings.length > 1 ? { alsoBinds: bindings.slice(1) } : {}),
           ...(bindings.length > 0 && item.promoted ? { promoted: true } : {}),
         }
-      }), outputs: boundary('outputs') },
+      }), boundary('outputs')),
     }
     const derived = deriveBoundarySchema(candidate, localResolve)
     const deriveErrors = derived.diagnostics.filter((item) => item.severity === 'error')
@@ -580,7 +581,7 @@ export function importLitegraphSubgraphs(
     }
     const unresolvedBoundary = deriveErrors.length > 0 || !derived.schema
     const outputBoundary = unresolvedBoundary ? deriveBoundarySchema({
-      ...candidate, boundary: { inputs: [], outputs: candidate.boundary!.outputs },
+      ...candidate, boundary: boundaryOf([], boundaryItems(candidate.boundary, 'outputs')),
     }, localResolve).schema : undefined
     def.schema = derived.schema ?? {
       ...probe,

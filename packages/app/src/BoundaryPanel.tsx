@@ -19,6 +19,7 @@ import {
   type JsonObject,
   type RegionContract,
 } from '@dinkster/core'
+import { boundaryItems } from '@dinkster/core'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { useAppMessage } from './locale.js'
@@ -142,7 +143,7 @@ export function BoundaryPanel(props: { app: AppState }) {
     boundaryDiags().filter((d) => d.refs?.some((ref) => ref.portId === item.id) ?? d.message.includes(`'${item.id}'`))
 
   const defaultItemName = (side: 'inputs' | 'outputs', item: BoundaryItem): string => {
-    const fallback = defaultBoundaryLabels(editedDef()?.def.boundary?.[side] ?? []).get(item.id) ?? 'Boundary'
+    const fallback = defaultBoundaryLabels(boundaryItems(editedDef()?.def.boundary, side)).get(item.id) ?? 'Boundary'
     const schema = boundaryDerivation()?.schema
     if (schema === undefined) return fallback
     const spec = (side === 'inputs' ? inputsOf(schema) : outputsOf(schema)).find((candidate) => candidate.id === item.id)
@@ -247,7 +248,7 @@ export function BoundaryPanel(props: { app: AppState }) {
   const sideItemCache: Record<'inputs' | 'outputs', readonly BoundaryItem[]> = { inputs: [], outputs: [] }
   const sideItems = (side: 'inputs' | 'outputs'): readonly BoundaryItem[] => {
     const previous = new Map(sideItemCache[side].map((item) => [item.id, item]))
-    const items = (editedDef()?.def.boundary?.[side] ?? []).map((item) => {
+    const items = boundaryItems(editedDef()?.def.boundary, side).map((item) => {
       const existing = previous.get(item.id)
       return existing !== undefined && JSON.stringify(existing) === JSON.stringify(item) ? existing : item
     })

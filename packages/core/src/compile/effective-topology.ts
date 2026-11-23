@@ -33,6 +33,7 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elaborateInterface, elabInputsOf, elabOutputsOf, type Connectivity } from '../schema/elaborate.js'
 import { documentNodeResolver } from './compile.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
+import { boundaryItems } from '../format/document.js'
 
 export type EffectiveLinkIdentity =
   | { readonly kind: 'definition'; readonly graphId: GraphDefId; readonly linkId: LinkId }
@@ -170,7 +171,7 @@ function itemForRoute(
   side: 'from' | 'to',
   boundaryId: string,
 ): BoundaryItem | undefined {
-  const items = side === 'from' ? graph.boundary?.outputs : graph.boundary?.inputs
+  const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
   return items?.find((item) => item.id === boundaryId)
 }
 
@@ -298,7 +299,7 @@ function projectedEndpoints(
   side: 'from' | 'to',
   diagnostics: Diagnostic[],
 ): { readonly endpoint: ResolvedOccurrenceEndpoint; readonly route: readonly BoundaryRouteLeg[] }[] {
-  const items = side === 'from' ? at.bodyGraph.boundary?.outputs : at.bodyGraph.boundary?.inputs
+  const items = side === 'from' ? boundaryItems(at.bodyGraph.boundary, 'outputs') : boundaryItems(at.bodyGraph.boundary, 'inputs')
   const candidates = items?.filter((item) => endpoint.port === item.id) ?? []
   if (candidates.length !== 1) return []
   const item = candidates[0]!

@@ -223,6 +223,45 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   c.optExt(v['ext'], `${path}.ext`)
 }
 
+/**
+ * The boundary body: inputs and outputs at their places among sections and
+ * lines. A line holds two to four inputs; section ids are unique.
+ */
+function checkBoundaryEntries(c: ShapeChecker, entries: readonly unknown[], path: string, sectionIds: Set<string>): void {
+  entries.forEach((entry, i) => {
+    const p = `${path}[${i}]`
+    if (!c.obj(entry, p)) return
+    const kind = entry['kind']
+    if (kind === 'input' || kind === 'output') {
+      checkBoundaryItem(c, entry, p, kind === 'input' ? 'inputs' : 'outputs')
+      if (entry['ownRow'] !== undefined && (kind !== 'output' || entry['ownRow'] !== true))
+        c.fail(`${p}.ownRow`, 'must be true when present, and only on an output')
+    } else if (kind === 'section') {
+      if (c.str(entry['id'], `${p}.id`, { nonEmpty: true })) {
+        if (sectionIds.has(entry['id'])) c.fail(`${p}.id`, `duplicate section id '${entry['id']}'`)
+        sectionIds.add(entry['id'])
+      }
+      c.optStr(entry['displayName'], `${p}.displayName`)
+      if (entry['collapsedByDefault'] !== undefined && entry['collapsedByDefault'] !== true)
+        c.fail(`${p}.collapsedByDefault`, 'must be true when present')
+      if (entry['openName'] !== undefined && entry['openName'] !== false) c.fail(`${p}.openName`, 'must be false when present')
+      if (c.arr(entry['rows'], `${p}.rows`)) checkBoundaryEntries(c, entry['rows'], `${p}.rows`, sectionIds)
+    } else if (kind === 'line') {
+      if (c.arr(entry['rows'], `${p}.rows`)) {
+        if (entry['rows'].length < 2 || entry['rows'].length > 4) c.fail(`${p}.rows`, 'a line holds two to four inputs')
+        entry['rows'].forEach((row, j) => {
+          const rp = `${p}.rows[${j}]`
+          if (!c.obj(row, rp)) return
+          if (row['kind'] !== 'input') c.fail(`${rp}.kind`, "a line holds only inputs ('input')")
+          else checkBoundaryItem(c, row, rp, 'inputs')
+        })
+      }
+    } else {
+      c.fail(`${p}.kind`, "must be 'input', 'output', 'section' or 'line'")
+    }
+  })
+}
+
 function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string): void {
   if (!c.obj(st, p)) return
   if (st['members'] !== undefined && c.arr(st['members'], `${p}.members`)) {
@@ -548,11 +587,8 @@ function checkGraphDef(c: ShapeChecker, v: unknown, path: string): void {
     for (const [k, s] of Object.entries(v['selectors'])) checkSelector(c, s, `${path}.selectors.${k}`)
   }
   if (v['boundary'] !== undefined && c.obj(v['boundary'], `${path}.boundary`)) {
-    for (const side of ['inputs', 'outputs'] as const) {
-      const items = v['boundary'][side]
-      if (c.arr(items, `${path}.boundary.${side}`)) {
-        items.forEach((it, i) => checkBoundaryItem(c, it, `${path}.boundary.${side}[${i}]`, side))
-      }
+    if (c.arr(v['boundary']['body'], `${path}.boundary.body`)) {
+      checkBoundaryEntries(c, v['boundary']['body'], `${path}.boundary.body`, new Set())
     }
   }
   c.int(v['nextOrdinal'], `${path}.nextOrdinal`, 0)

@@ -33,6 +33,7 @@ import {
 } from '../replace/plan.js'
 import { occurrenceEndpointReferencesDefinition } from '../compile/effective-topology.js'
 import { pruneNetDisplayState, removeAuthoredNetViews, removeNetDeliverySuppressions, removeProjectedLinkSuppressions } from './occurrence-cleanup.js'
+import { boundaryItems, withBoundaryItems } from '../format/document.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -473,7 +474,7 @@ const nodeReplace: CommandDefinition = {
     // a changed boundary makes the plan stale.
     const boundaryRewires = (p.boundaryRewires ?? []) as NonNullable<NodeReplacePlan['boundaryRewires']>
     for (const r of boundaryRewires) {
-      const items = r.side === 'input' ? def.boundary?.inputs : def.boundary?.outputs
+      const items = r.side === 'input' ? boundaryItems(def.boundary, 'inputs') : boundaryItems(def.boundary, 'outputs')
       const item = items?.find((i) => i.id === r.item)
       const b = r.alsoIndex === undefined ? item?.binds : item?.alsoBinds?.[r.alsoIndex]
       if (!b || b.kind !== 'port' || b.node !== p.nodeId)
@@ -494,7 +495,7 @@ const nodeReplace: CommandDefinition = {
         JSON.stringify([g.side, g.item, g.alsoIndex ?? null, g.port, g.promoted === true])
       const stale = err('replace.stale', `node.replace: the subgraph boundary bindings of '${p.nodeId}' changed since planning`)
       const current: string[] = []
-      for (const item of def.boundary?.inputs ?? []) {
+      for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
         if (item.binds.node === p.nodeId) {
           if (item.binds.kind !== 'port') return [stale]
           current.push(guardKey({ item: item.id, side: 'input', port: item.binds.port,
@@ -506,7 +507,7 @@ const nodeReplace: CommandDefinition = {
           current.push(guardKey({ item: item.id, side: 'input', port: a.port, alsoIndex: i }))
         }
       }
-      for (const item of def.boundary?.outputs ?? []) {
+      for (const item of boundaryItems(def.boundary, 'outputs') ?? []) {
         if (item.binds.node === p.nodeId) {
           if (item.binds.kind !== 'port') return [stale]
           current.push(guardKey({ item: item.id, side: 'output', port: item.binds.port }))
@@ -663,13 +664,13 @@ const nodeReplace: CommandDefinition = {
     }
 
     // -- Boundary bindings ------------------------------------------------------
-    // Whole-array replacement per side (like net sinks): the transaction
-    // records the old array, so undo restores every binding at once.
+    // Whole-boundary replacement per side (like net sinks): the transaction
+    // records the old boundary, so undo restores every binding at once.
     for (const side of ['input', 'output'] as const) {
       const rewires = boundaryRewires.filter((r) => r.side === side)
       if (rewires.length === 0) continue
       const key = side === 'input' ? 'inputs' : 'outputs'
-      const items = (side === 'input' ? def.boundary?.inputs : def.boundary?.outputs) ?? []
+      const items = (side === 'input' ? boundaryItems(def.boundary, 'inputs') : boundaryItems(def.boundary, 'outputs')) ?? []
       const next = items.map((item) => {
         const mine = rewires.filter((r) => r.item === item.id)
         if (mine.length === 0) return item
@@ -688,7 +689,7 @@ const nodeReplace: CommandDefinition = {
         }
         return { ...item, binds, ...(alsoBinds !== undefined ? { alsoBinds } : {}) }
       })
-      tx.set(['graphs', graphId, 'boundary', key], next as unknown as Json)
+      tx.set(['graphs', graphId, 'boundary'], withBoundaryItems(tx.current.graphs[graphId]!.boundary, key, next) as unknown as Json)
     }
 
     return []

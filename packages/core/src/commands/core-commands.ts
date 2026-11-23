@@ -52,6 +52,7 @@ import {
   isCommandObject as isObj,
   isCompleteAssetRef,
 } from './command-support.js'
+import { boundaryItems, withBoundaryItems } from '../format/document.js'
 
 // Finite only (CO2): NaN/Infinity are not JSON and would poison geometry.
 const isVec2 = (v: Json | undefined): v is JsonObject & { x: number; y: number } =>
@@ -458,7 +459,7 @@ function deleteCascade(
   // PRIMARY target drops the whole item; a removed FAN-OUT target drops just
   // that entry (canonical form: 'alsoBinds' is omitted when it would empty).
   if (def.boundary) {
-    const prune = (items: readonly BoundaryItem[]): { kept: Json; changed: boolean } => {
+    const prune = (items: readonly BoundaryItem[]): { kept: BoundaryItem[]; changed: boolean } => {
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
@@ -476,12 +477,12 @@ function deleteCascade(
         }
         kept.push(item)
       }
-      return { kept: kept as unknown as Json, changed }
+      return { kept, changed }
     }
-    const inputs = prune(def.boundary.inputs)
-    const outputs = prune(def.boundary.outputs)
-    if (inputs.changed) tx.set(['graphs', graphId, 'boundary', 'inputs'], inputs.kept)
-    if (outputs.changed) tx.set(['graphs', graphId, 'boundary', 'outputs'], outputs.kept)
+    const inputs = prune(boundaryItems(def.boundary, 'inputs'))
+    const outputs = prune(boundaryItems(def.boundary, 'outputs'))
+    if (inputs.changed || outputs.changed) tx.set(['graphs', graphId, 'boundary'],
+      withBoundaryItems(withBoundaryItems(def.boundary, 'inputs', inputs.kept), 'outputs', outputs.kept) as unknown as Json)
   }
   // The nodes themselves + their view state.
   for (const id of nodeIds) {

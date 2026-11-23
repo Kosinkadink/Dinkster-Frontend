@@ -125,6 +125,7 @@ import type {
 } from './artifact.js'
 import { semanticHashOf } from './hash.js'
 import { effectiveOccurrenceTopology, type EffectiveLinkIdentity } from './effective-topology.js'
+import { boundaryItems } from '../format/document.js'
 
 // ---------------------------------------------------------------------------
 // Schema resolution over a document (backend types + '#<defId>' boundaries)
@@ -936,7 +937,7 @@ function compileImpl(
       }
       const child = graphOf(childId)
       // Boundary item selection goes through the ONE matcher (crossing.ts).
-      const match = matchBoundaryItem(child?.boundary?.inputs ?? [], ref)
+      const match = matchBoundaryItem(boundaryItems(child?.boundary, 'inputs'), ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
         sink.push(diag(
@@ -1076,7 +1077,7 @@ function compileImpl(
       }
       const child = graphOf(childId)
       // Symmetric with the input side: one boundary matcher (crossing.ts).
-      const match = matchBoundaryItem(child?.boundary?.outputs ?? [], ref)
+      const match = matchBoundaryItem(boundaryItems(child?.boundary, 'outputs'), ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
         sink.push(diag(
@@ -1352,7 +1353,7 @@ function compileImpl(
       // The outer address that reaches this inner port: a field's item id, or
       // the row under a construct the subgraph node shows whole.
       let outerPort: string | undefined
-      for (const i of def?.boundary?.inputs ?? []) {
+      for (const i of boundaryItems(def?.boundary, 'inputs')) {
         for (const b of [i.binds, ...(i.alsoBinds ?? [])]) {
           if (outerPort !== undefined || (b.kind !== 'port' && b.kind !== 'construct') || b.node !== curNode) continue
           outerPort = b.kind === 'port'
@@ -1520,7 +1521,7 @@ function compileImpl(
             const ctx = occCtxByPath.get(pathKey(at.path))
             const parentPath = at.path.slice(0, -1)
             const parent = at.path.length > 0 ? occCtxByPath.get(pathKey(parentPath)) : undefined
-            const boundary = def.boundary?.inputs.find((item) => item.binds.kind === 'valueSource' && item.binds.valueSource === endpoint.valueSource)
+            const boundary = boundaryItems(def.boundary, 'inputs').find((item) => item.binds.kind === 'valueSource' && item.binds.valueSource === endpoint.valueSource)
             if (parent && boundary) {
               const driver = driverOfInput(parentPath, parent.defId, at.path[at.path.length - 1]!, { port: boundary.id })
               if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...driver } }] }
@@ -1726,7 +1727,7 @@ function compileImpl(
         // lowering, so project every primary and fan-out target now.
         const connected = [...(addrIndexFor(path, defId).get(node.id) ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
         for (const projected of connected) {
-          const match = matchBoundaryItem(child.boundary.inputs, projected.address)
+          const match = matchBoundaryItem(boundaryItems(child.boundary, 'inputs'), projected.address)
           if (!match.ok) continue
           if (match.item.binds.kind === 'construct') {
             for (const source of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
@@ -1818,7 +1819,7 @@ function compileImpl(
       if (!byInput) overrides.set(target.runtimeId, (byInput = new Map()))
       if (!byInput.has(target.inputId)) byInput.set(target.inputId, v)
     }
-    for (const item of child.boundary.inputs) {
+    for (const item of boundaryItems(child.boundary, 'inputs')) {
       if (item.binds.kind === 'valueSource') {
         const value = node.values[item.id]
         const target = { valueSource: item.binds.valueSource, path: childPath }
@@ -2309,7 +2310,7 @@ function compileImpl(
   for (const region of regions.values()) {
     const child = graphOf(region.childId)
     if (!child?.boundary) continue
-    for (const item of child.boundary.inputs) {
+    for (const item of boundaryItems(child.boundary, 'inputs')) {
       const targets = resolveInputPort(
         region.occ.instancePath,
         region.parentDefId,
@@ -3014,7 +3015,7 @@ function compileImpl(
         ports[item.id] = encoded
       }
       const outputs: Record<string, DinksterRegionOutputWire> = {}
-      for (const item of child.boundary!.outputs) {
+      for (const item of boundaryItems(child.boundary, 'outputs')) {
         if (item.id === contract.continueOutput) continue
         const source = sourceForBoundaryOutput(region, item.id)
         if (!source) continue

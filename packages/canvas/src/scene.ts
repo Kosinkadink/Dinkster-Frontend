@@ -83,6 +83,7 @@ import {
   type WidgetMeasure,
 } from './layout.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { boundaryItems } from '@dinkster/core'
 
 interface PositionedSceneCacheEntry {
   readonly graph: GraphDef
@@ -1143,13 +1144,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
   if (def.boundary) {
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
           markConnected({ node: b.node, port: b.port }, 'in')
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       if (item.binds.kind === 'port')
         markConnected({ node: item.binds.node, port: item.binds.port }, 'out')
       else if (item.binds.kind === 'widgetTap') {
@@ -1450,7 +1451,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   // the node's value (or the outer owner's), else its own.
   const sentSourceValues = new Map<string, Json>()
   if (ownerNode !== undefined) {
-    for (const item of def.boundary?.inputs ?? []) {
+    for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
       const source = item.binds.kind === 'valueSource' && item.promoted === true ? def.valueSources?.[item.binds.valueSource] : undefined
       if (source === undefined) continue
       const occurrence = input.occurrenceView?.valueSources?.get(source.id)
@@ -1877,7 +1878,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const fieldControllers: Record<string, NonNullable<NodeData['controllers']>[string]> = {}
     const fieldOwners = new Map<string,
       { readonly graphId: string; readonly nodeId: string; readonly valueKey: string } | { readonly graphId: string; readonly valueSourceId: string }>()
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const binds = item.binds
       if (binds.kind === 'valueSource' && item.promoted === true) {
         const source = def.valueSources?.[binds.valueSource]
@@ -1999,8 +2000,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       type: { kind: 'concrete', name: 'INT' },
       regionIndex: true,
     }]
-    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
-    const outputsLayout = layoutBoundaryNode('outputs', slotsOf(def.boundary.outputs, 'outputs'), input.tokens, measure)
+    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(boundaryItems(def.boundary, 'inputs'), 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
+    const outputsLayout = layoutBoundaryNode('outputs', slotsOf(boundaryItems(def.boundary, 'outputs'), 'outputs'), input.tokens, measure)
 
     // Default positions hug the content bounds; a persisted position wins.
     let minX = Infinity
@@ -2149,7 +2150,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         candidate.kind === 'widget' ? head !== undefined && candidate.valueKey === head : candidate.kind === 'ports' && candidate.output?.portId === itemId)
       return row === undefined ? undefined : { x: inputsNode.x + inputsNode.layout.width, y: inputsNode.y + row.y + input.tokens.rowHeight / 2 }
     }
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
@@ -2181,7 +2182,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       })
     }
     // The inner fields of an input drawn without its wire carry the mark.
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const label = markLabels.get(item.id)
       if (label === undefined) continue
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -2201,7 +2202,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes[index] = { ...target, layout: { ...target.layout, rows } }
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       const to = boundaryPin(outputsNode, item.id)
       if (!to) continue
       const pinType = outputsNode.layout.pins.find((p) => p.portId === item.id)?.type
@@ -2288,12 +2289,12 @@ function missingConnections(
     for (const sink of net.sinks) mark(ins, sink)
   }
   if (def.boundary) {
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port') mark(ins, { node: b.node, port: b.port })
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       const b = item.binds
       if (b.kind === 'port') mark(outs, { node: b.node, port: b.port })
       else if (b.kind === 'widgetTap' && b.node === nodeId) taps.add(b.tap)

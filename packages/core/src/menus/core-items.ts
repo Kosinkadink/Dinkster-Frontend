@@ -18,6 +18,7 @@ import { constructsAround } from '../schema/derive-boundary.js'
 import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
+import { boundaryItems } from '../format/document.js'
 
 /** Menu-target port -> command PortRef params: the node and flattened port id. */
 const portParams = (p: { node: string; port: string }): { node: string; port: string } => ({
@@ -1186,7 +1187,7 @@ const widgetSubgraphNode: MenuContribution = {
     if (def?.nodes[t.nodeId] === undefined) return []
     const target = portParams({ node: t.nodeId, port: t.address.port })
     // A row of a construct shown whole is that construct's.
-    const wholly = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+    const wholly = [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]
       .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
       .some((binding) => binding.kind === 'construct' && binding.node === target.node && target.port.startsWith(`${binding.port}.`))
     if (wholly) return []
@@ -1257,7 +1258,7 @@ const showConstructOnSubgraphNode: MenuContribution = {
     const schema = ctx.resolve?.(node.type)
     if (schema === undefined) return []
     const port = target.kind === 'widget' ? target.inputId : target.portId
-    const shown = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+    const shown = [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]
       .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
       .filter((binding) => (binding.kind === 'port' || binding.kind === 'construct') && binding.node === node.id)
       .map((binding) => ({ port: (binding as { port: string }).port, whole: binding.kind === 'construct' }))
