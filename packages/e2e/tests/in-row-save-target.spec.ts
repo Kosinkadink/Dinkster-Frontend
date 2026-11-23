@@ -170,7 +170,7 @@ test('a stored mount this machine lacks stays stored until another mount or Use 
     command: 'node.setValue', params: { graphId: 'g0', nodeId: 'save', inputId: 'target', value: { mount: 'usb1', prefix: 'renders/portrait' } },
   }))
   await openRow(page)
-  await expect(mount(page)).toHaveAttribute('data-unavailable', 'true')
+  await expect(mount(page)).toHaveAttribute('data-tone', 'warning')
   await expect(mount(page)).toContainText('usb1')
   await expect(side(page)).toContainText('usb1 is not on this machine. Saving to output.')
   await prefix(page).fill('renders/renamed')
@@ -259,6 +259,7 @@ test('in a project with no default output mount, Project default says a run cann
   await expect(rowValue(page)).toHaveValue('no output mount/gallery/shots')
   await expect(side(page).locator('p').first()).toHaveText(stops)
   await expect(side(page).locator('p').first()).toHaveClass('dinkster-canvas-target-error')
+  await expect(mount(page)).toHaveAttribute('data-tone', 'error')
   await page.keyboard.press('Enter')
   await expect.poll(() => target(page, 'gallery')).toEqual({ prefix: 'gallery/shots' })
   // A stored mount this machine lacks names both facts and offers no Use project default.
@@ -268,8 +269,10 @@ test('in a project with no default output mount, Project default says a run cann
   await openRow(page, 'save')
   await expect(side(page).locator('p').first()).toHaveText(`usb1 is not on this machine, and this project has no default output mount. A run cannot save until one is set in mount settings, or a mount is picked here.`)
   await expect(side(page).getByRole('button', { name: 'Use project default' })).toHaveCount(0)
+  await expect(mount(page)).toHaveAttribute('data-tone', 'error')
   await pickMount(page, 'archive')
   await expect(side(page)).not.toContainText('not on this machine')
+  await expect(mount(page)).not.toHaveAttribute('data-tone')
   await page.keyboard.press('Enter')
   await expect.poll(() => target(page)).toEqual({ mount: 'archive', prefix: 'renders/portrait' })
 })

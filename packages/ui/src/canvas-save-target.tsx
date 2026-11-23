@@ -83,6 +83,8 @@ export function CanvasTargetBox(props: {
   options: readonly CanvasTargetMount[]
   /** The picked mount's id. */
   mount: string
+  /** The dropdown's outline and value take the color of the side part's sentence about the mount. */
+  tone?: 'warning' | 'error'
   listOpen: boolean
   /** Index of the list's candidate in `options`. */
   highlight?: number
@@ -148,7 +150,7 @@ export function CanvasTargetBox(props: {
           type="button"
           class="dinkster-canvas-target-choice"
           data-state={props.mounts}
-          data-unavailable={ready() && picked()?.unavailable === true}
+          data-tone={props.tone}
           data-focused={props.focused === 'mount'}
           aria-haspopup="listbox"
           aria-expanded={props.listOpen}

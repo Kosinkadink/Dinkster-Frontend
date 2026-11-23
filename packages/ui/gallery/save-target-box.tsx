@@ -200,12 +200,18 @@ function SaveTargetExampleCard(props: {
     stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + bottom + MARGIN)}px`
   })
 
+  const runStops = (): string | undefined => {
+    if (!noDefault()) return undefined
+    if (draft().mountGone) return t('saveTargetWidget.notHereNoDefault', { id: open()?.mount ?? '' })
+    return open()?.mount === null ? t('saveTargetWidget.noDefaultMount') : undefined
+  }
+  const mountTone = (): 'warning' | 'error' | undefined =>
+    runStops() !== undefined ? 'error' : draft().mountGone ? 'warning' : undefined
+
   const side = createMemo(() => {
     const result = draft()
     const gone = result.mountGone ? open()?.mount ?? undefined : undefined
-    const stops = !noDefault() ? undefined
-      : gone !== undefined ? t('saveTargetWidget.notHereNoDefault', { id: gone })
-        : open()?.mount === null ? t('saveTargetWidget.noDefaultMount') : undefined
+    const stops = runStops()
     const problem = stops !== undefined ? undefined : mounts() === 'none'
       ? t('saveTargetWidget.noMounts')
       : gone !== undefined ? t('saveTargetWidget.notHereSaving', { id: gone, mount: projectText() }) : undefined
@@ -249,6 +255,7 @@ function SaveTargetExampleCard(props: {
         mounts={mounts()}
         options={options()}
         mount={open()?.mount ?? ''}
+        {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
         listOpen={listOn() !== undefined}
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}

@@ -171,14 +171,20 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     }
   }
 
+  // Without a default output mount a run on Project default, or on a mount
+  // this machine lacks, cannot save: that stops a run, so it reads as an error.
+  const runStops = createMemo(() => {
+    if (!noDefault()) return undefined
+    if (draft().mountGone) return message('saveTargetWidget.notHereNoDefault', { id: mount() ?? '' })
+    return mount() === null ? message('saveTargetWidget.noDefaultMount') : undefined
+  })
+  const mountTone = (): 'warning' | 'error' | undefined =>
+    runStops() !== undefined ? 'error' : draft().mountGone ? 'warning' : undefined
+
   const side = createMemo(() => {
     const value = draft().store
     const gone = draft().mountGone ? mount() : null
-    // Without a default output mount a run on Project default, or on a mount
-    // this machine lacks, cannot save: that stops a run, so it reads as an error.
-    const stops = !noDefault() ? undefined
-      : gone !== null ? message('saveTargetWidget.notHereNoDefault', { id: gone })
-        : mount() === null ? message('saveTargetWidget.noDefaultMount') : undefined
+    const stops = runStops()
     const firstError = error() ?? stops
     const problem = props.commitError()
       ?? (mounts() === 'none' ? message('saveTargetWidget.noMounts') : undefined)
@@ -243,6 +249,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
         mounts={mounts()}
         options={options()}
         mount={mount() ?? ''}
+        {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
         listOpen={listOpen()}
         {...(highlight() === undefined ? {} : { highlight: highlight()! })}
         onToggleList={() => (listOpen() ? setListOpen(false) : openList())}

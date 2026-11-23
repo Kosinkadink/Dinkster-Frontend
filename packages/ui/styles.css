@@ -564,8 +564,10 @@
 .dinkster-canvas-target-value { display: flex; flex: 0 1 auto; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); min-width: 0; }
 .dinkster-canvas-target-value-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-target-choice:not([data-state='ready']) .dinkster-canvas-target-value-text { color: var(--dinkster-text-muted); font-style: italic; }
-.dinkster-canvas-target-choice[data-unavailable='true'] .dinkster-canvas-target-value { color: var(--dinkster-warning-foreground); }
-.dinkster-canvas-target-choice[data-unavailable='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-warning-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
+.dinkster-canvas-target-choice[data-tone='warning'] .dinkster-canvas-target-value { color: var(--dinkster-warning-foreground); }
+.dinkster-canvas-target-choice[data-tone='warning'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-warning-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
+.dinkster-canvas-target-choice[data-tone='error'] .dinkster-canvas-target-value { color: var(--dinkster-danger-foreground); }
+.dinkster-canvas-target-choice[data-tone='error'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 .dinkster-canvas-target-choice:focus-visible, .dinkster-canvas-target-choice[data-focused='true'], .dinkster-canvas-target-choice[aria-expanded='true'], .dinkster-canvas-target-input:focus, .dinkster-canvas-target-input[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 .dinkster-canvas-target-glyph { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); color: var(--dinkster-text-secondary); stroke-width: 2; }
 .dinkster-canvas-target-spinner { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
