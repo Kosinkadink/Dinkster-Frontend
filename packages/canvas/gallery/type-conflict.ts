@@ -138,11 +138,11 @@ export function typeConflictGallery(
   }
   return [
     card(
-      'Blend takes one type on image 1, image 2 and its result. Wiring a STRING to image 2 beside an IMAGE on image 1 is an error: the node and its ring on image 2 turn red, both wires into Blend are drawn red, and Problems reads "These inputs must be the same type: image 1 is IMAGE, image 2 is STRING". Run is refused with the same words, and the engine refuses the same workflow before anything runs.',
+      'Blend takes one type on image 1, image 2 and its result. Wiring a STRING to image 2 beside an IMAGE on image 1 is an error: the node and its ring on image 2 turn red, both wires into Blend are drawn red, and Problems reads "These inputs must be the same type: image 1 is IMAGE, image 2 is STRING." Run is refused with the same words, and the engine refuses the same workflow before anything runs.',
       blendGraph(true),
     ),
     card(
-      'A Switch whose Pick is wired takes one type on its branches and Value, because the branch it runs is only known while running. Branch 1 IMAGE beside branch 2 STRING is the same error: "These inputs must be the same type: branch 1 is IMAGE, branch 2 is STRING". Such a Switch ran before when it picked branch 1; it is now refused before the run.',
+      'A Switch whose Pick is wired takes one type on its branches and Value, because the branch it runs is only known while running. Branch 1 IMAGE beside branch 2 STRING is the same error: "These inputs must be the same type: branch 1 is IMAGE, branch 2 is STRING." Such a Switch ran before when it picked branch 1; it is now refused before the run.',
       switchGraph(true, true),
     ),
     card(
