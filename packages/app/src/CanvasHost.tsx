@@ -8,7 +8,7 @@
  * links) lives in the controller/renderer overlay, never in the document.
  */
 
-import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
 import type { ExecutionLogEntry } from '@dinkster/client'
 import {
   buildScene,
@@ -35,6 +35,7 @@ import {
   type GhostLink,
   type LinkDoubleClickContext,
   type LinkDropContext,
+  type CompanionDisplay,
   type CompanionMap,
   type PresenceActor,
   type RowMarkMap,
@@ -62,6 +63,8 @@ import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
+import { colorFieldHasOpacity, colorKind, resolveColorText } from '@dinkster/widgets'
+import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
@@ -225,6 +228,34 @@ export function inactiveSceneNodesFor(
   }
   const occurrences = occurrencesForView({ instancePath, runtimeIds })
   return new Set([...occurrences.own.keys(), ...occurrences.inner.keys()])
+}
+
+/**
+ * The color a COLOR field without opacity uses, when its wire brings a color
+ * with opacity: the field keeps the color and drops the opacity.
+ */
+function usedWiredColor(row: Extract<Hit, { kind: 'widget' }>['row'], arriving: Json | undefined): { readonly arriving: string; readonly used: string } | undefined {
+  if (row.spec.widgetType !== colorKind.type || colorFieldHasOpacity(row.spec.options) || typeof arriving !== 'string') return undefined
+  const result = resolveColorText(arriving, false)
+  return result.kind === 'color' && result.droppedOpacity ? { arriving, used: result.code } : undefined
+}
+
+/** Wired values as the rows use them: a wired color row paints the color it uses. */
+function companionsAsUsed(scene: Scene, companions: CompanionMap): CompanionMap {
+  let used: Record<string, Record<string, CompanionDisplay>> | undefined
+  for (const node of scene.nodes) {
+    const values = companions[node.id]
+    if (values === undefined) continue
+    for (const row of node.layout.rows) {
+      if (row.kind !== 'widget') continue
+      const companion = values[row.valueKey]
+      const color = usedWiredColor(row, companion?.value)
+      if (companion === undefined || color === undefined) continue
+      used ??= { ...companions }
+      used[node.id] = { ...used[node.id], [row.valueKey]: { ...companion, value: color.used } }
+    }
+  }
+  return used ?? companions
 }
 
 interface CanvasPreviewA11yTarget {
@@ -1724,6 +1755,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   let editsRowsInPlace = (): boolean => false
   let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let showRowNote = (_from: { readonly nodeId: string; readonly valueKey: string }, _note: JSX.Element): void => {}
   interface ControllerMenuState {
     readonly x: number
     readonly y: number
@@ -3032,6 +3064,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         publishPresence()
       },
       onWidgetActivate: (hit, screenX, screenY) => openWidgetEditor(hit, undefined, { x: screenX, y: screenY }),
+      onWiredWidgetActivate: (hit) => {
+        const color = usedWiredColor(hit.row, arrivingCompanions[hit.node.id]?.[hit.row.valueKey]?.value)
+        if (color !== undefined) showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasColorArriving arriving={color.arriving} used={color.used} />)
+      },
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return
@@ -4264,7 +4300,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
           ? undefined
-          : rowFocusAt(tab, node, row))
+          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }) })
       }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
@@ -4354,6 +4390,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // and the dormant stored value must survive untouched underneath.
     let companionInputs: CompanionSourceMap = new Map()
     let companionDisplays: CompanionMap = {}
+    // What the wires bring, before a row's own rules, such as dropping a
+    // color's opacity, decide what it shows.
+    let arrivingCompanions: CompanionMap = {}
 
     /**
      * Widget-value diagnostics: stored values validated through the SAME
@@ -4460,6 +4499,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         renderer.setInactiveNodes(undefined)
         companionInputs = new Map()
         companionDisplays = {}
+        arrivingCompanions = {}
         setWidgetA11yTargets([])
         setPreviewA11yTargets([])
         setSemanticSource(undefined)
@@ -4562,8 +4602,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setRunErrorsByNode(model.runErrorsByNode)
       minimap.setStates(model.states)
       companionInputs = model.companionSources
-      companionDisplays = model.companions
-      renderer.setCompanions(model.companions)
+      arrivingCompanions = model.companions
+      companionDisplays = companionsAsUsed(scene, model.companions)
+      renderer.setCompanions(companionDisplays)
       const linkedWidgetInputs = new Map<string, Map<string, boolean>>()
       for (const link of scene.links) {
         if (link.to.kind !== 'port') continue
@@ -5125,7 +5166,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
       // The select view belongs to COMBO alone.
       const choice = row.viewId === 'core.select' && row.spec.remote === undefined
-      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line' && !choice) return false
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor'].includes(row.viewId) && !choice) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,
@@ -5219,6 +5260,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
+    // A row that cannot be edited explains itself: a click shows these lines
+    // beside it in a neutral side part, with no outline and no field. The
+    // next press anywhere or Escape closes them; Tab moves on as from the row.
+    let closedNote: { readonly nodeId: string; readonly valueKey: string } | undefined
+    showRowNote = (from, note) => {
+      const tab = activeTab()
+      const node = rowNodeOf(from.nodeId)?.node
+      const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
+      if (tab === undefined || node === undefined || row?.kind !== 'widget' || !editsRowsInPlace()) return
+      // The press that closed this row's note does not open it again.
+      const closed = closedNote
+      closedNote = undefined
+      if (closed?.nodeId === from.nodeId && closed.valueKey === from.valueKey) return
+      setRowFocus({ ...rowFocusAt(tab, node, row), note })
+      canvasEl.focus()
+    }
+
     focusEditorRow = (from) => {
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
@@ -5246,7 +5304,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         event.preventDefault()
         event.stopPropagation()
         setRowFocus(undefined)
-      } else if (event.key === 'Enter' || event.key === ' ') {
+      } else if ((event.key === 'Enter' || event.key === ' ') && focus.note === undefined) {
         event.preventDefault()
         event.stopPropagation()
         const node = rowNodeOf(focus.nodeId)?.node
@@ -5258,7 +5316,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     canvasEl.addEventListener('keydown', onRowFocusKey, true)
     // The outline shows only while the keyboard put the focus there.
-    const clearRowFocus = (): void => { setRowFocus(undefined) }
+    const clearRowFocus = (): void => {
+      const focus = untrack(rowFocus)
+      closedNote = focus?.note === undefined ? undefined : { nodeId: focus.nodeId, valueKey: focus.valueKey }
+      setRowFocus(undefined)
+    }
     canvasEl.addEventListener('pointerdown', clearRowFocus, true)
     canvasEl.addEventListener('blur', clearRowFocus)
     onCleanup(() => {

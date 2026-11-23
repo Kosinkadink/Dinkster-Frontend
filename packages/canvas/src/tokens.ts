@@ -469,7 +469,7 @@ export const canvasPaintTokens = {
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
-    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },
+    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -697,6 +697,8 @@ export interface DesignTokens {
     /** The two squares of the pattern under a color square with opacity. */
     readonly swatchChecker: string
     readonly swatchCheckerAlt: string
+    /** The one-pixel edge inside a color square, so white, black and colors near the node still show. */
+    readonly swatchEdge: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -910,6 +912,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     valueMark: tokens.text.muted,
     swatchChecker: tokens.checker.dark,
     swatchCheckerAlt: tokens.checker.light,
+    swatchEdge: tokens.border.strong,
     value: tokens.text.primary,
     widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
