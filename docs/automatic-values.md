@@ -53,3 +53,9 @@ submits. The engine works the value out again when the run is queued, before
 any cache lookup, uses the default when it cannot, and records for each such
 field the value used and whether it was worked out or was the default
 (`automaticValues` on the job). A run is never blocked by an automatic value.
+
+When the latest run of the open workflow used the default for a field that
+the editor works out now, the field carries the warning "The last run could
+not work out frame rate and used the default, 24.", also listed in Problems.
+It goes when the user fixes a value or wires the field, and when a later run
+works the value out. The editor reads the record from the finished job.

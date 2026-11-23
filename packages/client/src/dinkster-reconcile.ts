@@ -29,7 +29,7 @@
  * replay over an already-completed run.
  */
 
-import type { ExecutionRef } from '@dinkster/core'
+import { automaticValuesOfJob, type ExecutionRef } from '@dinkster/core'
 import { runJournalIdentity, type DinksterConnection, type DinksterJobRecord } from './dinkster-connection.js'
 import type { ExecutionStore } from './execution-store.js'
 import { supersedable } from './reconcile-track.js'
@@ -68,6 +68,8 @@ export async function hydrateDinksterCompletedExecution(
       store.hydrateOutputs(ref, outputs as Readonly<Record<string, Readonly<Record<string, unknown>>>>)
     }
     if (job.artifacts !== undefined) store.hydrateArtifacts(ref, job.artifacts)
+    const automaticValues = automaticValuesOfJob(job)
+    if (automaticValues.length > 0) store.hydrateAutomaticValues(ref, automaticValues)
   }
 }
 
@@ -154,6 +156,8 @@ async function reconcilePass(
       if (job.state === 'completed' && job.artifacts !== undefined) {
         store.hydrateArtifacts(state.ref, job.artifacts)
       }
+      const automaticValues = automaticValuesOfJob(job)
+      if (automaticValues.length > 0) store.hydrateAutomaticValues(state.ref, automaticValues)
     }
   }
 }

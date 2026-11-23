@@ -15,6 +15,7 @@ import {
   executionKey,
   isControlEvent,
   parseOccurrenceKey,
+  type AutomaticValueRecord,
   type CompileArtifact,
   type ConnectionId,
   type Diagnostic,
@@ -140,6 +141,8 @@ export interface ExecutionState {
   readonly jobRef?: string
   /** Content digest of the exact workflow document submitted for this run. */
   readonly sourceDocument?: string
+  /** What the run's automatic fields used, from the persisted run record. */
+  readonly automaticValues?: readonly AutomaticValueRecord[]
   readonly queuedAt: number
   readonly startedAt?: number
   readonly endedAt?: number
@@ -850,6 +853,13 @@ export class ExecutionStore {
     const state = this.map.get(executionKey(ref))
     if (!state || retained.length === 0) return
     this.put({ ...state, assetRetentions: mergeAssetRetentions(state.assetRetentions ?? [], retained) })
+  }
+
+  /** Attach what the run's automatic fields used, from its persisted record. */
+  hydrateAutomaticValues(ref: ExecutionRef, automaticValues: readonly AutomaticValueRecord[]): void {
+    const state = this.map.get(executionKey(ref))
+    if (!state) return
+    this.put({ ...state, automaticValues })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */

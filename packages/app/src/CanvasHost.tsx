@@ -128,7 +128,7 @@ import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
-import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
@@ -4324,6 +4324,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // and the dormant stored value must survive untouched underneath.
     let companionInputs: CompanionSourceMap = new Map()
     let companionDisplays: CompanionMap = {}
+    // The last run's automatic fields that used their default, derived with
+    // the overlays from the tab's latest run against the installed scene.
+    let lastRunAutomatic: readonly Diagnostic[] = []
+    let lastRunAutomaticKey = '[]'
 
     /**
      * Widget-value diagnostics: stored values validated through the SAME
@@ -4404,7 +4408,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
       renderer.setRowMarks(widgetDiags.marks)
@@ -4446,6 +4450,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const boundExec = props.app.executionForTab(tab)
       const gid = currentGraphId(tab)
+      const frozenView = tab.execution !== undefined
+      const lastRun = frozenView ? [] : lastRunAutomaticDiagnostics({ scene, execution: boundExec, instancePath: viewInstancePath(tab) })
+      const lastRunKey = canonicalJson(lastRun.map((d) => [d.message, d.anchor?.port ?? null]))
+      if (lastRunKey !== lastRunAutomaticKey) {
+        lastRunAutomatic = lastRun
+        lastRunAutomaticKey = lastRunKey
+        // Replaces the scene diagnostics, which reruns these overlays once.
+        refreshSceneDiagnostics(tab)
+      }
 
       // On live tabs, a producer value sheds its stale mark only when a
       // cached comparison compile of the CURRENT document proves the

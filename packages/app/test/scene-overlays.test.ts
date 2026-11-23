@@ -3,7 +3,7 @@ import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge,
 import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
 // The derivation reads scene.nodes (id/isSubgraph/node.type), execution
@@ -1796,5 +1796,54 @@ describe('glsl image estimate overlay', () => {
       expect(m.previews['a1']).toBeUndefined()
       expect(estimate).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('last run automatic warnings', () => {
+  // A scene node with automatic rows, as layout draws them.
+  const automaticScene = (nodes: Record<string, Record<string, 'worked-out' | 'default' | undefined>>): Scene =>
+    ({
+      nodes: Object.entries(nodes).map(([id, rows]) => ({
+        id,
+        layout: {
+          rows: Object.entries(rows).map(([key, state]) => ({
+            kind: 'widget', inputId: key, valueKey: key, label: key.replace('_', ' '),
+            ...(state === undefined ? {} : { automatic: { value: 30, state } }),
+          })),
+        },
+      })),
+    }) as unknown as Scene
+  const run = (toSource: Record<string, string>, automaticValues: readonly unknown[]) =>
+    ({ artifact: { provenance: { toSource } }, automaticValues }) as unknown as ExecutionState
+
+  it('warns on a field the run filled with its default only while the editor works it out', () => {
+    const view = automaticScene({
+      a: { frame_rate: 'worked-out', other: 'worked-out', fixed: undefined },
+      b: { frame_rate: 'default' },
+    })
+    const execution = run({ r1: 'a', r2: 'b' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'other', value: 5, workedOut: true },
+      { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: false },
+      { runtimeNodeId: 'r2', inputId: 'frame_rate', value: 24, workedOut: false },
+    ])
+
+    const found = lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })
+
+    expect(found.map((d) => [d.severity, d.message, d.anchor?.port])).toEqual([
+      ['warning', 'The last run could not work out frame rate and used the default, 24.', { node: 'a', port: 'frame_rate' }],
+    ])
+  })
+
+  it('maps runtime ids through provenance to the viewed instance only', () => {
+    const view = automaticScene({ inner: { frame_rate: 'worked-out' } })
+    const execution = run({ r1: 'sub.inner', r2: 'other.inner' }, [
+      { runtimeNodeId: 'r2', inputId: 'frame_rate', value: 12, workedOut: false },
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+    ])
+
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: ['sub'] }).map((d) => d.message))
+      .toEqual(['The last run could not work out frame rate and used the default, 24.'])
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })).toEqual([])
   })
 })

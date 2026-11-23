@@ -2655,12 +2655,14 @@ describe('reconcileDinksterExecutions', () => {
     const outputs = { save: { images: {
       typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
     } } }
-    Object.assign(job, { state: 'completed', outputs, artifacts: [] })
+    Object.assign(job, { state: 'completed', outputs, artifacts: [],
+      automaticValues: [{ nodeId: 'save', inputId: 'fps', value: 24, source: 'default' }] })
     conn.ingest({ type: 'job_state', jobId: 'j1', state: 'completed' })
     expect(store.get(ref('j1'))!.status).toBe('completed')
     await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
     expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
     expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
+    expect(store.get(ref('j1'))!.automaticValues).toEqual([{ runtimeNodeId: 'save', inputId: 'fps', value: 24, workedOut: false }])
   })
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {
@@ -2680,6 +2682,10 @@ describe('reconcileDinksterExecutions', () => {
         outputs,
         artifacts,
         submittedBy: { principalId: 'queue-agent', kind: 'agent' },
+        automaticValues: [
+          { nodeId: 'n1', inputId: 'b', value: 24, source: 'default', reason: 'lookup-timeout' },
+          { nodeId: 'n1', inputId: 'a', value: 3, source: 'worked-out' },
+        ],
       },
     })
     seedRunning('j1')
@@ -2690,6 +2696,10 @@ describe('reconcileDinksterExecutions', () => {
     expect(state.artifacts).toEqual(artifacts)
     expect(state.artifactsHydrated).toBe(true)
     expect(state.submittedBy).toEqual({ principalId: 'queue-agent', kind: 'agent' })
+    expect(state.automaticValues).toEqual([
+      { runtimeNodeId: 'n1', inputId: 'b', value: 24, workedOut: false },
+      { runtimeNodeId: 'n1', inputId: 'a', value: 3, workedOut: true },
+    ])
   })
 
   it('hydrates a completed run when reconnect lands after run_finished but before job_state', async () => {

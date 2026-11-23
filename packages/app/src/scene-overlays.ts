@@ -31,7 +31,10 @@ import {
   type Scene,
 } from '@dinkster/canvas'
 import {
+  asNodeId,
+  asPortId,
   buildGraphConnectivity,
+  diag,
   deriveGlslMirrorBindings,
   deriveMirrorEstimates,
   elabInputsOf,
@@ -138,6 +141,41 @@ const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
   const retained = Object.fromEntries(Object.entries(outputs)
     .filter(([, descriptor]) => imageAssetRefsOf(descriptor).length > 0))
   return Object.keys(retained).length > 0 ? retained : undefined
+}
+
+/**
+ * The fields the viewed graph's last run filled with their default because
+ * it could not work out their automatic value, while the editor works one
+ * out now: one warning each, anchored to the field and listed in Problems.
+ * A field that is fixed or wired is not automatic, so its warning goes; a
+ * later run replaces the records.
+ */
+export function lastRunAutomaticDiagnostics(args: {
+  readonly scene: Scene
+  readonly execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined
+  readonly instancePath: readonly string[] | undefined
+}): readonly Diagnostic[] {
+  const records = args.execution?.automaticValues?.filter((record) => !record.workedOut) ?? []
+  const toSource = args.execution?.artifact?.provenance.toSource
+  if (records.length === 0 || toSource === undefined || args.instancePath === undefined) return []
+  const own = occurrencesForView({ instancePath: args.instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource }).own
+  const out: Diagnostic[] = []
+  for (const node of args.scene.nodes) {
+    const runtimeIds = new Set(own.get(node.id) ?? [])
+    if (runtimeIds.size === 0) continue
+    for (const row of node.layout.rows) {
+      if (row.kind !== 'widget' || row.automatic?.state !== 'worked-out') continue
+      const record = records.find((item) => runtimeIds.has(item.runtimeNodeId) && item.inputId === row.valueKey)
+      if (record === undefined) continue
+      const shown = typeof record.value === 'string' ? record.value : JSON.stringify(record.value)
+      out.push(diag('warning', 'runtime', 'automatic.lastRunDefault',
+        `The last run could not work out ${row.label} and used the default, ${shown}.`, {
+          anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+          data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+        }))
+    }
+  }
+  return out
 }
 
 /**
