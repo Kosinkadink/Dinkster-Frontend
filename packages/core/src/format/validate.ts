@@ -602,6 +602,11 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)
     }
   }
+  if (v['lines'] !== undefined && c.obj(v['lines'], `${path}.lines`)) {
+    for (const [k, line] of Object.entries(v['lines'])) {
+      if (c.obj(line, `${path}.lines.${k}`)) c.bool(line['folded'], `${path}.lines.${k}.folded`)
+    }
+  }
   c.optStr(v['color'], `${path}.color`)
   c.optExt(v['ext'], `${path}.ext`)
 }
