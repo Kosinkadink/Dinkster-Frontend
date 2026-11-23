@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import { effectiveWidgetDefault, t, type Json, type WidgetRegistry } from '@dinkster/core'
+import { t, type Json, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -15,6 +15,7 @@ import {
 } from '@dinkster/canvas'
 import {
   createWidgetRegistry,
+  isProjectDefaultTarget,
   isSaveTarget,
   registerCoreWidgets,
   saveTargetDraft,
@@ -22,6 +23,7 @@ import {
 } from '@dinkster/widgets'
 import {
   createSaveTargetScene,
+  galleryDefault,
   galleryMounts,
   saveTargetGroups,
   saveTargetSchema,
@@ -45,8 +47,11 @@ type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 /** The words a backend without mounts gives, as the product shows them. */
 const NO_BACKEND = 'mountWidget.error'
 
-const targetText = (value: Json): string =>
-  isSaveTarget(value) ? `${value.mount}/${value.prefix}` : t('saveTargetWidget.default')
+/** A target as the row and the side part show it; Project default names the mount it means here, when known. */
+const targetText = (value: Json, projectMount: string): string =>
+  isSaveTarget(value)
+    ? `${value.mount}/${value.prefix}`
+    : isProjectDefaultTarget(value) ? `${projectMount}/${value.prefix}` : t('saveTargetWidget.default')
 
 /** One labeled save target state: the production renderer's node with the open row's own controls over it. */
 function SaveTargetExampleCard(props: {
@@ -132,27 +137,37 @@ function SaveTargetExampleCard(props: {
   const mounts = (): CanvasTargetMounts => example().mounts ?? 'ready'
   const ready = (): readonly string[] => (mounts() === 'ready' ? galleryMounts : [])
   const open = () => example().open
+  // The project's default output mount, known once the mounts are read.
+  const projectMount = (): string | undefined => (mounts() === 'ready' ? galleryMounts[0] : undefined)
+  const projectText = (): string => projectMount() ?? t('saveTargetWidget.projectDefault')
   const options = (): readonly CanvasTargetMount[] => {
     const picked = open()?.mount ?? ''
-    const entries: CanvasTargetMount[] = ready().map((id) => ({ id, label: id }))
+    const entries: CanvasTargetMount[] = [
+      {
+        id: '',
+        label: t('saveTargetWidget.projectDefaultIs', { mount: projectText() }),
+        closedLabel: t('saveTargetWidget.projectDefault'),
+      },
+      ...ready().map((id) => ({ id, label: id })),
+    ]
     if (picked !== '' && !ready().includes(picked))
-      entries.unshift({ id: picked, label: t('mountWidget.unavailable', { id: picked }), unavailable: true })
+      entries.unshift({ id: picked, label: t('saveTargetWidget.notHere', { id: picked }), closedLabel: picked, unavailable: true })
     return entries
   }
   // The box read by the product's own rules.
   const draft = () =>
     saveTargetDraft({
       stored: example().stored,
-      mount: open()?.mount ?? '',
+      mount: open()?.mount ?? null,
       prefix: open()?.prefix ?? '',
-      cleared: example().cleared === true,
+      cleared: false,
       ready: mounts() === 'ready' ? ready() : undefined,
+      projectMount: projectText(),
     })
   const tooltip = () => {
     const input = schema().items.find((item) => item.kind === 'input' && item.id === 'target')
     return input?.kind === 'input' ? input.tooltip : undefined
   }
-  const declared = () => effectiveWidgetDefault(target()?.row.spec ?? { widgetType: 'SAVE_TARGET', options: {} })
 
   const placement = () => {
     const found = target()
@@ -188,17 +203,20 @@ function SaveTargetExampleCard(props: {
 
   const side = createMemo(() => {
     const result = draft()
+    const gone = result.mountGone ? open()?.mount ?? undefined : undefined
     const problem = mounts() === 'none'
       ? t('saveTargetWidget.noMounts')
-      : result.mountGone ? t('saveTargetWidget.mountGone') : undefined
+      : gone !== undefined ? t('saveTargetWidget.notHereSaving', { id: gone, mount: projectText() }) : undefined
     return (
       <CanvasTargetSide
         {...(problem === undefined ? {} : { problem })}
         enter={result.store === undefined
-          ? { verb: t('saveTargetWidget.enterKeeps'), target: targetText(example().stored) }
-          : { verb: t('saveTargetWidget.enterStores'), target: targetText(result.store) }}
+          ? { verb: t('saveTargetWidget.enterKeeps'), target: targetText(example().stored, projectText()) }
+          : { verb: t('saveTargetWidget.enterStores'), target: targetText(result.store, projectText()) }}
+        {...(gone === undefined ? {} : { action: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => undefined } })}
         defaultLabel="default"
-        defaultText={targetText((declared() ?? null) as Json)}
+        defaultText={targetText(galleryDefault, projectText())}
+        onDefault={() => undefined}
         {...(mounts() === 'failed' ? { error: t(NO_BACKEND) } : {})}
         {...(tooltip() === undefined ? {} : { tooltip: tooltip()! })}
         naming={t('saveTargetWidget.naming', { suffix: '.png' })}
@@ -234,7 +252,6 @@ function SaveTargetExampleCard(props: {
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
         {...(draft().prefixInvalid ? { prefixProblem: t('saveTargetWidget.invalid') } : {})}
-        {...(example().optional === true ? { onClear: () => undefined } : {})}
         focused={listOn() !== undefined ? 'mount' : 'prefix'}
       />
     </div>

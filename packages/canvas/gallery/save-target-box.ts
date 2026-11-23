@@ -36,7 +36,7 @@ export const saveTargetSchema: NodeSchema = {
   ],
 }
 
-/** A node whose save target may be left empty, which writes to the default output. Its target has no tooltip. */
+/** A node whose save target may be left empty. Its target has no tooltip. */
 export const optionalSaveTargetSchema: NodeSchema = {
   ...saveTargetSchema,
   type: 'Gallery',
@@ -129,24 +129,28 @@ export type SaveTargetMountState = 'loading' | 'none' | 'failed' | 'ready'
 export interface SaveTargetExample {
   readonly id: string
   readonly caption: string
-  /** The stored target, or null for Default output. */
+  /** The stored target: a named mount, or only a prefix for Project default. */
   readonly stored: Json
-  /** The box is open with this mount picked and this prefix typed. */
-  readonly open?: { readonly mount: string; readonly prefix: string }
+  /** The box is open with this mount picked, null for Project default, and this prefix typed. */
+  readonly open?: { readonly mount: string | null; readonly prefix: string }
   readonly mounts?: SaveTargetMountState
-  /** The mount list is open, its candidate on this mount. */
+  /** The mount list is open, its candidate on this mount, '' for Project default. */
   readonly listOn?: string
-  /** Clear destination was pressed. */
-  readonly cleared?: boolean
   readonly optional?: boolean
   /** A wire brings this target. */
   readonly arriving?: Json
 }
 
-const portrait = { mount: 'output', prefix: 'renders/portrait' }
+/** A target on Project default names only the prefix. */
+const portrait = { prefix: 'renders/portrait' }
+const onOutput = { mount: 'output', prefix: 'renders/portrait' }
+const onUsb = { mount: 'usb1', prefix: 'renders/portrait' }
 
-/** The ready writable mounts every example offers. */
+/** The ready writable mounts every example offers; the first is the project's default output mount. */
 export const galleryMounts = ['output', 'archive', 'shared-nas'] as const
+
+/** The node's own default: Project default with the node's default name. */
+export const galleryDefault = { prefix: 'ComfyUI' }
 
 export const saveTargetGroups: readonly {
   readonly title: string
@@ -155,32 +159,29 @@ export const saveTargetGroups: readonly {
   {
     title: 'Opening, picking a mount and leaving',
     examples: [
-      { id: 'closed', caption: 'Closed: the row shows mount and prefix together, as stored.', stored: portrait },
-      { id: 'open', caption: 'Open: a box under the row with the mount dropdown and the prefix; the side part says what Enter would do, then the input\'s tooltip and the naming help.', stored: portrait, open: portrait },
-      { id: 'list', caption: 'The dropdown open: its list lies over the box and past its lower edge.', stored: portrait, open: portrait, listOn: 'archive' },
-      { id: 'changed', caption: 'archive picked and a new name typed: the row and the side part show what leaving would store.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' } },
+      { id: 'closed', caption: 'Closed, on a named mount: the row shows mount and prefix together, as stored.', stored: onOutput },
+      { id: 'open', caption: 'Open on Project default, where a new target starts: the dropdown says Project default and stores no mount; the row and the side part name the mount it means here. The default is a link.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' } },
+      { id: 'list', caption: 'The dropdown open: Project default first, naming the mount it means here, then this machine\'s writable mounts. The list lies over the box and past its lower edge.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, listOn: '' },
+      { id: 'changed', caption: 'archive picked and a new name typed: the row and the side part show what leaving would store. Escape would keep the stored target.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' } },
       { id: 'left', caption: 'Left with Enter, Tab or a click outside: the new target is stored as one undo step.', stored: { mount: 'archive', prefix: 'renders/final' } },
-      { id: 'escaped', caption: 'Escape instead: the box closes and the stored target stays.', stored: portrait },
     ],
   },
   {
     title: 'Mounts that cannot be used',
     examples: [
-      { id: 'loading', caption: 'The mounts are still being read: the prefix can already be typed; nothing can be stored.', stored: portrait, open: portrait, mounts: 'loading' },
-      { id: 'none', caption: 'No writable mount is ready: nothing can be stored.', stored: portrait, open: portrait, mounts: 'none' },
-      { id: 'failed', caption: 'The mounts could not be read: the dropdown says Could not load and the error\'s own sentence leads the side part.', stored: portrait, open: portrait, mounts: 'failed' },
-      { id: 'gone', caption: 'The stored mount is gone: it stays, dimmed, until another mount is picked.', stored: { mount: 'usb1', prefix: 'renders/portrait' }, open: { mount: 'usb1', prefix: 'renders/portrait' } },
-      { id: 'gone-list', caption: 'The gone mount in the list: dimmed, and it cannot be picked.', stored: { mount: 'usb1', prefix: 'renders/portrait' }, open: { mount: 'usb1', prefix: 'renders/portrait' }, listOn: 'output' },
+      { id: 'loading', caption: 'The mounts are still being read: the prefix can already be typed, and the row reads Project default until the mount it means is known.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'loading' },
+      { id: 'none', caption: 'No writable mount is ready: no mount can be picked.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'none' },
+      { id: 'failed', caption: 'The mounts could not be read: the dropdown says Could not load and the error\'s own sentence leads the side part.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'failed' },
+      { id: 'not-here', caption: 'The stored mount is not on this machine: the run saves to the project default and the stored mount stays. The side part says so and offers Use project default.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' } },
+      { id: 'not-here-list', caption: 'The same mount in the list: dimmed, marked not on this machine, and it cannot be picked.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, listOn: '' },
     ],
   },
   {
-    title: 'Names, empty targets and wires',
+    title: 'Names, tooltips and wires',
     examples: [
-      { id: 'invalid', caption: 'A name that cannot be used: the field is outlined and Enter keeps the stored target.', stored: portrait, open: { mount: 'output', prefix: '../escape' } },
-      { id: 'optional', caption: 'A target that may be empty: Clear destination on the footer line. This input has no tooltip, so only the naming help shows.', stored: portrait, open: portrait, optional: true },
-      { id: 'cleared', caption: 'After Clear destination: leaving stores Default output.', stored: portrait, open: { mount: 'output', prefix: '' }, optional: true, cleared: true },
-      { id: 'default', caption: 'Stored as Default output, closed.', stored: null, optional: true },
-      { id: 'wired', caption: 'The row has a wire: it shows the target that arrives and does not open.', stored: portrait, arriving: { mount: 'archive', prefix: 'from/upstream' } },
+      { id: 'invalid', caption: 'A name that cannot be used: the field is outlined, the sentence stands under it and Enter keeps the stored target.', stored: portrait, open: { mount: null, prefix: '../escape' } },
+      { id: 'no-tooltip', caption: 'An input with no tooltip: only the naming help shows under the divider.', stored: onOutput, open: { mount: 'output', prefix: 'renders/portrait' }, optional: true },
+      { id: 'wired', caption: 'The row has a wire: it shows the target that arrives and does not open.', stored: onOutput, arriving: { mount: 'archive', prefix: 'from/upstream' } },
     ],
   },
 ]

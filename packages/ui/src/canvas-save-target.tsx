@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createUniqueId, type JSX } from 'solid-js'
 import { Check, ChevronDown, Trash2 } from 'lucide-solid'
 import {
+  CanvasSideLink,
   CanvasSidePart,
   canvasSideLayout,
   type CanvasBox,
@@ -42,8 +43,11 @@ export function canvasTargetLayout(
 
 /** One mount in a save target's mount list. */
 export interface CanvasTargetMount {
+  /** The mount's id, or '' for Project default. */
   readonly id: string
   readonly label: string
+  /** What the closed dropdown shows when this entry is picked, when it is shorter than the label. */
+  readonly closedLabel?: string
   /** A stored mount that is no longer ready: listed dimmed, never picked. */
   readonly unavailable?: boolean
 }
@@ -132,7 +136,7 @@ export function CanvasTargetBox(props: {
       case 'ready':
         return (
           <>
-            <span class="dinkster-canvas-target-value-text">{picked()?.label ?? props.mount}</span>
+            <span class="dinkster-canvas-target-value-text">{picked()?.closedLabel ?? picked()?.label ?? props.mount}</span>
             <ChevronDown class="dinkster-canvas-target-glyph" aria-hidden="true" />
           </>
         )
@@ -249,17 +253,20 @@ export function CanvasTargetBox(props: {
 
 /**
  * An open save target's side part: an error first, such as why the mounts
- * could not be read, then a problem, such as a stored mount that is gone,
- * then what leaving the box does ("Enter keeps" or "Enter stores" and the
- * target) and the default; under the divider the input's own tooltip, when
- * it declares one, and the naming help.
+ * could not be read, then a problem, such as a stored mount that is not on
+ * this machine, then what leaving the box does ("Enter keeps" or "Enter
+ * stores" and the target), an action such as "Use project default", and
+ * the default, a link when `onDefault` puts it back; under the divider the
+ * input's own tooltip, when it declares one, and the naming help.
  */
 export function CanvasTargetSide(props: {
   error?: string
   problem?: string
   enter: { readonly verb: string; readonly target: string }
+  action?: { readonly label: string; readonly onClick: () => void }
   defaultLabel: string
   defaultText: string
+  onDefault?: () => void
   tooltip?: string
   naming: string
 }) {
@@ -267,7 +274,12 @@ export function CanvasTargetSide(props: {
     <>
       <CanvasSidePart
         {...(props.problem === undefined ? {} : { problem: props.problem })}
-        facts={[{ key: props.defaultLabel, value: props.defaultText }]}
+        facts={[{
+          key: props.defaultLabel,
+          value: props.onDefault === undefined
+            ? props.defaultText
+            : <CanvasSideLink onClick={() => props.onDefault?.()}>{props.defaultText}</CanvasSideLink>,
+        }]}
       >
         <Show when={props.error}>
           <p class="dinkster-canvas-target-error" role="alert">
@@ -277,6 +289,13 @@ export function CanvasTargetSide(props: {
         <p class="dinkster-canvas-target-enter">
           {props.enter.verb} <span class="dinkster-canvas-target-enter-value">{props.enter.target}</span>
         </p>
+        <Show when={props.action}>
+          {(action) => (
+            <p class="dinkster-canvas-target-enter">
+              <CanvasSideLink onClick={() => action().onClick()}>{action().label}</CanvasSideLink>
+            </p>
+          )}
+        </Show>
       </CanvasSidePart>
       <div class="dinkster-canvas-side-help">
         <Show when={props.tooltip}>
