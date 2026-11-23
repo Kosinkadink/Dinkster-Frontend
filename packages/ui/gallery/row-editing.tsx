@@ -10,7 +10,9 @@ import {
   effectiveWidgetDefault,
   formatWidgetValue,
   numericStepConstraints,
+  widgetRepresentationChoices,
   type Json,
+  type NodeSchema,
   type WidgetRegistry,
   type WidgetSpec,
 } from '@dinkster/core'
@@ -68,6 +70,19 @@ export interface RowExample {
    * it. Otherwise the example grows to show the whole side part.
    */
   readonly edge?: boolean
+  /** The node to draw instead of the page's own, and the schema its help comes from. */
+  readonly build?: {
+    readonly scene: (
+      tokens: DesignTokens,
+      measure: TextMeasurer,
+      widgetMeasure: WidgetMeasure,
+      position: { x: number; y: number },
+      width: number,
+    ) => Scene
+    readonly schema: NodeSchema
+  }
+  /** The side part ends in the Representation control, its list shown open when expanded. */
+  readonly representation?: 'closed' | 'expanded'
 }
 
 export const NODE_WIDTH = 280
@@ -346,9 +361,10 @@ export function RowEditingExample(props: {
             : undefined
         }
         const built = (
-          example.focus === undefined
+          example.build?.scene ??
+          (example.focus === undefined
             ? createRowEditingScene
-            : createRowFocusScene
+            : createRowFocusScene)
         )(
           tokens,
           measure,
@@ -399,7 +415,8 @@ export function RowEditingExample(props: {
     )
     if (!row) return undefined
     const schema =
-      props.example.focus === undefined ? rowEditingSchema : rowFocusSchema
+      props.example.build?.schema ??
+      (props.example.focus === undefined ? rowEditingSchema : rowFocusSchema)
     const item = schema.items.find(
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
@@ -415,11 +432,27 @@ export function RowEditingExample(props: {
     const target = openRow()
     if (!target) return undefined
     const { row, help, facts } = target
+    const looks =
+      props.example.representation === undefined
+        ? undefined
+        : widgetRepresentationChoices(row.spec, row.representationId)
+    const representation =
+      looks === undefined
+        ? {}
+        : {
+            representation: {
+              ...looks,
+              expanded: props.example.representation === 'expanded',
+              onChoose: () => undefined,
+            },
+          }
     if (props.example.focus !== undefined) {
       const declared = effectiveWidgetDefault(row.spec)
-      if (declared === undefined && help === undefined) return undefined
+      if (declared === undefined && help === undefined && looks === undefined)
+        return undefined
       return (
         <CanvasSidePart
+          {...representation}
           facts={
             declared === undefined
               ? []
@@ -434,9 +467,11 @@ export function RowEditingExample(props: {
         />
       )
     }
-    if (facts.length === 0 && help === undefined) return undefined
+    if (facts.length === 0 && help === undefined && looks === undefined)
+      return undefined
     return (
       <CanvasSidePart
+        {...representation}
         {...(row.controllerMode !== undefined
           ? {
               children: (

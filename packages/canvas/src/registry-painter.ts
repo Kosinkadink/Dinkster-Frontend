@@ -11,7 +11,7 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { companionWords, defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -163,10 +163,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       }
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
-      const summary = tokens.widgetRowLook === 'raised-editors'
+      const words = companionWords(args.companion)
+      const summary = words === undefined && tokens.widgetRowLook === 'raised-editors'
         ? compactSummary(view, args.companion.value, row.spec)
         : undefined
-      const formatted = summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
+      const formatted = words ?? summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
       const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
       const lead = subgraphMarkReserve(row)

@@ -2,6 +2,19 @@ import { createEffect, createMemo, createSignal } from 'solid-js'
 import { CanvasRowFocus, CanvasSidePart } from '@dinkster/ui'
 import { placeRow, rowPlacement, visibleCanvas, type RowBox } from './row-placement.js'
 
+/**
+ * A field's switchable looks for the side part's Representation control, and
+ * the document address its choice is kept under.
+ */
+export interface RowRepresentation {
+  readonly graphId: string
+  readonly nodeId: string
+  readonly inputId: string
+  readonly choices: readonly { readonly id: string; readonly label: string }[]
+  readonly selected: string
+  readonly note?: string
+}
+
 /** A row the keyboard is on while nothing is open. */
 export interface RowFocusState extends RowBox {
   readonly tabId: string
@@ -11,6 +24,7 @@ export interface RowFocusState extends RowBox {
   /** The declared default, as the row shows it. */
   readonly defaultText?: string
   readonly help?: string
+  readonly representation?: RowRepresentation
 }
 
 /**
@@ -22,6 +36,8 @@ export function RowFocusOverlay(props: {
   focus: RowFocusState
   viewport: () => { x: number; y: number; scale: number }
   boundary: HTMLElement
+  /** Switch the row's look; called only with a choice other than the current one. */
+  onRepresentation: (id: string) => void
 }) {
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   const bounds = visibleCanvas(props.boundary)
@@ -32,12 +48,18 @@ export function RowFocusOverlay(props: {
     sideSize(),
   ))
   const side = createMemo(() => {
-    const { defaultText, help } = props.focus
-    if (defaultText === undefined && help === undefined) return undefined
+    const { defaultText, help, representation } = props.focus
+    if (defaultText === undefined && help === undefined && representation === undefined) return undefined
     return (
       <CanvasSidePart
         facts={defaultText === undefined ? [] : [{ key: 'default', value: defaultText }]}
         {...(help === undefined ? {} : { help })}
+        {...(representation === undefined ? {} : { representation: {
+          choices: representation.choices,
+          selected: representation.selected,
+          ...(representation.note === undefined ? {} : { note: representation.note }),
+          onChoose: (id: string) => { if (id !== representation.selected) props.onRepresentation(id) },
+        } })}
       />
     )
   })

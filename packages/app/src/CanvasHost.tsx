@@ -121,6 +121,7 @@ import {
   type WidgetSpec,
   type WidgetView,
   type WorkflowDocument,
+  widgetRepresentationChoices,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X } from 'lucide-solid'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
@@ -131,7 +132,7 @@ import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
-import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
+import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
@@ -1705,6 +1706,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   let editsRowsInPlace = (): boolean => false
   let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let rowRepresentationOf = (_tab: Tab, _node: SceneNode, _row: WidgetLayoutRow): RowRepresentation | undefined => undefined
   interface ControllerMenuState {
     readonly x: number
     readonly y: number
@@ -5044,6 +5046,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(rowRepresentationOf(tab, hit.node, hit.row) === undefined ? {} : { representation: rowRepresentationOf(tab, hit.node, hit.row)! }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
@@ -5150,6 +5153,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
+    // A field's switchable looks for the side part, unless the view is a
+    // finished run's, which stays locked, or the row is only offered.
+    rowRepresentationOf = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowRepresentation | undefined => {
+      if (tab.execution !== undefined || row.ghost === true || row.materialize !== undefined) return undefined
+      const choices = widgetRepresentationChoices(row.spec, row.representationId)
+      if (choices === undefined) return undefined
+      return {
+        graphId: row.familyOwner?.graphId ?? currentGraphId(tab),
+        nodeId: row.familyOwner?.nodeId ?? node.id,
+        inputId: row.familyOwner?.valueKey ?? row.valueKey,
+        ...choices,
+      }
+    }
+
     const rowFocusAt = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowFocusState => {
       const tokens = renderer.getDesignTokens()
       const inset = tokens.rowGeometry.fieldInsetY
@@ -5169,6 +5186,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         nodeBottom: node.y + node.layout.height,
         ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
         ...(help === undefined ? {} : { help }),
+        ...(rowRepresentationOf(tab, node, row) === undefined ? {} : { representation: rowRepresentationOf(tab, node, row)! }),
       }
     }
 
@@ -7134,7 +7152,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={rowFocus()}>
-        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} />}
+        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onRepresentation={(id) => {
+          const representation = focus().representation
+          const tab = activeTab()
+          if (representation === undefined || tab === undefined || tab.id !== focus().tabId) return
+          void props.app.dispatchTo(tab, { command: 'view.setWidgetRepresentation', params: {
+            graphId: representation.graphId,
+            nodeId: representation.nodeId,
+            inputId: representation.inputId,
+            representation: id,
+          } })
+        }} />}
       </Show>
 
       <Show when={editor()} keyed>

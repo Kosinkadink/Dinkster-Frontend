@@ -30,6 +30,7 @@ import { ProductNotice } from './ProductForm.js'
 import { OutputDescriptorEditor } from './OutputDescriptorEditor.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
+import type { RowRepresentation } from './editors/RowFocusOverlay.js'
 import { useAppMessage } from './locale.js'
 import {
   dynamicSelectorCommitCommand,
@@ -131,6 +132,8 @@ export interface WidgetEditorState {
     readonly storedAtOpen: Json
     /** A seed's after-run mode. */
     readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+    /** The field's switchable looks and where its choice is kept, when it has two or more. */
+    readonly representation?: RowRepresentation
     /** Where a click opened a text row, in client coordinates. */
     readonly caret?: { readonly x: number; readonly y: number }
   }

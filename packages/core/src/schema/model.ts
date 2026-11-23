@@ -399,6 +399,34 @@ export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentations
 }
 
 /**
+ * A field's switchable looks for the side part's Representation control:
+ * the declared choices with their display names, the chosen one, and a note
+ * when the chosen look cannot be drawn yet. Undefined when the set is locked
+ * or has fewer than two choices.
+ */
+export function widgetRepresentationChoices(spec: WidgetSpec, selected: string | undefined): {
+  readonly choices: readonly { readonly id: string; readonly label: string }[]
+  readonly selected: string
+  readonly note?: string
+} | undefined {
+  const set = widgetRepresentationsOf(spec)
+  if (set === undefined || !set.userSwitchable || set.representations.length < 2) return undefined
+  const chosen = set.representations.find((representation) => representation.id === selected)
+    ?? set.representations.find((representation) => representation.id === set.default)
+    ?? set.representations[0]!
+  const { display, min, max } = chosen.widget.options
+  // A slider needs its range; until it is known the row draws a number field
+  // and the choice stays Slider.
+  const rangeUnknown = display === 'slider' && !(typeof min === 'number' && typeof max === 'number' &&
+    Number.isFinite(min) && Number.isFinite(max) && max > min)
+  return {
+    choices: set.representations.map((representation) => ({ id: representation.id, label: representation.displayName || representation.id })),
+    selected: chosen.id,
+    ...(rangeUnknown ? { note: 'Showing Number until the range is known.' } : {}),
+  }
+}
+
+/**
  * Resolve a client-owned representation selection without mutating schema or
  * document state. An absent or stale selection uses the schema default; the
  * stale id remains stored so a later schema refresh can restore it.

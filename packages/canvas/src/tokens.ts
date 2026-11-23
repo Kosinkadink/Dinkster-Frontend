@@ -137,6 +137,8 @@ export const canvasPaintTokens = {
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
+    /** Rows of a node a run skipped: it gave nothing, so its rows are quiet. */
+    skippedRowOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     /** `crisp` is the idle outline of a node look with crisp edges. */
     outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
     identityBodyTint: 0.18,

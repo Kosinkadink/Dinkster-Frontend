@@ -3,6 +3,7 @@ import {
   Show,
   createEffect,
   createSignal,
+  createUniqueId,
   onCleanup,
   onMount,
   untrack,
@@ -10,6 +11,7 @@ import {
 } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 import { ArrowDown, ArrowUp, Dice5, Lock, Minus, Plus } from 'lucide-solid'
+import { ProductSelect } from './controls.js'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -535,6 +537,8 @@ export function CanvasSidePart(props: {
   children?: JSX.Element
   facts?: readonly CanvasSideFact[]
   help?: string
+  /** The field's switchable looks, shown last. */
+  representation?: CanvasSideRepresentationProps
 }) {
   return (
     <>
@@ -566,7 +570,54 @@ export function CanvasSidePart(props: {
       <Show when={props.help}>
         <p class="dinkster-canvas-side-help">{props.help}</p>
       </Show>
+      <Show when={props.representation}>
+        {(representation) => <CanvasSideRepresentation {...representation()} />}
+      </Show>
     </>
+  )
+}
+
+export interface CanvasSideRepresentationProps {
+  /** The declared looks, by id with their display names, in declared order. */
+  readonly choices: readonly { readonly id: string; readonly label: string }[]
+  /** The chosen look. */
+  readonly selected: string
+  /** A sentence about the look drawn now, such as a fallback while a range is unknown. */
+  readonly note?: string
+  /** Show every choice at once, as the list looks while it is open. */
+  readonly expanded?: boolean
+  readonly onChoose: (id: string) => void
+}
+
+/**
+ * The control at the end of the side part that switches how a field is
+ * drawn, such as Number or Slider. It changes the view only, never the value.
+ */
+export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
+  const id = createUniqueId()
+  return (
+    <div class="dinkster-canvas-side-representation">
+      <label for={id}>Representation</label>
+      <ProductSelect
+        id={id}
+        value={props.selected}
+        {...(props.expanded === true ? { size: props.choices.length } : {})}
+        onPointerDown={(event) => event.stopPropagation()}
+        onChange={(event) => {
+          // The control shows the stored choice until the switch is made.
+          const chosen = event.currentTarget.value
+          event.currentTarget.value = props.selected
+          props.onChoose(chosen)
+        }}
+      >
+        <For each={props.choices}>
+          {(choice) => <option value={choice.id}>{choice.label}</option>}
+        </For>
+      </ProductSelect>
+      <Show when={props.note}>
+        <p class="dinkster-canvas-side-representation-note">{props.note}</p>
+      </Show>
+    </div>
   )
 }
 

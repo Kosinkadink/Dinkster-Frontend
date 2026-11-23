@@ -44,6 +44,7 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { RowEditingGallery } from './row-editing.js'
+import { RowStatesGallery } from './row-states.js'
 
 type Theme = 'dark' | 'light'
 
@@ -71,6 +72,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-states',
         'collection-rows',
         'editor-rows',
         'widget-driven',
@@ -157,6 +159,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-states':
+    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn.',
   'collection-rows':
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
@@ -568,7 +572,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'node-look') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -666,6 +670,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-states'}>
+          <RowStatesGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (
