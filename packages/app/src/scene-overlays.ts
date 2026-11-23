@@ -844,7 +844,12 @@ export function deriveSceneOverlays(args: {
       outputKey: `${args.outputPreviewKeyPrefix ?? ''}\u0000${exec?.key ?? 'none'}\u0000${gid}\u0000${JSON.stringify(instancePath ?? [])}\u0000${n.id}`,
       ...(args.outputPreviewIndex === undefined ? {} : { outputIndex: args.outputPreviewIndex }),
     })
-    if (surface.preview !== undefined) previews[n.id] = surface.preview
+    // A refused output's caption row says why the preview is unavailable.
+    if (surface.preview !== undefined) {
+      previews[n.id] = surface.refusal === undefined || surface.preview.statusMessage !== undefined
+        ? surface.preview
+        : { ...surface.preview, statusMessage: surface.refusal }
+    }
     if (surface.source !== undefined) previewSources[n.id] = surface.source
     if (surface.executedOutput !== undefined) executedImages[n.id] = surface.executedOutput
     if (surface.selectedInput !== undefined) selectedInputPreviews[n.id] = surface.selectedInput

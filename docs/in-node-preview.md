@@ -137,7 +137,10 @@ are omitted for a single image, live frame, selected-input preview, low zoom,
 offscreen node, or region too small to contain them. Wheel gestures over the
 controls continue to pan or zoom the canvas. Loading and unavailable pages
 retain the real current/total count in the caption; changing pages does not
-mutate the execution or document.
+mutate the execution or document. A refused batch, such as one from a backend
+that does not advertise the PNG batch parameter, is only its caption row: the
+row names the reason, screen readers announce it as an alert, and no paging
+controls appear.
 Paging and rendition updates retain focus on the active control, so repeated
 arrow-key navigation does not require refocusing the pager.
 
