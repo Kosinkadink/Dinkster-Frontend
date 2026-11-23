@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
       category: 'proof',
       source: 'v3',
       isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 1, max: 10000 }, default: 20 } },
         { kind: 'input', id: 'filename_prefix', type: { kind: 'concrete', name: 'STRING' }, optional: false,

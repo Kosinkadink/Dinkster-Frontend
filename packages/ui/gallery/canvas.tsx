@@ -174,7 +174,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
   'text-boxes':
     'Each text box keeps its own height, set by dragging the short bar on its bottom edge; text that does not fit shows the quiet scrollbar. The middle node shows the bar under the pointer; the right one was made taller by its own edge, which sizes only its last box.',
-  types: 'The color of each data type on its pins and wires.',
+  types:
+    'The color of each data type on its pins and wires, and the pin of an input that accepts a list before and after its type is matched.',
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
   boundary:

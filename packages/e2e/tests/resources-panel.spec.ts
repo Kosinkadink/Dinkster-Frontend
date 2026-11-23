@@ -24,7 +24,7 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   const settings = { categories: { granted: ['memory-budgets', 'memory-headroom'], available: ['memory-budgets', 'memory-headroom'] }, settings: { 'memory-budgets': section({}), 'memory-headroom': section(1e9) } }
   await page.route(`${BACKEND}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${BACKEND}/system_stats`, (route) => route.fulfill({ status: 404 }))
-  await page.route(`${BACKEND}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
+  await page.route(`${BACKEND}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {} } }))
   await page.route(`${BACKEND}/api/mounts`, (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route(`${BACKEND}/api/settings`, (route) => route.fulfill({ json: settings }))
   await page.route(`${BACKEND}/api/settings/*`, (route) => {
@@ -41,7 +41,7 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   })
   await page.route(`${BACKEND}/memory/reset-peak`, (route) => route.fulfill({ json: { ok: true } }))
   await page.routeWebSocket(`${BACKEND.replace('http', 'ws')}/api/events*`, (next) => { socket = next })
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {} } }))
   await page.route('/memory/status*', (route) => route.fulfill({ json: initial }))
   await page.route('/api/settings', (route) => route.fulfill({ json: settings }))
   await page.routeWebSocket(/ws:\/\/127\.0\.0\.1:\d+\/api\/events/, () => {})

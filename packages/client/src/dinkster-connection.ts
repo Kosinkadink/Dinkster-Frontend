@@ -1873,6 +1873,7 @@ export class DinksterConnection {
   private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
+  private readonly libraryListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -2006,13 +2007,20 @@ export class DinksterConnection {
     return () => this.mountListeners.delete(listener)
   }
 
+  /** Library pings carry no records; consumers refetch through authorized routes. */
+  onLibraryChanged(listener: () => void): () => void {
+    this.libraryListeners.add(listener)
+    return () => this.libraryListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
 
   private emitRaw(raw: DinksterRawMessage, live: boolean): void {
-    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'mounts_changed') {
+    if (live && !(raw instanceof ArrayBuffer) && (raw.type === 'mounts_changed' || raw.type === 'library_changed')) {
       for (const listener of [...this.mountListeners]) listener()
+      if (raw.type === 'library_changed') for (const listener of [...this.libraryListeners]) listener()
       return
     }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)

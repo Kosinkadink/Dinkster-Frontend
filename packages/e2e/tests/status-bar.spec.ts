@@ -9,7 +9,7 @@ test('status readings follow workflow state and open their explanatory panels', 
   await page.route('/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.includes('/library/retention')) return route.fallback()
-    if (path === '/api/nodes') return route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'status-fixture', schemaWire: 1 }, nodes: {}, packs: {} } })
+    if (path === '/api/nodes') return route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'status-fixture', schemaWire: 2 }, nodes: {}, packs: {} } })
     if (path === '/api/workflows/plan') return route.fulfill({ json: { packs: [], assets: [], errors: [] } })
     if (path === '/api/mounts') return route.fulfill({ json: { mounts: [] } })
     if (path === '/api/models/downloads') return route.fulfill({ json: { instance: 'status-fixture', jobs: [] } })

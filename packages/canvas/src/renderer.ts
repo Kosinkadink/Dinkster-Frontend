@@ -142,8 +142,13 @@ interface PinPaint {
   readonly baseAngle?: number
 }
 
-/** Shape axis of a pin: cardinality decides, everything else is fill/ring. */
-export const pinShapeOf = (type: TypeExpr, direction: 'in' | 'out' = 'out'): PinShape => {
+/**
+ * Shape axis of a pin: cardinality decides, everything else is fill/ring. An
+ * input that accepts a list takes one value or a list whatever its type is
+ * matched to, so it keeps the one-value-or-list shape.
+ */
+export const pinShapeOf = (type: TypeExpr, direction: 'in' | 'out' = 'out', acceptsList = false): PinShape => {
+  if (direction === 'in' && acceptsList) return 'scalar-list'
   if (cardinalityOf(type) === 'list') return 'diamond'
   if (direction === 'in' && type.kind === 'variable' &&
       (type.allowedTypes === undefined || type.allowedTypes.length === 0)) return 'scalar-list'
@@ -264,6 +269,7 @@ const paintTypedPin = (
   optional = false,
   direction: 'in' | 'out' = 'out',
   radius = tokens.pinRadius,
+  acceptsList = false,
 ): void => {
   // Shape carries cardinality; fill pattern, wildcard ring, and color come
   // from the ELEMENT type, so list<union<...>> segments the diamond and
@@ -273,7 +279,7 @@ const paintTypedPin = (
   while (element.kind === 'list' || element.kind === 'asset') element = element.element
   const slices = pinSlices(tokens, element, direction)
   paintPin(ctx, {
-    shape: pinShapeOf(type, direction),
+    shape: pinShapeOf(type, direction, acceptsList),
     colors: slices.length === 0 ? [pinColorOf(tokens, type)] : slices.map((slice) => slice.color),
     optional,
     x,
@@ -3968,7 +3974,8 @@ export class CanvasRenderer {
       const associated = pin.matchVariable !== undefined &&
         (pin.matchVariable === hoveredMatchVariable || pin.matchVariable === focusedMatchVariable)
       const radius = hovered || focused || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
-      const ringRadius = statusRingRadius(pinShapeOf(pin.type, pin.direction), pinRadius, radius)
+      const shape = pinShapeOf(pin.type, pin.direction, pin.acceptsList === true)
+      const ringRadius = statusRingRadius(shape, pinRadius, radius)
       const problemKind = pin.direction === 'in' ? this.portProblems[node.id]?.[pin.portId] : undefined
       if (pin.widgetTap === true &&
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
@@ -4019,7 +4026,6 @@ export class CanvasRenderer {
       const pinColor = pinColorOf(t, pin.type)
       if (pin.ghost) {
         // Ghost pins are affordances: hollow, dimmed ring in the pin's shape.
-        const shape = pinShapeOf(pin.type, pin.direction)
         pinOutlinePath(ctx, shape, px, py, pinShapeRadius(shape, radius))
         const pinAlpha = ctx.globalAlpha
         ctx.globalAlpha = pinAlpha * GHOST_ALPHA
@@ -4039,6 +4045,7 @@ export class CanvasRenderer {
             (pin.direction === 'in' && (pin.optional === true || pin.familyMember === true)),
           pin.direction,
           radius,
+          pin.acceptsList === true,
         )
       }
     }

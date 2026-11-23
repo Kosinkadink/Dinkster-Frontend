@@ -321,7 +321,7 @@ test('opening a text and leaving it without typing stores nothing, whatever line
     const string = { kind: 'concrete', name: 'STRING' }
     window.__dinksterTest!.app.registerSchemas([{
       type: 'TextLeaveProof', displayName: 'Text', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'text', type: string, optional: false, widget: { widgetType: 'STRING', options: { multiline: true }, default: '' } },
         { kind: 'input', id: 'other', type: string, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } },
         { kind: 'input', id: 'wired', type: string, optional: true },

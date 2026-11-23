@@ -16,7 +16,7 @@ async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): 
 
 async function openSampler(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-fixture', schemaWire: 1, graphFeatures: ['decimalInt'] }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-fixture', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
@@ -31,7 +31,7 @@ async function openSampler(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
         widget('cfg', 'FLOAT', 7, { min: 0, max: 100, step: 0.1 }),
         widget('prefix', 'STRING', 'Dinkster'),
@@ -362,7 +362,7 @@ test('multiline box: Tab stores and moves on; Ctrl+Enter stores then runs', asyn
 
 async function openMixed(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-mixed', schemaWire: 1, graphFeatures: ['decimalInt'] }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-mixed', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
@@ -376,7 +376,7 @@ async function openMixed(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'Mixed', displayName: 'Mixed', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { ...widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1 }), tooltip: 'How many denoising steps to run.' },
         { ...widget('enabled', 'BOOLEAN', true), tooltip: 'Turn the pass on or off.' },
         widget('sampler', 'COMBO', 'euler', { options: ['euler', 'dpmpp_2m', 'uni_pc'] }),

@@ -2556,6 +2556,63 @@ describe('node chrome paint on the live renderer', () => {
       Math.abs(Number(c.args[2]) - (diamond + canvasPaintTokens.pin.statusRingGap)) < 1e-9)).toBe(true)
   })
 
+  it('an input that accepts a list keeps the one-value-or-list pin after its type is matched', () => {
+    const variable = { kind: 'variable' as const, templateId: 'T' }
+    const join: NodeSchema = {
+      type: 'Join', displayName: 'Join', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'items', type: variable, optional: false, acceptsList: true },
+        { kind: 'input', id: 'single', type: variable, optional: false },
+        { kind: 'output', id: 'out', type: { kind: 'list', element: variable } },
+      ],
+    }
+    const link = (id: string, port: string) => ({
+      id, from: { node: 'img', port: 'out' }, to: { node: 'join', port },
+    })
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'accepts-list-pin', root: 'root',
+      graphs: { root: {
+        id: 'root', name: 'Root', nextOrdinal: 10, nets: {}, reroutes: {},
+        nodes: {
+          img: { id: 'img', type: 'PIMG', values: {} },
+          join: { id: 'join', type: 'Join', values: {} },
+        },
+        links: { a: link('a', 'items'), b: link('b', 'single') },
+      } },
+      view: { graphs: { root: { nodes: {
+        img: { position: { x: 40, y: 40 } },
+        join: { position: { x: 400, y: 40 } },
+      } } } },
+    }).document!
+    const resolve = documentResolver(doc, (type) => type === 'Join' ? join : synthetic.get(type))
+    const scene = buildScene({ document: doc, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    const n = nodeOf(scene, 'join')
+    const diamond = defaultTokens.pinRadius * 1.65
+    const centerOf = (portId: string) => {
+      const pin = n.layout.pins.find((p) => p.direction === 'in' && p.portId === portId)!
+      // Both inputs are matched to the same concrete type by their wires.
+      expect(pin.type).toEqual(typed('IMAGE'))
+      return { px: n.x + PIN_INSET, py: n.y + pin.y + PIN_DROP }
+    }
+    const calls = paint(scene)
+    const diamondTopAt = ({ px, py }: { px: number; py: number }) =>
+      calls.findIndex((c) => c.method === 'moveTo' && c.args[0] === px && c.args[1] === py - diamond)
+    const circleAt = ({ px, py }: { px: number; py: number }, radius: number) =>
+      calls.findIndex((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === radius)
+
+    const items = centerOf('items')
+    const top = diamondTopAt(items)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(paintedAfter(calls, top, 'fill')?.fillStyle).toBe(typeColor(defaultTokens, 'IMAGE'))
+    expect(circleAt(items, defaultTokens.pinRadius * 0.75)).toBeGreaterThan(top)
+
+    const single = centerOf('single')
+    expect(diamondTopAt(single)).toBe(-1)
+    const circle = circleAt(single, defaultTokens.pinRadius)
+    expect(circle).toBeGreaterThanOrEqual(0)
+    expect(paintedAfter(calls, circle, 'fill')?.fillStyle).toBe(typeColor(defaultTokens, 'IMAGE'))
+  })
+
   it('Any input and output pins use a neutral fill and dashed outer ring', () => {
     const base = constructsScene()
     const scene: Scene = {

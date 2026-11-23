@@ -1088,7 +1088,7 @@ export function NodeModel3dOverlay(props: {
         <Show when={interactive()}>
           <div class="node-model3d-actions">
             <Show when={props.media.download}>
-              {(download) => <a class="node-output-download" href={download().src} download={download().name}>Download</a>}
+              {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
             </Show>
             <ProductButton size="compact"
               type="button"
@@ -1110,7 +1110,7 @@ export function NodeModel3dOverlay(props: {
             onClick={close}
           >Close</ProductButton>
           <Show when={props.media.download}>
-            {(download) => <a class="node-output-download" href={download().src} download={download().name}>Download</a>}
+            {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
           </Show>
         </div>
       </Show>
