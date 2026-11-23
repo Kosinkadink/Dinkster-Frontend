@@ -50,6 +50,8 @@ import type {
   InputSpec,
   NodeSchema,
   OptionRow,
+  OuterName,
+  OuterScope,
   OutputSpec,
   SectionSpec,
   TypeChoiceSpec,
@@ -372,6 +374,8 @@ interface FormulaFrame {
   readonly key?: string
   /** Names of this scope under the options of its choice that are not chosen. */
   readonly hidden?: ReadonlySet<string>
+  /** An inner node's scope around a construct a subgraph node shows whole. */
+  readonly outer?: Readonly<Record<string, OuterName>>
 }
 
 interface Scope {
@@ -639,15 +643,35 @@ function elaboratePass(
     const defaults = new Map<string, unknown>()
     defaultsUnder(schema.body, '', defaults)
     const unknown = new Set<string>()
+    const fixed = new Map<string, Extract<OuterName, { value: unknown }>>()
     for (const frame of scope.formulaFrames) {
+      if (frame.outer !== undefined) {
+        // A name outside a forwarded construct: a row of this node, or the
+        // definition's fixed value, or unknown when the inner scope cannot say.
+        for (const name of framesNamesOf([frame.rows]).names.keys()) {
+          const meaning = frame.outer[name]
+          fixed.delete(name)
+          if (meaning === undefined) unknown.add(name)
+          else if ('row' in meaning) {
+            where.set(name, meaning.row)
+            unknown.delete(name)
+          } else {
+            fixed.set(name, meaning)
+            unknown.delete(name)
+          }
+        }
+        continue
+      }
       const hidden = unchosen(frame.rows, frame.prefix)
       for (const name of frame.hidden ?? []) hidden.add(name)
       for (const name of framesNamesOf([frame.rows]).names.keys()) {
         where.set(name, frame.prefix + name)
+        fixed.delete(name)
         if (hidden.has(name)) unknown.add(name)
         else unknown.delete(name)
       }
       // A member the node shows but does not store reads its own rows' defaults.
+      if (frame.outer !== undefined) continue
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind !== 'input' && row.kind !== 'state') continue
         const path = frame.prefix + row.id
@@ -660,7 +684,11 @@ function elaboratePass(
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
-      if (unknown.has(name)) {
+      const constant = fixed.get(name)
+      if (constant !== undefined) {
+        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, formulaValueOf(constant.value, kind))
+        if (names.inputs.has(name)) wired.set(name, constant.linked === true)
+      } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
         if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
         if (names.inputs.has(name)) wired.set(name, false)
@@ -789,7 +817,12 @@ function elaboratePass(
     }
   }
 
-  const one = (row: BodyRow, scope: Scope): void => {
+  /** The formula scope of a construct a subgraph node shows whole: its inner node's. */
+  const outerFrames = (outer: OuterScope): readonly FormulaFrame[] =>
+    outer.frames.map((frame) => ({ prefix: '', rows: frame.rows, outer: frame.names }))
+
+  const one = (row: BodyRow, raw: Scope): void => {
+    const scope = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw
     switch (row.kind) {
       case 'input':
         emitInput(row, scope.prefix + row.id, scope)
@@ -1117,7 +1150,8 @@ function elaboratePass(
       report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
-      key = row.required ? row.default ?? keys[0] : undefined
+      // An optional choice has a default only on a subgraph node, where it is the definition's pick.
+      key = row.required ? row.default ?? keys[0] : row.default
     }
     chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
@@ -1279,7 +1313,7 @@ function elaboratePass(
         report('elab.outputDescriptors.linkedSource', `described '${path}': the description is a stored value, not a wire`, path)
         return
       }
-      const raw = node.values[path]
+      const raw = Object.hasOwn(node.values, path) ? node.values[path] : row.default
       const parsed = describedEntries(row, raw === undefined || raw === null ? undefined : raw, path)
       if (typeof parsed === 'string') {
         report('elab.outputDescriptors.invalid', parsed, path)

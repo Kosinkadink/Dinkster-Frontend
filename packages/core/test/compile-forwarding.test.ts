@@ -401,3 +401,151 @@ describe('mixed integration', () => {
     expect(result.artifact.prompt['s.n']!.inputs).toEqual({ 'images.image0': ['a', 0] })
   })
 })
+
+describe('whole constructs shown on a subgraph node', () => {
+  const FLOAT: TypeExpr = { kind: 'concrete', name: 'FLOAT' }
+  const STRING: TypeExpr = { kind: 'concrete', name: 'STRING' }
+  const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
+  const constructSchemas: Record<string, NodeSchema> = {
+    ...schemas,
+    Mode: schemaOf('Mode', [{
+      kind: 'choice',
+      id: 'mode',
+      required: true,
+      shared: [],
+      options: [
+        { key: 'image', rows: [input('pixels', { optional: true }), input('strength', { type: FLOAT, ...floatWidget(0.3) })] },
+        { key: 'text', rows: [input('words', { type: STRING, widget: { widgetType: 'STRING', options: {}, default: '' } })] },
+      ],
+    }, output('out')]),
+    CountSplit: schemaOf('CountSplit', [
+      input('n', { type: INT, socketless: true, widget: { widgetType: 'INT', options: {}, default: 1 } }),
+      { kind: 'group', id: 'outs', value: output('o'), keys: { kind: 'numbered', prefix: 'o', start: 0, pad: 0 }, grows: { count: 'n' }, minMembers: 0, maxMembers: 8 },
+      output('spare'),
+    ]),
+  }
+  const okConstructPrompt = (doc: WorkflowDocument) => {
+    const result = compile({ ...inputOf(doc), resolve: (type: string) => constructSchemas[type] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    return result.artifact.prompt
+  }
+
+  // Detail pass shows Weigh's whole group; Portrait fix shows Detail pass's.
+  // Each level holds members of its own, and each outer node adds its own after them.
+  const twoLevels = (roots: Record<string, NodeSpec>, links: GraphSpec['links'] = []): WorkflowDocument => docOf({
+    g0: { nodes: { ...roots, a: { type: 'Src' } }, links },
+    portrait: {
+      nodes: { d: { type: '#detail', dynamic: { weights: { members: ['w0'] } }, values: { 'weights.w0': 0.6 } } },
+      boundary: {
+        inputs: [{ id: 'mix', binds: { kind: 'construct', node: 'd', port: 'weights' } }],
+        outputs: [{ id: 'out', binds: { kind: 'port', node: 'd', port: 'out' } }],
+      },
+    },
+    detail: {
+      nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['w0', 'w1'] } }, values: { 'weights.w0': 0.1, 'weights.w1': 0.15 } } },
+      boundary: {
+        inputs: [{ id: 'weights', binds: { kind: 'construct', node: 'n', port: 'weights' } }],
+        outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
+      },
+    },
+  })
+
+  it('whole input and output groups keep independent members through two boundaries', () => {
+    const prompt = okConstructPrompt(twoLevels({
+      first: { type: '#portrait', dynamic: { mix: { members: ['w0', 'w1'] } }, values: { 'mix.w0': 0.2, 'mix.w1': 0.8 } },
+      second: { type: '#portrait', dynamic: { mix: { members: ['w0'] } }, values: { 'mix.w0': 0.9 } },
+    }))
+    // The definitions' members come first, then each outer node's own, in order.
+    expect(prompt['first.d.n']!.inputs).toEqual({ 'weights.w0': 0.1, 'weights.w1': 0.15, 'weights.w2': 0.6, 'weights.w3': 0.2, 'weights.w4': 0.8 })
+    expect(prompt['second.d.n']!.inputs).toEqual({ 'weights.w0': 0.1, 'weights.w1': 0.15, 'weights.w2': 0.6, 'weights.w3': 0.9 })
+  })
+
+  it('a wire into an outer member reaches the same member inside, and reordering follows the key', () => {
+    const doc = docOf({
+      g0: {
+        nodes: { a: { type: 'Src' }, s: { type: '#sub', dynamic: { imgs: { members: ['image1', 'image0'] } } }, k: { type: 'Sink' } },
+        links: [[['a', 'out'], ['s', 'imgs.image0']], [['s', 'out'], ['k', 'in']]],
+      },
+      sub: {
+        nodes: { n: { type: 'Batch', dynamic: { images: { members: ['image0'] } } } },
+        boundary: {
+          inputs: [{ id: 'imgs', binds: { kind: 'construct', node: 'n', port: 'images' } }],
+          outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
+        },
+      },
+    })
+    const prompt = okConstructPrompt(doc)
+    // The outer member image0 is the inner member past the definition's one.
+    expect(prompt['s.n']!.inputs).toEqual({ 'images.image1': ['a', 0] })
+    expect(prompt['s.n']!.outputMembers?.['images']).toEqual(['image0', 'image2', 'image1'])
+  })
+
+  it('a whole choice keeps per-instance picks and dormant option values through two boundaries', () => {
+    const doc = (outer: Record<string, NodeSpec>) => docOf({
+      g0: { nodes: outer },
+      fix: {
+        nodes: { d: { type: '#detail', dynamic: { mode: { selected: 'image' } }, values: { 'mode.strength': 0.6 } } },
+        boundary: { inputs: [{ id: 'look', binds: { kind: 'construct', node: 'd', port: 'mode' } }] },
+      },
+      detail: {
+        nodes: { n: { type: 'Mode', dynamic: { mode: { selected: 'image' } }, values: { 'mode.strength': 0.4, 'mode.words': 'kept' } } },
+        boundary: { inputs: [{ id: 'mode', binds: { kind: 'construct', node: 'n', port: 'mode' } }] },
+      },
+    })
+    const prompt = okConstructPrompt(doc({
+      first: { type: '#fix', dynamic: { look: { selected: 'text' } }, values: { 'look.words': 'portrait', 'look.strength': 0.2 } },
+      second: { type: '#fix', dynamic: { look: { selected: 'image' } }, values: { 'look.strength': 0.8 } },
+      third: { type: '#fix', dynamic: { look: { selected: 'image' } } },
+    }))
+    expect(prompt['first.d.n']!.inputs).toEqual({ 'mode.words': 'portrait' })
+    expect(prompt['first.d.n']!.slotVariants).toEqual({ mode: 'text' })
+    expect(prompt['second.d.n']!.inputs).toEqual({ 'mode.strength': 0.8 })
+    // Nothing stored outside: the middle definition's value wins over the inner one.
+    expect(prompt['third.d.n']!.inputs).toEqual({ 'mode.strength': 0.6 })
+  })
+
+  it('a counted output group follows the outer count, and its third output reaches the sink', () => {
+    const doc = docOf({
+      g0: {
+        nodes: { s: { type: '#split', values: { count: 3 } }, k: { type: 'Sink' } },
+        links: [[['s', 'outs.o2'], ['k', 'in']]],
+      },
+      split: {
+        nodes: { n: { type: 'CountSplit', values: { n: 1 } } },
+        boundary: {
+          inputs: [{ id: 'count', promoted: true, binds: { kind: 'port', node: 'n', port: 'n' } }],
+          outputs: [{ id: 'outs', binds: { kind: 'construct', node: 'n', port: 'outs' } }, { id: 'spare', binds: { kind: 'port', node: 'n', port: 'spare' } }],
+        },
+      },
+    })
+    const prompt = okConstructPrompt(doc)
+    expect(prompt['s.n']!.inputs).toEqual({ n: 3 })
+    expect(prompt['k']!.inputs).toEqual({ in: ['s.n', 2] })
+  })
+
+  it('a wire to a counted output past the outer count fails as it does on the plain node', () => {
+    const codes = (doc: WorkflowDocument): readonly string[] => {
+      const result = compile({ ...inputOf(doc), resolve: (type: string) => constructSchemas[type] })
+      return result.ok ? [] : result.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)
+    }
+    const plain = codes(docOf({
+      g0: { nodes: { n: { type: 'CountSplit', values: { n: 1 } }, k: { type: 'Sink' } }, links: [[['n', 'outs.o2'], ['k', 'in']]] },
+    }))
+    const shown = codes(docOf({
+      g0: {
+        nodes: { s: { type: '#split', values: { count: 1 } }, k: { type: 'Sink' } },
+        links: [[['s', 'outs.o2'], ['k', 'in']]],
+      },
+      split: {
+        nodes: { n: { type: 'CountSplit', values: { n: 3 } } },
+        boundary: {
+          inputs: [{ id: 'count', promoted: true, binds: { kind: 'port', node: 'n', port: 'n' } }],
+          outputs: [{ id: 'outs', binds: { kind: 'construct', node: 'n', port: 'outs' } }],
+        },
+      },
+    }))
+    expect(plain).toEqual(['compile.port.unknownOutput'])
+    expect(shown).toEqual(plain)
+  })
+})

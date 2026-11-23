@@ -695,6 +695,21 @@ export type GroupGrowsSpec =
   | { readonly count: string }
   | { readonly followList: string }
 
+/**
+ * On a construct a subgraph node shows whole: what each name its formulas
+ * read outside the construct means on that node. The formulas keep the inner
+ * node's scope; a name the subgraph also shows reads that row of the subgraph
+ * node, and any other name reads the definition's fixed value.
+ */
+export interface OuterScope {
+  /** The inner node's scopes around the construct, outermost first, each with what its names mean. */
+  readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
+}
+
+export type OuterName =
+  | { readonly row: string }
+  | { readonly value: unknown; readonly linked?: true }
+
 /** A box that repeats its member rows. */
 export interface GroupSpec {
   readonly kind: 'group'
@@ -718,6 +733,9 @@ export interface GroupSpec {
   readonly addLabel?: string
   readonly memberLabel?: Formulated<string>
   readonly openName?: false
+  /** On a subgraph node: how many members the definition holds before this node's own. */
+  readonly interiorMembers?: number
+  readonly outer?: OuterScope
 }
 
 /** One option of a choice: its key and the rows it holds. */
@@ -763,6 +781,7 @@ export interface ChoiceSpec {
   readonly required: boolean
   readonly hidden?: true
   readonly onEdit?: readonly StepSpec[]
+  readonly outer?: OuterScope
 }
 
 /** One variant of a type choice: the type plugged in and the rows it reveals. */
@@ -788,6 +807,7 @@ export interface TypeChoiceSpec {
   readonly required: boolean
   /** Node-level type variable bound by the chosen variant. */
   readonly typeVariable?: string
+  readonly outer?: OuterScope
 }
 
 /** Rows listed by a stored description, stored under the row's own id. */
@@ -803,6 +823,9 @@ export interface DescribedSpec {
   readonly maxEntries: number
   readonly fixedIds: boolean
   readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
+  /** The description a node starts with while it stores none of its own. */
+  readonly default?: unknown
+  readonly outer?: OuterScope
 }
 
 export type BodyRow =
