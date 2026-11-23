@@ -52,6 +52,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 
@@ -90,6 +91,7 @@ export const canvasGalleryPages = [
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
   ['switch-primitive', 'Switch and Primitive'],
+  ['small-flow-nodes', 'Or else, Has value and Only if'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -909,6 +911,13 @@ export function createCanvasGalleryFixture(
     const cards = switchPrimitiveGallery(tokens, measure, widgetMeasure)
     // Each card draws its own scene; the page's scene is the first card's,
     // for checks that read one scene per page.
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'small-flow-nodes') {
+    const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
     const first = cards[0]!.scene
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
