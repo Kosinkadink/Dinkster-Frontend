@@ -121,7 +121,9 @@ export function canvasSideLayout(
  * The outline around an open field and its side part, as one path: an L
  * (or a T, when the side part slid) when the side part sits beside the
  * row, one box when it sits under or over the field. Coordinates are local
- * to the field, whose top left is 0,0; `sideTop` is the side part's top.
+ * to the field's row, whose top left is 0,0; `sideTop` is the side part's
+ * top. `fieldTop` moves the field's box up when it also holds a list
+ * opened over the row; `field.height` then covers the list and the row.
  */
 export function canvasFieldOutline(
   field: { readonly width: number; readonly height: number },
@@ -130,36 +132,38 @@ export function canvasFieldOutline(
   sideTop: number,
   radius: number,
   inset: number,
+  fieldTop = 0,
 ): string {
   const w = field.width
-  const h = field.height
+  const t = fieldTop
+  const h = fieldTop + field.height
   let points: [number, number][]
   if (side === undefined || place === 'below-node' || place === 'above-node')
     points = [
-      [0, 0],
-      [w, 0],
+      [0, t],
+      [w, t],
       [w, h],
       [0, h],
     ]
   else if (place === 'below-field')
     points = [
-      [0, 0],
-      [w, 0],
+      [0, t],
+      [w, t],
       [w, h + side.height],
       [0, h + side.height],
     ]
   else if (place === 'above-field')
     points = [
-      [0, -side.height],
-      [w, -side.height],
+      [0, t - side.height],
+      [w, t - side.height],
       [w, h],
       [0, h],
     ]
   else if (place === 'right') {
     const sideBottom = sideTop + side.height
     points = [
-      [0, 0],
-      [w, 0],
+      [0, t],
+      [w, t],
       [w, sideTop],
       [w + side.width, sideTop],
       [w + side.width, sideBottom],
@@ -172,8 +176,8 @@ export function canvasFieldOutline(
     points = [
       [-side.width, sideTop],
       [0, sideTop],
-      [0, 0],
-      [w, 0],
+      [0, t],
+      [w, t],
       [w, h],
       [0, h],
       [0, sideBottom],
@@ -241,7 +245,7 @@ export interface CanvasSideFact {
   readonly value: JSX.Element
 }
 
-interface CanvasRowFrameProps {
+export interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
   place: CanvasSidePlace
@@ -257,13 +261,17 @@ interface CanvasRowFrameProps {
   look?: 'original' | 'flat-title'
   /** The caller scales the field with the canvas, zoomed in. */
   zoomed?: boolean
+  /** A list opened with the field, under its row or over it. */
+  list?: JSX.Element
+  listPlace?: 'below' | 'above'
 }
 
 /**
  * What an open field and a row the keyboard is on share: the outline around
- * the row's box and its side part, and the side part's place.
+ * the row's box, any list opened with it, and its side part, and the side
+ * part's place.
  */
-function CanvasRowFrame(
+export function CanvasRowFrame(
   props: CanvasRowFrameProps & {
     focus?: boolean
     steppers?: boolean
@@ -276,7 +284,9 @@ function CanvasRowFrame(
   let root!: HTMLDivElement
   let row!: HTMLDivElement
   let side: HTMLDivElement | undefined
+  let list: HTMLDivElement | undefined
   const [rowHeight, setRowHeight] = createSignal(0)
+  const [listHeight, setListHeight] = createSignal(0)
   const [sideSize, setSideSize] = createSignal<{
     width: number
     height: number
@@ -285,6 +295,7 @@ function CanvasRowFrame(
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
+    setListHeight(list?.offsetHeight ?? 0)
     if (!side) {
       setSideSize(undefined)
       return
@@ -317,6 +328,8 @@ function CanvasRowFrame(
       props.sideTop,
       props.sideMaxHeight,
       props.side,
+      props.list,
+      props.listPlace,
     ]
     measure()
   })
@@ -324,16 +337,18 @@ function CanvasRowFrame(
     const observer = new ResizeObserver(measure)
     observer.observe(root)
     if (side) observer.observe(side)
+    if (list) observer.observe(list)
     onCleanup(() => observer.disconnect())
   })
   const outline = () =>
     canvasFieldOutline(
-      { width: props.rowWidth, height: rowHeight() },
+      { width: props.rowWidth, height: rowHeight() + listHeight() },
       sideSize(),
       props.place,
       props.sideTop ?? 0,
       4,
       1,
+      props.listPlace === 'above' ? -listHeight() : 0,
     )
   return (
     <div
@@ -347,6 +362,7 @@ function CanvasRowFrame(
       data-look={props.look ?? 'original'}
       data-focus={props.focus === true}
       data-zoomed={props.zoomed === true}
+      data-list={props.list === undefined ? undefined : (props.listPlace ?? 'below')}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
       <div
@@ -356,6 +372,15 @@ function CanvasRowFrame(
       >
         {content}
       </div>
+      <Show when={props.list}>
+        <div
+          ref={(element) => (list = element)}
+          class="dinkster-canvas-field-list"
+          data-place={props.listPlace ?? 'below'}
+        >
+          {props.list}
+        </div>
+      </Show>
       <Show when={props.side}>
         <div
           ref={(element) => (side = element)}
