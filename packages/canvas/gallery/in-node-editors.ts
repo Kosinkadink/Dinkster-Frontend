@@ -12,6 +12,7 @@ import {
 import {
   buildScene,
   type DesignTokens,
+  type EditorSummaryMap,
   type Scene,
   type TextMeasurer,
   type WidgetMeasure,
@@ -128,16 +129,18 @@ export interface InNodeEditorExample {
   readonly members?: Readonly<Record<string, readonly string[]>>
   /** Per editor value key: what its controls show. */
   readonly states?: Readonly<Record<string, EditorExampleState>>
+  /** Per editor value key: what its folded row reads, as the host derives it. */
+  readonly summaries?: EditorSummaryMap[string]
   readonly width?: number
 }
 
 const asset = (name: string, mediaType: string, extra: Record<string, Json> = {}): Json =>
-  ({ digest: `blake3:${'a'.repeat(64)}`, name, mediaType, ...extra })
+  ({ digest: `blake3:${'a'.repeat(64)}`, name, mediaType, size: 47_104, virtualPath: `input/${name}`, ...extra })
 const unfold = (...keys: string[]): Pick<NodeViewState, 'editors'> =>
   ({ editors: Object.fromEntries(keys.map((key) => [key, { unfolded: true }])) })
 const fold = (...keys: string[]): Pick<NodeViewState, 'editors'> =>
   ({ editors: Object.fromEntries(keys.map((key) => [key, { unfolded: false }])) })
-const clip = asset('recording.webm', 'audio/webm', { duration: 7.2, size: 47_104 })
+const clip = asset('recording.webm', 'audio/webm')
 const frame = asset('webcam.png', 'image/png')
 
 export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
@@ -153,23 +156,23 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     values: { image: frame } },
   { id: 'webcam-unfolded', card: 8, caption: 'Clicked: the webcam folds out under the same row and the rows below move down', type: 'Webcam Capture',
     values: { image: frame }, view: unfold('image'), states: { image: { camera: 'off' } } },
-  { id: 'two-recorders', card: 9, caption: 'Two recorders in one node: the first unfolded, the second folded', type: 'Record two clips',
+  { id: 'two-recorders', summaries: { second: { text: '0:07 clip' } }, card: 9, caption: 'Two recorders in one node: the first unfolded, the second folded', type: 'Record two clips',
     values: { second: clip }, view: unfold('first'), states: { first: { status: 'idle' } } },
-  { id: 'group-member', card: 10, caption: 'A growing group: every member starts folded; the second is unfolded and the third moved down', type: 'Record clips',
+  { id: 'group-member', summaries: { 'clips.clip0': { text: 'No clip', placeholder: true }, 'clips.clip1': { text: '0:07 clip' }, 'clips.clip2': { text: 'No clip', placeholder: true } }, card: 10, caption: 'A growing group: every member starts folded; the second is unfolded and the third moved down', type: 'Record clips',
     members: { clips: ['clip0', 'clip1', 'clip2'] }, values: { 'clips.clip1': clip }, view: unfold('clips.clip1'),
     states: { 'clips.clip1': { status: 'ready' } } },
   { id: 'audio-idle', card: 12, caption: 'Idle: Record, Microphone off', type: 'Record Audio', states: { audio: { status: 'idle' } } },
   { id: 'audio-waiting', card: 12, caption: 'Waiting for permission', type: 'Record Audio', states: { audio: { status: 'waiting' } } },
-  { id: 'audio-recording', card: 13, caption: 'Recording: Stop, time and size; Microphone and Limit dimmed', type: 'Record Audio',
+  { id: 'audio-recording', summaries: { audio: { text: 'Recording 0:07' } }, card: 13, caption: 'Recording: Stop, time and size; Microphone and Limit dimmed', type: 'Record Audio',
     states: { audio: { status: 'recording', seconds: 7, bytes: 47_104 } } },
-  { id: 'audio-recording-folded', card: 13, caption: 'Folded while it records: the row reads Recording with the time', type: 'Record Audio',
+  { id: 'audio-recording-folded', summaries: { audio: { text: 'Recording 0:07' } }, card: 13, caption: 'Folded while it records: the row reads Recording with the time', type: 'Record Audio',
     view: fold('audio'), states: { audio: { status: 'recording', seconds: 7, bytes: 47_104 } } },
   { id: 'audio-saving', card: 14, caption: 'Stopped: Saving while the clip uploads', type: 'Record Audio', states: { audio: { status: 'saving' } } },
-  { id: 'audio-ready', card: 14, caption: 'Stored: Ready, Play, Record and the bin', type: 'Record Audio', values: { audio: clip },
+  { id: 'audio-ready', summaries: { audio: { text: '0:07 clip' } }, card: 14, caption: 'Stored: Ready, Play, Record and the bin', type: 'Record Audio', values: { audio: clip },
     states: { audio: { status: 'ready' } } },
-  { id: 'audio-folded', card: 14, caption: 'Folded with a stored clip: its length', type: 'Record Audio', values: { audio: clip }, view: fold('audio') },
+  { id: 'audio-folded', summaries: { audio: { text: '0:07 clip' } }, card: 14, caption: 'Folded with a stored clip: its length', type: 'Record Audio', values: { audio: clip }, view: fold('audio') },
   { id: 'audio-denied', card: 15, caption: 'Permission denied', type: 'Record Audio', states: { audio: { status: 'denied' } } },
-  { id: 'audio-upload-failed', card: 15, caption: 'Upload failed: the clip is kept and plays, nothing is stored', type: 'Record Audio',
+  { id: 'audio-upload-failed', summaries: { audio: { text: 'No clip', placeholder: true } }, card: 15, caption: 'Upload failed: the clip is kept and plays, nothing is stored', type: 'Record Audio',
     states: { audio: { status: 'uploadFailed', error: 'HTTP 503: storage is busy' } } },
   { id: 'audio-no-mic', card: 15, caption: 'No microphone found', type: 'Record Audio', states: { audio: { status: 'noMicrophone' } } },
   { id: 'audio-no-backend', card: 15, caption: 'A backend that cannot take uploads', type: 'Record Audio', states: { audio: { status: 'noBackend' } } },
@@ -184,41 +187,41 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     view: unfold('image'), states: { image: { camera: 'error', error: 'NotAllowedError: Permission denied' } } },
   { id: 'webcam-wired', card: 19, caption: 'A wired image: what the last run brought; Start camera dimmed', type: 'Webcam Capture',
     view: unfold('image'), wired: { image: 'IMAGE' }, states: { image: { camera: 'wired' } } },
-  { id: 'load3d-live', card: 20, caption: 'Unfolded: the model in the live view, with Record viewport', type: 'Load 3D',
+  { id: 'load3d-live', summaries: { image: { text: 'chair.glb' } }, card: 20, caption: 'Unfolded: the model in the live view, with Record viewport', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, states: { image: { view: 'model' } } },
-  { id: 'load3d-folded', card: 21, caption: 'Folded: the last view small beside the model name', type: 'Load 3D',
+  { id: 'load3d-folded', summaries: { image: { text: 'chair.glb' } }, card: 21, caption: 'Folded: the last view small beside the model name', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, view: fold('image') },
-  { id: 'load3d-outputs', card: 22, caption: 'Three outputs listed; five in More outputs, closed', type: 'Load 3D',
+  { id: 'load3d-outputs', summaries: { image: { text: 'chair.glb' } }, card: 22, caption: 'Three outputs listed; five in More outputs, closed', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, view: fold('image') },
-  { id: 'load3d-none', card: 23, caption: 'No model chosen: the rows under the view are dimmed', type: 'Load 3D', states: { image: { view: 'none' } } },
-  { id: 'load3d-loading', card: 23, caption: 'Loading model', type: 'Load 3D',
+  { id: 'load3d-none', summaries: { image: { text: 'No model', placeholder: true } }, card: 23, caption: 'No model chosen: the rows under the view are dimmed', type: 'Load 3D', states: { image: { view: 'none' } } },
+  { id: 'load3d-loading', summaries: { image: { text: 'chair.glb' } }, card: 23, caption: 'Loading model', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, states: { image: { view: 'loading' } } },
-  { id: 'load3d-unavailable', card: 23, caption: 'Model unavailable', type: 'Load 3D',
+  { id: 'load3d-unavailable', summaries: { image: { text: 'chair.glb' } }, card: 23, caption: 'Model unavailable', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, states: { image: { view: 'unavailable' } } },
-  { id: 'load3d-sections', card: 24, caption: 'Model placement and Animation open while a recording runs', type: 'Load 3D',
+  { id: 'load3d-sections', summaries: { image: { text: 'robot.glb' } }, card: 24, caption: 'Model placement and Animation open while a recording runs', type: 'Load 3D',
     values: { model_file: asset('robot.glb', 'model/gltf-binary') },
     view: { sections: { 'image.placement': { collapsed: false }, 'image.animation': { collapsed: false } } },
     states: { image: { view: 'model', recording: true, animated: true } } },
-  { id: 'preview3d-before', card: 25, caption: 'A model and camera by wire, before a run: Not known yet', type: 'Preview 3D (Advanced)',
+  { id: 'preview3d-before', summaries: { viewport: { text: 'Not known yet', placeholder: true } }, card: 25, caption: 'A model and camera by wire, before a run: Not known yet', type: 'Preview 3D (Advanced)',
     wired: { model_3d: 'MODEL_3D', camera_info: 'LOAD3D_CAMERA' }, states: { viewport: { view: 'unknown', wired: true } } },
-  { id: 'preview3d-after', card: 25, caption: "After a run: that run's model from the wired camera, not turned by dragging", type: 'Preview 3D (Advanced)',
+  { id: 'preview3d-after', summaries: { viewport: { text: 'model_3d.glb' } }, card: 25, caption: "After a run: that run's model from the wired camera, not turned by dragging", type: 'Preview 3D (Advanced)',
     wired: { model_3d: 'MODEL_3D', camera_info: 'LOAD3D_CAMERA' }, states: { viewport: { view: 'model', wired: true } } },
-  { id: 'load3d-capture', card: 26, caption: 'Queued with an unchanged view: no new pictures, the stored capture is used', type: 'Load 3D',
+  { id: 'load3d-capture', summaries: { image: { text: 'chair.glb' } }, card: 26, caption: 'Queued with an unchanged view: no new pictures, the stored capture is used', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, states: { image: { view: 'model', notice: 'Last capture used' } } },
-  { id: 'compare-two', card: 27, caption: 'Both images of the last run with the divider', type: 'Compare Images',
+  { id: 'compare-two', summaries: { comparison: { text: '2 images' } }, card: 27, caption: 'Both images of the last run with the divider', type: 'Compare Images',
     wired: { image_a: 'IMAGE', image_b: 'IMAGE' }, view: unfold('comparison'), states: { comparison: { images: 2 } } },
-  { id: 'compare-folded', card: 28, caption: 'Folded: how many images it has', type: 'Compare Images',
+  { id: 'compare-folded', summaries: { comparison: { text: '2 images' } }, card: 28, caption: 'Folded: how many images it has', type: 'Compare Images',
     wired: { image_a: 'IMAGE', image_b: 'IMAGE' }, states: { comparison: { images: 2 } } },
-  { id: 'compare-before', card: 29, caption: 'Before a run: Run to compare', type: 'Compare Images',
+  { id: 'compare-before', summaries: { comparison: { text: 'No images', placeholder: true } }, card: 29, caption: 'Before a run: Run to compare', type: 'Compare Images',
     wired: { image_a: 'IMAGE', image_b: 'IMAGE' }, view: unfold('comparison'), states: { comparison: { images: 0 } } },
-  { id: 'compare-one', card: 29, caption: 'One image: it fills the picture; Wipe divider dimmed', type: 'Compare Images',
+  { id: 'compare-one', summaries: { comparison: { text: '1 image' } }, card: 29, caption: 'One image: it fills the picture; Wipe divider dimmed', type: 'Compare Images',
     wired: { image_a: 'IMAGE' }, view: unfold('comparison'), states: { comparison: { images: 1 } } },
-  { id: 'angle-unfolded', card: 30, caption: 'The picture above the three number fields; its dots are dragged', type: 'Camera angle',
+  { id: 'angle-unfolded', summaries: { angle_view: { text: '45, 20, zoom 5.0' } }, card: 30, caption: 'The picture above the three number fields; its dots are dragged', type: 'Camera angle',
     view: unfold('angle_view'), states: { angle_view: {} } },
-  { id: 'angle-folded', card: 31, caption: 'Folded: the two angles and the zoom; the three fields stay', type: 'Camera angle' },
-  { id: 'angle-wired-before', card: 32, caption: 'A wired angle before a run: no dot, Not known yet', type: 'Camera angle',
+  { id: 'angle-folded', summaries: { angle_view: { text: '45, 20, zoom 5.0' } }, card: 31, caption: 'Folded: the two angles and the zoom; the three fields stay', type: 'Camera angle' },
+  { id: 'angle-wired-before', summaries: { angle_view: { text: 'Not known yet', placeholder: true } }, card: 32, caption: 'A wired angle before a run: no dot, Not known yet', type: 'Camera angle',
     wired: { horizontal_angle: 'INT' }, view: unfold('angle_view'), states: { angle_view: { wired: 'horizontal_angle', known: false } } },
-  { id: 'angle-wired-after', card: 32, caption: "After a run: a hollow dot at the wire's value", type: 'Camera angle',
+  { id: 'angle-wired-after', summaries: { angle_view: { text: '120, 20, zoom 5.0' } }, card: 32, caption: "After a run: a hollow dot at the wire's value", type: 'Camera angle',
     wired: { horizontal_angle: 'INT' }, view: unfold('angle_view'), states: { angle_view: { wired: 'horizontal_angle', known: true } } },
   { id: 'curve-unfolded', card: 34, caption: 'The curve large in the node, a point selected', type: 'Curve editor',
     values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },

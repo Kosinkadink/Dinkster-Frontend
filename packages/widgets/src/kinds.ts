@@ -886,7 +886,7 @@ export const curveView: WidgetView<Json> = {
       ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
         { role: 'curveSample' })
     }
-    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'} - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }
@@ -936,14 +936,14 @@ export const audioRecordView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.audioRecord', 'AUDIO_RECORD'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'Record audio', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No clip', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const webcamView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.webcam', 'WEBCAM'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'Capture frame', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No frame', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const mountView: WidgetView<Json> = {

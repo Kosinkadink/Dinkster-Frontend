@@ -345,6 +345,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
       renderer.setReducedMotion(true)
       renderer.setGridVisible(false)
       renderer.setScene(built)
+      renderer.setEditorSummaries(example.summaries === undefined ? {} : { [example.id]: example.summaries })
       renderer.setViewport({ x: 0, y: 0, scale: 1 })
       renderer.renderNow()
       setScene(built)

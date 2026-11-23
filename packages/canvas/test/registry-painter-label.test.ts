@@ -447,6 +447,45 @@ describe('registry painter label/value split', () => {
     expect(malformed.texts).toContain('no asset')
   })
 
+  it('paints the host summary of a folded editor row in place of the view text, an empty one whole', () => {
+    const editorKind: WidgetKind = {
+      ...stubKind, type: 'LOAD_3D', defaultValue: () => null, defaultView: () => 'core.load3d',
+    }
+    const editorView: WidgetView = {
+      ...stubView, id: 'core.load3d', kind: 'LOAD_3D',
+      drawCompact: (scene) => scene.text(1, 0, '3D viewport', { role: 'widgetValue', align: 'right', width: 1 }),
+    }
+    const editorRegistry: WidgetRegistry = {
+      ...registry,
+      kind: (type) => type === 'LOAD_3D' ? editorKind : undefined,
+      viewsFor: (type) => type === 'LOAD_3D' ? [editorView] : [],
+    }
+    const paintSummary = (editorSummary: WidgetPaintArgs['editorSummary']) => {
+      const painted = fakeCtx()
+      createRegistryPainter(editorRegistry)({
+        ctx: painted.ctx,
+        row: {
+          ...rowWith(null), label: 'viewport camera state', viewId: 'core.load3d',
+          spec: { widgetType: 'LOAD_3D', options: {}, default: null },
+        },
+        value: { camera: 'state' }, x: 0, y: 0, width: 160, rowHeight: 24, connected: false,
+        tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+        ...(editorSummary === undefined ? {} : { editorSummary }),
+      })
+      return painted
+    }
+    const empty = paintSummary({ text: 'No model', placeholder: true })
+    expect(empty.texts).not.toContain('3D viewport')
+    const placeholder = empty.textCalls.find((call) => call.text === 'No model')!
+    expect(placeholder.fill).toBe(defaultTokens.colors.label)
+    expect(placeholder.font).toContain('italic')
+    // A named value shares the row with a long label like any value.
+    const named = paintSummary({ text: 'chair.glb' }).textCalls.find((call) => call.text.startsWith('cha'))!
+    expect(named.fill).toBe(defaultTokens.colors.value)
+    expect(named.font).not.toContain('italic')
+    expect(paintSummary(undefined).texts.some((text) => text.startsWith('3D'))).toBe(true)
+  })
+
   it('measures a custom BOOLEAN label from the text the view paints', () => {
     const booleanKind: WidgetKind = {
       ...stubKind, type: 'BOOLEAN', defaultValue: () => false, defaultView: () => 'core.toggle',

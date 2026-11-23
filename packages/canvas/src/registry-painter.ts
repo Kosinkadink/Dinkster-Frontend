@@ -226,7 +226,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const assetSummary = row.viewId === 'core.asset' && row.spec.widgetType === 'ASSET'
       ? compactSummary(view, resolved, row.spec)
       : undefined
-    const valuePreview = assetSummary !== undefined
+    const valuePreview = args.editorSummary !== undefined
+      ? args.editorSummary.text
+      : assetSummary !== undefined
       ? assetSummary.text
       : row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN'
         ? compactBooleanValue(resolved, row.spec.options)
@@ -254,7 +256,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
-    if (assetSummary?.placeholder === true && valuePreview !== undefined) {
+    if ((args.editorSummary?.placeholder ?? assetSummary?.placeholder) === true && valuePreview !== undefined) {
       // The empty-state message takes priority even when opener controls leave
       // less than the ordinary label floor. Round up for fitText's pixel floor.
       const font = ctx.font
@@ -386,7 +388,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           ctx.fillRect(contentStart + rx * contentWidth, rectTop, rectWidth, rectHeight)
           ctx.restore()
         },
-        text: (tx, ty, run, style) => {
+        text: (tx, ty, viewRun, viewStyle) => {
+          const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
+          const run = summary?.text ?? viewRun
+          const style = summary === undefined ? viewStyle : { ...viewStyle, placeholder: summary.placeholder === true }
           ctx.fillStyle = tokens.colors.value
           const alignRight = style['align'] === 'right'
           ctx.textAlign = alignRight ? 'right' : 'left'

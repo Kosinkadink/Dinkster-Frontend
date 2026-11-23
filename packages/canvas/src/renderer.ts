@@ -319,6 +319,16 @@ export interface CompanionDisplay {
 /** node id -> widget row valueKey -> companion. Derived, never stored. */
 export type CompanionMap = Readonly<Record<string, Readonly<Record<string, CompanionDisplay>>>>
 
+/** What a folded editor's row reads when it depends on more than the row's own value, such as a clip's length or a run's images. */
+export interface EditorSummary {
+  readonly text: string
+  /** Drawn in the placeholder color, for an editor that holds nothing. */
+  readonly placeholder?: boolean
+}
+
+/** node id -> value key -> what that folded editor row reads. Derived by the host, never stored. */
+export type EditorSummaryMap = Readonly<Record<string, Readonly<Record<string, EditorSummary>>>>
+
 /**
  * node id -> value keys of rows carrying an anchored diagnostic. Widget rows
  * key by valueKey; fallback rows (unresolved schema) key by their stored
@@ -535,6 +545,8 @@ export interface WidgetPaintArgs {
   readonly companion?: CompanionDisplay
   /** Alpha before connected-row dimming, reserved for legible companion text. */
   readonly companionAlpha?: number
+  /** What the host says this editor row reads, in place of the text its view derives from the value. */
+  readonly editorSummary?: EditorSummary
   /** Alpha for the subgraph mark (row.subgraphMark), which a driven row does not dim. */
   readonly markAlpha?: number
   /** Absolute content origin/size (inside node padding). */
@@ -1212,6 +1224,13 @@ export class CanvasRenderer {
   /** Companion (propagated) values per node/valueKey. Derived, never stored. */
   setCompanions(companions: CompanionMap): void {
     this.updateNodePaint(this.companions, companions, () => { this.companions = companions })
+  }
+
+  private editorSummaries: EditorSummaryMap = {}
+
+  /** What folded editor rows read, per node and value key. Derived, never stored. */
+  setEditorSummaries(summaries: EditorSummaryMap): void {
+    this.updateNodePaint(this.editorSummaries, summaries, () => { this.editorSummaries = summaries })
   }
 
   private presence: readonly PresenceActor[] = []
@@ -4369,6 +4388,8 @@ export class CanvasRenderer {
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
+      ...(companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
+        ? { editorSummary: this.editorSummaries[sceneNode.id]![row.valueKey]! } : {}),
       ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
       x: node.x + row.inset,
       y: rowY,
