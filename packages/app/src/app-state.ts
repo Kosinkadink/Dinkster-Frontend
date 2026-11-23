@@ -11042,10 +11042,12 @@ export class AppState {
     const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
     const capturedOwners = new Map<string, { width: number; height: number }>()
     for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
-      if (node.inputs['capture_on_queue'] !== true) continue
       const schema = registry.resolve(node.class_type)
       const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
       if (input === undefined || Array.isArray(node.inputs[input.id])) continue
+      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
+      const captureRow = input.widget?.reads?.['capture_on_queue']
+      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
       const graph = document.graphs[location.graphId]!

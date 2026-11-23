@@ -113,7 +113,7 @@ async function queueSetup(captureOnQueue = true) {
   const backend = app.backends.get()[0]!
   const type = 'dinkster.image.webcam_capture'
   backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM', reads: { width: 'width', height: 'height' } } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM', reads: { width: 'width', height: 'height', capture_on_queue: 'capture_on_queue' } } },
     { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
     { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
     { kind: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },

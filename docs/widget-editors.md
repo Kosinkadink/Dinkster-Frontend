@@ -159,8 +159,9 @@ A captured draft and its preview wait for independent complete asset admission.
 Replacement keeps the previous draft and owner until acknowledgment and
 publication; failed or obsolete admission leaves that draft unchanged. Closing
 the dialog revokes its local preview URL but does not release its retained owner.
-With capture_on_queue enabled, queue captures and saves a fresh frame for each
-included camera before submitting. Disabled capture reuses the saved frame.
+With the row the widget reads as `capture_on_queue` enabled, queue captures and
+saves a fresh frame for each included camera before submitting; a widget that
+reads no such row never captures on queue. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
 without overwriting the input. Closing the tab cancels capture.
 Connected image inputs retain their source instead of opening the camera.
