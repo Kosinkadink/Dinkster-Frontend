@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
-import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY, groupBoxKey } from '@dinkster/core'
+import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
 import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
@@ -1314,35 +1314,6 @@ describe('editors shown in the node', () => {
     expect(both.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame', 'clip'])
     const onlyFrame = lay({ editorUnfolded: { frame: true, clip: false } })
     expect(onlyFrame.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame'])
-  })
-
-  it("ends a palette with how many colors it holds, out of the group's maximum when it declares one", () => {
-    const palette = (maxMembers: number | undefined, members: string[], closed = false) => {
-      const schema = schemaOf([{
-        kind: 'group', id: 'colors', displayName: 'Colors',
-        value: input('color', { type: { kind: 'concrete', name: 'COLOR' }, widget: { widgetType: 'COLOR', options: {}, default: '#ffffff' } }),
-        keys: { kind: 'numbered', prefix: 'color', start: 0, pad: 0 }, grows: 'filled', minMembers: 0,
-        ...(maxMembers === undefined ? {} : { maxMembers }), reorderable: true,
-      }, output('colors')])
-      const node: NodeData = {
-        ...nodeData, dynamic: { colors: { members } },
-        values: Object.fromEntries(members.map((key) => [`colors.${key}`, '#ff6600'])),
-      }
-      return layoutNode(schema, node, defaultTokens, measure, widgetMeasure,
-        closed ? { sectionOverrides: { [groupBoxKey('colors')]: true } } : {})
-    }
-    const noteOf = (layout: ReturnType<typeof palette>) => layout.rows.filter((row) => row.kind === 'note')
-    const open = palette(16, ['color0', 'color1', 'color4'])
-    expect(noteOf(open).map((row) => row.kind === 'note' && row.text)).toEqual(['3 of 16 colors'])
-    // Under every member row and the add member, above the node's output.
-    const note = noteOf(open)[0]!
-    const inGroup = open.rows.filter((row) => row.kind === 'widget' || row.kind === 'growth')
-    expect(inGroup.length).toBeGreaterThan(3)
-    expect(inGroup.every((row) => row.y < note.y)).toBe(true)
-    expect(open.rows.find((row) => row.kind === 'ports')!.y).toBeGreaterThan(note.y)
-    expect(noteOf(palette(undefined, ['color0'])).map((row) => row.kind === 'note' && row.text)).toEqual(['1 color'])
-    expect(noteOf(palette(undefined, [])).map((row) => row.kind === 'note' && row.text)).toEqual(['0 colors'])
-    expect(noteOf(palette(16, ['color0'], true))).toEqual([])
   })
 
   it('keeps a dragged picture height within its limits', () => {

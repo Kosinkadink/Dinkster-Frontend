@@ -26,7 +26,6 @@
  */
 
 import {
-  constructsOf,
   elaborateInterface,
   groupBoxKey,
   lineKeyOf,
@@ -1443,24 +1442,6 @@ export function layoutNode(
     }
   }
   pending.splice(0, pending.length, ...withSpaces)
-
-  // A palette, a group of color rows, ends with a note of how many colors it
-  // holds, out of its maximum when the group declares one.
-  for (const [construct, spec] of constructsOf(schema, node.dynamic)) {
-    if (spec.kind !== 'group' || spec.value?.kind !== 'input' || spec.value.widget?.widgetType !== 'COLOR') continue
-    const key = groupBoxKey(construct)
-    const decl = decls.get(key)
-    if (decl === undefined || isHidden([...decl.parents, key])) continue
-    const last = pending.length - 1 - [...pending].reverse().findIndex((row) => row.boxes.includes(key))
-    if (last >= pending.length) continue
-    const count = node.dynamic?.[construct]?.members?.length ?? 0
-    const text = spec.maxMembers === undefined
-      ? `${count} ${count === 1 ? 'color' : 'colors'}`
-      : `${count} of ${spec.maxMembers} colors`
-    const note: PendingRow = { kind: 'note', boxes: [...decl.parents, key], note: { noteId: `${construct}.count`, text } }
-    lines.set(note, [note])
-    pending.splice(last + 1, 0, note)
-  }
 
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
