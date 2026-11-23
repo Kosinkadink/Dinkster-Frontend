@@ -115,7 +115,7 @@ describe('the notice of the editor\'s own fixes', () => {
     button(root, 'Undo')!.click()
     expect(types(tab)).toEqual(['Previous', 'Current', 'Previous'])
     expect(tab.store.doc.graphs.g0!.nodes.n2!.values).toEqual({ amount: 50 })
-    expect(root.querySelector('.dinkster-fixes-title')?.textContent).toBe('Adjustments undone. 1 node you changed since was kept.')
+    expect(root.querySelector('.dinkster-fixes-title')?.textContent).toBe('Adjustments undone. 1 was kept because you changed it since.')
     button(root, 'Redo adjustments')!.click()
     expect(types(tab)).toEqual(Array(3).fill('Current'))
     expect(root.querySelector('.dinkster-fixes-title')?.textContent).toBe('3 things were adjusted')

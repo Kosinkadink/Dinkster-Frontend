@@ -1403,13 +1403,15 @@ export interface AdjustmentNotice {
   readonly adjustments: readonly Adjustment[]
   /** The recorded patches of every batch that made them, oldest first. */
   readonly records: readonly HistorySnapshotRecord[]
+  /** The kind of adjustment each record made, in the order of `records`. */
+  readonly recordKinds: readonly Adjustment['kind'][]
   /** Dismissed by its cross: only the status bar count remains. */
   readonly dismissed: boolean
   /** Brought back by the status bar count, which opens it with Review. */
   readonly reopened?: boolean
   /** The tab's revision at which Undo or Redo was refused, until the document changes. */
   readonly refusedAt?: number
-  /** The last Undo: what Redo puts back, and how many values the user had changed since and Undo kept. */
+  /** The last Undo: what Redo puts back, and how many adjustments the user had changed since and Undo kept. */
   readonly undone?: { readonly redo: readonly PatchOp[]; readonly kept: number }
 }
 
@@ -1454,6 +1456,33 @@ const opNodeKeys = (op: PatchOp): readonly string[] => {
   if (op.op !== 'remove') collect(op.value)
   if (op.op !== 'add') collect(op.oldValue)
   return [...ends]
+}
+
+/** A replace of a node's whole `dynamic` split into one op per construct, so each removed choice can be put back alone. */
+const splitDynamicOps = (ops: readonly PatchOp[]): readonly PatchOp[] => ops.flatMap((op): readonly PatchOp[] => {
+  const path = op.path
+  if (op.op !== 'replace' || path.length !== 5 || path[0] !== 'graphs' || path[2] !== 'nodes' || path[4] !== 'dynamic') return [op]
+  const isObject = (value: Json): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const before = op.oldValue
+  const after = op.value
+  if (!isObject(before) || !isObject(after)) return [op]
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((key): readonly PatchOp[] => {
+    const old = before[key]
+    const value = after[key]
+    const at = [...path, key]
+    if (jsonSameValue(old, value)) return []
+    if (old === undefined) return [{ op: 'add', path: at, value: value! }]
+    if (value === undefined) return [{ op: 'remove', path: at, oldValue: old }]
+    return [{ op: 'replace', path: at, value, oldValue: old }]
+  })
+})
+
+/** One removed choice replaced is put back on its own; anything else goes with its nodes. */
+const adjustmentKeys = (op: PatchOp, kind: Adjustment['kind']): readonly string[] => {
+  const path = op.path
+  if (kind === 'removedChoice' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'dynamic' && path.length >= 6)
+    return [`${path[1]}/${path[3]}#${path[5]}`]
+  return opNodeKeys(op)
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -5219,6 +5248,7 @@ export class AppState {
         owner: tab.id,
         adjustments: [...notice?.adjustments ?? [], ...adjustments],
         records: [...notice?.records ?? [], record],
+        recordKinds: [...notice?.recordKinds ?? [], adjustments[0]!.kind],
         dismissed: notice?.dismissed ?? false,
       })
     })
@@ -5239,29 +5269,34 @@ export class AppState {
   }
 
   /**
-   * What the notice's Undo puts back. A node whose adjusted value the user
-   * changed since, in an edit still on their undo history, is left as it is
-   * and counted as kept. Any other changed value, such as one another person
-   * changed in a shared session, refuses the whole Undo (undefined).
+   * What the notice's Undo puts back. An adjustment the user changed since,
+   * in an edit still on their undo history, is left as it is and counted as
+   * kept: a replaced node with its values and wires, or one removed choice.
+   * Any other changed value, such as one another person changed in a shared
+   * session, refuses the whole Undo (undefined).
    */
   private adjustmentUndoPlan(tab: Tab, notice: AdjustmentNotice): { readonly ops: readonly PatchOp[]; readonly kept: number } | undefined {
-    const inverse = [...notice.records].reverse().flatMap((record) => record.inverse)
-    const recorded = notice.records.flatMap((record) => [...record.forward, ...record.inverse])
+    // Each op with the adjustments it belongs to: a replaced node with its values and wires, or one removed choice.
+    const split = (ops: readonly PatchOp[], index: number) => notice.recordKinds[index] === 'removedChoice' ? splitDynamicOps(ops) : ops
+    const inverse = notice.records.map((record, index) => split(record.inverse, index).map((op) => ({ op, keys: adjustmentKeys(op, notice.recordKinds[index]!) })))
+      .reverse().flat()
+    const recorded = notice.records.flatMap((record, index) =>
+      [...record.forward, ...record.inverse, ...split(record.forward, index), ...split(record.inverse, index)])
     // The user's own edits: their undo history without the notice's batches or its own Undo and Redo.
     const own = tab.store.historySnapshot().undo.flatMap((record) => record.forward)
       .filter((op) => !recorded.some((candidate) => jsonSameValue(op as unknown as Json, candidate as unknown as Json)))
     const kept = new Set<string>()
     for (;;) {
-      const ops = inverse.filter((op) => !opNodeKeys(op).some((key) => kept.has(key)))
-      if (ops.length === 0) return undefined
+      const ops = inverse.filter((entry) => !entry.keys.some((key) => kept.has(key))).map((entry) => entry.op)
       let stale: PatchOp | undefined
       try {
         stale = replayHistoryOps(tab.store.doc, ops, { requireRecordedValues: true }).stale
       } catch {
         return undefined
       }
-      if (stale === undefined) return { ops, kept: kept.size }
-      const keys = opNodeKeys(stale)
+      if (stale === undefined) return ops.length === 0 && kept.size === 0 ? undefined : { ops, kept: [...kept].filter((key) => notice.adjustments.some((adjustment) =>
+        key === `${adjustment.graphId}/${adjustment.nodeId}` ? adjustment.kind === 'replaced' : key.startsWith(`${adjustment.graphId}/${adjustment.nodeId}#`))).length }
+      const keys = inverse.find((entry) => entry.op === stale)?.keys ?? []
       if (keys.length === 0 || keys.every((key) => kept.has(key)) || !own.some((op) => pathsOverlap(op.path, stale.path))) return undefined
       for (const key of keys) kept.add(key)
     }
@@ -5269,14 +5304,15 @@ export class AppState {
 
   /**
    * Takes back every change the notice lists in one undo step, leaving every
-   * other edit alone, and nodes whose adjusted values the user changed since.
+   * other edit alone, and the adjustments the user changed since.
    */
   undoAdjustments(tabId: string): boolean {
     const notice = this.adjustmentNotices.get().get(tabId)
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'ready') return false
     const plan = this.adjustmentUndoPlan(tab, notice)!
-    if (!this.replayAdjustments(tab, notice, plan.ops)) return false
+    // When the user changed every adjustment since, nothing is put back and all are reported kept.
+    if (plan.ops.length > 0 && !this.replayAdjustments(tab, notice, plan.ops)) return false
     const undone = { redo: invertOps(plan.ops), kept: plan.kept }
     this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, undone }))
     return true
@@ -5287,7 +5323,8 @@ export class AppState {
     const notice = this.adjustmentNotices.get().get(tabId)
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'undone') return false
-    if (!this.replayAdjustments(tab, notice, this.adjustmentRedoOps(notice))) return false
+    const redo = this.adjustmentRedoOps(notice)
+    if (redo.length > 0 && !this.replayAdjustments(tab, notice, redo)) return false
     const { undone: _, ...rest } = notice
     this.adjustmentNotices.update((current) => new Map(current).set(tabId, rest))
     return true

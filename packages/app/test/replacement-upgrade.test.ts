@@ -201,6 +201,45 @@ describe('native open-time replacement', () => {
     expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
   })
 
+  it('puts back a replaced removed choice on its own and keeps the one the user changed since on the same node', async () => {
+    const choice = (id: string) => ({ kind: 'choice', id, displayName: id, required: true, shared: [],
+      options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] })
+    loadSchemas(app)
+    app.registerSchemas([{ type: 'Picker', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
+      body: [choice('mode'), choice('style')] } as never])
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'removed-choices', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+        p: { id: 'p', type: 'Picker', values: {}, dynamic: { mode: { selected: 'gone' }, style: { selected: 'old' } } },
+      } } },
+      view: { graphs: { g0: { nodes: {} } } },
+    }, 'Removed choices')
+    const tab = app.activeTab()!
+    const dynamic = () => tab.store.doc.graphs.g0!.nodes.p!.dynamic
+    await vi.waitFor(() => expect(app.adjustmentNoticeState(tab.id)).toBe('ready'))
+    expect(dynamic()).toEqual({ mode: { selected: 'a' }, style: { selected: 'a' } })
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments[0]!.details).toEqual([
+      'mode: gone was removed; a is used', 'style: old was removed; a is used',
+    ])
+    expect(tab.store.dispatch({ command: 'dynamic.selectOption', params: {
+      graphId: 'g0', nodeId: 'p', construct: 'style', option: 'b',
+    } }).ok).toBe(true)
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(dynamic()).toEqual({ mode: { selected: 'gone' }, style: { selected: 'b' } })
+    expect(app.adjustmentNotices.get().get(tab.id)!.undone!.kept).toBe(1)
+    expect(app.redoAdjustments(tab.id)).toBe(true)
+    expect(dynamic()).toEqual({ mode: { selected: 'a' }, style: { selected: 'b' } })
+    // Once the user changed every adjustment since, Undo puts nothing back and reports both kept.
+    expect(tab.store.dispatch({ command: 'dynamic.selectOption', params: {
+      graphId: 'g0', nodeId: 'p', construct: 'mode', option: 'b',
+    } }).ok).toBe(true)
+    const edited = tab.store.doc
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(tab.store.doc).toBe(edited)
+    expect(app.adjustmentNoticeState(tab.id)).toBe('undone')
+    expect(app.adjustmentNotices.get().get(tab.id)!.undone!.kept).toBe(2)
+  })
+
   it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes the notice only for a batch stored in the open tab: %s', async (completion) => {
     await app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!
