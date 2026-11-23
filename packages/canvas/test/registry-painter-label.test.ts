@@ -565,11 +565,11 @@ describe('registry painter label/value split', () => {
 })
 
 describe('an automatic value', () => {
-  const paintAutomatic = (value: number | undefined, automatic: NonNullable<Extract<LayoutRow, { kind: 'widget' }>['automatic']>) => {
+  const paintAutomatic = (value: number | undefined, automatic: NonNullable<Extract<LayoutRow, { kind: 'widget' }>['automatic']>, kept?: string) => {
     const { ctx, textCalls, arcs } = fakeCtx()
     createRegistryPainter(registry)({
       ctx,
-      row: { ...rowWith(24), label: 'frame_rate', automatic },
+      row: { ...rowWith(24), label: 'frame_rate', automatic, ...(kept === undefined ? {} : { kept }) },
       value,
       x: 0,
       y: 0,
@@ -578,10 +578,10 @@ describe('an automatic value', () => {
       connected: false,
       tokens: defaultTokens,
     })
-    const word = textCalls.find((call) => call.text === 'auto')
-    return { value: textCalls.find((call) => call.text !== 'frame_rate' && call.text !== 'auto')!, word, arcs }
+    const word = textCalls.find((call) => call.text === 'auto' || call.text === 'wired')
+    return { value: textCalls.find((call) => call.text !== 'frame_rate' && call !== word)!, word, arcs }
   }
-  const gap = canvasPaintTokens.widget.automaticWordGap
+  const gap = canvasPaintTokens.widget.valueWordGap
 
   it('shows the word auto, a gap, then the worked-out value, dimmed, with no dot', () => {
     const { value, word, arcs } = paintAutomatic(undefined, { value: 30, state: 'worked-out' })
@@ -601,6 +601,13 @@ describe('an automatic value', () => {
     expect(arcs[0]!.fillStyle).toBe(defaultTokens.colors.warningMark)
     // Right-aligned value: the dot sits left of the word.
     expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
+  })
+
+  it('reads wired only, with no auto and no dot, on a row kept for its wire', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' }, 'Kept for the wire on its output.')
+    expect([word?.text, value.text]).toEqual(['wired', '24'])
+    expect(value.x - 2 * 6 - word!.x).toBe(gap)
+    expect(arcs).toEqual([])
   })
 
   it('shows a stored value as any value', () => {

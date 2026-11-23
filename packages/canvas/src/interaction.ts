@@ -1817,7 +1817,7 @@ export class InteractionController {
     }
 
     // Ghost sockets are grabbable only while revealed (hovered reroute).
-    const hit = hitTest(
+    const rawHit = hitTest(
       scene,
       w.x,
       w.y,
@@ -1827,6 +1827,10 @@ export class InteractionController {
         pinRevealed: this.pinRevealed(scene),
       }),
     )
+    // A kept row cannot be edited, opened or dragged: a press on it is a press on the node.
+    const hit: Hit = rawHit.kind === 'widget' && rawHit.row.kept !== undefined && rawHit.bnode === undefined
+      ? { kind: 'body', node: rawHit.node }
+      : rawHit
     this.capturePointer(e)
     if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
     this.setFocusedPreviewEdge(hit.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
@@ -3446,7 +3450,7 @@ export class InteractionController {
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
         const boundaryBody = explicitPin ? undefined : this.boundaryOfBodyHit(hit)
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
-        const fieldRow = bodyNode && hit.kind === 'widget' ? hit.row : undefined
+        const fieldRow = bodyNode && hit.kind === 'widget' && hit.row.kept === undefined ? hit.row : undefined
         const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
         const dropRow = nodeCandidate && !explicitPin && landsOnRow(nodeCandidate, fieldRow) ? fieldRow : undefined
@@ -4122,7 +4126,7 @@ export class InteractionController {
       g.bodyCandidate = undefined
     }
     const boundaryBody = this.boundaryOfBodyHit(rawHit)
-    const fieldRow = bodyNode && rawHit.kind === 'widget' ? rawHit.row : undefined
+    const fieldRow = bodyNode && rawHit.kind === 'widget' && rawHit.row.kept === undefined ? rawHit.row : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
       : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode, fieldRow) ?? rawHit) : rawHit

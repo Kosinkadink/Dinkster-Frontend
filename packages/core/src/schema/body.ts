@@ -16,6 +16,7 @@ import {
   type NodeSchema,
   type OptionRow,
   type StateSpec,
+  type TypeChoiceSpec,
   type TypeExpr,
   type UseSpec,
 } from './model.js'
@@ -174,7 +175,7 @@ export function initialDynamicStateOf(schema: NodeSchema): Record<string, { read
 }
 
 /**
- * Every group and choice a node can hold, by flattened id: through every
+ * Every group, choice and type-led pin a node can hold, by flattened id: through every
  * option and variant, and into the members the node stores. A choice placed
  * by `Use` is as the chosen option places it, else as the first option that
  * does.
@@ -182,8 +183,8 @@ export function initialDynamicStateOf(schema: NodeSchema): Record<string, { read
 export function constructsOf(
   schema: NodeSchema,
   dynamic: Readonly<Record<string, { readonly selected?: string; readonly members?: readonly string[] }>> | undefined,
-): ReadonlyMap<string, GroupSpec | ChoiceSpec> {
-  const found = new Map<string, GroupSpec | ChoiceSpec>()
+): ReadonlyMap<string, GroupSpec | ChoiceSpec | TypeChoiceSpec> {
+  const found = new Map<string, GroupSpec | ChoiceSpec | TypeChoiceSpec>()
   const visit = (rows: readonly OptionRow[], prefix: string, shared?: ReadonlyMap<string, BodyRow>): void => {
     for (const raw of scopeRowsOf(rows)) {
       const row = raw.kind === 'use' ? (shared?.get(raw.id) === undefined ? undefined : applyUse(shared.get(raw.id)!, raw)) : raw
@@ -199,6 +200,7 @@ export function constructsOf(
         const options = [...row.options].sort((a, b) => Number(b.key === selected) - Number(a.key === selected))
         for (const option of options) visit(option.rows, `${path}.`, placed)
       } else if (row.kind === 'typeChoice') {
+        if (!found.has(path)) found.set(path, row)
         visit([...row.rows, ...(row.variants ?? []).flatMap((variant) => variant.rows)], `${path}.`)
       }
     }

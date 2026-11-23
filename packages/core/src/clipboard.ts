@@ -772,10 +772,9 @@ function validExternalIncoming(
     const target = copied.get(stub.target.node)
     if (!source || source.type !== stub.source.nodeType || !target || target.type !== stub.target.nodeType) return false
     if (counts.get(targetKey) !== 1) return false
-    const tapSource = 'tap' in stub.source
-    const sourceAddress = tapSource ? undefined : resolveDynamicAddress(stub.source, source.dynamic)
+    const sourceAddress = resolveDynamicAddress({ port: 'tap' in stub.source ? stub.source.tap : stub.source.port }, source.dynamic)
     const targetAddress = resolveDynamicAddress(stub.target, target.dynamic as GraphDef['nodes'][string]['dynamic'])
-    return (tapSource || sourceAddress?.kind !== 'missing') && targetAddress.kind !== 'missing'
+    return sourceAddress.kind !== 'missing' && targetAddress.kind !== 'missing'
   })
 }
 

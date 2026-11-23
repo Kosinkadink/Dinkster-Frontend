@@ -92,6 +92,12 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /**
+   * A row no longer part of the node, kept only for the wire on its output
+   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * or ends on it. The text says why.
+   */
+  readonly kept?: string
   /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
   readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
@@ -284,10 +290,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly inferred?: true
   /** Input belongs to a widget row rather than a forced socket row. */
   readonly widgetBacked?: true
-  /** Producer affordance for a static memberless widget input. */
+  /** A field's output: the value the field's node runs with. */
   readonly widgetTap?: true
-  /** Proven by elaboration to originate from a static schema input. */
-  readonly staticWidgetTap?: true
   /** Optional input (InputSpec.optional): renders as a donut, not a filled dot. */
   readonly optional?: true
   /** Output pin whose producer may deliberately emit no value (OutputSpec.optional). */
@@ -790,6 +794,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.kept !== undefined ? { kept: a.kept } : {}),
   ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
@@ -891,14 +896,14 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
 
   // Connected ports hidden by a collapsed section: pins anchor to the header.
-  const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
-  const staticWidgetInputs = new Set<string>()
+  const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true } & DynamicAnnotations)[] = []
 
   let outputIndex = 0
   for (const item of items) {
@@ -994,7 +999,6 @@ export function layoutNode(
     if (spec.hidden === true) continue
     const section = inputSection(spec)
     const widget = spec.widget
-    if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (isHidden(section)) {
       if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({
@@ -1008,7 +1012,7 @@ export function layoutNode(
       if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: section!, portId: spec.id, direction: 'out', type: spec.type, widgetTap: true,
-          ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
+          ...annotate(item),
         })
       }
       continue
@@ -1244,7 +1248,7 @@ export function layoutNode(
       rowIndex.set(row, rows.length)
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
-      if (!w.socketless && w.editor !== true) pins.push({
+      if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
         ...(w.optional ? { optional: true as const } : {}),
         widgetBacked: true as const,
@@ -1253,7 +1257,6 @@ export function layoutNode(
       // right-edge anchor deliberately shares the input's flattened id.
       if (w.editor !== true) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
-        ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
       })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
         advancedBounds.bottom = Math.max(advancedBounds.bottom, y + height)
@@ -1272,7 +1275,6 @@ export function layoutNode(
       ...annotationsOf(p), portId: p.portId, direction: p.direction, y: anchorY, type: p.type, collapsedSection: p.sectionId,
       ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
       ...(p.widgetTap ? { widgetTap: true as const } : {}),
-      ...(p.staticWidgetTap ? { staticWidgetTap: true as const } : {}),
     })
   }
 

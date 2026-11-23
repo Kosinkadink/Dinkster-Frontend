@@ -15,7 +15,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -695,6 +695,15 @@ const dynSchemas: Record<string, NodeSchema> = {
     required: false,
   }]),
   ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
+  TapGroup: dynSchemaOf('TapGroup', [group('items', 'item', { value: dynInput('value', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } }) })]),
+  TapChoice: dynSchemaOf('TapChoice', [choice('mode', [
+    { key: 'a', rows: [dynInput('amount', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })] },
+    { key: 'b', rows: [] },
+  ])]),
+  TapSlot: dynSchemaOf('TapSlot', [{
+    kind: 'typeChoice', id: 'model', type: IMAGE, required: false,
+    rows: [dynInput('weight', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })],
+  }]),
   OrderedGroup: dynSchemaOf('OrderedGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) }, { reorderable: true })]),
   NamedGroup: dynSchemaOf('NamedGroup', [{
     kind: 'group', id: 'args', value: dynInput('value'), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'link', minMembers: 1,
@@ -1281,6 +1290,52 @@ describe('dynamic interfaces', () => {
     if (!result.ok) return
     expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 7 })
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
+  })
+
+  it("sends a field's output from a member, an option and a type-led pin, and leaves the input out once the field is gone", () => {
+    const tapInto = (source: DynNode, tap: string, extra: Record<string, DynNode> = {}) => dynCompile(dynDoc({
+      nodes: { source, sink: { type: 'IntSink' }, ...extra },
+      links: [[{ node: 'source', tap }, ['sink', 'steps']], ...(extra['image'] ? [[['image', 'out'], ['source', 'model']] as [DynEnd, DynEnd]] : [])],
+    }))
+    const sent = (result: ReturnType<typeof dynCompile>) => {
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt['sink']!.inputs : undefined
+    }
+    const member = { type: 'TapGroup', values: { 'items.item0': 4, 'items.item1': 9 }, dynamic: { items: { members: ['item0', 'item1'], seq: 2 } } }
+    expect(sent(tapInto(member, 'items.item1'))).toEqual({ steps: 9 })
+    expect(sent(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'a' } } }, 'mode.amount'))).toEqual({ steps: 5 })
+    expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight', { image: { type: 'ImageSrc' } }))).toEqual({ steps: 6 })
+
+    // The member removed, the other option chosen, the pin unplugged: the
+    // wire gives nothing. A run cannot send nothing yet, so the input is left
+    // out with a warning and the receiving field sends its own value. The
+    // receiving node is not skipped.
+    const leftOut = (result: ReturnType<typeof dynCompile>, tap: string) => {
+      expect(sent(result)).toEqual({ steps: 20 })
+      if (result.ok) expect(result.artifact.diagnostics.map((d) => [d.code, d.message])).toContainEqual(['compile.link.dropped',
+        `The wire from 'source.${tap}' into 'sink.steps' gives nothing: that field is no longer part of its node. Until a run can send nothing, the input is left out: a field sends its own value, and a required input without one refuses the run.`])
+    }
+    leftOut(tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1'), 'items.item1')
+    leftOut(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount'), 'mode.amount')
+    leftOut(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'), 'model.weight')
+
+    // A server that takes the $absent marker gets it in place of the value,
+    // for a field with its own value, so its on_absent policy decides.
+    const gone = dynDoc({
+      nodes: { source: { type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, sink: { type: 'IntSink' } },
+      links: [[{ node: 'source', tap: 'mode.amount' }, ['sink', 'steps']]],
+    })
+    const marked = compile({ ...compileInput(gone), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(marked.ok, JSON.stringify(!marked.ok && marked.diagnostics)).toBe(true)
+    if (marked.ok) {
+      expect(marked.artifact.prompt['sink']!.inputs).toEqual({ steps: { $absent: { reason: "field 'source.mode.amount' is no longer part of its node" } } })
+      expect(marked.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+    }
+
+    // A field the node never declares is still an error.
+    const unknown = tapInto(member, 'itemz.item0')
+    expect(unknown.ok).toBe(false)
+    if (!unknown.ok) expect(unknown.diagnostics.map((d) => d.code)).toContain('compile.tap.missingInput')
   })
 
   it('sends the member order a move leaves, with each value and wire still on its member', () => {
@@ -2312,5 +2367,61 @@ describe('Primitive and Switch as ordinary nodes', () => {
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (result.ok) expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: 11 })
+  })
+})
+
+describe('a type variable fed two different types', () => {
+  const T = { kind: 'variable', templateId: 'T' } as const
+  const LATENT = { kind: 'concrete', name: 'LATENT' } as const
+  const local: Record<string, NodeSchema> = {
+    ImageSrc: dynSchemas['ImageSrc']!,
+    LatentSrc: { ...dynSchemaOf('LatentSrc', [{ kind: 'output', id: 'out', type: LATENT }]), isOutputNode: false },
+    IntSrc: dynSchemas['IntSrc']!,
+    Primitive: dynSchemas['Primitive']!,
+    Pair: dynSchemaOf('Pair', [dynInput('first', { type: T }), dynInput('second', { type: T }), { kind: 'output', id: 'out', type: T }]),
+    AnySwitch: {
+      ...dynSchemaOf('AnySwitch', [
+        dynInput('pick', { type: PICK, optional: true }),
+        { kind: 'group', id: 'branch', value: dynInput('value', { type: T, optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 1 },
+        { kind: 'output', id: 'result', type: T },
+      ]),
+      selector: { input: 'pick', group: 'branch' },
+    },
+  }
+  const run = (doc: WorkflowDocument, target: string) => compile({
+    ...compileInput(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId(target) }] }),
+    resolve: (type) => local[type],
+    graphFeatures: ['regions', 'typedLiteral'],
+  })
+  const refusals = (result: ReturnType<typeof compile>) =>
+    result.ok ? [] : result.diagnostics.filter((d) => d.code === 'compile.typeVariableConflict').map((d) => [d.message, d.anchor?.occurrence?.node])
+
+  it('refuses the queue for a node whose inputs bring two types', () => {
+    const result = run(dynDoc({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
+      links: [[['img', 'out'], ['pair', 'first']], [['lat', 'out'], ['pair', 'second']]],
+    }), 'pair')
+    expect(refusals(result)).toEqual([['These inputs must be the same type: first is IMAGE, second is LATENT.', 'pair']])
+  })
+
+  it.each([
+    ['a run-time pick', 'IntSrc', false],
+    ['a known pick', 'Primitive', true],
+  ])('refuses a Switch with branches of two types only for %s', (_, pickType, ok) => {
+    const result = run(dynDoc({
+      nodes: {
+        img: { type: 'ImageSrc' },
+        lat: { type: 'LatentSrc' },
+        pick: { type: pickType, values: { value: 1 } },
+        sw: { type: 'AnySwitch', dynamic: { branch: { members: ['a', 'b'] } } },
+      },
+      links: [
+        [['pick', pickType === 'IntSrc' ? 'out' : 'INT'], ['sw', 'pick']],
+        [['img', 'out'], ['sw', 'branch.a']],
+        [['lat', 'out'], ['sw', 'branch.b']],
+      ],
+    }), 'sw')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(ok)
+    if (!ok) expect(refusals(result)).toEqual([['These inputs must be the same type: a is IMAGE, b is LATENT.', 'sw']])
   })
 })

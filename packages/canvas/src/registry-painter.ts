@@ -21,6 +21,8 @@ import type { ToolboxButton } from './toolbox.js'
 const paint = canvasPaintTokens.widget
 /** The word before an automatic value. */
 const AUTOMATIC_WORD = 'auto'
+/** The word before the value of a row that stays only for the wire on its output. */
+const KEPT_WORD = 'wired'
 const TEXT_PAD = paint.textPadding
 
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
@@ -179,12 +181,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       return
     }
     // A field with nothing stored that declares automatic shows the value it
-    // has in use, after the word "auto".
+    // has in use, after the word "auto". A kept row shows "wired" before its
+    // value instead, and then no "auto".
     const automatic = value === undefined ? row.automatic : undefined
     const resolved: Json = value !== undefined ? value : automatic !== undefined ? automatic.value : (kind.defaultValue(row.spec) as Json)
-    const automaticDot = automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
-    const automaticWord = automatic === undefined ? 0 : measureWidth(ctx, AUTOMATIC_WORD) + paint.automaticWordGap
-    const automaticReserve = automaticWord + automaticDot
+    const valueWord = row.kept !== undefined ? KEPT_WORD : automatic !== undefined ? AUTOMATIC_WORD : undefined
+    const automaticDot = valueWord === AUTOMATIC_WORD && automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
+    const wordReserve = valueWord === undefined ? 0 : measureWidth(ctx, valueWord) + paint.valueWordGap + automaticDot
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
     if (row.viewId !== 'core.compositor') {
@@ -244,7 +247,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
         ? usableWidth * paint.structuredValueRatio
-        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + automaticReserve
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + wordReserve
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
@@ -406,13 +409,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
             const role = style['role']
-            const marked = automatic !== undefined && (role === undefined || role === 'widgetValue')
+            const marked = valueWord !== undefined && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
             const swatches = alignRight ? stringList(style['swatches']) : undefined
             const markReserve = (modeIcon !== undefined && role === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
-            const iconReserve = markReserve + (marked ? automaticReserve : 0)
+            const iconReserve = markReserve + (marked ? wordReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const text = swatches !== undefined ? ''
               : items !== undefined ? fitItems(ctx, items, fitWidth)
@@ -426,14 +429,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const placeholder = style['placeholder'] === true
               // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
               const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
-              // An automatic value and its word are dimmed, as a placeholder is.
+              // A value with a word before it ("auto", "wired") is dimmed with its word, as a placeholder is.
               ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
                 : marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
               ctx.clip()
-              const before = marked ? automaticReserve : 0
+              const before = marked ? wordReserve : 0
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
@@ -449,15 +452,15 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               }
               if (marked) {
                 // Marks about a value come before it, so values line up at the right.
-                const wordRight = alignRight ? textX - measureWidth(ctx, text) - markReserve - paint.automaticWordGap : textX - paint.automaticWordGap
+                const wordRight = alignRight ? textX - measureWidth(ctx, text) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
                 ctx.textAlign = 'right'
                 ctx.fillStyle = tokens.colors.label
-                ctx.fillText(AUTOMATIC_WORD, wordRight, textY)
+                ctx.fillText(valueWord!, wordRight, textY)
                 if (automaticDot > 0) {
                   const radius = paint.automaticDot.radius
                   ctx.fillStyle = tokens.colors.warningMark
                   ctx.beginPath()
-                  ctx.arc(wordRight - measureWidth(ctx, AUTOMATIC_WORD) - paint.automaticDot.gap - radius, textY, radius, 0, Math.PI * 2)
+                  ctx.arc(wordRight - measureWidth(ctx, valueWord!) - paint.automaticDot.gap - radius, textY, radius, 0, Math.PI * 2)
                   ctx.fill()
                 }
               }

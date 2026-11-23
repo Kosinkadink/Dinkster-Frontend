@@ -90,7 +90,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
-    ['Flow nodes', ['switch-primitive', 'small-flow-nodes']],
+    ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -184,7 +184,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'widget-companions':
     'A value passed down a wire shows in italics: grey when known, teal when unproven, green when estimated.',
   'widget-taps':
-    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
+    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and a row kept dimmed for its wire when it is no longer part of the node.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
   'text-boxes':
@@ -208,6 +208,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'type-conflict':
+    'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */
@@ -345,7 +347,8 @@ function ExampleCard(props: {
     renderer.setGridVisible(false)
     renderer.setScene(scene)
     renderer.setNodeStates(example.states ?? fixture.states)
-    renderer.setBadges(fixture.badges)
+    renderer.setBadges(example.badges ?? fixture.badges)
+    renderer.setPortProblems(example.portProblems ?? {})
     renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
