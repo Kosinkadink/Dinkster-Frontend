@@ -440,8 +440,8 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           ? [colors[0] as string, colors[1] as string] : undefined
       }
       const hover = state()['hover'] as { position: number; value: number } | undefined
-      const inputStrip = strip('input_strip')
-      const outputStrip = strip('output_strip')
+      const inputStrip = strip('inputStrip')
+      const outputStrip = strip('outputStrip')
       return (
         <>
           {picture(

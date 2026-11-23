@@ -103,11 +103,11 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
   ]),
   // A node turns the strips on in its curve's declaration, each with its colors from low to high.
   schema('Brightness curve', [
-    editor('curve', 'CURVE', { input_strip: ['#000000', '#ffffff'], output_strip: ['#000000', '#ffffff'] }),
+    editor('curve', 'CURVE', { inputStrip: ['#000000', '#ffffff'], outputStrip: ['#000000', '#ffffff'] }),
     output('curve', 'CURVE'),
   ]),
   schema('Red channel curve', [
-    editor('curve', 'CURVE', { input_strip: ['#000000', '#ff0000'] }),
+    editor('curve', 'CURVE', { inputStrip: ['#000000', '#ff0000'] }),
     output('curve', 'CURVE'),
   ]),
   ...[16, undefined].map((maxMembers) => schema(maxMembers === undefined ? 'Palette' : 'Palette of 16', [
