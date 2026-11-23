@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
+import { desktopSaveBridge } from './desktop-bridge.js'
 
 export function PreviewDownload(props: {
   readonly download: NonNullable<NodePreview['download']>
@@ -20,7 +21,8 @@ export function PreviewDownload(props: {
   onCleanup(release)
   const save = async (event: MouseEvent) => {
     const download = props.download
-    if (!download.load) return
+    const native = desktopSaveBridge()
+    if (!download.load && !native) return
     event.preventDefault()
     if (busy()) return
     release()
@@ -28,8 +30,17 @@ export function PreviewDownload(props: {
     request = controller
     setBusy(true); setError('')
     try {
-      const blob = await download.load(controller.signal)
+      const blob = download.load ? await download.load(controller.signal) : await (async () => {
+        const response = await fetch(download.src, { signal: controller.signal })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.blob()
+      })()
       if (controller.signal.aborted) return
+      if (native) {
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        if (!controller.signal.aborted) await native.saveFile(bytes, download.name)
+        return
+      }
       url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url; link.download = download.name

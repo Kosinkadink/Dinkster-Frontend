@@ -42,7 +42,12 @@ export interface DesktopConnectionCredentials {
   readonly profiles: readonly string[]
 }
 
+export type DesktopSaveResult =
+  | { readonly status: 'saved'; readonly name: string }
+  | { readonly status: 'closed' }
+
 export interface DinksterDesktopBridge {
+  saveFile?(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult>
   locale(): Promise<string>
   status(): Promise<DesktopLifecycleStatus>
   retry(): Promise<void>
@@ -92,7 +97,12 @@ declare global {
   }
 }
 
-export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile'>
+export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'saveFile' | 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'revealModelLocation' | 'resolveDroppedFile'>
+
+export function desktopSaveBridge(): { saveFile(bytes: Uint8Array, suggestedName: string): Promise<DesktopSaveResult> } | undefined {
+  const saveFile = window.dinksterDesktop?.saveFile
+  return typeof saveFile === 'function' ? { saveFile } : undefined
+}
 
 export function desktopBridge(): DinksterDesktopBridge | undefined {
   const bridge = window.dinksterDesktop
