@@ -793,18 +793,20 @@ Switch and Primitive, under Flow nodes, draws the proposed Switch and Primitive
 nodes that replace the value source pill and the selector box, one card per
 state, each painted from its own document at the top level or inside a subgraph
 entered through one subgraph node. The Switch cards show a pick known before the
-run with the branch not picked dimmed, a pick arriving on a wire, a picked branch
-with nothing plugged in, a stored branch that was removed, a position outside
-the branch list, renaming and random picks, and one subgraph row driving two
-Switches with and without matching branches. The Primitive cards show a range
-worked out from the fields it feeds, fields that share no value, typed and
-pinned limits, dropdown, text and yes or no values, the Inputs panel with and
-without a subgraph node, a value arriving on a wire, refused edits and plugging
-in that narrows the range. The first card shows today's pill and selector box
-for comparison. A card may carry its own scene, run states, companions, row
-marks and dimmed nodes. Captions name what the canvas does not draw yet: "Not
-run" and "Nothing plugged in" text, and "Not known yet" in place of a wired
-field's struck-through stored value.
+run with the branch not picked dimmed, a pick arriving on a wire, a picked
+branch with nothing plugged in, a stored branch that was removed, a position
+outside the branch list, a wired text picking a branch by name, a Choice
+primitive on Pick, a text that names no branch, renaming and random picks, and
+one subgraph row driving two Switches with and without matching branches. The
+Primitive cards show a range worked out from the fields it feeds, fields that
+share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
+Choice primitives beside the general one, the Inputs panel with and without a
+subgraph node, a value arriving on a wire, refused edits and plugging in that
+narrows the range. The first card shows today's pill and selector box for
+comparison. A card may carry its own scene, run states, companions, row marks
+and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
+"Nothing plugged in" text, and "Not known yet" in place of a wired field's
+struck-through stored value.
 
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and
