@@ -199,8 +199,7 @@ test.beforeEach(async ({ page }) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND so Vite serves the live native catalog on the same origin')
   await page.goto('/')
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   const missing = await page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas

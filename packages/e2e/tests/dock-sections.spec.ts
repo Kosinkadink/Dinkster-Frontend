@@ -6,7 +6,8 @@
  * panels that once lived only in one zone now dock in any zone.
  */
 import type { Locator, Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { waitForProductFonts } from '../visual.js'
+import { expect, test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 type DockZone = 'left' | 'right' | 'bottom'
@@ -46,11 +47,13 @@ const zoneSections = (page: Page, zone: DockZone): Promise<readonly (readonly st
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await waitForProductFonts(page)
   await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 })
 
 test('dropping a tab on the lower half of the right zone opens a second section that persists', async ({ page }) => {
-  const queue = zoneTab(page, 'right', 'queue')
+  const queue = zoneTab(page, 'right', 'runs')
   const from = await center(queue)
   const zoneBox = (await page.getByTestId('dock-zone-right').boundingBox())!
 
@@ -66,7 +69,7 @@ test('dropping a tab on the lower half of the right zone opens a second section 
 
   await expect(page.getByTestId('dock-zone-section-right-1')).toBeVisible()
   await expect(page.getByTestId('dock-section-divider-right')).toBeVisible()
-  expect((await zoneSections(page, 'right')).at(-1)).toEqual(['queue'])
+  expect((await zoneSections(page, 'right')).at(-1)).toEqual(['runs'])
   // Both sections render their active panel bodies at the same time.
   const tablists = page.getByTestId('dock-zone-right').locator('[role="tablist"]')
   await expect(tablists).toHaveCount(2)
@@ -74,13 +77,13 @@ test('dropping a tab on the lower half of the right zone opens a second section 
 
   await page.reload()
   await expect(page.getByTestId('dock-zone-section-right-1')).toBeVisible()
-  expect((await zoneSections(page, 'right')).at(-1)).toEqual(['queue'])
+  expect((await zoneSections(page, 'right')).at(-1)).toEqual(['runs'])
 })
 
 test('the section divider resizes with the keyboard and the split survives a reload', async ({ page }) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as SectionedTestApp
-    app.dock.dock('queue', 'right', undefined, 1)
+    app.dock.dock('runs', 'right', undefined, 1)
   })
   const divider = page.getByTestId('dock-section-divider-right')
   await expect(divider).toHaveAttribute('aria-valuenow', '50')
@@ -104,11 +107,11 @@ test('the section divider resizes with the keyboard and the split survives a rel
 test('moving the last tab out of a section collapses the zone to one section', async ({ page }) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as SectionedTestApp
-    app.dock.dock('queue', 'right', undefined, 1)
+    app.dock.dock('runs', 'right', undefined, 1)
   })
   await expect(page.getByTestId('dock-zone-section-right-1')).toBeVisible()
 
-  const queue = zoneTab(page, 'right', 'queue')
+  const queue = zoneTab(page, 'right', 'runs')
   const from = await center(queue)
   const firstStrip = page.getByTestId('dock-zone-section-right-0').locator('[role="tablist"]')
   const to = await center(firstStrip)
@@ -121,7 +124,7 @@ test('moving the last tab out of a section collapses the zone to one section', a
   await expect(page.getByTestId('dock-zone-section-right-1')).toHaveCount(0)
   await expect(page.getByTestId('dock-section-divider-right')).toHaveCount(0)
   expect(await zoneSections(page, 'right')).toHaveLength(1)
-  expect((await zoneSections(page, 'right'))[0]).toContain('queue')
+  expect((await zoneSections(page, 'right'))[0]).toContain('runs')
 })
 
 test('a bottom-zone panel docks into the right zone', async ({ page }) => {
@@ -148,7 +151,7 @@ test('the bottom zone splits into side-by-side sections', async ({ page }) => {
   await expect(zoneTab(page, 'bottom', 'logs')).toBeVisible()
 
   // Give the bottom zone a second tab so the far half offers a split.
-  const queue = zoneTab(page, 'right', 'queue')
+  const queue = zoneTab(page, 'right', 'runs')
   const queueFrom = await center(queue)
   const bottomStrip = page.getByTestId('dock-zone-bottom').locator('[role="tablist"]')
   const stripTo = await center(bottomStrip)
@@ -158,9 +161,9 @@ test('the bottom zone splits into side-by-side sections', async ({ page }) => {
   await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-allowed', 'true')
   await page.mouse.up()
   expect(await page.evaluate(() =>
-    (window.__dinksterTest!.app as unknown as SectionedTestApp).panels.placementOf('queue'))).toBe('bottom')
+    (window.__dinksterTest!.app as unknown as SectionedTestApp).panels.placementOf('runs'))).toBe('bottom')
 
-  const dockedQueue = zoneTab(page, 'bottom', 'queue')
+  const dockedQueue = zoneTab(page, 'bottom', 'runs')
   const from = await center(dockedQueue)
   const zoneBox = (await page.getByTestId('dock-zone-bottom').boundingBox())!
   await page.mouse.move(from.x, from.y)
@@ -176,7 +179,7 @@ test('the bottom zone splits into side-by-side sections', async ({ page }) => {
   const divider = page.getByTestId('dock-section-divider-bottom')
   await expect(divider).toBeVisible()
   await expect(divider).toHaveAttribute('aria-orientation', 'vertical')
-  expect((await zoneSections(page, 'bottom')).at(-1)).toEqual(['queue'])
+  expect((await zoneSections(page, 'bottom')).at(-1)).toEqual(['runs'])
   // Sections sit side by side: the second starts right of the first.
   const first = (await page.getByTestId('dock-zone-section-bottom-0').boundingBox())!
   const second = (await page.getByTestId('dock-zone-section-bottom-1').boundingBox())!

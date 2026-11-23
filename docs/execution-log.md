@@ -1,9 +1,40 @@
-# Execution log
+# Log
 
-The Execution log is the per-run structured feed of what a workflow execution
-reported while it ran. It is a bottom-zone registered panel, separate from the
-app Activity panel: Activity records frontend and connection events, while the
-Execution log shows one selected run's backend log records and errors.
+## Frozen run view
+
+The snowflake on a run row opens its queued snapshot, including for queued
+and running jobs. The tab uses a snowflake too. The quiet canvas line reports
+the job state, live-workflow divergence, and progress while running.
+
+A frozen tab allows moving and resizing nodes, collapsing nodes or their
+sections, moving groups and reroutes, and navigating, selecting or copying.
+These presentation changes last only until the tab closes: they never change
+the run snapshot, the live workflow, or a saved file. Reopening the run restores
+its original arrangement. Nodes outside the submitted run are dimmed with the
+same strength as the live canvas's inactive nodes; scheduled nodes that have
+not started yet remain at full strength. Run marks and outlines remain visible.
+
+Values, wires, adding or deleting nodes, bypassing and renaming are refused.
+An attempt shows one neutral pointer toast: "Frozen. Open as copy to edit."
+Fields and pins do not show edit hover highlights in a frozen tab.
+
+**Open as copy** replaces the frozen tab with an editable workflow named
+"<workflow> copy", then "<workflow> copy 2" if that name is already open.
+It keeps the current arrangement, pan, zoom and selection. The tab menu's
+Duplicate action instead opens a second tab. The run can be opened frozen
+again from its row, with its original arrangement.
+**Go to live** returns to the source workflow when its tab is still open.
+A job submitted by another browser without a retained snapshot cannot be
+opened frozen; its snowflake is disabled with an explanatory tooltip.
+
+## Log records
+
+Log is the bottom-zone panel for run records and app activity. Its scope
+selector opens on This run when an execution is selected, or App otherwise.
+This run shows one execution's backend log records and errors; App shows
+frontend and connection events. Clear is available only for App and keeps its
+two-press confirmation. Opening a node's log badge selects This run and applies
+that node's filter.
 
 Each row keeps a UTC timestamp, a level, the originating node when the record
 carries one, and the message. Rows come from two sources and only two. Log
@@ -33,8 +64,11 @@ truncation notice with the exact discarded count. Individual messages are
 capped at 4096 characters by the client (the backend caps them earlier at
 2000).
 
-The Run selector defaults to Current, which follows the run the active
-workflow tab shows; picking a specific run pins the view to it, and a pinned
+The Run selector defaults to Current, which follows the selected Runs row
+or the active workflow's execution when no row is selected. Choosing another
+Runs row returns Log to This run. Snapshot updates to the same run preserve a
+manual App scope choice. Picking a specific run in Log pins the view to it,
+and a pinned
 run that disappears from history falls back to Current. The Node selector
 narrows the feed to one node's rows, and the three level toggles (info,
 warning, error) hide or show each level independently. A row's node name is a

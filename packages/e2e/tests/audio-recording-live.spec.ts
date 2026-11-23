@@ -106,7 +106,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
     } })
   }, { synthetic: PHYSICAL_MICROPHONE === undefined })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await waitForWorkspaceReady(page)
 })
 

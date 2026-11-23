@@ -24,7 +24,7 @@ export interface ExecutedImage {
   readonly virtualPath?: string
 }
 
-interface ImageAssetRef {
+interface MediaAssetRef {
   readonly digest: string
   readonly mediaType: string
   readonly name?: string
@@ -33,8 +33,8 @@ interface ImageAssetRef {
 
 const CAS_DIGEST = /^blake3:[0-9a-f]{64}$/
 
-function imageAssetRefsInOrder(descriptor: unknown): readonly ImageAssetRef[] {
-  const refs: ImageAssetRef[] = []
+function mediaAssetRefsInOrder(descriptor: unknown): readonly MediaAssetRef[] {
+  const refs: MediaAssetRef[] = []
   const visited = new WeakSet<object>()
   const stack: unknown[] = [descriptor]
   while (stack.length > 0) {
@@ -51,7 +51,7 @@ function imageAssetRefsInOrder(descriptor: unknown): readonly ImageAssetRef[] {
     if (
       typeof typeId === 'string' &&
       (typeId === 'ASSET' || parseAssetTypeId(typeId) !== undefined) &&
-      digest !== undefined && CAS_DIGEST.test(digest) && mediaType?.startsWith('image/') === true
+      digest !== undefined && CAS_DIGEST.test(digest) && mediaType !== undefined && /^(image|video)\//.test(mediaType)
     ) {
       const name = typeof meta?.['name'] === 'string' ? meta['name'] : undefined
       const virtualPath = typeof meta?.['virtualPath'] === 'string' ? meta['virtualPath'] : undefined
@@ -63,6 +63,22 @@ function imageAssetRefsInOrder(descriptor: unknown): readonly ImageAssetRef[] {
     }
   }
   return refs
+}
+
+/** Match durable history's preview-first choice using only already retained media. */
+export function executionThumbnail(execution: ExecutionState): { readonly digest: string; readonly mediaType: string } | undefined {
+  for (const artifact of execution.artifacts) {
+    for (const item of [artifact.preview, artifact]) {
+      if (item !== undefined && CAS_DIGEST.test(item.digest) && /^(image|video)\//.test(item.mediaType)) return item
+    }
+  }
+  for (const outputs of Object.values(execution.outputs)) {
+    for (const descriptor of Object.values(outputs)) {
+      const asset = mediaAssetRefsInOrder(descriptor)[0]
+      if (asset !== undefined) return asset
+    }
+  }
+  return undefined
 }
 
 export function executedImageInventory(
@@ -104,7 +120,7 @@ export function executedImageInventory(
           },
         })
       }
-      for (const [descriptorIndex, ref] of imageAssetRefsInOrder(outputs[outputId]).entries()) {
+      for (const [descriptorIndex, ref] of mediaAssetRefsInOrder(outputs[outputId]).filter((ref) => ref.mediaType.startsWith('image/')).entries()) {
         images.push({
           key: `${execution.key}:asset:${runtimeId}:${outputId}:${descriptorIndex}:${ref.digest}`,
           runtimeId,

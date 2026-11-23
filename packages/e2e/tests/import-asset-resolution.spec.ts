@@ -73,7 +73,8 @@ async function setup(page: Page, guesses: Guesses): Promise<void> {
   })
   await page.goto('/')
   await waitForWorkspaceReady(page)
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
@@ -86,10 +87,10 @@ async function openImportedDocument(page: Page, json: unknown, title: string) {
   const opened = await page.evaluate(async ({ json, title, url }) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.baseUrl === url)!
-    const retained = app as unknown as {
-      openRetainedDocument(json: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
-    }
-    return await retained.openRetainedDocument(json, title, backend, () => true) !== undefined
+    const diagnostics = await app.openDocument(json, title, backend)
+    if (diagnostics.length > 0) return false
+    app.setTabTarget(app.activeTab()!.id, backend.id)
+    return true
   }, { json, title, url: MOCK })
   expect(opened).toBe(true)
   return opened
@@ -113,10 +114,6 @@ test('auto-resolves an obvious path match and prompts only for leftovers', async
     virtualPath: MODEL_PATH, size: MODEL_SIZE, mediaType: 'application/octet-stream',
   }] })
   expect(await openImportedDocument(page, workflow(), 'Assets')).toBe(true)
-  await page.evaluate((backendId) => {
-    const app = window.__dinksterTest!.app
-    app.setTabTarget(app.activeTab()!.id, backendId)
-  }, MOCK)
 
   const dialog = page.getByTestId('import-asset-resolution-dialog')
   await expect(dialog).toBeVisible()

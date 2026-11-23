@@ -14,7 +14,7 @@ async function openCrop(page: Page): Promise<void> {
 
 test('crop fields submit exact pixels, preview the source and preserve undo', async ({ page }, testInfo) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const diagnostics = await window.__dinksterTest!.app.openDocument({

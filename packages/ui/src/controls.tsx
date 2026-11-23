@@ -6,7 +6,7 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, type LucideIcon } from 'lucide-solid'
+import { ChevronDown, CircleAlert, Clock, LoaderCircle, type LucideIcon } from 'lucide-solid'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
@@ -22,6 +22,28 @@ type ButtonAttributes = Omit<
 
 export function ProductIcon(props: { icon: LucideIcon }) {
   return <props.icon class="dinkster-icon" aria-hidden="true" />
+}
+
+export function ProductRunActivity(props: {
+  readonly running: number
+  readonly waiting: number
+  readonly label: string
+}) {
+  return (
+    <span class="dinkster-run-activity" role="img" aria-label={props.label}>
+      <Show when={props.running > 0}>
+        <span class="dinkster-run-activity-running" aria-hidden="true">
+          <ProductIcon icon={LoaderCircle} />
+          <span>{props.running}</span>
+        </span>
+      </Show>
+      <Show when={props.waiting > 0}>
+        <span class="dinkster-run-activity-waiting" aria-hidden="true">
+          <ProductIcon icon={Clock} /><span>{props.waiting}</span>
+        </span>
+      </Show>
+    </span>
+  )
 }
 
 export function ProductRunIcon(props: {

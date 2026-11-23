@@ -4,6 +4,9 @@ import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
 import { runAttributionLabel } from './run-attribution.js'
 import type { JSX } from 'solid-js'
 import { t } from '@dinkster/core'
+import Snowflake from 'lucide-solid/icons/snowflake'
+import { ProductButton } from './ProductControls.js'
+import { Icon } from './Icon.js'
 
 export type ExecutionActivityRelation = 'latest' | 'pinned'
 
@@ -120,12 +123,27 @@ export function executionExpandedSummary(entry: ExecutionState): readonly string
   })
 }
 
+export function ExecutionOpenButton(props: {
+  readonly entry: ExecutionState
+  readonly title: string
+  readonly onOpen?: (() => void) | undefined
+}) {
+  const label = () => props.entry.artifact
+    ? `Open ${props.title}, execution ${props.entry.ref.prompt}, ${executionStatusLabel(props.entry.status).toLocaleLowerCase()}`
+    : 'Snapshot unavailable - submitted by another client'
+  return <ProductButton type="button" variant="ghost" size="compact" class="execution-open"
+    aria-label={label()}
+    data-tooltip-label={props.entry.artifact ? 'Open frozen view' : label()}
+    disabled={!props.entry.artifact} onClick={props.onOpen}><Icon icon={Snowflake} /></ProductButton>
+}
+
 export function ExecutionActivityCard(props: {
   readonly entry: ExecutionState
   readonly title: string
   readonly testId: string
   readonly relation?: ExecutionActivityRelation | undefined
   readonly compact?: boolean | undefined
+  readonly hideOpen?: boolean | undefined
   readonly onOpen?: (() => void) | undefined
   readonly onPin?: (() => void) | undefined
   readonly cancelControl?: JSX.Element
@@ -144,7 +162,6 @@ export function ExecutionActivityCard(props: {
     principalId: props.entry.submittedBy?.principalId,
     kind: props.entry.submittedBy?.kind,
   })
-  const openLabel = () => `Open ${props.title}, execution ${props.entry.ref.prompt}, ${status().toLocaleLowerCase()}`
 
   return (
     <article
@@ -212,15 +229,9 @@ export function ExecutionActivityCard(props: {
       </Show>
       <div class="execution-activity-actions">
         {props.cancelControl}
-        <button
-          type="button"
-          class="execution-open"
-          aria-label={props.entry.artifact ? openLabel() : undefined}
-          disabled={!props.entry.artifact}
-          onClick={props.onOpen}
-        >
-          {props.entry.artifact ? 'Open snapshot' : 'Snapshot unavailable'}
-        </button>
+        <Show when={!props.hideOpen}>
+          <ExecutionOpenButton entry={props.entry} title={props.title} onOpen={props.onOpen} />
+        </Show>
         <Show when={props.onPin}>
           {(pin) => (
             <button
