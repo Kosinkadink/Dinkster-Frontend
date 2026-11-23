@@ -71,6 +71,7 @@ import {
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
 import { effectiveValueSourceSpec, resolvedValueSourceSpec, valueSourceWidgetSpec, type EffectiveValueSourceSpec } from '../value-source.js'
+import { effectivePrimitiveSpec, explicitPrimitiveDefault, explicitPrimitiveLimits, primitiveOf, withPrimitiveValue, type EffectivePrimitiveSpec } from '../primitive.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -199,6 +200,48 @@ export function documentValueSourceResolver(doc: WorkflowDocument, base: SchemaR
   }
 }
 
+/**
+ * A primitive's effective value widget in one document snapshot: from the
+ * fields its output feeds in the given occurrence, or in every occurrence
+ * of its definition when `instancePath` is not given.
+ */
+export type DocumentPrimitiveResolver = (
+  graphId: string,
+  node: NodeData,
+  instancePath?: readonly NodeId[],
+) => EffectivePrimitiveSpec | undefined
+
+export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaResolver): DocumentPrimitiveResolver {
+  const resolve = documentResolver(doc, base)
+  let consumers: readonly ValueSourceConsumer[] | undefined
+  const cache = new Map<string, EffectivePrimitiveSpec | undefined>()
+  return (graphId, node, instancePath) => {
+    const schema = resolve(node.type)
+    const shape = schema && primitiveOf(schema)
+    if (!shape) return undefined
+    const key = JSON.stringify([graphId, node.id, instancePath ?? null])
+    if (cache.has(key)) return cache.get(key)
+    consumers ??= compileImpl({ query: 'valueSources', document: doc, resolve: base }, true).consumers
+    const samePath = (path: readonly NodeId[]): boolean =>
+      instancePath === undefined || JSON.stringify(path) === JSON.stringify(instancePath)
+    const fed = new Map<string, InputSpec>()
+    for (const consumer of consumers) {
+      const reaches = consumer.sources.some((source) => 'occurrence' in source && source.graph === graphId &&
+        source.occurrence.node === node.id && source.valueKey === shape.value.id && samePath(source.occurrence.instancePath))
+      if (!reaches) continue
+      fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]), consumer.input)
+    }
+    const def = doc.graphs[graphId]
+    const wired = (inputId: string): boolean => def !== undefined && Object.values(def.links).some((link) =>
+      isPortEndpoint(link.to) && link.to.node === node.id && link.to.port === inputId)
+    const effective = effectivePrimitiveSpec(node.id, shape,
+      [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, input]) => input),
+      explicitPrimitiveLimits(shape, node, wired), explicitPrimitiveDefault(shape, node, wired))
+    cache.set(key, effective)
+    return effective
+  }
+}
+
 export type DocumentNodeResolver = (graphId: string, node: NodeData, instancePath?: readonly NodeId[]) => NodeSchema | undefined
 
 /**
@@ -210,12 +253,18 @@ export function documentNodeResolver(
   doc: WorkflowDocument,
   base: SchemaResolver,
   resolveSource?: ReturnType<typeof documentValueSourceResolver>,
+  resolvePrimitive?: DocumentPrimitiveResolver,
 ): DocumentNodeResolver {
   const definitionResolve = documentResolver(doc, base)
   const cache = new Map<string, NodeSchema | undefined>()
   const resolveNode: DocumentNodeResolver = (graphId, node, instancePath) => {
     const defId = subgraphDefIdOf(node.type)
-    if (defId === undefined) return base(node.type)
+    if (defId === undefined) {
+      const schema = base(node.type)
+      const shape = resolvePrimitive && schema && primitiveOf(schema)
+      const effective = shape && resolvePrimitive(graphId, node, instancePath)
+      return shape && effective ? withPrimitiveValue(schema, shape, effective) : schema
+    }
     const key = JSON.stringify([graphId, node.id, instancePath])
     if (cache.has(key)) return cache.get(key)
     const def = doc.graphs[defId]
@@ -1586,16 +1635,19 @@ function compileImpl(
           if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
           const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
           if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted` } }] }
-          if (tapped === undefined) {
-            if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
-            return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
-          }
           const runtimeId = occurrenceKey({ instancePath: knownPath, node: knownNode })
-          const widget = input.spec.widget
           const sources: readonly ControllerInputSource[] = [
             ...(controllerSources.get(runtimeId)?.get(input.spec.id) ?? []).map((source) => source.source),
             { graph: asGraphDefId(knownDefId), occurrence: { instancePath: knownPath, node: knownNode }, valueKey: valueKeyOf(input) },
           ]
+          // Working out a primitive's range needs the fields it feeds whether
+          // or not it holds a value or declares a widget yet.
+          if (selectedProjection === 'spec') return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped?.value ?? null, controllerSources: sources } }] }
+          if (tapped === undefined) {
+            if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
+          }
+          const widget = input.spec.widget
           return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
             ...(widget !== undefined ? { controllerSources: sources, controllerWidget: widget } : {}) } }] }
         }
