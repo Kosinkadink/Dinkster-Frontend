@@ -87,7 +87,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
-    ['Flow nodes', ['switch-primitive', 'type-conflict']],
+    ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -199,6 +199,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+  'small-flow-nodes':
+    'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'type-conflict':
     'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }

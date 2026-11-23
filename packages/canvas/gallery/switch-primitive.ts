@@ -196,7 +196,7 @@ const samplerNode = (type: string, title: string, options: readonly string[]) =>
   ])
 
 type Endpoint = Record<string, Json>
-interface NodeEntry {
+export interface NodeEntry {
   readonly type: NodeSchema
   readonly x: number
   readonly y: number
@@ -352,7 +352,7 @@ export function sceneOf(
 }
 
 /** Two scenes of one card together: what is outside, then what is inside. */
-const joined = (a: Scene, b: Scene): Scene => ({
+export const joined = (a: Scene, b: Scene): Scene => ({
   ...b,
   nodes: [...a.nodes, ...b.nodes],
   links: [...a.links, ...b.links],

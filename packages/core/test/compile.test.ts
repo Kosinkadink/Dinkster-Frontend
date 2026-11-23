@@ -695,6 +695,21 @@ const dynSchemas: Record<string, NodeSchema> = {
     ]),
     isOutputNode: false,
   },
+  VarPrimitive: {
+    ...dynSchemaOf('VarPrimitive', [
+      dynInput('value', { type: { kind: 'variable', templateId: 'T' } }),
+      { kind: 'output', id: 'out', type: { kind: 'variable', templateId: 'T' }, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  Choice: {
+    ...dynSchemaOf('Choice', [
+      dynInput('value', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } }),
+      { kind: 'output', id: 'COMBO', type: { kind: 'concrete', name: 'COMBO' }, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  SamplerSink: dynSchemaOf('SamplerSink', [dynInput('sampler', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } })]),
   IntSrc: { ...dynSchemaOf('IntSrc', [{ kind: 'output', id: 'out', type: INT }]), isOutputNode: false },
   IntSink: dynSchemaOf('IntSink', [dynInput('steps', { type: INT, widget: { widgetType: 'INT', options: {}, default: 20 } })]),
   Switch: {
@@ -1976,6 +1991,34 @@ describe('Primitive and Switch as ordinary nodes', () => {
     expect(result.artifact.prompt['a']!.inputs).toEqual({ steps: 11 })
     expect(result.artifact.prompt['b']!.inputs).toEqual({ steps: 11 })
     expect(doc.graphs.g0!.nodes['a']!.values).toEqual({ steps: 3 })
+  })
+
+  it('bakes a known choice into the choice field it feeds', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        choice: { type: 'Choice', values: { value: 'dpm' } },
+        sink: { type: 'SamplerSink', values: { sampler: 'euler' } },
+      },
+      links: [[['choice', 'COMBO'], ['sink', 'sampler']]],
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt)).toEqual(['sink'])
+    expect(result.artifact.prompt['sink']!.inputs).toEqual({ sampler: 'dpm' })
+  })
+
+  it('runs a Primitive typed by a type variable instead of baking its value', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        prim: { type: 'VarPrimitive', values: { value: { $typed: { type: 'INT', value: 7 } } } },
+        sink: { type: 'IntSink', values: { steps: 3 } },
+      },
+      links: [[['prim', 'out'], ['sink', 'steps']]],
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['prim', 'sink'])
+    expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: ['prim', 0] })
   })
 
   it('advances the Primitive control only for consumers that run', () => {
