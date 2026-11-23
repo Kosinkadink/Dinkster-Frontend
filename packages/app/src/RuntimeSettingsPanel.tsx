@@ -207,7 +207,7 @@ function CategoryEditor(props: {
   )
 }
 
-export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[]; readonly alwaysOpen?: boolean }) {
+export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[] | ((category: string) => boolean); readonly alwaysOpen?: boolean }) {
   const message = useAppMessage()
   const [open, setOpen] = createSignal(props.alwaysOpen === true)
   const [loading, setLoading] = createSignal(false)
@@ -242,7 +242,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const current = data()
     if (!current) return []
     const all = [...current.categories.available, ...Object.keys(current.settings).filter((category) => !current.categories.available.includes(category))]
-    return all.filter((category) => props.categories === undefined || props.categories.includes(category))
+    return all.filter((category) => props.categories === undefined || (typeof props.categories === 'function' ? props.categories(category) : props.categories.includes(category)))
   }
   const editable = (category: string, section: RuntimeSettingSection): boolean =>
     (data()?.categories.granted.length ?? 0) > 0 && data()!.categories.granted.includes(category) && section.writable

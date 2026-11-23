@@ -451,6 +451,7 @@ test('backend add error and Resources rows at desktop and compact widths', async
     await openDock(page, 'backends-sidebar-toggle')
     const backends = page.getByTestId('backends-panel')
     await expect(backends.getByRole('heading', { name: 'Backend connections', exact: true })).toBeVisible()
+    if (!await backends.getByTestId('backend-url-input').isVisible()) await backends.getByRole('button', { name: 'Add backend', exact: true }).click()
     await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
     await backends.getByTestId('backend-add').click()
     await expect(backends.getByRole('alert').filter({ hasText: /could not|failed|unreachable/i }).first()).toBeVisible()
@@ -458,7 +459,8 @@ test('backend add error and Resources rows at desktop and compact widths', async
       controls.map((control) => getComputedStyle(control).fontFamily),
     )
     expect(fonts.every((font) => !font.includes('Arial'))).toBe(true)
-    await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-variant', 'primary')
+    await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-role', 'add')
+    await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-fill', 'solid')
     await screenshot(page, `runtime-panel-backends-error-${width}`)
     await openDock(page, 'memory-sidebar-toggle')
     const resources = page.getByTestId('resources-panel')
@@ -561,10 +563,10 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     }
     await openDock(page, 'backends-sidebar-toggle')
     const card = page.locator('[data-testid="backend-row"]').filter({ hasText: 'Offline visual' })
+    if (!await card.getByTestId('backend-schema-retry').isVisible()) await card.locator('summary').first().click()
     await expect(card.getByTestId('backend-schema-retry')).toBeEnabled()
-    await expect(card.getByTestId('output-mount-settings').getByRole('alert')).toContainText('GET /api/mounts failed: 503')
-    await expect(card.getByTestId('output-mount-retry')).toBeEnabled()
-    await card.getByTestId('output-mount-retry').scrollIntoViewIfNeeded()
+    await expect(card.getByTestId('output-mount-settings')).toHaveCount(0)
+    await card.getByTestId('backend-schema-retry').scrollIntoViewIfNeeded()
     await page.mouse.move(width / 2, height / 2)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('app-tooltip')).toBeHidden()
@@ -663,7 +665,7 @@ test('Storage settings distinguish accounting policy and permission failures', a
   await boot(page)
   await closeGallery(page)
   await openModal(page, 'settings')
-  await page.getByRole('button', { name: 'Storage', exact: true }).click()
+  await page.getByTestId('modal-surface').getByRole('button', { name: 'Storage', exact: true }).click()
   const panel = page.getByTestId('library-storage-settings')
   await expect(panel.getByText('513 bytes', { exact: true })).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Clear eligible assets', exact: true })).toBeDisabled()
@@ -1286,10 +1288,12 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await boot(page)
   await closeGallery(page)
   await page.evaluate(async () => {
-    const componentPath = '/src/ConnectionProfiles.tsx'
+    const componentPath = '/src/BackendsPanel.tsx'
+    const statePath = '/src/app-state.ts'
     const profilesPath = '/src/connection-profiles.ts'
     const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-    const { ConnectionProfilesSection } = await import(componentPath)
+    const { BackendsPanel } = await import(componentPath)
+    const { AppState } = await import(statePath)
     const { createConnectionProfile } = await import(profilesPath)
     const { render } = await import(rendererPath)
     const profile = createConnectionProfile('Studio render server with a long descriptive name', 'https://render-studio.example.test:8443/team/production')!
@@ -1306,24 +1310,27 @@ test('Saved connection rows retain actions, credential editing and connection fa
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }
     let finishConnect: (() => void) | undefined
-    const dispose = render(() => ConnectionProfilesSection({ app: {
-      addBackendByUrl: () => new Promise<boolean>((resolve) => { finishConnect = () => resolve(false) }),
-    } }), host)
+    const app = new AppState()
+    app.addBackendByUrl = (url: string, options?: { label?: string }) => url === 'https://recovered.example.test'
+      ? Promise.resolve(app.addBackend(url, options?.label, false, 'dinkster'))
+      : new Promise<undefined>((resolve) => { finishConnect = () => resolve(undefined) })
+    const dispose = render(() => BackendsPanel({ app }), host)
     ;(window as unknown as { connectionVisual: { fail(): void; dispose(): void } }).connectionVisual = {
       fail: () => finishConnect!(),
-      dispose: () => { dispose(); host.remove(); desktopWindow.dinksterDesktop = previousBridge },
+      dispose: () => { dispose(); app.dispose(); host.remove(); desktopWindow.dinksterDesktop = previousBridge },
     }
   })
   const fixture = page.getByRole('region', { name: 'Saved connections fixture' })
-  const row = fixture.getByTestId('profile-row')
+  const row = fixture.getByTestId('backend-row').filter({ hasText: 'Studio render server' })
+  await row.locator('summary').click()
   await expect(row.getByTestId('profile-credential-badge')).toBeVisible()
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
-      const lastAction = state === 'token-editor' ? row.getByTestId('profile-token-save') : row.getByTestId('profile-remove')
+      const lastAction = state === 'token-editor' ? row.getByTestId('profile-token-save') : row.getByRole('button', { name: 'Actions for Studio render server', exact: false })
       await lastAction.scrollIntoViewIfNeeded()
       await expect(lastAction).toBeInViewport()
-      const identity = await row.getByText('Studio render server with a long descriptive name', { exact: true }).boundingBox()
+      const identity = await row.locator('summary').boundingBox()
       expect(identity!.width).toBeGreaterThan(200)
       const area = await fixture.boundingBox()
       for (const action of await row.getByRole('button').all()) {
@@ -1352,23 +1359,24 @@ test('Saved connection rows retain actions, credential editing and connection fa
   await expect(fixture.getByRole('alert')).toContainText('Studio render server')
   await expect(row.getByTestId('profile-connect')).toBeEnabled()
   await capture('failed')
-  await fixture.getByTestId('profile-url-input').fill('file:///invalid-server')
-  await fixture.getByTestId('profile-add').click()
-  await expect(fixture.getByRole('alert')).toHaveText('A profile needs an absolute http(s) address without embedded credentials.')
-  await expect(fixture.getByTestId('profile-row')).toHaveCount(1)
-  await expect(fixture.getByTestId('profile-url-input')).toHaveValue('file:///invalid-server')
+  await fixture.getByRole('button', { name: 'Add backend', exact: true }).click()
+  await fixture.getByTestId('backend-url-input').fill('file:///invalid-server')
+  await fixture.getByTestId('backend-add').click()
+  await expect(fixture.locator('#backend-add-error')).toHaveText('A profile needs an absolute http(s) address without embedded credentials.')
+  await expect(fixture.getByTestId('backend-row')).toHaveCount(2)
+  await expect(fixture.getByTestId('backend-url-input')).toHaveValue('file:///invalid-server')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
-    await fixture.getByRole('alert').scrollIntoViewIfNeeded()
+    await fixture.locator('#backend-add-error').scrollIntoViewIfNeeded()
     await page.mouse.move(0, 0)
     await screenshot(page, `connection-profile-invalid-address-${width}`)
   }
   await fixture.getByTestId('profile-name-input').fill('Recovered source')
-  await fixture.getByTestId('profile-url-input').fill('https://recovered.example.test')
-  await fixture.getByTestId('profile-add').click()
-  await expect(fixture.getByRole('alert')).toHaveCount(0)
-  await expect(fixture.getByTestId('profile-row')).toHaveCount(2)
-  await expect(fixture.getByTestId('profile-row').filter({ hasText: 'Recovered source' })).toContainText('https://recovered.example.test')
+  await fixture.getByTestId('backend-url-input').fill('https://recovered.example.test')
+  await fixture.getByTestId('backend-add').click()
+  await expect(fixture.locator('#backend-add-error')).toHaveCount(0)
+  await expect(fixture.getByTestId('backend-row')).toHaveCount(3)
+  await expect(fixture.getByTestId('backend-row').filter({ hasText: 'Recovered source' })).toContainText('https://recovered.example.test')
   await page.evaluate(() => (window as unknown as { connectionVisual: { dispose(): void } }).connectionVisual.dispose())
 })
 

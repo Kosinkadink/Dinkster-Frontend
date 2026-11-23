@@ -1012,6 +1012,7 @@ export interface MountDescriptor {
    */
   readonly mode: 'read' | 'readwrite'
   readonly state: string
+  readonly source?: string
   readonly path?: string
   /** Optional semantic scope for homogeneous mounts (for example model/checkpoint). */
   readonly kind?: string
@@ -1027,7 +1028,7 @@ export interface MountGrantOptions {
 }
 
 export interface MountLocations {
-  readonly mounts: readonly { readonly id: string; readonly path: string }[]
+  readonly mounts: readonly ({ readonly id: string; readonly path: string } & Partial<MountDescriptor>)[]
   readonly activeMounts?: readonly (MountDescriptor & { readonly path: string })[]
   readonly importMount?: string | null
 }
@@ -3604,6 +3605,7 @@ export class DinksterConnection {
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
@@ -3641,17 +3643,27 @@ export class DinksterConnection {
     if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
     if (payload.importMount !== undefined && payload.importMount !== null &&
         (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts/locations: malformed import mount')
-    const location = (value: unknown) => {
+    const location = (value: unknown): MountLocations['mounts'][number] => {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
-      return { id: row['id'], path: row['path'] }
+      if ((row['mode'] !== undefined && row['mode'] !== 'read' && row['mode'] !== 'readwrite') ||
+        ['state', 'source', 'kind'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
+        (row['entryCount'] !== undefined && (typeof row['entryCount'] !== 'number' || !Number.isSafeInteger(row['entryCount']) || row['entryCount'] < 0))) {
+        throw new Error('GET /api/mounts/locations: malformed location facts')
+      }
+      return { id: row['id'], path: row['path'],
+        ...(row['mode'] === 'read' || row['mode'] === 'readwrite' ? { mode: row['mode'] } : {}),
+        ...(typeof row['state'] === 'string' ? { state: row['state'] } : {}),
+        ...(typeof row['source'] === 'string' ? { source: row['source'] } : {}),
+        ...(typeof row['kind'] === 'string' ? { kind: row['kind'] } : {}),
+        ...(typeof row['entryCount'] === 'number' ? { entryCount: row['entryCount'] } : {}),
+      }
     }
     if (payload.activeMounts !== undefined && !Array.isArray(payload.activeMounts)) throw new Error('GET /api/mounts/locations: malformed active mounts')
     const activeMounts = (payload.activeMounts as unknown[] | undefined)?.map((value): MountDescriptor & { readonly path: string } => {
-      const path = location(value)
-      const row = value as Record<string, unknown>
-      if ((row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
-      return { ...path, mode: row['mode'], state: row['state'] }
+      const row = value as Record<string, unknown> | null
+      if (row === null || typeof row !== 'object' || (row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
+      return { ...location(value), mode: row['mode'], state: row['state'] }
     })
     return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}),
       ...(payload.importMount !== undefined ? { importMount: payload.importMount as string | null } : {}) }

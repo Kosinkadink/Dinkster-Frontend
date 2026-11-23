@@ -755,7 +755,7 @@ describe('mount listing decode', () => {
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
     const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
-    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active], importMount: 'plates' }
+    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
     const unconfigured = submitHarness(() => jsonResponse(200, { ...payload, importMount: null })).conn
