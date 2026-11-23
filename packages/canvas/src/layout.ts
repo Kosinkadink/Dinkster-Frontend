@@ -89,6 +89,8 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
+  readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
 }
@@ -745,6 +747,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
 /**
@@ -841,6 +844,7 @@ export function layoutNode(
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
       ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
 
