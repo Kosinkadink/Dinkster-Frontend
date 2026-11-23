@@ -280,6 +280,9 @@ describe('Dinkster schema wire', () => {
       [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, { ...optionsInput, required: true }, "optionsInput 'options' must name"],
       [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, { ...optionsInput, type: concrete('STRING') }, "optionsInput 'options' must name"],
       [{ type: 'COMBO', editableOptions: true, optionsInput: 'missing' }, optionsInput, "optionsInput 'missing' must name"],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, {
+        kind: 'group', id: 'extra', keys: { numbered: { prefix: '', start: 0, pad: 0 } }, value: optionsInput,
+      }, "optionsInput 'options' must name"],
     ] as const) {
       const refused = parseDinksterSchema('AuthoredCombo', { body: [
         { kind: 'input', id: 'choice', type: concrete('COMBO'), widget }, target,
