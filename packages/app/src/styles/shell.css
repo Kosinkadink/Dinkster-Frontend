@@ -787,7 +787,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   .product-field[data-layout='row'] .product-field-actions button { height: 100%; }
   .product-action-footer { align-items: stretch; flex-direction: column; }
   .product-action-buttons { width: 100%; }
-  .runtime-memory-control { grid-template-columns: minmax(0, 1fr); }
   .dock-panel,
   .rail {
     position: absolute;

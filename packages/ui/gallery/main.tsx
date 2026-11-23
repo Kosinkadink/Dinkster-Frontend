@@ -41,6 +41,7 @@ import {
   ProductDisclosure,
   ProductFacts,
   ProductQrCode,
+  ProductResourceUsage,
   ProductButton,
   ProductCheckbox,
   ProductConfirmation,
@@ -153,7 +154,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              'Buttons and fields')
+              (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
         }
         description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
         table={route() === '#lists' || route() === '#canvas'}
@@ -165,6 +166,50 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#resource-usage'}>
+              <Section title="Card memory" components="ProductResourceUsage">
+                <For each={[false, true]}>
+                  {(compact) => (
+                    <ProductResourceUsage
+                      label={compact ? 'Compact card memory' : 'Card memory'}
+                      total={24}
+                      segments={[
+                        { label: 'Models', value: 9, tone: 'models' },
+                        { label: 'Held, unused', value: 1, tone: 'held' },
+                        { label: 'Other memory', value: 2, tone: 'other' },
+                      ]}
+                      samples={[
+                        { timestamp: 10_000, used: 2 },
+                        { timestamp: 35_000, used: 8 },
+                        { timestamp: 70_000, used: 14 },
+                        { timestamp: 120_000, used: 12 },
+                      ]}
+                      now={120_000}
+                      limit={22}
+                      format={(value) => `${value.toFixed(1)} GB`}
+                      historyLabel="Last 2 minutes"
+                      limitLabel="Limit"
+                      compact={compact}
+                    />
+                  )}
+                </For>
+              </Section>
+              <Section
+                title="Partial telemetry"
+                components="ProductResourceUsage"
+              >
+                <ProductResourceUsage
+                  label="Card reporting usage only"
+                  total={16}
+                  segments={[{ label: 'Used', value: 5, tone: 'other' }]}
+                  samples={[]}
+                  now={120_000}
+                  format={(value) => `${value.toFixed(1)} GB`}
+                  historyLabel="Last 2 minutes"
+                  limitLabel="Limit"
+                />
+              </Section>
+            </Match>
             <Match when={route() === '#desktop-about'}>
               <Section
                 title="Native window chrome"
