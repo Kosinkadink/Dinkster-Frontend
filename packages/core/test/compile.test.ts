@@ -422,7 +422,7 @@ describe('value handling', () => {
   it('leaves an empty save target out so its declared default applies, and sends Project default as stored', () => {
     const schema: NodeSchema = {
       type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: true,
+      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
         widget: { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } } }],
     }
     const sent = (target: Json) => {
