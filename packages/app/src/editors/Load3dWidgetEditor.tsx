@@ -53,7 +53,14 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const [animationTime, setAnimationTime] = createSignal(0)
   const [animationPlaying, setAnimationPlaying] = createSignal(false)
   const [animationSpeed, setAnimationSpeed] = createSignal(1)
+  // Applying stores fresh captures and an undo step, so it waits for the
+  // first pointer action, key or control use after the editor opened.
+  const [touched, setTouched] = createSignal(false)
+  const touch = (): void => { setTouched(true) }
   let viewport!: HTMLDivElement
+  onMount(() => {
+    for (const type of ['pointerdown', 'wheel', 'keydown'] as const) viewport.addEventListener(type, touch, true)
+  })
   let viewer: Model3dViewerHandle | undefined
   let live = true
   const urls: string[] = []
@@ -267,6 +274,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   })
 
   const record = (): void => {
+    touch()
     if (recording()) {
       if (recorder?.state === 'recording') recorder.stop()
       return
@@ -344,11 +352,13 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   }
   const changeCamera = (update: Partial<Model3dCameraState>): void => {
     if (!viewer || busy()) return
+    touch()
     viewer.setCameraState({ ...viewer.cameraState(), ...update })
     setCamera(viewer.cameraState())
   }
   const changeTransform = (field: 'position' | 'quaternion' | 'scale', axis: 'x' | 'y' | 'z' | 'w', value: number): void => {
     if (!viewer || busy() || !Number.isFinite(value)) return
+    touch()
     const state = viewer.modelTransform()
     if (field === 'quaternion') {
       const quaternion = { ...state.quaternion, [axis]: value }
@@ -357,7 +367,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     viewer.setModelTransform({ ...state, [field]: { ...state[field], [axis]: value } })
     setTransform(viewer.modelTransform())
   }
-  return <div class="widget-editor widget-modal-editor" data-testid="load3d-widget-editor">
+  // Typing in a setting counts as soon as it starts, before the field commits on blur.
+  return <div class="widget-editor widget-modal-editor" data-testid="load3d-widget-editor" onInput={touch}>
     <props.header type="LOAD_3D" />
     <div ref={viewport} inert={busy()} class="load3d-widget-viewport" classList={{ 'load3d-widget-viewport-animated': clips().length > 0 }} data-testid="load3d-viewport" />
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
@@ -384,29 +395,30 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       <ProductField layout="compact" controlId="load3d-animation" label={message('load3dWidget.animation')}>
         <ProductSelect id="load3d-animation" disabled={busy()} ariaLabel={message('load3dWidget.animation')} selectedId={String(clip())}
           options={clips().map((entry, index) => ({ id: String(index), value: index, label: entry.name || message('load3dWidget.animationNumber', { number: index + 1 }) }))}
-          onSelect={(option) => { setClip(option.value); setAnimationTime(0); viewer?.setAnimation(option.value, 0, animationPlaying(), animationSpeed()) }} />
+          onSelect={(option) => { touch(); setClip(option.value); setAnimationTime(0); viewer?.setAnimation(option.value, 0, animationPlaying(), animationSpeed()) }} />
       </ProductField>
       <ProductField layout="compact" controlId="load3d-animation-time" label={message('load3dWidget.animationTime')}>
         <ProductTextInput id="load3d-animation-time" disabled={busy()} value={String(animationTime())} onChange={(event) => {
           const time = Number(event.currentTarget.value)
-          if (Number.isFinite(time)) { viewer?.setAnimation(clip(), time, animationPlaying(), animationSpeed()); setAnimationTime(viewer?.animationTime() ?? 0) }
+          if (Number.isFinite(time)) { touch(); viewer?.setAnimation(clip(), time, animationPlaying(), animationSpeed()); setAnimationTime(viewer?.animationTime() ?? 0) }
         }} />
       </ProductField>
       <ProductField layout="compact" controlId="load3d-animation-speed" label={message('load3dWidget.animationSpeed')}>
         <ProductTextInput id="load3d-animation-speed" disabled={busy()} value={String(animationSpeed())} onChange={(event) => {
           const speed = Number(event.currentTarget.value)
-          if (Number.isFinite(speed) && speed > 0) { setAnimationSpeed(speed); viewer?.setAnimation(clip(), viewer.animationTime(), animationPlaying(), speed) }
+          if (Number.isFinite(speed) && speed > 0) { touch(); setAnimationSpeed(speed); viewer?.setAnimation(clip(), viewer.animationTime(), animationPlaying(), speed) }
         }} />
       </ProductField>
       <ProductButton type="button" disabled={busy()} onClick={() => {
+        touch()
         const time = viewer?.animationTime() ?? 0
         setAnimationTime(time); setAnimationPlaying(!animationPlaying()); viewer?.setAnimation(clip(), time, animationPlaying(), animationSpeed())
       }}>{message(animationPlaying() ? 'load3dWidget.pauseAnimation' : 'load3dWidget.playAnimation')}</ProductButton>
     </div></Show>
-    <ProductActionFooter>
+    <ProductActionFooter status={camera() && !touched() ? message('load3dWidget.nothingChanged') : undefined}>
       <Show when={!metadataOnly}><ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton></Show>
       <ProductButton type="button" disabled={busy()} onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={!camera() || busy() || recording()} onClick={() => void apply()}>{message('common.apply')}</ProductButton>
+      <ProductButton type="button" variant="primary" disabled={!camera() || !touched() || busy() || recording()} onClick={() => void apply()}>{message('common.apply')}</ProductButton>
     </ProductActionFooter>
   </div>
 }

@@ -105,6 +105,12 @@ export function desktopFileBridge(): DesktopFileBridge | undefined {
   return typeof bridge?.fileCapabilities === 'function' ? bridge : undefined
 }
 
+export function isNativeProjectBackend(baseUrl: string, projectId: string): boolean {
+  return desktopFileBridge() !== undefined &&
+    new URL(window.location.href).searchParams.get('dinksterProject') === projectId &&
+    new URL(baseUrl || '/', window.location.href).origin === window.location.origin
+}
+
 /** Only an explicit refusal permits the caller to offer byte upload. */
 export async function resolveDroppedAsset(backendUrl: string, file: File, isCurrent: () => boolean): Promise<AssetRef | undefined> {
   const bridge = desktopFileBridge()

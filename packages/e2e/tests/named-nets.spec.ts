@@ -5,7 +5,7 @@
  * interactions + the shared menu registry; the document assertions prove the
  * net serializes as ONE hyperedge scoped to its graph definition.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
@@ -209,7 +209,7 @@ test.beforeEach(async ({ page }) => {
   // No settings seed: named nets are enabled by default and this suite
   // proves the default-on surface.
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'

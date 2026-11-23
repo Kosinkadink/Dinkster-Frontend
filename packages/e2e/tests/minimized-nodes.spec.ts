@@ -144,8 +144,7 @@ test.beforeEach(async ({ context, page }) => {
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 1)
   if (await page.getByTestId('dock-zone-right').isVisible()) {
     await page.getByRole('button', { name: /^Toggle right rail/ }).click()
   }

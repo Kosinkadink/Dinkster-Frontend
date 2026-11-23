@@ -116,7 +116,7 @@ describe('widgetRepresentationMenuGroup', () => {
     })!
     expect(color.items[0]?.children?.map((entry) => [entry.label, entry.checked])).toEqual([['Color', true], ['Number', false]])
     expect(widgetRepresentationMenuGroup({
-      graphId: 'g0', nodeId: 'n1', inputId: 'count', selected: undefined,
+      graphId: 'g0', nodeId: 'n1', inputId: 'count',
       spec: { widgetType: 'INT', options: { min: 0, max: 10 } },
     })).toBeUndefined()
   })

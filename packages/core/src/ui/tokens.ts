@@ -302,6 +302,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
     '--dinkster-surface-field-open': semanticDesignTokens.surface.fieldOpen,
+    '--dinkster-checker-dark': semanticDesignTokens.checker.dark,
+    '--dinkster-checker-light': semanticDesignTokens.checker.light,
     '--dinkster-text-primary': semanticDesignTokens.text.primary,
     '--dinkster-text-secondary': semanticDesignTokens.text.secondary,
     '--dinkster-text-muted': semanticDesignTokens.text.muted,

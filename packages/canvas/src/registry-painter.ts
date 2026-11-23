@@ -168,7 +168,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ? compactSummary(view, args.companion.value, row.spec)
         : undefined
       const formatted = words ?? summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
-      const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+      const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
       const lead = subgraphMarkReserve(row)
       const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
@@ -188,7 +188,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     }
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
-    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     const inRow = tokens.widgetEditing === 'in-row'
     // In-row editing draws a number's after-run mode as an icon before its value instead of the chip.
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
@@ -205,7 +205,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.stroke()
       paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
-      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingReserve,
+      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
     }
     const geometry = tokens.rowGeometry
@@ -250,7 +250,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
     // The mode icon always shows; the label and value share the rest of the row.
     const modeIconSize = paint.modeIconSize
-    const modeIconReserve = modeIcon === undefined ? 0 : modeIconSize + paint.modeIconGap
+    const modeIconReserve = modeIcon === undefined ? 0 : paint.modeIconLead + modeIconSize + paint.modeIconGap
     let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
