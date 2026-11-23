@@ -1999,7 +1999,12 @@ export function buildScene(input: BuildSceneInput): Scene {
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
-      const outside = layoutNode(derived, fieldNode, input.tokens, measure, input.widgetMeasure, {
+      // The fields as the subgraph node outside draws them, so a primitive's
+      // value has the range the fields it feeds inside give it.
+      const fieldSchema = (ownerNode !== undefined && ownerGraph !== undefined
+        ? resolveNode(ownerGraph.id, ownerNode, input.occurrence!.owner.instancePath)
+        : resolveNode(def.id, fieldNode)) ?? derived
+      const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
         ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
