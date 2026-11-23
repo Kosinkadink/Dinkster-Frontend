@@ -17,6 +17,8 @@ import { canvasPaintTokens } from './tokens.js'
 import { paintToolboxIcon } from './icons.js'
 
 const paint = canvasPaintTokens.widget
+/** The word before an automatic value, with the space after it. */
+const AUTOMATIC_WORD = 'auto '
 const TEXT_PAD = paint.textPadding
 
 function compactAssetValue(value: Json, valid: boolean): string {
@@ -70,7 +72,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       paintCompanionValue(args)
       return
     }
-    const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
+    // A field with nothing stored that declares automatic shows the value it
+    // has in use, after the word "auto".
+    const automatic = value === undefined ? row.automatic : undefined
+    const resolved: Json = value !== undefined ? value : automatic !== undefined ? automatic.value : (kind.defaultValue(row.spec) as Json)
+    const automaticDot = automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
+    const automaticReserve = automatic === undefined ? 0 : measureWidth(ctx, AUTOMATIC_WORD) + automaticDot
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height)
     if (row.viewId !== 'core.compositor') {
@@ -129,7 +136,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
         ? usableWidth * paint.structuredValueRatio
-        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + automaticReserve
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined
@@ -276,7 +283,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const zoneRight = alignRight ? px - reserveRight : px + reserveLeft + zoneWidth
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
-            const text = ellipsize(ctx, run.split('\n')[0] ?? '', availableWidth)
+            const role = style['role']
+            const marked = automatic !== undefined && (role === undefined || role === 'widgetValue')
+            const line = run.split('\n')[0] ?? ''
+            const text = marked
+              ? ellipsize(ctx, `${AUTOMATIC_WORD}${line}`, Math.max(0, availableWidth - automaticDot))
+              : ellipsize(ctx, line, availableWidth)
             const lineTop = y + ty * rowHeight + paint.verticalInset
             const lineBottom = y + (ty + 1) * rowHeight - paint.verticalInset
             const clipTop = Math.max(y, lineTop)
@@ -284,15 +296,24 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             if (clipBottom > clipTop) {
               ctx.save()
               const placeholder = style['placeholder'] === true
-              ctx.fillStyle = placeholder ? tokens.colors.label : tokens.colors.value
+              // An automatic value and its word are dimmed, as a placeholder is.
+              ctx.fillStyle = placeholder || marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
               ctx.clip()
-              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
+              const dot = marked ? automaticDot : 0
+              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + dot
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
-              const role = style['role']
+              if (dot > 0) {
+                // Marks about a value come before it, so values line up at the right.
+                const radius = paint.automaticDot.radius
+                ctx.fillStyle = tokens.colors.warningMark
+                ctx.beginPath()
+                ctx.arc(alignRight ? textX - measureWidth(ctx, text) - paint.automaticDot.gap - radius : textX - dot + radius, textY, radius, 0, Math.PI * 2)
+                ctx.fill()
+              }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)
               }

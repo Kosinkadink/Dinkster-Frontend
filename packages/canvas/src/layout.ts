@@ -32,6 +32,7 @@ import {
   resolveWidgetRepresentation,
   selectorBranchDisplay,
   valueKeyOf,
+  type AutomaticState,
   type BoundaryRouteLeg,
   type ElaboratedInput,
   type ElaboratedInterface,
@@ -145,6 +146,11 @@ export type LayoutRow =
        * option key). Renderers/editors read this instead of values.
        */
       readonly derivedValue?: Json
+      /**
+       * A field that declares `automatic` with nothing stored and no wire:
+       * the value it has in use, drawn after the word "auto", dimmed.
+       */
+      readonly automatic?: AutomaticState
       /** Structural menu state coordinate, independent of the selected value. */
       readonly optionsTarget?: {
         readonly construct: string
@@ -920,6 +926,7 @@ export function layoutNode(
           : {}),
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
+        ...(item.automatic !== undefined ? { automatic: item.automatic } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector } : {}),

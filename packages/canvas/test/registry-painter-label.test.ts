@@ -25,6 +25,8 @@ function fakeCtx(charWidth = 6) {
   const roundedFills: { x: number; y: number; width: number; height: number; radius: number; fillStyle: string }[] = []
   const strokes: Array<{ points: Array<{ x: number; y: number }>; strokeStyle: string }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
+  const arcs: Array<{ x: number; y: number; fillStyle: string }> = []
+  let pendingArc: { x: number; y: number } | undefined
   let pendingPoints: Array<{ x: number; y: number }> = []
   const ctx = {
     fillStyle: '',
@@ -33,12 +35,12 @@ function fakeCtx(charWidth = 6) {
     font: '12px system-ui',
     globalAlpha: 1,
     textAlign: 'left',
-    beginPath: () => { pendingPoints = []; pendingRect = undefined },
+    beginPath: () => { pendingPoints = []; pendingRect = undefined; pendingArc = undefined },
     save: () => {},
     restore: () => {},
     translate: () => {},
     scale: () => {},
-    arc: () => {},
+    arc: (x: number, y: number) => { pendingArc = { x, y } },
     moveTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     lineTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     stroke() { strokes.push({ points: [...pendingPoints], strokeStyle: String(this.strokeStyle) }) },
@@ -47,6 +49,7 @@ function fakeCtx(charWidth = 6) {
     roundRect: (x: number, y: number, width: number, height: number, radius: number) => { pendingRect = { x, y, width, height, radius } },
     fill() {
       if (pendingRect) roundedFills.push({ ...pendingRect, fillStyle: String(this.fillStyle) })
+      if (pendingArc) arcs.push({ ...pendingArc, fillStyle: String(this.fillStyle) })
     },
     fillRect(x: number, y: number, width: number, height: number) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
@@ -57,7 +60,7 @@ function fakeCtx(charWidth = 6) {
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs }
 }
 
 const LABEL = 'control_after_generate'
@@ -539,5 +542,46 @@ describe('registry painter label/value split', () => {
       { text: 'alpha', y: 36 },
       { text: 'second canonical', y: 56 },
     ])
+  })
+})
+
+describe('an automatic value', () => {
+  const paintAutomatic = (value: number | undefined, automatic: NonNullable<Extract<LayoutRow, { kind: 'widget' }>['automatic']>) => {
+    const { ctx, textCalls, arcs } = fakeCtx()
+    createRegistryPainter(registry)({
+      ctx,
+      row: { ...rowWith(24), label: 'frame_rate', automatic },
+      value,
+      x: 0,
+      y: 0,
+      width: 280,
+      rowHeight: 24,
+      connected: false,
+      tokens: defaultTokens,
+    })
+    return { value: textCalls.find((call) => call.text !== 'frame_rate')!, arcs }
+  }
+
+  it('shows the word auto and the worked-out value, dimmed, with no dot', () => {
+    const { value, arcs } = paintAutomatic(undefined, { value: 30, state: 'worked-out' })
+    expect(value.text).toBe('auto 30')
+    expect(value.fill).toBe(defaultTokens.colors.label)
+    expect(arcs).toEqual([])
+  })
+
+  it('puts a warning dot before auto when the default is used', () => {
+    const { value, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' })
+    expect(value.text).toBe('auto 24')
+    expect(arcs).toHaveLength(1)
+    expect(arcs[0]!.fillStyle).toBe(defaultTokens.colors.warningMark)
+    // Right-aligned value: the dot sits left of the words.
+    expect(arcs[0]!.x).toBeLessThan(value.x - value.text.length * 6)
+  })
+
+  it('shows a stored value as any value', () => {
+    const { value, arcs } = paintAutomatic(25, { value: 24, state: 'worked-out' })
+    expect(value.text).toBe('25')
+    expect(value.fill).toBe(defaultTokens.colors.value)
+    expect(arcs).toEqual([])
   })
 })

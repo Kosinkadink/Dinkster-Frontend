@@ -19,6 +19,14 @@ stored. There is no other marker in the document.
   with the other resets of the same item.
 - A wire into the field wins; nothing is worked out for a wired field.
 
+## How the row looks
+
+A closed automatic row shows the word "auto", then the value in use, both
+dimmed: "auto 24". When the value cannot be worked out, a yellow dot comes
+before "auto" and the value is the default. A fixed row shows its value as any
+field does. The minus and plus steppers of an automatic number step from the
+value in use and store the result at once, which fixes the field.
+
 ## Working the value out
 
 The editor works the value out whenever it elaborates the node, over the

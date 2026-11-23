@@ -2928,6 +2928,19 @@ describe('numeric widget steppers', () => {
     expect(activate).not.toHaveBeenCalled()
   })
 
+  it('steps an automatic field from its worked-out value, not its default, and stores the result', () => {
+    const scene = interactionScene() as any
+    delete scene.nodes[0].node.values.amount
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'INT', options: { min: 1, max: 120, step: 1 }, default: 24 }
+    scene.nodes[0].layout.rows[0].automatic = { value: 30, state: 'worked-out' }
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', 20, 35)
+    harness.fire('pointerup', 20, 35)
+    expect(harness.dispatched).toEqual([{
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 29 },
+    }])
+  })
+
   it('keeps an unresolved numeric edge inert instead of falling through to body activation', () => {
     const scene = interactionScene() as any
     delete scene.nodes[0].node.values.amount

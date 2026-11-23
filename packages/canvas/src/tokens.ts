@@ -439,6 +439,8 @@ export const canvasPaintTokens = {
     valueWidthPadding: canvasSemanticTokens.space[16],
     swatchReserve: canvasSemanticTokens.space[16],
     toggleReserve: canvasSemanticTokens.space[12],
+    /** An automatic value's dot, drawn before "auto" when the default is used. */
+    automaticDot: { radius: 3, gap: canvasSemanticTokens.space[4] },
     toggle: {
       trailingInset: 22,
       halfHeight: 5,
@@ -603,6 +605,8 @@ export interface DesignTokens {
     readonly error: string
     /** Execution-blocking document warning, shared by its badge and outline. */
     readonly blockingWarning: string
+    /** The dot before a row's value that could not be worked out, so its default is used. */
+    readonly warningMark: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -736,6 +740,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
     blockingWarning: tokens.meaning.warning.border,
+    warningMark: tokens.meaning.warning.border,
   }
 }
 

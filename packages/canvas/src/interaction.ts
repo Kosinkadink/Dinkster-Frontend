@@ -3338,7 +3338,9 @@ export class InteractionController {
             ? -1
             : g.hit.localX >= g.hit.width - WIDGET_EDGE_CONTROL_WIDTH ? 1 : 0
           if (numeric && row.derivedValue === undefined && !row.ghost && direction !== 0) {
-            const stored = g.hit.node.node.values[row.valueKey]
+            // An automatic field steps from the value it has in use, and the
+            // step stores it: the field becomes fixed.
+            const stored = g.hit.node.node.values[row.valueKey] ?? row.automatic?.value
             const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
             const current = row.spec.widgetType === 'INT'
               ? isIntegerWidgetValue(stored)
