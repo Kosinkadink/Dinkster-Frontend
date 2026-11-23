@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { documentNodeResolver, documentPrimitiveResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import type { MenuActionItem, MenuContext, MenuItem } from '../src/menus/contract.js'
+import { resetMenuContributions } from '../src/menus/reset-items.js'
 import type { NodeData, WorkflowDocument } from '../src/format/document.js'
 import { inputsOf, type InputSpec, type NodeSchema, type TypeExpr, type WidgetSpec } from '../src/schema/model.js'
 
@@ -127,5 +129,42 @@ describe('plugging a primitive into a field', () => {
       [['prim', 'INT', 'a', 'steps']]))
     expect(connect(store, 'b', 'far').ok).toBe(true)
     expect(store.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
+  })
+})
+
+describe('a primitive\'s range from its menu', () => {
+  const [widgetReset, , , primitiveRange] = resetMenuContributions(() => resolve)
+  const menu = (doc: WorkflowDocument): MenuContext => ({
+    doc, graphId: 'g0', target: { kind: 'widget', nodeId: 'prim', inputId: 'value' },
+    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+  })
+  const run = (store: DocumentStore, item: MenuItem) => {
+    const action = (item as MenuActionItem).action
+    if (action.kind !== 'command') throw new Error('expected a command')
+    expect(store.dispatch(action.invocation).ok).toBe(true)
+  }
+  const storeOf = (values: Record<string, unknown>) => new DocumentStore(docOf(
+    { prim: { type: 'Int', values }, a: { type: 'Steps' }, b: { type: 'Count' } },
+    [['prim', 'INT', 'a', 'steps'], ['prim', 'INT', 'b', 'count']]), coreCommandRegistry())
+
+  it('pins the worked-out range into its own limit fields in one step, and goes back to the fed fields', () => {
+    const store = storeOf({ value: 6, maximum: 7 })
+    const [pin] = primitiveRange!.resolve(menu(store.doc))
+    run(store, pin!)
+    expect(store.doc.graphs['g0']!.nodes['prim']!.values).toEqual({ value: 6, minimum: 4, maximum: 7, step: 2 })
+    const [, useConnected] = primitiveRange!.resolve(menu(store.doc))
+    run(store, useConnected!)
+    expect(store.doc.graphs['g0']!.nodes['prim']!.values).toEqual({ value: 6 })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['prim']!.values).toEqual({ value: 6, minimum: 4, maximum: 7, step: 2 })
+  })
+
+  it('resets the value to its own Default, and otherwise to the default the fed fields share', () => {
+    const withDefault = storeOf({ value: 6, default: 5 })
+    run(withDefault, widgetReset!.resolve(menu(withDefault.doc))[0]!)
+    expect(withDefault.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(5)
+    const shared = storeOf({ value: 6 })
+    run(shared, widgetReset!.resolve(menu(shared.doc))[0]!)
+    expect(shared.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(4)
   })
 })

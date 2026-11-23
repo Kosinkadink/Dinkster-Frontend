@@ -959,14 +959,15 @@ function nodeSetControllerOf(resolve?: (type: string) => NodeSchema | undefined)
 }
 
 // ---------------------------------------------------------------------------
-// node.setValues {graphId, nodeId, values: Record<string, Json>}
+// node.setValues {graphId, nodeId, values: Record<string, Json>, unset?: string[]}
 // ---------------------------------------------------------------------------
 
 /**
  * Atomic multi-value write: one dispatch = one undo step. The schema-aware
  * caller computes WHAT to write. Entries whose stored value already equals
  * the new value (canonical JSON) are skipped, so a fully-matching dispatch is
- * a no-op success with no undo entry.
+ * a no-op success with no undo entry. `unset` empties optional fields, such
+ * as a primitive's limits when it goes back to the fields it feeds.
  */
 function nodeSetValuesOf(): CommandDefinition {
   return {
@@ -983,10 +984,16 @@ function nodeSetValuesOf(): CommandDefinition {
         if (value === undefined)
           return [err('params.invalid', `node.setValues: value for '${key}' is required`)]
       }
+      const unset = params.unset ?? []
+      if (!Array.isArray(unset) || !unset.every((key) => typeof key === 'string' && !Object.hasOwn(params.values as JsonObject, key)))
+        return [err('params.invalid', 'node.setValues: unset must list keys that values does not set')]
       for (const [key, value] of entries) {
         const current = node.values[key]
         if (current !== undefined && canonicalJson(current) === canonicalJson(value)) continue
         tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', key], value)
+      }
+      for (const key of unset as string[]) {
+        if (Object.hasOwn(node.values, key)) tx.remove(['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', key])
       }
       return []
     },
