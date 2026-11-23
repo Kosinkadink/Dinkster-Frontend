@@ -371,7 +371,7 @@ export function widgetRowAffordanceRect(
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
   const paint = canvasPaintTokens.lensAffordance
   const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
-  const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
   const trailingEdge = row.controllerMode !== undefined
     ? controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
     : rowWidth - (numeric ? geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP : CONTROLLER_CHIP_TEXT_GAP)
@@ -4250,7 +4250,7 @@ export class CanvasRenderer {
       paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label)
       ctx.globalAlpha = chipAlpha
     }
-    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     if (numeric && row.derivedValue === undefined && !row.ghost) {
       // Edge glyphs reserve only the small bump zones; the broad center
       // remains the familiar editor activation target.
@@ -4883,7 +4883,7 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   ctx.fill()
   if (args.companion !== undefined) {
     const formatted = formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
-    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
     const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
@@ -4947,9 +4947,9 @@ function hasOpacity(color: string): boolean {
   return alpha !== null && !/^f+$/i.test(alpha[1] ?? alpha[2]!)
 }
 
-/** The square of a color directly before its code; opacity shows over a checker pattern. */
+/** The square of a color directly before its code; opacity shows over a checker pattern, and an edge inside it keeps white and black squares visible. */
 export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, left: number, top: number, tokens: DesignTokens): void {
-  const { size, radius, checkerCell } = canvasPaintTokens.widget.valueSwatch
+  const { size, radius, checkerCell, edge } = canvasPaintTokens.widget.valueSwatch
   // Whole pixels keep the square's edges and checker cells sharp.
   left = Math.round(left)
   top = Math.round(top)
@@ -4973,6 +4973,13 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
   }
   ctx.fillStyle = color
   ctx.fillRect(left, top, size, size)
+  ctx.restore()
+  ctx.save()
+  ctx.strokeStyle = tokens.colors.swatchEdge
+  ctx.lineWidth = edge
+  ctx.beginPath()
+  ctx.roundRect(left + edge / 2, top + edge / 2, size - edge, size - edge, Math.max(0, radius - edge / 2))
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -5054,7 +5061,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const text = prefix + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
   const swatch = summary?.swatch
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
-  const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap

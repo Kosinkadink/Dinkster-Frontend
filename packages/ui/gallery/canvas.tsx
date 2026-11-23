@@ -43,6 +43,7 @@ import {
   type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
+import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
 
@@ -72,6 +73,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'color-editing',
         'save-target-box',
         'collection-rows',
         'editor-rows',
@@ -160,6 +162,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'color-editing':
+    'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'save-target-box':
     'A save target row opens a box under it with the mount dropdown and the filename prefix. Nothing is stored until the box is left; Escape keeps the stored target.',
   'collection-rows':
@@ -578,7 +582,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'save-target-box' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'color-editing' || currentPage === 'save-target-box' || currentPage === 'node-look') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -676,6 +680,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'color-editing'}>
+          <ColorEditingGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'save-target-box'}>
           <SaveTargetBoxGallery theme={theme()} />

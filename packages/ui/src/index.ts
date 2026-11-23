@@ -1,5 +1,6 @@
 export * from './about.js'
 export * from './account.js'
+export * from './canvas-color.js'
 export * from './canvas-field.js'
 export * from './canvas-save-target.js'
 export * from './controls.js'
