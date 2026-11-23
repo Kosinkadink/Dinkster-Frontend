@@ -424,7 +424,7 @@ for (const theme of ['dark', 'light'] as const) {
     await openPage(page, 'tabs', theme)
     await cardsReady(page, 'tabs', theme)
     // The narrow example's first strip and its +5: measured text leaves room for four strips.
-    const canvas = page.getByTestId('canvas-tabs-15')
+    const canvas = page.getByTestId('canvas-tabs-14')
     await canvas.hover({ position: { x: 16, y: 152 } })
     await expect(canvas).toHaveAttribute('title', 'Detail 1')
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)

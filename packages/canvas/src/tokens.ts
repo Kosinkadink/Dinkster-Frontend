@@ -520,9 +520,9 @@ export const canvasPaintTokens = {
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
-    diagnosticStroke: 1.5,
+    diagnosticStroke: 1,
     /** Outline and wash of the row whose line is pointed at in the node's problem box. */
-    problemHighlightStroke: 3,
+    problemHighlightStroke: 2,
     problemHighlightOpacity: 0.18,
     /** Outline of the field a held wire would take. */
     dropStroke: 2,
@@ -660,6 +660,11 @@ export interface DesignTokens {
    * centers.
    */
   readonly crispEdges: boolean
+  /**
+   * The outline of a node with an Error in the workflow: solid red (the
+   * default), dashed red, or the node's ordinary outline with nothing added.
+   */
+  readonly documentErrorOutline?: 'solid' | 'dashed' | 'none'
   /** Placement inside widget and pin rows; the node look sets it. */
   readonly rowGeometry: RowGeometry
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }

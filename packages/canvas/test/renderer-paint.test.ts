@@ -2094,6 +2094,19 @@ describe('node chrome paint on the live renderer', () => {
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
   })
 
+  it('outlines a node with an Error in solid red unless its tokens say dashed or nothing', () => {
+    const scene = fixtureScene('clean')
+    const node = nodeOf(scene, 'c1')
+    const border = (outline?: 'solid' | 'dashed' | 'none') => nodeBorder(paintWithTokens(scene,
+      outline === undefined ? defaultTokens : { ...defaultTokens, documentErrorOutline: outline },
+      (renderer) => renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })), node)
+    expect(border()?.strokeStyle).toBe(ERR)
+    expect(border()?.lineDash).toEqual([])
+    expect(border('dashed')?.strokeStyle).toBe(ERR)
+    expect(border('dashed')?.lineDash.length).toBeGreaterThan(0)
+    expect(border('none')?.strokeStyle).toBe(defaultTokens.colors.nodeIdleOutline)
+  })
+
   it('muted and bypassed dim the whole node; bypassed also gets the purple wash', () => {
     // Mode->paint is the renderer's contract; mode storage is document
     // state proven elsewhere, so inject the mode on the scene node.
@@ -2228,7 +2241,7 @@ describe('node chrome paint on the live renderer', () => {
         c.args[4] === chrome.radius,
     )
     expect(outline).toBeDefined()
-    expect(outline?.lineWidth).toBe(1.5)
+    expect(outline?.lineWidth).toBe(canvasPaintTokens.widget.diagnosticStroke)
     // No marks installed: no widget row paints the red outline.
     const unmarked = paint(scene)
     expect(

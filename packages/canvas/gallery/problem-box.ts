@@ -54,6 +54,12 @@ export interface ProblemBoxGalleryCard {
   /** Canvas height below the nodes left for the open boxes, in px. */
   readonly room: number
   readonly width: number
+  /** Canvas zoom; 1 when absent. Room is at 100 percent; the canvas keeps its width. */
+  readonly scale?: number
+  /** How a node with an Error is outlined; the product's default when absent. */
+  readonly errorOutline?: 'solid' | 'dashed' | 'none'
+  /** Cards with the same row share one line of the page. */
+  readonly row?: string
 }
 
 const NODE_WIDTH = 260
@@ -132,12 +138,16 @@ const upscaleImage: NodeSchema = {
   unavailableReason: 'This node needs a graphics card, and this machine has none.',
 }
 
+/** A node type no schema resolves, drawn as a node whose type is not installed. */
+const notInstalled = schema('FaceRestoreCF', 'Face restore', [])
+
 interface Placed {
   readonly id: string
   readonly schema: NodeSchema
   readonly x: number
   readonly values?: Record<string, Json>
   readonly minimized?: true
+  readonly width?: number
 }
 
 function sceneOf(
@@ -146,7 +156,7 @@ function sceneOf(
   widgetMeasure: WidgetMeasure,
   nodes: readonly Placed[],
 ): Scene {
-  const schemas = new Map(nodes.map((node) => [node.schema.type, node.schema]))
+  const schemas = new Map(nodes.filter((node) => node.schema !== notInstalled).map((node) => [node.schema.type, node.schema]))
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
@@ -169,7 +179,7 @@ function sceneOf(
     },
     view: { graphs: { gallery: { nodes: Object.fromEntries(nodes.map((node) => [node.id, {
       position: { x: node.x, y: TOP },
-      size: { width: NODE_WIDTH, height: 0 },
+      size: { width: node.width ?? NODE_WIDTH, height: 0 },
       ...(node.minimized ? { collapsed: true } : {}),
     }])) } } },
   })
@@ -211,6 +221,56 @@ const brokenLines = [
   line('warning', 'steps', 'Steps exceeds 10000.', [EDIT]),
 ]
 const brokenMarks = { width: 'error', height: 'error', steps: 'warning' } as const
+
+const OUTLINES = [
+  ['dashed', 'Dashed red, as before'],
+  ['solid', 'Solid red, same width'],
+  ['none', 'Ordinary outline'],
+] as const
+const VIEWS = [
+  ['100', '100%', 1, false],
+  ['30', 'about 30%', 0.3, false],
+  ['minimized', 'minimized', 1, true],
+] as const
+/** Narrow enough that a zoom level's four cards share one line of the page. */
+const CHOICE_NODE_WIDTH = 170
+
+/**
+ * The outline of a node with one Error drawn three ways, then a node whose
+ * type is not installed, at 100 percent, zoomed out and minimized.
+ */
+function outlineChoiceCards(scene: (nodes: readonly Placed[]) => Scene): readonly ProblemBoxGalleryCard[] {
+  return VIEWS.flatMap(([viewId, viewName, scale, minimized]) => [
+    ...OUTLINES.map(([outline, outlineName]): ProblemBoxGalleryCard => ({
+      id: `outline-${outline}-${viewId}`,
+      caption: `${outlineName}, ${viewName}.`,
+      scene: scene([{
+        id: 'gen', schema: generateImage, x: LEFT, values: { width: 0 }, width: CHOICE_NODE_WIDTH,
+        ...(minimized ? { minimized: true as const } : {}),
+      }]),
+      badges: { gen: [errors(1)] },
+      rowMarks: { gen: { width: 'error' } },
+      boxes: [],
+      room: 24,
+      width: LEFT * 2 + CHOICE_NODE_WIDTH,
+      scale,
+      errorOutline: outline,
+      row: `outline-${viewId}`,
+    })),
+    {
+      id: `outline-not-installed-${viewId}`,
+      caption: `A node whose type is not installed, ${viewName}.`,
+      scene: scene([{ id: 'missing', schema: notInstalled, x: LEFT, width: CHOICE_NODE_WIDTH, ...(minimized ? { minimized: true as const } : {}) }]),
+      badges: {},
+      rowMarks: {},
+      boxes: [],
+      room: 24,
+      width: LEFT * 2 + CHOICE_NODE_WIDTH,
+      scale,
+      row: `outline-${viewId}`,
+    },
+  ])
+}
 
 /** The cards of the problem box page, in page order. */
 export function problemBoxGallery(
@@ -269,7 +329,7 @@ export function problemBoxGallery(
     },
     {
       id: 'minimized',
-      caption: 'A minimized node keeps its tabs and its dashed red outline. A tab click opens the same box; pointing at a line lights nothing, and Edit field opens the node and shows the row.',
+      caption: 'A minimized node keeps its tabs and its red outline. A tab click opens the same box; pointing at a line lights nothing, and Edit field opens the node and shows the row.',
       scene: scene([{ id: 'gen', schema: generateImage, x: column(0), values: BROKEN, minimized: true }]),
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
@@ -279,7 +339,7 @@ export function problemBoxGallery(
     },
     {
       id: 'outline',
-      caption: 'A node with an Error keeps its dashed red outline, the one sign that reads zoomed out or on a minimized node. A node with only Warnings has a plain outline.',
+      caption: 'A node with an Error keeps a solid red outline, the one sign that reads zoomed out or on a minimized node. A node with only Warnings has a plain outline.',
       scene: scene([
         { id: 'error', schema: generateImage, x: column(0), values: { width: 0 } },
         { id: 'warning', schema: generateImage, x: column(1), values: { steps: 12000 } },
@@ -290,6 +350,7 @@ export function problemBoxGallery(
       room: 24,
       width: widthOf(2),
     },
+    ...outlineChoiceCards(scene),
     {
       id: 'stops-a-run',
       caption: 'What stops a run. A missing model offers Locate or replace; Review download replaces it when the download review can open without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',

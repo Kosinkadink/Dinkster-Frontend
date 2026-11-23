@@ -1346,7 +1346,7 @@ export class CanvasRenderer {
     const state = this.nodeStates[node.id]?.state
     const missing = node.unrecognized === true || node.missingSchema === true
     const strong = missing || state === 'running' || state === 'done' || state === 'error' ||
-      badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
+      (tokens.documentErrorOutline !== 'none' && badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id))
     const paint = canvasPaintTokens.node.outline
     const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
       this.viewport.scale, strong ? paint.strongScreen : paint.screen)
@@ -3511,11 +3511,14 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.bypassWash
       ctx.fill()
     }
-    // State border. A node with a document Error keeps an emphasized dashed
+    // State border. A node with a document Error keeps an emphasized red
     // outline, the one sign that still reads zoomed out or on a minimized
-    // node; a Warning adds nothing to the outline. Document errors and
-    // runtime errors win over running because they stop execution.
-    const hasDocumentError = (this.badges[node.id] ?? []).some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
+    // node; a Warning adds nothing to the outline. It is solid, since a
+    // dashed red node reads as one whose type is not installed. Document
+    // errors and runtime errors win over running because they stop execution.
+    const errorOutline = t.documentErrorOutline ?? 'solid'
+    const hasDocumentError = errorOutline !== 'none' &&
+      (this.badges[node.id] ?? []).some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
     const runtimeError = progress?.state === 'error'
     const running = progress?.state === 'running'
     const outlineColor = unrecognized
@@ -3532,7 +3535,7 @@ export class CanvasRenderer {
     const strongOutline = unrecognized || runtimeError || hasDocumentError || running || progress?.state === 'done'
     const outline = canvasPaintTokens.node.outline
     const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
-    const outlineDash = unrecognized || runtimeError || hasDocumentError
+    const outlineDash = unrecognized || runtimeError || (hasDocumentError && errorOutline === 'dashed')
       ? nodeStateDash('error', scale)
       : running
         ? undefined
