@@ -181,7 +181,8 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { boundedVisibleOverlayKeys, mediaScreenRect, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
+import { AudioRecordSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, type EditorSpaceItem } from './InNodeEditorSpaces.js'
+import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
@@ -1036,22 +1037,6 @@ export function reportBoundaryExposureRefusal(args: {
   )])
 }
 
-/** Fixed-position style for a node overlay, clipped to the canvas rect. */
-function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): Record<string, string> {
-  const canvas = canvasEl.getBoundingClientRect()
-  const top = Math.max(0, canvas.top - rect.y)
-  const right = Math.max(0, rect.x + rect.width - (canvas.left + canvas.width))
-  const bottom = Math.max(0, rect.y + rect.height - (canvas.top + canvas.height))
-  const left = Math.max(0, canvas.left - rect.x)
-  return {
-    left: `${rect.x}px`,
-    top: `${rect.y}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-    'clip-path': `inset(${top}px ${right}px ${bottom}px ${left}px)`,
-  }
-}
-
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
@@ -1606,6 +1591,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly onMediaError?: () => void
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
+  const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  const audioRecorders = createAudioRecorders()
+  const visibleEditorSpaceKeys = (): readonly string[] => {
+    const viewport = editorViewport()
+    if (!editorSpaceInteractive(viewport.scale)) return []
+    const canvas = canvasClientRect()
+    return boundedVisibleOverlayKeys(
+      // The editors whose controls the app lays over their space.
+      editorSpaces().filter((item) => item.row.viewId === 'core.audioRecord'),
+      (item) => item.key,
+      (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
+      (item) => selectedNodeIds().has(item.nodeId),
+    )
+  }
   const [selectedNodeIds, setSelectedNodeIds] = createSolidSignal<ReadonlySet<string>>(new Set())
   const setCanvasMediaActive = (id: string, active: boolean): void => {
     setActiveCanvasMedia((current) => {
@@ -4508,6 +4508,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setPreviewA11yTargets([])
         setSemanticSource(undefined)
         setMediaPreviews([])
+        setEditorSpaces([])
         setOutputImagePreviews([])
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
@@ -4759,6 +4760,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
+      setEditorSpaces(editorSpaceItems(renderer.getScene().nodes))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -6363,6 +6365,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setSemanticSource(undefined)
       setSemanticFocused(false)
       setMediaPreviews([])
+      setEditorSpaces([])
       setActiveCanvasMedia(new Set<string>())
       setOutputImagePreviews([])
       setOutputPages(new Map())
@@ -6615,6 +6618,39 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 onActiveChange={(active) => setCanvasMediaActive(`media:${id}`, active)}
               />
             </Show>
+          </Show>
+        )
+      }}</For>
+      <For each={visibleEditorSpaceKeys()}>{(key) => {
+        const item = () => editorSpaceByKey().get(key)
+        const projected = () => {
+          const current = item()
+          return current === undefined ? undefined : mediaScreenRect(current.node, current.space, editorViewport(), canvasClientRect())
+        }
+        const recorder = () => {
+          const current = item()
+          const tab = activeTab()
+          if (current === undefined || tab === undefined || current.row.viewId !== 'core.audioRecord') return undefined
+          const graphId = currentGraphId(tab)
+          const owner = current.field.familyOwner
+          const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.row.valueKey }
+          const backend = props.app.backendForTab(tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          return audioRecorders.get(`${tab.id}:${graphId}:${current.key}`, {
+            upload: native === undefined ? undefined
+              : (file, signal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/audio', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (clip, signal) => native.fetchAssetBytes(clip.digest, signal),
+            commit: (value) => void props.app.dispatchTo(tab, withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize,
+              { command: 'node.setValue', params: { ...target, value } })),
+          })
+        }
+        return (
+          <Show when={item() !== undefined && projected() !== undefined}>
+            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
+              <Show when={recorder()}>
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+              </Show>
+            </NodeEditorSpaceOverlay>
           </Show>
         )
       }}</For>

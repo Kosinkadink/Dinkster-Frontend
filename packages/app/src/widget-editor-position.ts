@@ -182,3 +182,19 @@ export function contrastingTextColor(background: string): '#000000' | '#ffffff' 
   const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!
   return luminance > 0.179 ? '#000000' : '#ffffff'
 }
+
+/** Fixed-position style for a node overlay, clipped to the canvas rect. */
+export function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): Record<string, string> {
+  const canvas = canvasEl.getBoundingClientRect()
+  const top = Math.max(0, canvas.top - rect.y)
+  const right = Math.max(0, rect.x + rect.width - (canvas.left + canvas.width))
+  const bottom = Math.max(0, rect.y + rect.height - (canvas.top + canvas.height))
+  const left = Math.max(0, canvas.left - rect.x)
+  return {
+    left: `${rect.x}px`,
+    top: `${rect.y}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    'clip-path': `inset(${top}px ${right}px ${bottom}px ${left}px)`,
+  }
+}
