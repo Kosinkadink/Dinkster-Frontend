@@ -1394,6 +1394,12 @@ export function createCanvasGalleryFixture(
       type: concrete(type),
       optional: true,
     })
+    const required = (id: string, type: string): InputSpec => ({
+      kind: 'input',
+      id,
+      type: concrete(type),
+      optional: false,
+    })
     const image = { kind: 'output' as const, id: 'IMAGE', type: concrete('IMAGE') }
     const section = (
       id: string,
@@ -1620,6 +1626,29 @@ export function createCanvasGalleryFixture(
       at: column(2),
       closed: { sampling: true },
     })
+    // A closed box's own pins pressed onto its row: hollow while unwired,
+    // filled where a wire ends.
+    const pressed = schema('Section example', [
+      { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: true },
+      { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+      section('advanced', 'Advanced', [
+        required('mask', 'MASK'),
+        required('guide', 'IMAGE'),
+        widget('amount', 'FLOAT', 0.8, { min: 0, max: 1, step: 0.05 }),
+        { kind: 'output', id: 'alpha', type: concrete('MASK') },
+        { kind: 'output', id: 'edges', type: concrete('IMAGE') },
+      ]),
+    ])
+    nextRow()
+    add('Closed, nothing wired', pressed, {}, 17, false, {
+      at: column(0),
+      closed: { advanced: true },
+    })
+    add('Closed, mask wired', pressed, {}, 18, false, {
+      at: column(2),
+      closed: { advanced: true },
+      wired: { ports: { mask: 'MASK' }, at: column(1) },
+    })
     // Four wires into a closed box draw three pins; the fourth wire ends on
     // the last one, and the unwired layer has no pin.
     nextRow()
@@ -1628,7 +1657,7 @@ export function createCanvasGalleryFixture(
       schema('Layers', [
         section('layers', 'Layers', [
           ...['layer1', 'layer2', 'layer3', 'layer4', 'layer5'].map((id) =>
-            socket(id, 'IMAGE'),
+            required(id, 'IMAGE'),
           ),
           { kind: 'output', id: 'flat', type: concrete('IMAGE') },
         ]),

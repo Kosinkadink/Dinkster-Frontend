@@ -4178,6 +4178,13 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
+        if (pin.collapsedSection !== undefined) {
+          // Each pin of a closed box's cluster cuts the one above it.
+          ctx.fillStyle = t.colors.nodeBody
+          ctx.beginPath()
+          ctx.arc(px, py, radius + canvasPaintTokens.node.box.clusterRing, 0, Math.PI * 2)
+          ctx.fill()
+        }
         paintTypedPin(
           ctx,
           t,

@@ -1137,7 +1137,7 @@ describe('sections', () => {
     // One wire: the wired pin leads, then the first unwired ones; s3 and s5 are not drawn.
     const one = pinsOf(['s4'])
     expect(one.map((pin) => pin.portId)).toEqual(['s4', 's1', 's2'])
-    expect(one.map((pin) => pin.y - center(one))).toEqual([-5, 0, 5])
+    expect(one.map((pin) => pin.y - center(one))).toEqual([-6, 0, 6])
     expect(one.some((pin) => pin.stacked)).toBe(false)
     // Five wires: three are drawn; s4 and s5 end on s3, the last drawn pin.
     const all = pinsOf(sockets)
