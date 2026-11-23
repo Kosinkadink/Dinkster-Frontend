@@ -553,6 +553,34 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
   }
 
+  /**
+   * Upload chosen files in order. Sequential on purpose: parallel uploads
+   * would race the shared error slot. The batch stops at the first failed or
+   * refused file (its error must stay visible) and when the editor closes
+   * mid-flight.
+   */
+  const uploadFiles = (files: readonly File[]): void => {
+    void (async () => {
+      const abort = new AbortController()
+      assetUploadAbort = abort
+      setAssetUploading(true)
+      try {
+        for (const file of assetMulti ? files : files.slice(0, 1)) {
+          if (!live || abort.signal.aborted || !(await pickAsset(file))) break
+        }
+      } finally {
+        if (assetUploadAbort === abort) assetUploadAbort = undefined
+        if (live) {
+          setAssetUploading(false)
+          setDestination(readUploadDestination(String(uploadBackend.id), project))
+          restoreAssetUploadFocus()
+        }
+      }
+    })()
+  }
+  // A button's PasteImage opens the picker with the clipboard image already uploading.
+  if (ed.stagedFile !== undefined) queueMicrotask(() => uploadFiles([ed.stagedFile!]))
+
   const pickBrowsedAsset = (item: AssetBrowserItem): void => {
     // Refuse picks while an upload batch is pending: the staged selection
     // must not shift out from under the in-flight POST.
@@ -1035,27 +1063,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ''
-                  // Sequential on purpose: parallel uploads would race the
-                  // shared error slot. The batch stops at the first failed
-                  // or refused file (its error must stay visible) and when
-                  // the editor closes mid-flight.
-                  void (async () => {
-                    const abort = new AbortController()
-                    assetUploadAbort = abort
-                    setAssetUploading(true)
-                    try {
-                      for (const file of assetMulti ? files : files.slice(0, 1)) {
-                        if (!live || abort.signal.aborted || !(await pickAsset(file))) break
-                      }
-                    } finally {
-                      if (assetUploadAbort === abort) assetUploadAbort = undefined
-                      if (live) {
-                        setAssetUploading(false)
-                        setDestination(readUploadDestination(String(uploadBackend.id), project))
-                        restoreAssetUploadFocus()
-                      }
-                    }
-                  })()
+                  uploadFiles(files)
                 }}
               />
               {/* Cancel stays enabled DURING an upload as the lock's escape

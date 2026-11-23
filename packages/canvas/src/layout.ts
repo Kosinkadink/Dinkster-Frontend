@@ -196,7 +196,7 @@ export type LayoutRow =
       readonly unknown?: true
     }
   | {
-      /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
+      /** A button (ElaboratedButton); the host runs its steps when it is clicked. */
       readonly kind: 'button'
       readonly y: number
       readonly height: number
@@ -204,6 +204,10 @@ export type LayoutRow =
       readonly width?: number
       readonly buttonId: string
       readonly label: string
+      /** A Lucide name from the engine's list; drawn before the label, or alone when the label does not fit. */
+      readonly icon?: string
+      /** The declared tooltip, when it is written as text. */
+      readonly tooltip?: string
     }
   | {
       /**
@@ -757,7 +761,7 @@ export function layoutNode(
     section?: { sectionId: string; label: string; collapsed: boolean; hiddenModified?: number }
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
     note?: { noteId: string; text: string; unknown?: true }
-    button?: { buttonId: string; label: string }
+    button?: { buttonId: string; label: string; icon?: string; tooltip?: string }
     sectionId?: string
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
@@ -863,7 +867,12 @@ export function layoutNode(
         ...(item.section !== undefined ? { sectionId: item.section } : {}),
         ...(item.kind === 'note'
           ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
-          : { button: { buttonId: item.id, label: item.label } }),
+          : { button: {
+              buttonId: item.id,
+              label: item.label,
+              ...(item.spec.icon !== undefined ? { icon: item.spec.icon } : {}),
+              ...(typeof item.spec.tooltip === 'string' ? { tooltip: item.spec.tooltip } : {}),
+            } }),
       })
       continue
     }
@@ -1045,9 +1054,11 @@ export function layoutNode(
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
       : row.widget!.rows * tokens.rowHeight)
+  // Each field of a shared line keeps its own border socket; notes and buttons have none.
+  const pinnedCells = (line: PendingRow[]): PendingRow[] => line.filter((row) => row.kind === 'widget')
   const lineBaseHeight = (line: PendingRow[]): number => Math.max(
     ...line.map(rowBaseHeight),
-    line.length > 1 ? line.length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
+    pinnedCells(line).length > 1 ? pinnedCells(line).length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
   )
   const naturalRowsHeight = [...new Set(lines.values())].reduce((height, line) =>
     height + lineBaseHeight(line), 0)
@@ -1224,17 +1235,21 @@ export function layoutNode(
     if (line.length < 2) continue
     const gap = cellGap
     const compactWidth = tokens.nodeMinWidth
+    // A line of buttons shares the row evenly from end to end.
+    const even = line.every((row) => row.kind === 'button') ? (width - (line.length - 1) * gap) / line.length : undefined
+    const pinned = pinnedCells(line)
     let left = 0
     for (const [column, pendingRow] of line.entries()) {
       const index = rowIndex.get(pendingRow)!
       const row = rows[index] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
-      const cellWidth = column === 0 ? width - (line.length - 1) * (compactWidth + gap) : compactWidth
+      const cellWidth = even ?? (column === 0 ? width - (line.length - 1) * (compactWidth + gap) : compactWidth)
       rows[index] = { ...row, inset: left + row.inset, width: cellWidth - row.inset * 2 }
+      const slot = pinned.indexOf(pendingRow)
       for (const [index, pin] of pins.entries()) {
         if (row.kind === 'widget' && pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
           // Border sockets keep noodles outside the node body. Distinct slots
           // retain independent hit targets while the controls share a line.
-          pins[index] = { ...pin, y: row.y + (column + 0.5) * lineBaseHeight(line) / line.length }
+          pins[index] = { ...pin, y: row.y + (slot + 0.5) * lineBaseHeight(line) / pinned.length }
       }
       left += cellWidth + gap
     }

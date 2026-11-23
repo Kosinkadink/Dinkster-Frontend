@@ -71,8 +71,14 @@ export interface LookupRequest {
   readonly asker: 'press'
 }
 
+/**
+ * For `value`, the lookup service asks again once when its answer is missing
+ * or stale, so `stale` never comes back. A Pick's list may be stale and is
+ * still offered, as a field's list is.
+ */
 export type LookupResult =
   | { readonly state: 'ready'; readonly value: unknown }
+  | { readonly state: 'stale'; readonly value: unknown }
   | { readonly state: 'failed'; readonly reason: string }
   | { readonly state: 'paused' }
 
@@ -94,7 +100,9 @@ export type CallAnswer =
 export interface PickRequest {
   readonly target: PressTarget
   readonly options: readonly NormalizedComboOption[]
-  readonly state: 'ready' | 'failed' | 'paused'
+  readonly state: 'ready' | 'stale' | 'failed' | 'paused'
+  /** The lookup the list came from, for the list's Try again. */
+  readonly lookup?: LookupRequest
 }
 
 export interface AskRequest {
@@ -559,7 +567,7 @@ class Press {
     return this.read(argument, context) as CallArg
   }
 
-  async lookup(name: string, args: readonly Argument[], use: 'options' | 'value', context = this.context): Promise<LookupResult> {
+  async lookup(name: string, args: readonly Argument[], use: 'options' | 'value', context = this.context): Promise<{ request: LookupRequest; result: LookupResult }> {
     const request: LookupRequest = {
       nodeType: this.view.node.type,
       node: this.target.occurrence ?? this.target.nodeId,
@@ -570,10 +578,8 @@ class Press {
     }
     this.progress({ text: 'Loading' })
     try {
-      let result = await this.wait(this.host.lookup(request, this.signal))
-      // A stale or failed answer is asked for once more; a press never stores a stale value.
-      if (result.state === 'failed' && use === 'value') result = await this.wait(this.host.lookup(request, this.signal))
-      return result
+      const result = await this.wait(this.host.lookup(request, this.signal))
+      return { request, result }
     } finally {
       this.progress(undefined)
     }
@@ -582,9 +588,9 @@ class Press {
   async value(value: StepValue, context: FormulaContext = this.context): Promise<Value | unknown> {
     if (value.kind === 'literal') return literalOf(value.value)
     if (value.kind === 'formula') return this.formula(value.text, context)
-    const result = await this.lookup(value.function, value.args, 'value', context)
+    const { result } = await this.lookup(value.function, value.args, 'value', context)
     if (result.state === 'paused') return refuse(PAUSED_MESSAGE)
-    if (result.state === 'failed') return refuse(LOOKUP_FAILED_MESSAGE)
+    if (result.state !== 'ready') return refuse(LOOKUP_FAILED_MESSAGE)
     return answerOf(result.value)
   }
 
@@ -684,7 +690,7 @@ class Press {
         }
         const member = group.members[position]!
         if (memberWired(this.view, group.path, member)) return this.skip(`${group.path}.${member}`)
-        if (group.members.length <= group.spec.minMembers) return refuse(`${step.group} already has its fewest members.`)
+        if (group.members.length <= group.spec.minMembers) return refuse("The group already has its fewest members.")
         this.stage([{ kind: 'removeMember', group: group.path, member }])
         return
       }
@@ -876,10 +882,12 @@ class Press {
   async pick(name: string, options: StepValue): Promise<void> {
     let list: unknown
     let state: PickRequest['state'] = 'ready'
+    let lookup: LookupRequest | undefined
     if (options.kind === 'lookup') {
-      const result = await this.lookup(options.function, options.args, 'options')
-      if (result.state === 'ready') list = result.value
-      else state = result.state
+      const { request, result } = await this.lookup(options.function, options.args, 'options')
+      lookup = request
+      state = result.state
+      if (result.state === 'ready' || result.state === 'stale') list = result.value
     } else {
       list = await this.value(options)
     }
@@ -889,10 +897,9 @@ class Press {
         return option === undefined ? [] : [option]
       })
       : []
-    if (state === 'ready' && list !== undefined && !Array.isArray(list)) return refuse('The list of this button is not a list.')
-    const chosen = await this.wait(this.host.pick({ target: this.target, options: normalized, state }, this.signal))
+    if (list !== undefined && !Array.isArray(list)) return refuse('The list of this button is not a list.')
+    const chosen = await this.wait(this.host.pick({ target: this.target, options: normalized, state, ...(lookup ? { lookup } : {}) }, this.signal))
     if (chosen === undefined) throw new Cancelled()
-    if (state !== 'ready' || !normalized.some((option) => option.value === chosen)) return refuse('The list closed without a choice.')
     const value = typeof chosen === 'number' && Number.isInteger(chosen) ? BigInt(chosen) : chosen
     this.locals.kinds.set(name, kindOfValue(value))
     this.locals.values.set(name, value)

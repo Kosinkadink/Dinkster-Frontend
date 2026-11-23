@@ -188,6 +188,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
       <Show when={remote()?.state === 'loading'}><div class="combo-status">loading remote options...</div></Show>
       <Show when={remote()?.state === 'stale'}><div class="combo-status">remote options stale</div></Show>
       <Show when={remote()?.state === 'unavailable'}><div class="combo-status">remote options unavailable</div></Show>
+      <Show when={ed.target.kind === 'local' ? ed.target.list : undefined}>{(list) => <div class="combo-status" data-testid="combo-lookup-state">{list().state === 'stale' ? 'options stale' : list().state === 'paused' ? 'Paused. Try again in a moment.' : 'options unavailable'}</div>}</Show>
       <Show when={window().hiddenBefore > 0}>
         <button type="button" class="combo-status combo-page" data-testid="combo-earlier" onMouseDown={(event) => event.preventDefault()} onClick={() => pageTo(window().start - 1)}>{`${window().hiddenBefore} earlier options`}</button>
       </Show>
@@ -202,6 +203,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
         <button type="button" class="combo-status combo-page" data-testid="combo-more" onMouseDown={(event) => event.preventDefault()} onClick={() => pageTo(window().end)}>{`${window().hiddenAfter} more options - type to narrow`}</button>
       </Show>
     </div>
+    <Show when={ed.target.kind === 'local' ? ed.target.list?.retry : undefined}>{(retry) => <ProductButton variant="ghost" size="compact" class="combo-refresh" data-testid="combo-try-again" onMouseDown={(event) => event.preventDefault()} onClick={() => { retry()(); props.close() }}>{message('common.tryAgain')}</ProductButton>}</Show>
     <Show when={spec.remote?.refreshButton === true}><button type="button" class="combo-refresh" data-testid={multi ? 'multi-combo-refresh' : 'remote-refresh'} onMouseDown={(event) => event.preventDefault()} onClick={() => load(true)}>refresh</button></Show>
     <Show when={multi}><ProductActionFooter><button type="button" data-testid="multi-combo-cancel" onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" data-testid="multi-combo-clear" onClick={() => mutateValues(() => [])}>Clear</button><button type="button" class="primary" data-testid="multi-combo-apply" onClick={() => props.commitValue(values())}><Icon icon={Check} /> Apply</button></ProductActionFooter></Show>
   </div>

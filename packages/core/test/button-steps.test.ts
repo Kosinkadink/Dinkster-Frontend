@@ -242,7 +242,7 @@ describe('each step', () => {
     expect(await kept('remove_second')).toEqual(['lora_1', 'lora_3'])
     const one = members(['lora_2'], [1])
     const outcome = (await press('dev.buttons.member_steps', 'remove_last', one.values, hostOf(), one.extra)).outcome
-    expect(outcome.message).toBe('Nothing was changed. loras already has its fewest members.')
+    expect(outcome.message).toBe('Nothing was changed. The group already has its fewest members.')
   })
 
   it('ClearMembers stops at the least count and keeps a wired member', async () => {
@@ -424,28 +424,29 @@ describe('call answers', () => {
 })
 
 describe('lists, forms and lookups', () => {
-  it('Pick passes its choice to later steps, which store a looked-up value', async () => {
+  it('Pick offers a stale list and passes its choice to later steps, which store a looked-up value', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.lora_preset' } }))
     const asked: unknown[] = []
     const host = hostOf({
       lookup: async (request) => {
         asked.push([request.function.split('.').at(-1), request.args, request.use, request.asker])
         return request.use === 'options'
-          ? { state: 'ready', value: ['SD-NONE', 'SD-INS'] }
+          ? { state: 'stale', value: ['SD-NONE', 'SD-INS'] }
           : { state: 'ready', value: '1,1,1,1,1,0,0,0,1,0,0,0,0,0,0,0,0' }
       },
-      pick: async (request) => request.options[1]!.value,
+      pick: async (request) => (expect(request.state).toBe('stale'), request.options[1]!.value),
     })
     expect((await runPress(session, at('pick_preset'), host)).kind).toBe('done')
     expect(valuesOf(session)).toMatchObject({ preset: 'SD-INS', block_vector: '1,1,1,1,1,0,0,0,1,0,0,0,0,0,0,0,0' })
     expect(asked).toEqual([['preset_names', [], 'options', 'press'], ['preset_vector', ['SD-INS'], 'value', 'press']])
   })
 
-  it('asks a failed value lookup once more, then fails without storing', async () => {
+  it('fails without storing when the lookup service cannot give a value, and does not ask it again', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.lora_preset' } }))
     let asks = 0
     const outcome = await runPress(session, at('apply_preset'), hostOf({ lookup: async () => (asks++, { state: 'failed', reason: 'wrong-shape' }) }))
-    expect(asks).toBe(2)
+    // The service itself asks again once for a missing or stale value.
+    expect(asks).toBe(1)
     expect(outcome.message).toBe('Nothing was changed. The pack could not provide this value.')
     expect(valuesOf(session)).toEqual({})
   })

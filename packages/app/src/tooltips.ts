@@ -253,6 +253,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         : `Only successful runs advance literal, submitted values. Linked values are not changed. ${t.connected ? 'Connected controls are inert.' : 'Click to choose a mode.'}`] } : {}),
     }
   }
+  if (t.kind === 'button') return { lines: [t.hit.row.label, ...(t.hit.row.tooltip ? [t.hit.row.tooltip] : [])] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
     return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? typeIdDisplayLabel(rerouteTypeName) : 'Any'] }

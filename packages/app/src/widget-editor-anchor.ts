@@ -43,6 +43,7 @@ export function widgetEditorAnchorAlive(
     return documentUnchanged && source !== undefined &&
       JSON.stringify(source.effective.spec) === JSON.stringify(ed.spec)
   }
+  if (target.kind === 'local') return true
   const node = nodes.find((item) => item.id === target.nodeId)
   if (node === undefined) return false
   const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)

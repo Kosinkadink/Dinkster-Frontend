@@ -59,6 +59,7 @@ import {
   type ToolboxRow,
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
+import { isButtonIcon, paintButtonIcon } from './button-icons.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
@@ -285,6 +286,17 @@ export type CompanionMap = Readonly<Record<string, Readonly<Record<string, Compa
  * value key. Derived per scene build, never stored.
  */
 export type RowMarkMap = Readonly<Record<string, ReadonlySet<string>>>
+
+/** How a declared button draws besides ready: turned off, or working with its words and Cancel. */
+export type ButtonPaint =
+  | { readonly kind: 'off' }
+  | { readonly kind: 'busy'; readonly text: string }
+
+/** Button paint per node id, then per button id; a button with no entry is ready. */
+export type ButtonPaintMap = Readonly<Record<string, Readonly<Record<string, ButtonPaint>>>>
+
+/** The width at a busy button's right end that reads "Cancel" and cancels when clicked. */
+export const BUTTON_CANCEL_ZONE = 64
 
 /**
  * One row of a data-lens panel: label left, text right. Tones follow the
@@ -1057,6 +1069,16 @@ export class CanvasRenderer {
   }
 
   private rowMarks: RowMarkMap = {}
+  private buttonPaint: ButtonPaintMap = {}
+  private hasBusyButtons = false
+
+  /** Off and working buttons per node; a working button's spinner turns while any is set. */
+  setButtonPaint(paint: ButtonPaintMap): void {
+    this.updateNodePaint(this.buttonPaint, paint, () => {
+      this.buttonPaint = paint
+      this.hasBusyButtons = Object.values(paint).some((buttons) => Object.values(buttons).some((item) => item.kind === 'busy'))
+    })
+  }
 
   /**
    * Diagnostic-anchored row marks per node/valueKey (fallback rows key by
@@ -1687,7 +1709,7 @@ export class CanvasRenderer {
         scale: animation.from.scale + (animation.to.scale - animation.from.scale) * eased,
       })
     }
-    const animateExecution = this.hasRunningNodes && !this.reducedMotion
+    const animateExecution = (this.hasRunningNodes || this.hasBusyButtons) && !this.reducedMotion
     if (animateExecution) {
       this.animationTimeMs = timestamp
       this.dirty = true
@@ -1793,13 +1815,13 @@ export class CanvasRenderer {
     if (
       typeof OffscreenCanvas !== 'undefined' &&
       typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
-      !this.hasRunningNodes
+      !this.hasRunningNodes && !this.hasBusyButtons
     ) {
       ctx.save()
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphTiles(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
       ctx.restore()
-    } else if (typeof OffscreenCanvas !== 'undefined' && !this.hasRunningNodes) {
+    } else if (typeof OffscreenCanvas !== 'undefined' && !this.hasRunningNodes && !this.hasBusyButtons) {
       ctx.save()
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       this.drawGraphUncached(ctx, pixelWidth, pixelHeight, pixelWidth / w, pixelHeight / h)
@@ -3335,21 +3357,7 @@ export class CanvasRenderer {
           ctx.fillText(row.text, node.x + row.inset + canvasPaintTokens.widget.labelInset, rowY + row.height / 2, width - canvasPaintTokens.widget.labelInset * 2)
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'button') {
-          // Buttons do nothing yet: drawn as a solid capsule, never hovered.
-          const paint = canvasPaintTokens.widget
-          const width = row.width ?? l.width - row.inset * 2
-          const x = node.x + row.inset
-          ctx.fillStyle = t.colors.widgetBackground
-          ctx.beginPath()
-          ctx.roundRect(x, rowY + paint.verticalInset, width, row.height - paint.verticalInset * 2, paint.radius)
-          ctx.fill()
-          ctx.strokeStyle = t.colors.label
-          ctx.lineWidth = canvasPaintTokens.widget.growth.stroke
-          ctx.stroke()
-          ctx.fillStyle = t.colors.label
-          ctx.textAlign = 'center'
-          ctx.fillText(row.label, x + width / 2, rowY + row.height / 2, width - paint.growth.textPadding)
-          ctx.textAlign = 'left'
+          this.drawButton(ctx, node.x + row.inset, rowY, row.width ?? l.width - row.inset * 2, row, this.buttonPaint[sceneNode.id]?.[row.buttonId])
         } else if (row.kind === 'fallback') {
           // Stored value on a schemaless node: read-only and dimmed, but
           // recognizable - the document's key and value survive the missing
@@ -4033,6 +4041,86 @@ export class CanvasRenderer {
     ctx.shadowBlur = paint.glowBlur + pulse * paint.glowPulseBlur
     ctx.stroke()
     ctx.restore()
+  }
+
+  /**
+   * A button is a full row with a thin lighter edge and centered words; its
+   * icon goes before them, or alone when they do not fit. Turned off, its
+   * words dim. Working, it shows a spinner, the words the step reports with
+   * three dots, and Cancel at its right end.
+   */
+  private drawButton(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    rowY: number,
+    width: number,
+    row: Extract<LayoutRow, { kind: 'button' }>,
+    paint: ButtonPaint | undefined,
+  ): void {
+    const t = this.tokens
+    const widget = canvasPaintTokens.widget
+    const button = widget.button
+    const top = rowY + widget.verticalInset
+    const height = row.height - widget.verticalInset * 2
+    const middle = rowY + row.height / 2
+    ctx.fillStyle = t.colors.buttonBackground
+    ctx.beginPath()
+    ctx.roundRect(x, top, width, height, widget.radius)
+    ctx.fill()
+    ctx.strokeStyle = t.colors.buttonEdge
+    ctx.lineWidth = widget.growth.stroke
+    ctx.beginPath()
+    ctx.roundRect(x + 0.5, top + 0.5, width - 1, height - 1, widget.radius)
+    ctx.stroke()
+    const pad = widget.growth.textPadding / 2
+    if (paint?.kind === 'busy') {
+      const radius = button.spinnerRadius
+      const cx = x + pad + radius
+      const turn = this.reducedMotion ? 0 : (this.animationTimeMs / 900) * Math.PI * 2
+      ctx.lineWidth = button.spinnerStroke
+      ctx.strokeStyle = t.colors.nodeIdleOutline
+      ctx.beginPath()
+      ctx.arc(cx, middle, radius, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.strokeStyle = t.colors.selection
+      ctx.beginPath()
+      ctx.arc(cx, middle, radius, turn, turn + Math.PI / 2)
+      ctx.stroke()
+      const cancelRight = x + width - pad
+      ctx.textAlign = 'right'
+      ctx.fillStyle = t.colors.value
+      ctx.fillText('Cancel', cancelRight, middle)
+      const cancelWidth = measureWidth(ctx, 'Cancel')
+      ctx.setLineDash([...button.cancelUnderlineDash])
+      ctx.strokeStyle = t.colors.widgetAffordance
+      ctx.lineWidth = button.cancelUnderlineStroke
+      ctx.beginPath()
+      ctx.moveTo(cancelRight - cancelWidth, middle + button.cancelUnderlineOffset)
+      ctx.lineTo(cancelRight, middle + button.cancelUnderlineOffset)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.textAlign = 'left'
+      ctx.fillStyle = t.colors.label
+      const textLeft = cx + radius + button.labelGap
+      ctx.fillText(fitText(ctx, `${paint.text}...`, Math.max(0, cancelRight - cancelWidth - button.labelGap - textLeft)), textLeft, middle)
+      return
+    }
+    const color = paint?.kind === 'off' ? t.colors.widgetAffordance : t.colors.value
+    const icon = isButtonIcon(row.icon) ? row.icon : undefined
+    const room = width - pad * 2
+    const labelWidth = measureWidth(ctx, row.label)
+    const iconWidth = icon === undefined ? 0 : button.iconSize + button.iconGap
+    ctx.fillStyle = color
+    if (icon !== undefined && iconWidth + labelWidth > room) {
+      // Too narrow for the words: the icon alone, the words in the tooltip.
+      paintButtonIcon(ctx, icon, x + width / 2 - button.iconSize / 2, middle - button.iconSize / 2, button.iconSize, color)
+      return
+    }
+    const shown = fitText(ctx, row.label, room - iconWidth)
+    const left = x + width / 2 - (iconWidth + measureWidth(ctx, shown)) / 2
+    if (icon !== undefined) paintButtonIcon(ctx, icon, left, middle - button.iconSize / 2, button.iconSize, color)
+    ctx.textAlign = 'left'
+    ctx.fillText(shown, left + iconWidth, middle)
   }
 
   private drawRunningAccent(

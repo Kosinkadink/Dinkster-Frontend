@@ -24,9 +24,11 @@ non-empty legacy `interface` list.
   Row. It keeps its line while its text is empty. A note whose text is a
   formula or a lookup shows its `unknown` text dimmed (empty when it has
   none), because the editor does not evaluate formulas yet.
-- **Button**: a capsule with its label and no pin, on its own line or as a
-  cell of a Row. It does nothing when clicked: the editor never runs a
-  button's steps.
+- **Button**: a full-width row with a thin edge, its label centered and an
+  optional icon from the engine's list, on its own line or as a cell of a
+  Row. A Row of only buttons splits evenly; a button too narrow for its
+  label shows the icon alone and its label as a tooltip. Clicking it runs its
+  steps; see [Buttons](#buttons).
 - **Editor**: decoded with the schema; the canvas does not draw it. An editor
   row is a custom or compositor widget with no value of its own; it must name
   at least one row it writes or reads.
@@ -190,6 +192,44 @@ A top-level section with id `advanced` gets the Advanced enclosure
 (`packages/canvas/src/layout.ts`): it stays below every ordinary input and
 output row, its outputs pair with its own rows, and a tinted background and
 border enclose the expanded rows, including labels, controls and pins.
+
+## Buttons
+
+A press runs the button's steps in order (`packages/core/src/actions/runner.ts`,
+wired up in `packages/app/src/button-presses.ts`). Later steps read the values
+earlier steps staged. Every workflow change of one press is committed together
+as one undo step, after its last step; a step that fails, a list or form that
+is closed, or Cancel stores nothing. Copy, Download, Queue, Interrupt, Open
+link and a called file run after the commit; their failure is reported and
+does not take the commit back. Redo replays the committed values and calls
+nothing again.
+
+- **Off.** A button is drawn dimmed and does not run when the pack turns it
+  off, when a field it needs arrives on a wire, when every field it sets has a
+  wire, when a step opens an editor that does not exist yet, and in a run's
+  read-only view. Pointing at it shows why, in the same box its results use.
+- **Working.** While it waits on a pack function or a lookup it shows a
+  spinner, the words the function reports with three dots, and Cancel at its
+  right end. A working button is not pressed a second time.
+- **Result.** A press that skipped something, left a note or failed leaves a
+  box under the button's line until the next click, with a circled i or, for a
+  failure, a warning triangle; the same line goes in the activity log. A press
+  where every step did its work leaves no box.
+- **Waits.** A field the user edits while the press waits keeps the user's
+  value and is reported; a target that gained a wire is skipped and reported.
+  A press whose node or document is gone writes nowhere.
+- **Pick** opens the ordinary choice list at the button. A lookup's stale
+  list can be picked from, with Try again; a failed or empty one offers
+  nothing. **Ask** opens a form beside the node with the ordinary field
+  controls, Cancel and Apply. **Open picker**, **Open editor** and **Paste
+  image** open the field's own editor and hand its value to the press.
+- **Menu buttons** (`NodeSchema.menu`) come first in the node's context menu
+  and run the same way; an off one is dimmed with its reason beside it.
+- **Open link** shows an address built from fields before it opens the tab.
+
+Calls go to the backend's `/api/node-functions/call` route, counted against
+the press budget; lookups go through the backend's lookup client
+(`DinksterConnection.lookups`), so a press and the fields share its answers.
 
 ## Run submission
 
