@@ -270,6 +270,34 @@ export function rowStateExamples(
   return { nothing, promoted }
 }
 
+/** A whole-number field declared with the color display: Color is its declared look, Number the raw number. */
+export const tintSchema = schema('Tint', [
+  { ...field('tint', 'INT', 0x4f86c6, { min: 0, max: 0xffffff, display: 'color' }), tooltip: 'Packed RGB color of the edge.' },
+])
+
+/**
+ * The same tint field both ways: the first node shows it as Number, the
+ * second, below, in its declared Color look. The stored value is the same.
+ */
+export function createTintRepresentationScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width: number,
+): Scene {
+  return sceneOf(
+    [
+      { id: 'Tint', schema: tintSchema, x: position.x, y: position.y, width, views: { tint: 'number' } },
+      { id: 'Tint declared', schema: tintSchema, x: position.x, y: position.y + 136, width },
+    ],
+    [],
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
 /** The node of one representation example, with the look chosen for each field. */
 export function createRepresentationScene(
   tokens: DesignTokens,

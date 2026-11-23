@@ -21,7 +21,9 @@ import {
 } from '@dinkster/widgets'
 import {
   createRepresentationScene,
+  createTintRepresentationScene,
   representationSchema,
+  tintSchema,
   rowStateExamples,
   type RowStateExample,
 } from '../../canvas/gallery/row-states.js'
@@ -169,6 +171,16 @@ const representationExamples: readonly RowExample[] = [
     'Locked, or only one look. No Representation control and no dead button: a declared set with userSwitchable false wins.',
     'locked',
   ),
+  {
+    id: 'representation-color',
+    caption: 'A whole-number field declared with the color display offers Color and Number. Above, the same field switched to Number: the ordinary whole-number row with its steppers, and the control shows Number. Below, the declared Color look, drawn as a color square and its code; the in-row color editor also takes its steppers away. Both store 5211846; Reset goes back to Color.',
+    scale: 1,
+    width: MARGIN + NODE_WIDTH + SIDE_ROOM,
+    node: { x: MARGIN, y: MARGIN },
+    open: 'tint',
+    representation: 'closed',
+    build: { scene: createTintRepresentationScene, schema: tintSchema },
+  },
   representationExample(
     'representation-text',
     'A text box has no open field side part: the keyboard outline\'s side part carries the control, so Multiline can be switched back to Single line. A read-only or disabled field keeps this control, because it writes no value; a frozen run view shows none.',

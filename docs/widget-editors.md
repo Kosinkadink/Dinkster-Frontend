@@ -940,7 +940,9 @@ also offers Single line.
 
 An ordinary STRING without an explicit representation set receives compatible
 Single line and Multiline views automatically. Its `multiline` hint chooses the
-default, not the only available editor. An explicit representation set remains
+default, not the only available editor. A whole number declared with
+`display: color` likewise offers Color, its default, and Number, the ordinary
+number row with steppers. An explicit representation set remains
 authoritative: omitting an alternative restricts it, and setting
 `userSwitchable` to `false` locks the declared default. Switchable rows expose
 their choices only through the **Representation** submenu in the right-click

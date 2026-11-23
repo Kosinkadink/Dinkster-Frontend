@@ -373,8 +373,8 @@ export function RowEditingExample(props: {
           example.nodeWidth ?? NODE_WIDTH,
         )
         const node = built.nodes[0]!
-        const height =
-          (example.node.y + node.layout.height + MARGIN) * example.scale
+        const bottom = Math.max(...built.nodes.map((drawn) => drawn.y + drawn.layout.height))
+        const height = (bottom + MARGIN) * example.scale
         canvas.style.width = `${example.width}px`
         canvas.style.height = `${height}px`
         renderer = new CanvasRenderer(

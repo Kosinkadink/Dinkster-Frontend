@@ -383,6 +383,17 @@ export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentations
       ],
     }
   }
+  if (spec.widgetType === 'INT' && spec.options['display'] === 'color') {
+    // A color row has no steppers; Number is the way back to the raw whole number.
+    return {
+      default: 'color',
+      userSwitchable: true,
+      representations: [
+        { id: 'color', displayName: 'Color', widget: { ...spec } },
+        { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+      ],
+    }
+  }
   if (spec.widgetType !== 'STRING') return undefined
   const descriptor = (multiline: boolean): WidgetDescriptorSpec => ({
     ...spec,

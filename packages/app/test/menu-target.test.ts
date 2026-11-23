@@ -109,6 +109,18 @@ describe('widgetRepresentationMenuGroup', () => {
     })).toBeUndefined()
   })
 
+  it('offers Color and Number for a whole number shown as a color', () => {
+    const color = widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'tint', selected: 'color',
+      spec: { widgetType: 'INT', options: { min: 0, max: 0xffffff, display: 'color' } },
+    })!
+    expect(color.items[0]?.children?.map((entry) => [entry.label, entry.checked])).toEqual([['Color', true], ['Number', false]])
+    expect(widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'count', selected: undefined,
+      spec: { widgetType: 'INT', options: { min: 0, max: 10 } },
+    })).toBeUndefined()
+  })
+
   it('disables every action for non-editable widget rows', () => {
     const group = widgetRepresentationMenuGroup({
       graphId: 'g0', nodeId: 'n1', inputId: 'text', spec, selected: 'multiline', disabled: true,
