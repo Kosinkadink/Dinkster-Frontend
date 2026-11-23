@@ -1090,6 +1090,38 @@ describe('formula properties', () => {
     expect(hiddenInputs(shown)).toEqual([])
   })
 
+  it('shows a hidden row, and every box holding it, while the row has a problem', () => {
+    const parse = (body: unknown[]) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body } as never)
+      expect(diagnostics).toEqual([])
+      return schema!
+    }
+    const hiddenWith = (body: unknown[], values: Record<string, unknown>, dynamic: Record<string, unknown>, problemRows?: string[]) =>
+      hiddenInputs(elaborateInterface(parse(body), { values, dynamic } as never, EMPTY_CONNECTIVITY,
+        { promoteGhosts: false, ...(problemRows !== undefined ? { problemRows: new Set(problemRows) } : {}) }))
+    const row = [field('w'), field('extra', { visible: { formula: 'w > 5' } })]
+    expect(hiddenWith(row, { w: 3 }, {})).toEqual(['extra'])
+    expect(hiddenWith(row, { w: 3 }, {}, ['extra'])).toEqual([])
+    expect(hiddenWith(row, { w: 3 }, {}, ['w'])).toEqual(['extra'])
+    // A box shows whole while a row it holds at any depth has a problem.
+    const box = [field('w'), { kind: 'section', id: 'more', label: 'More', visible: { formula: 'w > 5' }, rows: [
+      field('a'), { kind: 'section', id: 'deeper', label: 'Deeper', rows: [field('b')] },
+    ] }]
+    expect(hiddenWith(box, { w: 3 }, {})).toEqual(['a', 'b'])
+    expect(hiddenWith(box, { w: 3 }, {}, ['b'])).toEqual([])
+    // A problem elaboration finds itself: a stored option the choice no longer offers.
+    const choice = [field('w'), { kind: 'choice', id: 'mode', required: true, visible: { formula: 'w > 5' },
+      options: [{ key: 'fit', rows: [field('m')] }, { key: 'fill', rows: [] }] }]
+    expect(hiddenWith(choice, { w: 3 }, { mode: { selected: 'fit' } })).toEqual(['mode', 'mode.m'])
+    expect(hiddenWith(choice, { w: 3 }, { mode: { selected: 'gone' } })).not.toContain('mode')
+    // A failed rule that reads one hidden field is that field's problem.
+    const ruled = (w: number) => {
+      const { schema } = parseDinksterSchema('Formulas', { body: row, validate: [{ check: { formula: 'extra < 5' }, message: 'Too big', fix: [] }] } as never)
+      return hiddenInputs(elaborateInterface(schema!, { values: { w, extra: 9 } } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }))
+    }
+    expect(ruled(3)).toEqual([])
+  })
+
   it('labels a row by its formula, and by its id while the formula is unknown or fails', () => {
     const body = (label: string) => [field('w'), pick, field('size', { label: { formula: label } }), { kind: 'output', id: 'o', type: int, label: { formula: label } }]
     const labels = (elaborated: ReturnType<typeof elaborate>) => elaborated.items
