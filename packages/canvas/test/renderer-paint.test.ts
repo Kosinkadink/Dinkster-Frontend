@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
-import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
@@ -1993,7 +1993,7 @@ describe('node chrome paint on the live renderer', () => {
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[1] === fs.x + row.inset + 6)
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
     const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
     const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
@@ -2480,22 +2480,22 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('a pin name starts a field row\'s label gap after the pin and centers its capitals on the pin', () => {
+  it('a pin name starts where a text or choice field\'s label starts and centers its capitals on the pin', () => {
     const scene = constructsScene()
     const calls = paint(scene)
     // Noto Sans capitals are 0.714 em tall; their middle is half that above the baseline.
     const capitalsMiddle = defaultTokens.fontSize * 0.714 / 2
-    // A field row leaves 6 px from its box's edge to its label; the pin's inner edge is its center plus its radius.
-    const gap = 6
+    // A text or choice field's box sits 8 px inside the node and its label 6 px inside the box.
+    const fieldLabelInset = 8 + 6
     const sink = nodeOf(scene, 'c1')
     const input = sink.layout.pins.find((p) => p.direction === 'in')!
     const inputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'in')
-    expect(inputLabel?.args[1]).toBe(sink.x + PIN_INSET + defaultTokens.pinRadius + gap)
+    expect(inputLabel?.args[1]).toBe(sink.x + fieldLabelInset)
     expect(inputLabel?.args[2]).toBeCloseTo(sink.y + input.y + PIN_DROP + capitalsMiddle, 9)
     const source = nodeOf(scene, 'lat')
     const output = source.layout.pins.find((p) => p.direction === 'out')!
     const outputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'out')
-    expect(outputLabel?.args[1]).toBe(source.x + source.layout.width - PIN_INSET - defaultTokens.pinRadius - gap)
+    expect(outputLabel?.args[1]).toBe(source.x + source.layout.width - fieldLabelInset)
     expect(outputLabel?.args[2]).toBeCloseTo(source.y + output.y + PIN_DROP + capitalsMiddle, 9)
   })
 
@@ -2533,6 +2533,10 @@ describe('node chrome paint on the live renderer', () => {
       c.args[0] !== px && c.args[1] !== py &&
       Math.abs(Math.abs(Number(c.args[0]) - px) - Math.abs(Number(c.args[1]) - py)) < 1e-9 &&
       Math.abs(Number(c.args[0]) - px) <= diamond)).toBe(false)
+    // As a drop target its ring clears the diamond's corners by the ring gap every pin gets.
+    const target = paintWith(scene, (renderer) => renderer.setOverlay({ dropTargets: new Set([dropTargetKey('c1', pin.portId, 'in')]) }))
+    expect(target.some((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py &&
+      Math.abs(Number(c.args[2]) - (diamond + canvasPaintTokens.pin.statusRingGap)) < 1e-9)).toBe(true)
   })
 
   it('Any input and output pins use a neutral fill and dashed outer ring', () => {

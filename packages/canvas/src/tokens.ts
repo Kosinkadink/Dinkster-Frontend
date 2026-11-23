@@ -780,6 +780,9 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
   typeFallbackLightness: 62,
 }
 
+/** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */
+const defaultFieldInsetX = 8
+
 export const defaultTokens: DesignTokens = {
   rowHeight: 26,
   headerHeight: 26,
@@ -805,15 +808,14 @@ export const defaultTokens: DesignTokens = {
   rowGeometry: {
     portRowHeight: 26,
     fieldInsetY: 1,
-    fieldInsetX: 8,
+    fieldInsetX: defaultFieldInsetX,
     stepperZone: 22,
     stepperCenter: 12.5,
     stepperStroke: 1,
     stepperLabelInset: 2,
     textEndInset: 4,
-    // The pin's inner edge, 6 px in (radius 5.5 centered half a pixel inside
-    // the border), then the gap a field row leaves from its box to its label.
-    portLabelInset: 6 + canvasPaintTokens.widget.labelInset,
+    // A pin's name starts where a text or choice field's label does.
+    portLabelInset: defaultFieldInsetX + canvasPaintTokens.widget.labelInset,
     boxedTopInset: 5,
     pinTopInset: 1,
     pinBottomInset: 2,

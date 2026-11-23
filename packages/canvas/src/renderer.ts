@@ -822,6 +822,15 @@ const paintPinLabel = (
   ctx.textAlign = 'left'
 }
 
+/**
+ * The radius of a pin's drop and warning ring: it clears the pin by the ring
+ * gap, around the one-value-or-list pin's diamond corners too, and keeps that
+ * gap as a pointed pin grows from `pinRadius` to `radius`.
+ */
+const statusRingRadius = (shape: PinShape, pinRadius: number, radius: number): number =>
+  (shape === 'scalar-list' ? pinShapeRadius(shape, pinRadius) : pinRadius) + STATUS_RING_GAP +
+  (radius - pinRadius) * pinShapeRadialScale(shape)
+
 const statusRingCullPad = (radius: number, scale: number): number =>
   radius + STATUS_RING_GAP + screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH) / 2
 
@@ -3976,9 +3985,7 @@ export class CanvasRenderer {
       const associated = pin.matchVariable !== undefined &&
         (pin.matchVariable === hoveredMatchVariable || pin.matchVariable === focusedMatchVariable)
       const radius = hovered || focused || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
-      const shapeScale = pinShapeRadialScale(pinShapeOf(pin.type, pin.direction))
-      // Preserve the normal glyph-to-ring gap as a hovered glyph grows.
-      const statusRingRadius = pinRadius + STATUS_RING_GAP + (radius - pinRadius) * shapeScale
+      const ringRadius = statusRingRadius(pinShapeOf(pin.type, pin.direction), pinRadius, radius)
       const problemKind = pin.direction === 'in' ? this.portProblems[node.id]?.[pin.portId] : undefined
       if (pin.widgetTap === true &&
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
@@ -3994,7 +4001,7 @@ export class CanvasRenderer {
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       if (isTarget) {
         ctx.beginPath()
-        ctx.arc(px, py, statusRingRadius, 0, Math.PI * 2)
+        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.dropTarget
         ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
         ctx.stroke()
@@ -4005,7 +4012,7 @@ export class CanvasRenderer {
         // mirroring (not replacing) the Problems entry. Drop-target rings
         // win during a drag - the gesture needs the affordance more.
         ctx.beginPath()
-        ctx.arc(px, py, statusRingRadius, 0, Math.PI * 2)
+        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.error
         ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
         ctx.stroke()
@@ -4016,7 +4023,7 @@ export class CanvasRenderer {
         // severity wins; selection/hover affect pin visibility, not this
         // independent diagnostic signal.
         ctx.beginPath()
-        ctx.arc(px, py, statusRingRadius, 0, Math.PI * 2)
+        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
         ctx.strokeStyle = problemKind === 'error'
           ? t.colors.error
           : problemKind === 'blocking-warning'
@@ -4523,7 +4530,7 @@ export class CanvasRenderer {
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()
-        ctx.arc(px, py, pinRadius + STATUS_RING_GAP, 0, Math.PI * 2)
+        ctx.arc(px, py, statusRingRadius(pinShapeOf(pin.type, pin.direction), pinRadius, pinRadius), 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.dropTarget
         ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
         ctx.stroke()
