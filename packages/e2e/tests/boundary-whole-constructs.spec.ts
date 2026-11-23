@@ -222,12 +222,14 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.dynamic?.['look']?.selected).toBe('text')
 
-  // Show the spare node's choice on the subgraph node from its field's menu.
+  // Show the spare node's choice on the subgraph node from its own row's
+  // menu, which offers the whole choice and not its dropdown as a field.
   const before = (await activeDoc(page)).graphs['sub']!.boundary
-  const point = await widgetPoint(page, 'spare', 'mode.strength')
+  const point = await widgetPoint(page, 'spare', 'mode')
   await page.mouse.click(point.x, point.y, { button: 'right' })
   const item = page.locator('[data-item-id="core.boundary.showWhole.mode"]')
   await expect(item).toContainText('Show Mode on subgraph node')
+  await expect(page.locator('[data-item-id="core.widget.subgraphNode.show"]')).toHaveCount(0)
   if (proofDir) await page.screenshot({ path: join(proofDir, 'menu.png') })
   await item.click()
   await expect.poll(async () => (await activeDoc(page)).graphs['sub']!.boundary!.inputs.map((i) => i.binds)).toEqual([
