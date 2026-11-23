@@ -967,7 +967,7 @@ describe('dynamic layout on subgraph instances', () => {
     // The definition's prefix member is definition-local: not an instance pin.
     expect(pins.map((p) => p.portId)).toEqual(['fam.image#m0', 'fam.image#m1'])
     const rows = portRowsOf(scene, 's')
-    expect(rows.find((r) => r.input?.portId === 'fam.image#m0')!.input!.label).toBe('image1')
+    expect(rows.find((r) => r.input?.portId === 'fam.image#m0')!.input!.label).toBe('image 2')
     expect(rows.find((r) => r.input?.portId === 'fam.image#m1')!.input!.label).toBe('image 3')
     // The suffix link anchors at the member pin.
     expect(scene.links).toHaveLength(1)
