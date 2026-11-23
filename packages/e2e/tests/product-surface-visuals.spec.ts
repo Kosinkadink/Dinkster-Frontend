@@ -340,6 +340,8 @@ test('backend add error and Resources rows at desktop and compact widths', async
     const resources = page.getByTestId('resources-panel')
     await expect(resources).toBeVisible()
     await expect(resources.locator('.dinkster-resource-backend').first()).toBeVisible()
+    await expect(resources.getByRole('alert')).toBeVisible()
+    await expect(resources.getByText('Loading resources...', { exact: true })).toHaveCount(0)
     await screenshot(page, `runtime-panel-memory-${width}`)
   }
 })

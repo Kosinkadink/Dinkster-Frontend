@@ -28,6 +28,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const connectionState = useSignal(connection().status)
   const [open, setOpen] = createSignal(props.initiallyOpen)
   const [status, setStatus] = createSignal<MemoryStatus>()
+  const [initialPending, setInitialPending] = createSignal(true)
   const [details, setDetails] = createSignal<MemoryStatus['consumerDetails']>()
   const [settings, setSettings] = createSignal<RuntimeSettings>()
   const [error, setError] = createSignal('')
@@ -53,6 +54,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
   const accept = (next: MemoryStatus, isDetails: boolean): void => {
     if (isDetails) { setDetails(next.consumerDetails); return }
     setStatus(next)
+    setInitialPending(false)
     setReceivedAt(Date.now())
     setClock(Date.now())
     setTelemetryError('')
@@ -67,7 +69,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
     if (open()) controller?.refreshDetails()
   }
   onMount(() => {
-    controller = new MemoryStatusController(connection(), accept, (cause) => setTelemetryError(String(cause)))
+    controller = new MemoryStatusController(connection(), accept, (cause) => { setInitialPending(false); setTelemetryError(String(cause)) })
     controller.setExpanded('resources', open())
     void connection().fetchRuntimeSettings().then(setSettings, () => {})
     const timer = setInterval(() => setClock(Date.now()), 1000)
@@ -165,7 +167,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly i
     <Show when={connectionState() === 'connected' && open()}>
       <div class="dinkster-stack">
         <Show when={error() || telemetryError()}><ProductErrorBanner onDismiss={() => { setError(''); setTelemetryError('') }}>{error() || telemetryError()}</ProductErrorBanner></Show>
-        <Show when={!status()}><span class="dinkster-metadata" role="status">{message('resources.loading')}</span></Show>
+        <Show when={initialPending()}><span class="dinkster-metadata" role="status">{message('resources.loading')}</span></Show>
         <Show when={status() && stale()}><ProductNotice>{message('resources.stale')}</ProductNotice></Show>
         <For each={cards()}>{(device, index) => {
           const row = () => status()!.memoryGovernor![device]!

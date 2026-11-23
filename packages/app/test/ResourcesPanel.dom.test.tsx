@@ -41,6 +41,30 @@ it('rejects a base response superseded by push and details invalidated by closin
   controller.dispose()
 })
 
+it('ends initial loading after a telemetry failure, including after dismissal and recovery', async () => {
+  let reject: ((reason: Error) => void) | undefined
+  let push: ((next: MemoryStatus) => void) | undefined
+  const connection = {
+    status: coreSignal<ConnectionStatus>('connected'),
+    fetchMemoryStatus: () => new Promise<MemoryStatus>((_resolve, rejectRequest) => { reject = rejectRequest }),
+    onMemoryStatus: (listener: (next: MemoryStatus) => void) => { push = listener; return () => {} },
+    fetchRuntimeSettings: async () => ({ categories: { granted: [], available: [] }, settings: {} }),
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
+  expect(root.textContent).toContain('Loading resources...')
+  reject!(new Error('Telemetry unavailable.')); await flush()
+  expect(root.textContent).toContain('Telemetry unavailable.')
+  expect(root.textContent).not.toContain('Loading resources...')
+  root.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
+  expect(root.textContent).not.toContain('Telemetry unavailable.')
+  expect(root.textContent).not.toContain('Loading resources...')
+  push!(payload); await flush()
+  expect(root.textContent).toContain('Measured GPU')
+  expect(root.textContent).not.toContain('Loading resources...')
+  unmount()
+})
+
 it.each([
   { models: true, allocator: false, inconsistent: false, expected: 'Models: 3.0 GB, Other memory: 4.0 GB' },
   { models: false, allocator: true, inconsistent: false, expected: 'Held, unused: 0.5 GB, Other memory: 6.5 GB' },
