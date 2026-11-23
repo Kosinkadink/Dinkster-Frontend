@@ -229,6 +229,10 @@ without saving is not reported.
 - **Menu buttons** (`NodeSchema.menu`) come first in the node's context menu
   and run the same way; an off one is dimmed with its reason beside it.
 - **Open link** shows an address built from fields before it opens the tab.
+- **Subgraphs.** A button inside a subgraph works there and writes that
+  instance. A subgraph node does not show its inner buttons yet: a shown
+  button needs a place among the node's rows, which the boundary's ordered
+  body will give it (comfy-vibe-station#1229 comment 7094212597).
 
 Calls go to the backend's `/api/node-functions/call` route, counted against
 the press budget; lookups go through the backend's lookup client
