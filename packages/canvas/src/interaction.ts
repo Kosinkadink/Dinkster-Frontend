@@ -836,6 +836,8 @@ export class InteractionController {
   private focusedPinWidgetTap: true | undefined
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
+  private hoveredBoxNode: string | undefined
+  private hoveredBoxId: string | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -1103,7 +1105,7 @@ export class InteractionController {
         (crossGraph || !scene.links.some((link) => link.id === this.hoveredLinkMidpoint))
       // Rows and pin layouts belong to the exact scene instance. Clear their
       // hover on every replacement, even when an identity happens to recur.
-      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined
+      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined || this.hoveredBoxNode !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -4636,6 +4638,9 @@ export class InteractionController {
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
+      ...(this.hoveredBoxNode !== undefined ? {
+        hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
+      } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -4740,10 +4745,12 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Track one pin OR widget row; repeated moves on it are repaint-free. */
+  /** Track one pin, widget row or box header; repeated moves on it are repaint-free. */
   private setAffordanceHover(hit: Hit | undefined): void {
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
+    const boxNode = hit?.kind === 'section' ? hit.node.id : undefined
+    const boxId = hit?.kind === 'section' ? hit.row.sectionId : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
     const pinDirection = pin?.kind === 'widgetTap' ? 'out' : pin?.direction
@@ -4756,7 +4763,9 @@ export class InteractionController {
       pinDirection === this.hoveredPinDirection &&
       pinWidgetTap === this.hoveredPinWidgetTap &&
       widgetNode === this.hoveredWidgetNode &&
-      widgetValue === this.hoveredWidgetValue
+      widgetValue === this.hoveredWidgetValue &&
+      boxNode === this.hoveredBoxNode &&
+      boxId === this.hoveredBoxId
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -4764,6 +4773,8 @@ export class InteractionController {
     this.hoveredPinWidgetTap = pinWidgetTap
     this.hoveredWidgetNode = widgetNode
     this.hoveredWidgetValue = widgetValue
+    this.hoveredBoxNode = boxNode
+    this.hoveredBoxId = boxId
     this.pushOverlay()
   }
 
@@ -4774,5 +4785,7 @@ export class InteractionController {
     this.hoveredPinWidgetTap = undefined
     this.hoveredWidgetNode = undefined
     this.hoveredWidgetValue = undefined
+    this.hoveredBoxNode = undefined
+    this.hoveredBoxId = undefined
   }
 }

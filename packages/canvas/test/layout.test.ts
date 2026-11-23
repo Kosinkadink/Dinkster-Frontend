@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
 import { layoutNode, projectNodeLayoutHeight, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
@@ -123,7 +123,7 @@ describe('pairing', () => {
     expect(size!.y).toBe(w!.y)
     expect(swap!.y).toBe(w!.y)
     const span = (row: (typeof layout.rows)[number] | undefined) =>
-      row !== undefined && 'inset' in row ? [row.inset, row.inset + row.width!] : []
+      row !== undefined && 'width' in row ? [row.inset, row.inset + row.width!] : []
     expect(span(w)[1]).toBeLessThanOrEqual(span(size)[0]!)
     expect(span(size)[1]).toBeLessThanOrEqual(span(swap)[0]!)
     expect(after!.y).toBe(w!.y + w!.height)
@@ -165,7 +165,7 @@ describe('pairing', () => {
     ['INT', 'INT'],
     ['FLOAT', 'FLOAT'],
     ['BOOLEAN', 'BOOLEAN'],
-  ] as const)('renders forceInput %s group members as pairable socket rows', (widgetType, typeName) => {
+  ] as const)('renders forceInput %s group members as socket rows', (widgetType, typeName) => {
     const family: NodeSchema['body'][number] = {
       kind: 'group',
       id: 'values',
@@ -186,17 +186,22 @@ describe('pairing', () => {
       measure,
       widgetMeasure,
     )
-    expect(layout.rows).toHaveLength(2)
-    expect(layout.rows[0]).toMatchObject({
-      kind: 'ports',
-      input: { portId: 'values.a', familyMember: true, type: { kind: 'concrete', name: typeName } },
-      output: { portId: 'x' },
-    })
+    // The members sit in the group's box; the node's own outputs, outside
+    // it, take rows of their own after it.
+    expect(layout.rows).toHaveLength(5)
+    expect(layout.rows[0]).toMatchObject({ kind: 'section', sectionId: 'group:values', box: 'group' })
     expect(layout.rows[1]).toMatchObject({
       kind: 'ports',
-      input: { portId: 'values.b', familyMember: true, ghost: true, materialize: expect.any(Array) },
-      output: { portId: 'y' },
+      input: { portId: 'values.a', familyMember: true, type: { kind: 'concrete', name: typeName } },
     })
+    expect(layout.rows[2]).toMatchObject({
+      kind: 'ports',
+      input: { portId: 'values.b', familyMember: true, ghost: true, materialize: expect.any(Array) },
+    })
+    expect(layout.rows.slice(3)).toMatchObject([
+      { kind: 'ports', output: { portId: 'x' } },
+      { kind: 'ports', output: { portId: 'y' } },
+    ])
     expect(layout.rows.some((row) => row.kind === 'widget')).toBe(false)
     expect(layout.pins.filter((pin) => pin.direction === 'in')).toHaveLength(2)
     expect(layout.pins.filter((pin) => pin.direction === 'in').every((pin) => pin.widgetBacked === undefined)).toBe(true)
@@ -811,7 +816,7 @@ describe('sections', () => {
     }
   })
 
-  it('includes an Advanced group growth row in the enclosure', () => {
+  it('draws Advanced as a box around its rows, a group and its growth row included', () => {
     const nestedOnly: NodeSchema['body'][number] = {
       kind: 'group',
       id: 'items',
@@ -837,13 +842,20 @@ describe('sections', () => {
       widgetMeasure,
     )
     expect(l.rows).toMatchObject([
-      { kind: 'section', sectionId: 'advanced', collapsed: false },
+      { kind: 'section', sectionId: 'advanced', box: 'section', collapsed: false },
+      { kind: 'section', sectionId: 'group:items', box: 'group', collapsed: false },
       { kind: 'growth', construct: 'items' },
     ])
-    expect(l.advancedGroup).toEqual({
-      y: l.rows[0]!.y,
-      height: l.rows[0]!.height + l.rows[1]!.height,
-    })
+    expect(l.boxes).toMatchObject([
+      { id: 'advanced', depth: 1, first: 0, last: 2 },
+      { id: 'group:items', depth: 2, first: 1, last: 2 },
+    ])
+    const [outer, inner] = l.boxes!
+    const growth = l.rows[2]!
+    expect(outer!.y).toBe((l.rows[0] as { top: number }).top)
+    expect(inner!.x).toBeGreaterThan(outer!.x)
+    expect(inner!.y + inner!.height).toBeGreaterThan(growth.y + growth.height - canvasPaintTokens.widget.verticalInset)
+    expect(outer!.y + outer!.height).toBeGreaterThan(inner!.y + inner!.height)
   })
 
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
@@ -867,10 +879,10 @@ describe('sections', () => {
       { kind: 'ports', input: { portId: 'tuning' } },
       { kind: 'ports', input: { portId: 'expert' } },
     ])
-    const group = l.advancedGroup!
-    expect(group.y).toBe(l.rows[2]!.y)
-    expect(group.y + group.height).toBe(l.rows[4]!.y + l.rows[4]!.height)
-    expect(l.pins.find((pin) => pin.portId === 'second')!.y).toBeLessThan(group.y)
+    const [group] = l.boxes!
+    expect(group).toMatchObject({ id: 'advanced', first: 2, last: 4 })
+    expect(group!.y + group!.height).toBeGreaterThan(l.rows[4]!.y + l.rows[4]!.height - canvasPaintTokens.widget.verticalInset)
+    expect(l.pins.find((pin) => pin.portId === 'second')!.y).toBeLessThan(group!.y)
   })
 
   it('keeps connected Advanced sockets as collapsed disclosure proxies', () => {
@@ -879,14 +891,16 @@ describe('sections', () => {
       connectedPorts: new Set(['in:socket', 'in:value', 'out:value']),
     })
     expect(l.rows).toMatchObject([{ kind: 'section', collapsed: true }])
-    const header = l.rows[0]!
+    const center = (l.rows[0] as { top: number }).top + (defaultTokens.rowHeight - canvasPaintTokens.widget.verticalInset * 2) / 2
     expect(l.pins).toMatchObject([
       { portId: 'socket', direction: 'in', collapsedSection: 'advanced' },
       { portId: 'value', direction: 'in', collapsedSection: 'advanced' },
       { portId: 'value', direction: 'out', widgetTap: true, collapsedSection: 'advanced' },
     ])
-    expect(l.pins.every((pin) => pin.y === header.y + header.height / 2)).toBe(true)
-    expect(l.advancedGroup).toBeUndefined()
+    // Two pins at one end overlap in a cluster around the closed row's
+    // middle, 7 apart; one pin sits on the middle.
+    expect(l.pins.map((pin) => pin.y)).toEqual([center - 3.5, center + 3.5, center])
+    expect(l.boxes).toMatchObject([{ id: 'advanced', closed: true, first: 0, last: 0 }])
   })
 
   it('keeps declared Advanced outputs inside the enclosure and proxies connected outputs when collapsed', () => {
@@ -905,10 +919,7 @@ describe('sections', () => {
         output: { portId: 'diagnostic' },
       },
     ])
-    expect(expanded.advancedGroup).toEqual({
-      y: expanded.rows[1]!.y,
-      height: expanded.rows[1]!.height + expanded.rows[2]!.height,
-    })
+    expect(expanded.boxes).toMatchObject([{ id: 'advanced', first: 1, last: 2 }])
     expect(expanded.pins.filter((pin) => ['tuning', 'diagnostic'].includes(pin.portId))).toHaveLength(2)
 
     const collapsed = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
@@ -924,7 +935,7 @@ describe('sections', () => {
       { direction: 'in', collapsedSection: 'advanced' },
       { direction: 'out', collapsedSection: 'advanced' },
     ])
-    expect(collapsed.advancedGroup).toBeUndefined()
+    expect(collapsed.boxes).toMatchObject([{ id: 'advanced', closed: true }])
   })
 
   it('keeps Advanced bounds aligned when a primary text row is resized', () => {
@@ -936,10 +947,8 @@ describe('sections', () => {
       sectionOverrides: { advanced: false },
     })
     const resized = projectNodeLayoutHeight(base, base.height + 48, defaultTokens)
-    expect(resized.advancedGroup).toEqual({
-      y: base.advancedGroup!.y + 48,
-      height: base.advancedGroup!.height,
-    })
+    expect(resized.boxes![0]!.y).toBe(base.boxes![0]!.y + 48)
+    expect(resized.boxes![0]!.height).toBe(base.boxes![0]!.height)
   })
 
   it('emits a section header row at its declared position', () => {

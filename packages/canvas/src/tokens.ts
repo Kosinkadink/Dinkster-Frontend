@@ -147,7 +147,44 @@ export const canvasPaintTokens = {
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
-    advancedGroup: { fill: 'rgba(255, 255, 255, 0.035)', stroke: 1, inset: 0.5 },
+    /**
+     * Sections, groups, members and a choice's option rows drawn as boxes.
+     * Horizontal values step in from the node's edge; vertical ones sit on
+     * the row grid, so a closed row is as tall as a field.
+     */
+    box: {
+      stroke: 1,
+      radius: 5,
+      /** Clearance between the outline and the inner half of a pin. */
+      pinGap: 1,
+      /** Each box inside a box steps in this far from the outline around it. */
+      step: 6,
+      /** A field inside a box sits this far inside its outline. */
+      fieldGap: 3,
+      /** The open header is this much shorter than the closed row, inside the outline. */
+      headerShrink: 2,
+      /** From the last field in a box to its outline. */
+      bottomGap: 3,
+      /** An open box with no name: room above its outline for the tab, and below it. */
+      tabGap: 6,
+      tabPad: 4,
+      tab: { width: 18, height: 10, inset: 5, radius: 3 },
+      /** A choice's option box starts this far up its dropdown and pads its first row. */
+      optionOverlap: 3,
+      optionPad: 4,
+      textInset: 6,
+      arrow: { halfWidth: 3, length: 4 },
+      labelGap: 6,
+      countFontSize: 11,
+      dotRadius: 2.5,
+      dotGap: 6,
+      grip: { width: 5, height: 8, dot: 1, pitch: 3 },
+      cross: { size: 7, reserve: 18, stroke: 1 },
+      /** Name, arrow, dot and count room beside a header's text. */
+      widthPadding: 40,
+      /** Center distance of the pins a closed box gathers at one end, by how many there are. */
+      clusterPitch: { two: 7, three: 5, more: 4 },
+    },
     section: {
       horizontalInset: 1,
       verticalInset: 2,
@@ -566,6 +603,15 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** A box's outline, and the outline of a box inside a box. */
+    readonly boxOutline: string
+    readonly boxInnerOutline: string
+    /** A box's header or closed row under the pointer. */
+    readonly boxHover: string
+    /** A box's member or row count. */
+    readonly boxCount: string
+    /** The dot on a closed box that holds a value that is not its default. */
+    readonly boxChanged: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -736,6 +782,11 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
     blockingWarning: tokens.meaning.warning.border,
+    boxOutline: theme === 'dark' ? '#343A41' : tokens.border.subtle,
+    boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
+    boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
+    boxCount: tokens.text.muted,
+    boxChanged: tokens.meaning.accent.border,
   }
 }
 

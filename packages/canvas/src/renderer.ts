@@ -566,6 +566,8 @@ export interface OverlayState {
   }
   /** One widget row under the idle pointer. */
   readonly hoveredWidget?: { readonly nodeId: string; readonly valueKey: string }
+  /** A box's header, closed row or tab under the idle pointer, by box key. */
+  readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string }
   readonly hoveredBadge?: { readonly nodeId: string; readonly badgeId: string }
   /** Live rubber-band selection rectangle (world coords, normalized). */
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
@@ -935,7 +937,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBadge',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredBadge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
     for (const key of keys) {
@@ -3267,63 +3269,157 @@ export class CanvasRenderer {
     // Compact rows are content-tier detail; their pins paint independently.
     if (contentDetail) {
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
-      if (l.advancedGroup !== undefined) {
-        const paint = canvasPaintTokens.node.advancedGroup
-        const group = l.advancedGroup
-        const groupY = node.y + group.y
-        ctx.fillStyle = paint.fill
-        ctx.fillRect(node.x, groupY, l.width, group.height)
-        ctx.strokeStyle = t.colors.nodeOutline
-        ctx.lineWidth = paint.stroke
-        ctx.strokeRect(node.x + paint.inset, groupY + paint.inset, l.width - paint.inset * 2, group.height - paint.inset * 2)
+      const boxPaint = canvasPaintTokens.node.box
+      const closedHeight = t.rowHeight - canvasPaintTokens.widget.verticalInset * 2
+      const boxHovered = (id: string): boolean =>
+        this.overlay.hoveredBox?.nodeId === sceneNode.id && this.overlay.hoveredBox.boxId === id
+      // Outlines first, outer boxes before the boxes inside them.
+      for (const box of l.boxes ?? []) {
+        const half = boxPaint.stroke / 2
+        const x = node.x + box.x + half
+        const y = node.y + box.y + half
+        const width = box.width - boxPaint.stroke
+        const height = box.height - boxPaint.stroke
+        const radius = boxPaint.radius
+        if (box.closed && boxHovered(box.id)) {
+          ctx.fillStyle = t.colors.boxHover
+          ctx.beginPath()
+          ctx.roundRect(x, y, width, height, radius)
+          ctx.fill()
+        }
+        ctx.strokeStyle = box.depth === 1 ? t.colors.boxOutline : t.colors.boxInnerOutline
+        ctx.lineWidth = boxPaint.stroke
+        ctx.beginPath()
+        if (box.kind === 'option') {
+          // Joined to the underside of the dropdown: no top line, square top corners.
+          ctx.moveTo(x, y)
+          ctx.lineTo(x, y + height - radius)
+          ctx.arcTo(x, y + height, x + radius, y + height, radius)
+          ctx.lineTo(x + width - radius, y + height)
+          ctx.arcTo(x + width, y + height, x + width, y + height - radius, radius)
+          ctx.lineTo(x + width, y)
+        } else {
+          ctx.roundRect(x, y, width, height, radius)
+        }
+        ctx.stroke()
+      }
+      const paintArrow = (cx: number, cy: number, open: boolean, color: string): void => {
+        const arrow = boxPaint.arrow
+        ctx.fillStyle = color
+        ctx.beginPath()
+        if (open) {
+          ctx.moveTo(cx - arrow.halfWidth, cy - arrow.length / 2)
+          ctx.lineTo(cx + arrow.halfWidth, cy - arrow.length / 2)
+          ctx.lineTo(cx, cy + arrow.length / 2)
+        } else {
+          ctx.moveTo(cx - arrow.length / 2, cy - arrow.halfWidth)
+          ctx.lineTo(cx + arrow.length / 2, cy)
+          ctx.lineTo(cx - arrow.length / 2, cy + arrow.halfWidth)
+        }
+        ctx.closePath()
+        ctx.fill()
       }
       for (const row of l.rows) {
         const rowY = node.y + row.y
         if (row.kind === 'section') {
-          // Header strip + disclosure triangle; click toggles collapse.
-          const paint = canvasPaintTokens.node.section
-          ctx.fillStyle = t.colors.widgetBackground
-          ctx.fillRect(node.x + paint.horizontalInset, rowY + paint.verticalInset, l.width - paint.horizontalInset * 2, row.height - paint.verticalInset * 2)
-          const cx = node.x + t.padX + paint.glyphInset
-          const cy = rowY + row.height / 2
-          ctx.fillStyle = t.colors.label
-          ctx.beginPath()
-          if (row.collapsed) {
-            ctx.moveTo(cx - paint.arrowBack, cy - paint.arrowHalfWidth)
-            ctx.lineTo(cx + paint.arrowTip, cy)
-            ctx.lineTo(cx - paint.arrowBack, cy + paint.arrowHalfWidth)
-          } else {
-            ctx.moveTo(cx - paint.arrowHalfWidth, cy - paint.arrowBack)
-            ctx.lineTo(cx + paint.arrowHalfWidth, cy - paint.arrowBack)
-            ctx.lineTo(cx, cy + paint.arrowTip)
-          }
-          ctx.closePath()
-          ctx.fill()
-          ctx.textAlign = 'left'
-          ctx.fillText(row.label, cx + paint.labelOffset, cy, l.width - t.padX * 2 - paint.labelReserve)
-          // Subtle dot: this collapsed section hides non-default values.
-          if (row.collapsed && row.hiddenModified !== undefined) {
-            ctx.fillStyle = t.colors.modifiedIndicator
+          // A box's header, closed row or tab: the whole row opens or closes it.
+          const hovered = boxHovered(row.sectionId)
+          const left = node.x + row.inset
+          const right = node.x + l.width - row.inset
+          const top = node.y + row.top
+          if (row.tab) {
+            const tab = boxPaint.tab
+            const tabX = left + tab.inset
+            const tabY = top - tab.height / 2
+            ctx.fillStyle = t.colors.nodeBody
+            ctx.strokeStyle = hovered ? t.colors.label : t.colors.boxOutline
+            ctx.lineWidth = boxPaint.stroke
             ctx.beginPath()
-            ctx.arc(node.x + l.width - t.padX - paint.modifiedInset, cy, paint.modifiedRadius, 0, Math.PI * 2)
+            ctx.roundRect(tabX, tabY, tab.width, tab.height, tab.radius)
+            ctx.fill()
+            ctx.stroke()
+            paintArrow(tabX + tab.width / 2, tabY + tab.height / 2, true, t.colors.label)
+            continue
+          }
+          if (hovered && !row.collapsed) {
+            const inner = boxPaint.radius - boxPaint.stroke
+            ctx.fillStyle = t.colors.boxHover
+            ctx.beginPath()
+            ctx.roundRect(left + boxPaint.stroke, top + boxPaint.stroke, right - left - boxPaint.stroke * 2, closedHeight - boxPaint.headerShrink, [inner, inner, 0, 0])
             ctx.fill()
           }
-        } else if (row.kind === 'growth') {
-          // Grow-family affordance: dashed ghost-alpha capsule with '+ label'.
-          // It reads as an offer (like ghost pins), but is click-to-add because
-          // a nested-only template leaves the ghost nothing to connect or edit.
+          const cy = top + closedHeight / 2
+          const textColor = hovered ? t.colors.title : t.colors.label
+          const arrowX = left + boxPaint.textInset + boxPaint.arrow.halfWidth
+          paintArrow(arrowX, cy, !row.collapsed, textColor)
+          // The count, and on a closed box the dot for a changed value.
+          let textRight = right - boxPaint.textInset
+          const showCount = row.collapsed || row.box === 'group'
+          if (showCount) {
+            ctx.font = `${boxPaint.countFontSize}px ${t.fontFamily}`
+            ctx.fillStyle = t.colors.boxCount
+            ctx.textAlign = 'right'
+            const count = String(row.count)
+            ctx.fillText(count, textRight, cy)
+            textRight -= ctx.measureText(count).width + boxPaint.dotGap
+            ctx.font = `${t.fontSize}px ${t.fontFamily}`
+          }
+          if (row.collapsed && row.hiddenModified !== undefined) {
+            ctx.fillStyle = t.colors.boxChanged
+            ctx.beginPath()
+            ctx.arc(textRight - boxPaint.dotRadius, cy, boxPaint.dotRadius, 0, Math.PI * 2)
+            ctx.fill()
+            textRight -= boxPaint.dotRadius * 2 + boxPaint.dotGap
+          }
+          const textX = arrowX + boxPaint.arrow.halfWidth + boxPaint.labelGap
+          ctx.fillStyle = textColor
+          ctx.textAlign = 'left'
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy)
+        } else if (row.kind === 'member') {
+          // A member's own box: drag grip, its label, and the remove cross.
           const rowAlpha = ctx.globalAlpha
-          ctx.globalAlpha = rowAlpha * GHOST_ALPHA
-          ctx.strokeStyle = t.colors.label
-          ctx.lineWidth = canvasPaintTokens.widget.growth.stroke
-          ctx.setLineDash([...canvasPaintTokens.dash.growth])
-          ctx.strokeRect(node.x + t.padX, rowY + canvasPaintTokens.widget.growth.verticalInset, l.width - t.padX * 2, row.height - canvasPaintTokens.widget.growth.verticalInset * 2)
-          ctx.setLineDash([])
+          if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+          const left = node.x + row.inset
+          const right = node.x + l.width - row.inset
+          const cy = node.y + row.top + closedHeight / 2
+          const grip = boxPaint.grip
+          const gripX = left + boxPaint.textInset
+          ctx.fillStyle = t.colors.boxCount
+          for (let gx = 0; gx * grip.pitch < grip.width; gx++) {
+            for (let gy = 0; gy * grip.pitch < grip.height; gy++) {
+              ctx.beginPath()
+              ctx.arc(gripX + gx * grip.pitch + grip.dot, cy - grip.height / 2 + gy * grip.pitch + grip.dot, grip.dot / 2, 0, Math.PI * 2)
+              ctx.fill()
+            }
+          }
+          const cross = boxPaint.cross
+          const crossX = right - cross.reserve / 2
+          ctx.strokeStyle = t.colors.boxCount
+          ctx.lineWidth = cross.stroke
+          ctx.beginPath()
+          ctx.moveTo(crossX - cross.size / 2, cy - cross.size / 2)
+          ctx.lineTo(crossX + cross.size / 2, cy + cross.size / 2)
+          ctx.moveTo(crossX + cross.size / 2, cy - cross.size / 2)
+          ctx.lineTo(crossX - cross.size / 2, cy + cross.size / 2)
+          ctx.stroke()
+          const textX = gripX + grip.width + boxPaint.labelGap
+          ctx.fillStyle = t.colors.label
+          ctx.textAlign = 'left'
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, right - cross.reserve - textX)), textX, cy)
+          ctx.globalAlpha = rowAlpha
+        } else if (row.kind === 'growth') {
+          // A group that grows by hand ends in an outlined Add row, as wide
+          // as a member's box.
+          const chrome = widgetChromeRect(node.x + row.inset, rowY, l.width - row.inset * 2, row.height)
+          ctx.strokeStyle = t.colors.boxOutline
+          ctx.lineWidth = boxPaint.stroke
+          ctx.beginPath()
+          ctx.roundRect(chrome.x + boxPaint.stroke / 2, chrome.y + boxPaint.stroke / 2, chrome.width - boxPaint.stroke, chrome.height - boxPaint.stroke, chrome.radius)
+          ctx.stroke()
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'center'
-          ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, l.width - t.padX * 2 - canvasPaintTokens.widget.growth.textPadding)
+          ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, chrome.width - canvasPaintTokens.widget.growth.textPadding)
           ctx.textAlign = 'left'
-          ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'note') {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
@@ -3383,14 +3479,14 @@ export class CanvasRenderer {
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
             ctx.textAlign = 'left'
-            ctx.fillText(row.input.label, node.x + t.padX + t.pinRadius + canvasPaintTokens.node.labelPinGap, rowY + row.height / 2)
+            ctx.fillText(row.input.label, node.x + t.padX + t.pinRadius + canvasPaintTokens.node.labelPinGap + (row.nameInset ?? 0), rowY + row.height / 2)
             ctx.globalAlpha = rowAlpha
           }
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             ctx.fillStyle = t.colors.label
             ctx.textAlign = 'right'
-            ctx.fillText(row.output.label, node.x + l.width - t.padX - t.pinRadius - canvasPaintTokens.node.labelPinGap, rowY + row.height / 2)
+            ctx.fillText(row.output.label, node.x + l.width - t.padX - t.pinRadius - canvasPaintTokens.node.labelPinGap - (row.nameInset ?? 0), rowY + row.height / 2)
             ctx.textAlign = 'left'
             ctx.globalAlpha = rowAlpha
           }
@@ -3436,6 +3532,17 @@ export class CanvasRenderer {
             ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
             ctx.fill()
             ctx.globalAlpha = hoverAlpha
+          }
+          if (row.lead) {
+            // A choice's dropdown has its own outline, joined to the box its
+            // option rows hang in.
+            const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height)
+            const half = canvasPaintTokens.node.box.stroke / 2
+            ctx.strokeStyle = t.colors.boxOutline
+            ctx.lineWidth = canvasPaintTokens.node.box.stroke
+            ctx.beginPath()
+            ctx.roundRect(chrome.x + half, chrome.y + half, chrome.width - half * 2, chrome.height - half * 2, chrome.radius)
+            ctx.stroke()
           }
           if (this.rowMarks[sceneNode.id]?.has(row.valueKey) === true) {
             // Anchored widget-value diagnostic (out-of-range INT, unknown

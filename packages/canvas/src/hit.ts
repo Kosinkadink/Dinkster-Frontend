@@ -355,10 +355,14 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     // must remain usable where they meet the resize band.
     if (inside && contentDetail) {
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
-        if (row.kind === 'section') return { kind: 'section', node, row }
+        if (row.kind === 'section') {
+          // The header, closed row or tab spans the box, not the node's margin.
+          if (wx < node.x + row.inset || wx > node.x + l.width - row.inset) continue
+          return { kind: 'section', node, row }
+        }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
@@ -377,10 +381,14 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
-        if (row.kind === 'section') return { kind: 'section', node, row }
+        if (row.kind === 'section') {
+          // The header, closed row or tab spans the box, not the node's margin.
+          if (wx < node.x + row.inset || wx > node.x + l.width - row.inset) continue
+          return { kind: 'section', node, row }
+        }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
