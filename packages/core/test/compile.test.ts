@@ -2125,3 +2125,59 @@ describe('Primitive and Switch as ordinary nodes', () => {
     if (result.ok) expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: 11 })
   })
 })
+
+describe('a type variable fed two different types', () => {
+  const T = { kind: 'variable', templateId: 'T' } as const
+  const LATENT = { kind: 'concrete', name: 'LATENT' } as const
+  const local: Record<string, NodeSchema> = {
+    ImageSrc: dynSchemas['ImageSrc']!,
+    LatentSrc: { ...dynSchemaOf('LatentSrc', [{ kind: 'output', id: 'out', type: LATENT }]), isOutputNode: false },
+    IntSrc: dynSchemas['IntSrc']!,
+    Primitive: dynSchemas['Primitive']!,
+    Pair: dynSchemaOf('Pair', [dynInput('first', { type: T }), dynInput('second', { type: T }), { kind: 'output', id: 'out', type: T }]),
+    AnySwitch: {
+      ...dynSchemaOf('AnySwitch', [
+        dynInput('pick', { type: PICK, optional: true }),
+        { kind: 'group', id: 'branch', value: dynInput('value', { type: T, optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 1 },
+        { kind: 'output', id: 'result', type: T },
+      ]),
+      selector: { input: 'pick', group: 'branch' },
+    },
+  }
+  const run = (doc: WorkflowDocument, target: string) => compile({
+    ...compileInput(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId(target) }] }),
+    resolve: (type) => local[type],
+    graphFeatures: ['regions', 'typedLiteral'],
+  })
+  const refusals = (result: ReturnType<typeof compile>) =>
+    result.ok ? [] : result.diagnostics.filter((d) => d.code === 'compile.typeVariableConflict').map((d) => [d.message, d.anchor?.occurrence?.node])
+
+  it('refuses the queue for a node whose inputs bring two types', () => {
+    const result = run(dynDoc({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'Pair' } },
+      links: [[['img', 'out'], ['pair', 'first']], [['lat', 'out'], ['pair', 'second']]],
+    }), 'pair')
+    expect(refusals(result)).toEqual([['These inputs must be the same type: first is IMAGE, second is LATENT', 'pair']])
+  })
+
+  it.each([
+    ['a run-time pick', 'IntSrc', false],
+    ['a known pick', 'Primitive', true],
+  ])('refuses a Switch with branches of two types only for %s', (_, pickType, ok) => {
+    const result = run(dynDoc({
+      nodes: {
+        img: { type: 'ImageSrc' },
+        lat: { type: 'LatentSrc' },
+        pick: { type: pickType, values: { value: 1 } },
+        sw: { type: 'AnySwitch', dynamic: { branch: { members: ['a', 'b'] } } },
+      },
+      links: [
+        [['pick', pickType === 'IntSrc' ? 'out' : 'INT'], ['sw', 'pick']],
+        [['img', 'out'], ['sw', 'branch.a']],
+        [['lat', 'out'], ['sw', 'branch.b']],
+      ],
+    }), 'sw')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(ok)
+    if (!ok) expect(refusals(result)).toEqual([['These inputs must be the same type: a is IMAGE, b is LATENT', 'sw']])
+  })
+})

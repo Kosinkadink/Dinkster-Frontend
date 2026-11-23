@@ -280,8 +280,13 @@ describe('solver: open lists peel the constructor', () => {
     expect(solved.resolutionOf(n('append'), 'T')).toEqual({ kind: 'conflict' })
     expect(solved.linkVerdicts.get('l0' as never)).toBe('mismatch')
     expect(solved.linkVerdicts.get('l1' as never)).toBe('mismatch')
-    expect(solved.diagnostics.find((diagnostic) => diagnostic.code === 'solve.varConflict')?.message)
-      .toBe('append.T: connected types have no common match')
+    expect(solved.diagnostics.filter((diagnostic) => diagnostic.code === 'solve.varConflict')).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        message: 'These inputs must be the same type: list is IMAGE, item is LATENT',
+        anchor: { port: { node: 'append', port: 'item' }, link: 'l1' },
+      }),
+    ])
   })
 
   it('list<T> in, T out relates element to downstream scalar consumers', () => {

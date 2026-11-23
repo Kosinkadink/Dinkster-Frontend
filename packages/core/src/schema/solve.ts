@@ -65,7 +65,7 @@ import {
   type Connectivity,
   type ElaborateOptions,
 } from './elaborate.js'
-import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type TypeExpr } from './model.js'
+import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr } from './model.js'
 
 /** Every variable occurring in `t`, including inside list/asset elements. */
 function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
@@ -311,6 +311,9 @@ export function solveGraphTypes(
   const optionalOutputs = new Map<NodeId, Set<string>>()
   const failInputs = new Map<NodeId, Set<string>>()
   const wholeListInputs = new Map<NodeId, Set<string>>()
+  const inputLabels = new Map<NodeId, Map<string, string>>()
+  const knownOutputs = new Map<NodeId, Set<string>>()
+  const selectors = new Map<NodeId, NodeSelectorSpec>()
   for (const node of Object.values(def.nodes) as NodeData[]) {
     options.onWork?.('node')
     const schema = options.resolveNode === undefined
@@ -325,10 +328,14 @@ export function solveGraphTypes(
       readonly type: TypeExpr
       readonly source: SlotBindingSource
     }[] = []
+    const labels = new Map<string, string>()
+    inputLabels.set(node.id, labels)
+    if (schema.selector !== undefined) selectors.set(node.id, schema.selector)
     for (const item of elabInputsOf(e)) {
       options.onWork?.('port')
       const key = item.address.port
       inputs.set(key, item.spec.type)
+      labels.set(key, item.spec.displayName ?? item.spec.id)
       if (item.spec.acceptsList) {
         let set = wholeListInputs.get(node.id)
         if (!set) wholeListInputs.set(node.id, (set = new Set()))
@@ -368,6 +375,11 @@ export function solveGraphTypes(
       options.onWork?.('port')
       const key = item.address.port
       outputs.set(key, item.spec.type)
+      if (item.spec.knownValue !== undefined) {
+        let set = knownOutputs.get(node.id)
+        if (!set) knownOutputs.set(node.id, (set = new Set()))
+        set.add(key)
+      }
       if (item.spec.optional) {
         let set = optionalOutputs.get(node.id)
         if (!set) optionalOutputs.set(node.id, (set = new Set()))
@@ -444,6 +456,22 @@ export function solveGraphTypes(
       if (prev === undefined || verdictRank[verdict] > verdictRank[prev]) netSinkVerdicts.set(key, verdict)
     }
   }
+
+  // Types fed INTO a variable input, kept per node apart from the class
+  // domain. The engine binds each node from its own inputs and refuses the
+  // run when they disagree; a class conflict that comes only from an
+  // allowlist, a stored slot choice or a downstream input stays a warning.
+  interface Feed {
+    readonly key: VarKey
+    readonly to: PortRef
+    readonly source: EdgeSource
+    /** The atoms a concrete producer brings, or the variable a generic producer passes on. */
+    readonly atoms?: readonly string[]
+    readonly from?: VarKey
+  }
+  const feeds: Feed[] = []
+  /** Links whose consumer sees several possible producers (selector candidates). */
+  const branchingLinks = new Set<LinkId>()
 
   const admittedInputType = (
     from: TypeExpr | undefined,
@@ -597,6 +625,7 @@ export function solveGraphTypes(
     if (fromVar !== undefined && toVar !== undefined) {
       if (source.kind === 'projectedInput' && fromVariableKeys !== undefined) vars.merge(toVar, fromVar, source)
       else vars.merge(fromVar, toVar, source)
+      feeds.push({ key: toVar, to, source, from: fromVar })
       setVerdict(source, 'ok') // downgraded to 'mismatch' if the class conflicts
       return
     }
@@ -624,6 +653,7 @@ export function solveGraphTypes(
         }
       }
       vars.constrain(varKey, atoms, source)
+      if (toVar !== undefined) feeds.push({ key: toVar, to, source, atoms })
       setVerdict(source, 'ok') // downgraded on conflict
       return
     }
@@ -713,7 +743,9 @@ export function solveGraphTypes(
     // passthrough, never a type variable). Non-selector chains yield exactly
     // one trace, preserving prior behavior. Value sources carry values, not
     // types; undriven/cyclic branches constrain nothing.
-    for (const trace of traceEndpointAll(def, link.from, rerouteIndex)) {
+    const traces = [...traceEndpointAll(def, link.from, rerouteIndex)]
+    if (traces.length > 1) branchingLinks.add(link.id)
+    for (const trace of traces) {
       if (trace.kind === 'output') {
         constrain(trace.ref, link.to, { kind: 'link', id: link.id })
       } else if (trace.kind === 'tapValue') {
@@ -795,10 +827,80 @@ export function solveGraphTypes(
     }
   }
 
-  // -- 3. Conflicted classes: mark every contributing edge, one diagnostic each.
+  // -- 3. Nodes whose own inputs bring types no one type matches: errors,
+  // because the engine refuses the run. A Switch counts only when its pick is
+  // a run-time value; a stored or known pick is lowered away before
+  // validation, and the branches it leaves out never reach the engine.
+  const runtimePick = (node: NodeId): boolean => {
+    const selector = selectors.get(node)!
+    const producers = [
+      ...(Object.values(def.links) as LinkData[])
+        .filter((link) => isPortEndpoint(link.to) && link.to.node === node && link.to.port === selector.input)
+        .map((link) => [...traceEndpointAll(def, link.from, rerouteIndex)]),
+      ...Object.values(def.nets)
+        .filter((net) => net.sinks.some((sink) => sink.node === node && sink.port === selector.input))
+        .map((net) => [...traceEndpointAll(def, net.source, rerouteIndex)]),
+    ]
+    return producers.length === 1 && producers[0]!.length === 1 &&
+      producers[0]![0]!.kind === 'output' && !knownOutputs.get(producers[0]![0]!.ref.node)?.has(producers[0]![0]!.ref.port)
+  }
+  const counted = feeds.filter((feed) =>
+    !(feed.source.kind === 'link' && branchingLinks.has(feed.source.id)) &&
+    !(selectors.has(feed.to.node) && feed.to.port.startsWith(`${selectors.get(feed.to.node)!.group}.`) && !runtimePick(feed.to.node)))
+  const broughtBy = (feed: Feed, fed: ReadonlyMap<VarKey, ReadonlySet<string>>): ReadonlySet<string> | undefined => {
+    if (feed.atoms !== undefined) return new Set(feed.atoms)
+    const passed = fed.get(feed.from!)
+    // A generic producer that cannot bind passes no type on.
+    return passed !== undefined && passed.size > 0 ? passed : undefined
+  }
+  let fed = new Map<VarKey, ReadonlySet<string>>()
+  for (let pass = 0; pass <= counted.length; pass++) {
+    const next = new Map<VarKey, ReadonlySet<string>>()
+    for (const feed of counted) {
+      const atoms = broughtBy(feed, fed)
+      if (atoms === undefined) continue
+      const prior = next.get(feed.key)
+      next.set(feed.key, prior === undefined ? atoms : new Set([...atoms].filter((atom) => prior.has(atom))))
+    }
+    const stable = next.size === fed.size && [...next].every(([key, atoms]) => {
+      const prior = fed.get(key)
+      return prior !== undefined && prior.size === atoms.size && [...atoms].every((atom) => prior.has(atom))
+    })
+    fed = next
+    if (stable) break
+  }
+  const refused = new Set<VarRecord>()
+  for (const [key, atoms] of fed) {
+    if (atoms.size > 0) continue
+    const into = counted.filter((feed) => feed.key === key)
+    const node = into[0]!.to.node
+    refused.add(vars.find(key))
+    const brought = new Map<string, ReadonlySet<string>>()
+    for (const feed of into) {
+      const atoms = broughtBy(feed, fed)
+      if (atoms === undefined) continue
+      const prior = brought.get(feed.to.port)
+      brought.set(feed.to.port, prior === undefined ? atoms : new Set([...atoms].filter((atom) => prior.has(atom))))
+    }
+    const order = [...(portTypes.get(node)?.inputs.keys() ?? [])]
+    const labels = inputLabels.get(node)
+    const named = [...brought]
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([port, types]) => `${labels?.get(port) ?? port} is ${[...types].join(' or ')}`)
+    const last = into.at(-1)!
+    diagnostics.push(
+      diag('error', 'schema', 'solve.varConflict', `These inputs must be the same type: ${named.join(', ')}`, {
+        anchor: { port: last.to, ...(last.source.kind === 'link' ? { link: last.source.id } : {}) },
+        data: { node, edges: into.map((feed) => sourceLabel(feed.source)) },
+      }),
+    )
+  }
+
+  // -- 4. Other conflicted classes: mark every contributing edge, one warning each.
   for (const root of vars.roots()) {
     if (root.domain === undefined || root.domain.size > 0) continue
     for (const source of root.sources) setVerdict(source, 'mismatch')
+    if (refused.has(root)) continue
     const firstLink = root.sources.find((s): s is Extract<EdgeSource, { kind: 'link' }> => s.kind === 'link')
     const firstProjected = root.sources.find((s): s is Extract<EdgeSource, { kind: 'projectedInput' }> => s.kind === 'projectedInput')
     const firstSlotBinding = root.slotBindings[0]
@@ -821,7 +923,7 @@ export function solveGraphTypes(
     )
   }
 
-  // -- 4. Result surface.
+  // -- 5. Result surface.
   // Specialization is a persisted choice, so solving only advises when a
   // later topology/type change makes that choice stale. Reuse the exact
   // topology tracing policy used by edge checks, including all selector
