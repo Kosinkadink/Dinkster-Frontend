@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -32,8 +32,8 @@ const screenshot = async (page: Page, name: string, immediate = false): Promise<
 const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
-  await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
+  await waitForWorkspaceReady(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
 }
 
 for (const theme of ['dark', 'light'] as const) {
@@ -387,48 +387,6 @@ test('App view validation and remote failures keep editable controls', async ({ 
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n!.values.count)).toBe(11)
 })
 
-test('Memory lease rows retain device identity, bytes and expiry', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  await page.evaluate(async () => {
-    const componentPath = '/src/MemoryPanel.tsx'
-    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-    const { MemoryPanel } = await import(componentPath)
-    const { render } = await import(rendererPath)
-    const host = document.createElement('section')
-    host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:720px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
-    document.querySelector('.canvas-pane')!.append(host)
-    const dispose = render(() => MemoryPanel({ label: 'Lease visual', now: () => 0, connection: {
-      status: { get: () => 'connected', subscribe: () => () => {} },
-      onMemoryStatus: () => () => {},
-      fetchMemoryStatus: async () => ({
-        devices: {}, memoryGovernor: {}, consumerDetails: {},
-        queue: { queued: 3, running: [], maxRunningJobs: 2, paused: false },
-        leases: [
-          { reservationId: 'reservation-primary-long-identity', device: 'cuda:0', bytes: 1073741824, expiresInSeconds: 12 },
-          { reservationId: 'reservation-secondary', device: 'cpu', bytes: 1536, expiresInSeconds: 2 },
-        ],
-      }),
-      fetchRuntimeSettings: async () => ({ categories: { available: [], granted: [] }, settings: {} }),
-      updateRuntimeSetting: async () => { throw new Error('Read-only visual fixture') },
-    } }), host)
-    ;(window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual = () => { dispose(); host.remove() }
-  })
-  const leases = page.getByRole('region', { name: 'Active memory leases' })
-  await expect(leases).toContainText('2 active')
-  await expect(leases).toContainText('1.0 GiB')
-  await expect(leases).toContainText('1.5 KiB')
-  await expect(leases).toContainText('12s remaining')
-  await expect(leases).toContainText('2s remaining')
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await leases.scrollIntoViewIfNeeded()
-    await page.mouse.move(0, 0)
-    await screenshot(page, `memory-lease-rows-${width}`)
-  }
-  await page.evaluate(() => (window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual())
-})
-
 test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
@@ -479,7 +437,7 @@ test('Output descriptor invalid documents keep repair and probe feedback', async
   }
 })
 
-test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
+test('backend add error and Resources rows at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   await page.evaluate(() => {
@@ -497,12 +455,6 @@ test('runtime panel headers and backend add error at desktop and compact widths'
     await backends.getByTestId('backend-url-input').fill('http://127.0.0.1:1')
     await backends.getByTestId('backend-add').click()
     await expect(backends.getByRole('alert').filter({ hasText: /could not|failed|unreachable/i }).first()).toBeVisible()
-    const header = backends.locator('.product-panel-header').first()
-    const headerStyles = await header.evaluate((element) => {
-      const style = getComputedStyle(element)
-      const title = getComputedStyle(element.querySelector('h2')!)
-      return { padding: style.padding, divider: style.borderBottom, font: title.font }
-    })
     const fonts = await backends.locator('input, button, select, textarea').evaluateAll((controls) =>
       controls.map((control) => getComputedStyle(control).fontFamily),
     )
@@ -511,13 +463,11 @@ test('runtime panel headers and backend add error at desktop and compact widths'
     await expect(backends.getByTestId('backend-add')).toHaveAttribute('data-fill', 'solid')
     await screenshot(page, `runtime-panel-backends-error-${width}`)
     await openDock(page, 'memory-sidebar-toggle')
-    const memory = page.getByTestId('memory-panel').first()
-    await expect(memory).toBeVisible()
-    expect(await memory.locator('.product-panel-header').evaluate((element) => {
-      const style = getComputedStyle(element)
-      const title = getComputedStyle(element.querySelector('h2')!)
-      return { padding: style.padding, divider: style.borderBottom, font: title.font }
-    })).toEqual(headerStyles)
+    const resources = page.getByTestId('resources-panel')
+    await expect(resources).toBeVisible()
+    await expect(resources.locator('.dinkster-resource-backend').first()).toBeVisible()
+    await expect(resources.getByRole('alert')).toBeVisible()
+    await expect(resources.getByText('Loading resources...', { exact: true })).toHaveCount(0)
     await screenshot(page, `runtime-panel-memory-${width}`)
   }
 })
@@ -594,8 +544,11 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     backend.connection.status.set('connected')
     await app.refreshBackendSchemas(backend)
   })
-  await expect(page.getByTestId('status-bar')).toContainText('disconnected')
-  await expect(page.getByTestId('status-bar')).not.toContainText('loading schemas...')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'disconnected')
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).schemaState.get().status
+  })).toBe('error')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     for (const [toggle, name] of [['library-toggle', 'library'], ['assets-toggle', 'assets']] as const) {
@@ -623,8 +576,11 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
   await openDock(page, 'library-toggle')
   await page.getByTestId('dock-zone-left').getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(page.getByTestId('dock-zone-left').getByRole('alert')).toHaveCount(0)
-  await expect(page.getByTestId('status-bar')).not.toContainText('disconnected')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await expect(page.getByTestId('status-connection')).not.toHaveAttribute('data-state', 'disconnected')
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).registry.get() !== undefined
+  })).toBe(true)
 })
 
 test('Library Assets and Runs use shared empty and loading states', async ({ page }) => {

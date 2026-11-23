@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { nativeTest as test, expect } from './fixtures.js'
+import { nativeTest as test, expect, waitForWorkspaceReady } from './fixtures.js'
 
 const catalog = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes-comfy.json', import.meta.url), 'utf8'))
 const workflow = JSON.parse(readFileSync(new URL('../../app/test/fixtures/unresolved-output-dependency.json', import.meta.url), 'utf8'))
@@ -12,7 +12,7 @@ for (const width of [1440, 900]) {
     await page.route('/api/composition', (route) => route.fulfill({ json: {} }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
-    await expect(page.getByTestId('status-bar')).toContainText('node schemas')
+    await waitForWorkspaceReady(page)
     await page.evaluate(async (doc) => {
       const app = window.__dinksterTest!.app
       ;(app as unknown as { templateGalleryOpen: { set(value: boolean): void } }).templateGalleryOpen.set(false)

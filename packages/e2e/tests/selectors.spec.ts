@@ -11,7 +11,7 @@
  * from n4).
  */
 import selectorFixture from '../../core/fixtures/workflows/selector.json' with { type: 'json' }
-import { executionDetails, expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const fixture = structuredClone(selectorFixture)
 fixture.graphs.g0.links.l12.from.port = 'IMAGE'
@@ -99,8 +99,7 @@ const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   const failures = await page.evaluate(async (json) => (await window.__dinksterTest!.app.openDocument(json, 'Selectors')), fixture)
   expect(failures).toEqual([])
@@ -390,7 +389,7 @@ test('a frozen view shows the EXACT recorded selector resolution; the badge popo
   ).toBeNull()
 
   // Open the frozen view: the renderer receives the recorded resolutions.
-  await (await executionDetails(row)).locator('.execution-open').click()
+  await row.locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect
     .poll(() =>

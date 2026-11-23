@@ -71,7 +71,6 @@ test.beforeEach(async ({ page }) => {
   )
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const longOptions = Array.from({ length: 14 }, (_, index) =>

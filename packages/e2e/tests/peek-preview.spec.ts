@@ -36,7 +36,7 @@ const activeDoc = (page: Page) =>
 
 /** Register the native server as a second backend (no tab targeting yet). */
 async function addNativeBackend(page: Page): Promise<void> {
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
@@ -52,7 +52,6 @@ async function addNativeBackend(page: Page): Promise<void> {
  * dev.image.gradient is decodable.
  */
 async function openGradientDoc(page: Page): Promise<void> {
-  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'peek-preview-e2e', root: 'g0',
@@ -158,7 +157,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
   requireBackendNodes(served!, ['dev.image.gradient', 'dev.image.invert'], testInfo)
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await addNativeBackend(page)
   await openGradientDoc(page)
 })

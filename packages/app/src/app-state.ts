@@ -179,7 +179,8 @@ import {
 } from '@dinkster/widgets'
 import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
-import { createComponent } from 'solid-js'
+import { batch, createComponent } from 'solid-js'
+import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
 import pkg from '../package.json'
 import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
 import { parsePersistenceJson, persistenceJson, persistenceValuePrepared, persistedWorkflowDigest, persistedWorkflowDocument, withPersistenceSources } from './workflow-persistence-value.js'
@@ -1295,6 +1296,8 @@ export interface Tab {
    * truthful no matter what happens to the live document afterwards.
    */
   readonly execution?: ExecutionRef
+  /** Canvas ownership handoff when Open as copy replaces a frozen tab. */
+  readonly replacesFrozenTabId?: string
 }
 
 export interface CurveEditorTarget {
@@ -2841,6 +2844,7 @@ export class AppState {
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
+  readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -3039,6 +3043,13 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
+    this.settings.register({
+      id: 'execution.reviewUpgrades',
+      get name() { return t('shell.reviewUpgrades.label') },
+      get description() { return t('settings.execution.reviewUpgrades.description') },
+      type: 'boolean',
+      defaultValue: false,
+    })
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',
@@ -3057,6 +3068,19 @@ export class AppState {
         return [
           { value: 'zoom', label: t('settings.canvas.scrollBehavior.option.zoom') },
           { value: 'pan', label: t('settings.canvas.scrollBehavior.option.pan') },
+        ]
+      },
+    })
+    this.settings.register({
+      id: 'canvas.minimap.size',
+      get name() { return t('settings.canvas.minimap.size') },
+      type: 'combo',
+      defaultValue: 'small',
+      get options() {
+        return [
+          { value: 'small', label: t('settings.canvas.minimap.size.small') },
+          { value: 'medium', label: t('settings.canvas.minimap.size.medium') },
+          { value: 'large', label: t('settings.canvas.minimap.size.large') },
         ]
       },
     })
@@ -5053,7 +5077,6 @@ export class AppState {
 
   // -- Schema arrival -------------------------------------------------------
 
-  readonly reviewReplacements = createSignal(false)
   private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
   private readonly replacementRegistries = new WeakMap<SchemaRegistry, { registry: ReplacementRegistry; version: number }>()
@@ -5166,7 +5189,7 @@ export class AppState {
   }
 
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
-    if (this.reviewReplacements.get()) return
+    if (this.settings.get<boolean>('execution.reviewUpgrades')) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
     if (items.length === 0) return
     const store = tab.store
@@ -5447,7 +5470,7 @@ export class AppState {
     this.tabs.update((list) => list.map((candidate) => candidate === tab ? { ...tab, title } : candidate))
   }
 
-  async duplicateTab(tabId: string): Promise<Tab | undefined> {
+  async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
     const title = source.execution
@@ -5461,7 +5484,10 @@ export class AppState {
     while (this.tabs.get().some((tab) => tab.id === lineage))
     const backend = this.backendForTab(source)
     const stillWanted = this.beginWorkflowOpen()
-    const copy = await this.openDocumentOnBackend({ ...source.store.doc, lineage }, copyTitle, backend, stillWanted, false, undefined, backend)
+    const prepared = this.prepareDocumentOpen({ ...source.store.doc, lineage }, copyTitle, backend)
+    if (!prepared.ok) return undefined
+    const copy = await this.publishOpenedDocument(prepared, backend, stillWanted, backend, true,
+      replaceFrozen && source.execution ? source : undefined)
     if (copy && !source.execution && source.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(copy.id, APP_EDITOR_KIND)
     return copy && this.tabs.get().find((tab) => tab.id === copy.id)
   }
@@ -5862,14 +5888,34 @@ export class AppState {
       : { command: 'batch', params: { invocations: normalized } as unknown as Json }
   }
 
-  /**
-   * Dispatch a document command to a tab's store. Rejections land in
-   * Problems (append; they do not clobber compile/submit diagnostics).
-   * Frozen tabs reject everything silently: read-only is a mode the UI
-   * communicates with a banner, not a per-gesture error.
-   */
+  refuseFrozenEdit(tab: Tab): CommandOutcome {
+    this.frozenEditRefusal.set({ tabId: tab.id })
+    return { ok: false, diagnostics: [] }
+  }
+
+  /** Frozen layout changes stay in the tab's local session, never its run artifact or persistence. */
+  private frozenPresentationCommand(invocation: CommandInvocation): boolean {
+    if (invocation.command === 'batch') {
+      const params = invocation.params
+      if (!params || typeof params !== 'object' || Array.isArray(params)) return false
+      const invocations = (params as JsonObject).invocations
+      if (!Array.isArray(invocations)) return false
+      return invocations.every((item: Json) => item !== null && typeof item === 'object' && !Array.isArray(item) &&
+        typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
+    }
+    return [
+      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
+      'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
+      'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
+      'view.setBookmark', 'view.clearBookmark',
+    ].includes(invocation.command)
+  }
+
+  /** Dispatch to the tab's session; ordinary command failures append to Problems. */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
-    if (tab.execution) return { ok: false, diagnostics: [] }
+    if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
     const effective = this.countAwareValueInvocation(tab, invocation)
     const outcome = tab.store.dispatch(effective)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
@@ -6569,12 +6615,12 @@ export class AppState {
 
   private async publishOpenedDocument(
     prepared: Extract<ReturnType<AppState['prepareDocumentOpen']>, { readonly ok: true }>,
-    backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true,
+    backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true, replaceFrozen?: Tab,
   ): Promise<Tab | undefined> {
     const destination = target ?? this.backends.get()[0]!
     if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
       !this.backends.get().includes(destination)) return undefined
-    const tab = prepared.publish(target ?? undefined)
+    const tab = prepared.publish(target ?? undefined, replaceFrozen)
     if (!awaitPromotion) return tab
     const intent = this.workflowOpenIntent
     if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
@@ -6585,7 +6631,7 @@ export class AppState {
 
   private prepareDocumentOpen(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject):
     { readonly ok: false; readonly diagnostics: readonly Diagnostic[] } |
-    { readonly ok: true; readonly document: WorkflowDocument; readonly publish: (target?: Backend) => Tab } {
+    { readonly ok: true; readonly document: WorkflowDocument; readonly publish: (target?: Backend, replaceFrozen?: Tab) => Tab } {
     const legacy = detectFormat(json) === 'litegraph-workflow'
     const digestHints = legacy ? legacyAssetDigestHints(json) : []
     // A legacy document is translated through the schemas of the backend it
@@ -6625,12 +6671,17 @@ export class AppState {
       while (this.tabs.get().some((tab) => tab.id === lineage))
       document = { ...document, lineage }
     }
-    return { ok: true, document, publish: (target) => {
+    return { ok: true, document, publish: (target, replaceFrozen) => {
       const replacesExisting = this.tabs.get().some((candidate) => !candidate.execution && candidate.id === document.lineage)
       if (replacesExisting) {
         this.markDocumentPersistenceDirty(document.lineage)
       }
-      const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
+      const created = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
+      const tab = replaceFrozen ? { ...created, replacesFrozenTabId: replaceFrozen.id } : created
+      if (replaceFrozen) {
+        tab.graphStack.set(replaceFrozen.graphStack.get())
+        tab.instancePath.set(replaceFrozen.instancePath.get())
+      }
       if (replacesExisting) this.workspaceReplacements.add(tab)
       this.dismissMigrationNotice(tab.id)
       // Load/translation warnings belong to the tab they describe: a
@@ -6645,8 +6696,22 @@ export class AppState {
       // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
       this.templateGalleryOpen.set(false)
       if (target !== undefined) this.tabTargets.update((targets) => new Map(targets).set(tab.id, target.id))
-      this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
-      this.activeTabId.set(tab.id)
+      batch(() => {
+        if (replaceFrozen) {
+          const ids = this.tabs.get().map((candidate) => candidate.id)
+          const layout = repairEditorLayout(this.editorSplits.layout.get(), ids)
+          const group = layoutGroups(layout.root).find((candidate) => candidate.tabIds.includes(replaceFrozen.id))!
+          const withCopy = repairEditorLayout(layout, [...ids, tab.id])
+          this.editorSplits.layout.set(repairEditorLayout(
+            moveTabToGroup(withCopy, tab.id, group.id, group.tabIds.indexOf(replaceFrozen.id)),
+            ids.map((id) => id === replaceFrozen.id ? tab.id : id),
+          ))
+          this.releaseFrozenPin(replaceFrozen.id)
+          this.cleanupClosedTab(replaceFrozen.id)
+          this.tabs.update((tabs) => tabs.map((candidate) => candidate === replaceFrozen ? tab : candidate))
+        } else this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
+        this.activeTabId.set(tab.id)
+      })
       this.schemaDiagnosticsPending.add(tab.id)
       this.legacyBooleanPending.add(tab.id)
       this.drainLegacyBooleans() // immediate when schemas are already loaded

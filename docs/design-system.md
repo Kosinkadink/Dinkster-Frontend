@@ -1,5 +1,9 @@
 # Design System
 
+## Resource usage
+
+`ProductResourceUsage` draws a card's memory segments and the last two minutes of usage in the shared gallery's Resource usage page. Callers supply measured values, labels, units and timestamps. Missing segments and limits stay absent. History is positioned by elapsed time, not by sample index, and samples outside the current two-minute window are omitted. A compact variant reduces graph height when several cards share a panel. The legend and accessible SVG description expose the same numbers without relying on color.
+
 ## Logo artwork
 
 The logo and wordmark use outlined vector contours from
@@ -864,11 +868,8 @@ arbitrary callback.
 
 ### Performance methodology and budget
 
-The historical measurements in [Performance baselines](perf.md) are not
-active browser test gates. A wall-clock test requires elapsed time to be the
-property under test and a bound derived from the slowest hosted runner with
-at least a threefold margin. The removed browser timing cases did not meet
-that requirement.
+A wall-clock test requires elapsed time to be the property under test and a
+bound derived from the slowest hosted runner with at least a threefold margin.
 
 Performance comparisons use the same machine, Chromium build, display mode,
 viewport, device scale, fixture, ports, worker count and environment on both

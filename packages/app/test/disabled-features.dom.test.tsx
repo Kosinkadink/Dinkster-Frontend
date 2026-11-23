@@ -84,6 +84,43 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   expect(revealFile).toHaveBeenCalledTimes(1)
 })
 
+it('opens Resources for the status backend before mount and on repeated backend jumps', async () => {
+  app = new AppState()
+  const local = app.backends.get()[0]!
+  const remote = app.addBackend('http://resources-focus.test', 'Remote workstation', false, 'dinkster')!
+  for (const backend of [local, remote]) {
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue({ connection: backend.id, hash: 'focus-test', schemas: new Map(), diagnostics: [], resolve: () => undefined })
+    vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'focus-test', jobs: [] })
+    vi.spyOn(backend.connection, 'fetchMountSettings').mockRejectedValue(new Error('Unavailable in fixture'))
+    vi.spyOn(backend.connection, 'fetchMemoryStatus').mockResolvedValue({
+      devices: {}, queue: { queued: 0, running: [], maxRunningJobs: 1, paused: false }, leases: [],
+      memoryGovernor: { 'vram:cuda:0': { budgetBytes: null, reservedBytes: 0, consumerFootprintBytes: 0, availableBytes: null, consumers: {}, measured: { totalBytes: 12e9, freeBytes: 5e9 } } },
+    })
+    ;(backend.connection.status as Signal<ConnectionStatus>).set('connected')
+  }
+  const host = document.createElement('div')
+  document.body.append(host)
+  dispose = render(() => <App app={app} />, host)
+  const jump = () => host.querySelector<HTMLButtonElement>('[data-testid="status-memory"]')!
+  await vi.waitFor(() => expect(jump()).not.toBeNull())
+  expect(host.querySelector('[data-testid="resources-panel"]')).toBeNull()
+  jump().click()
+  const toggle = (id: string) => host.querySelector<HTMLButtonElement>(`[data-testid="resources-panel"] [data-backend="${id}"] > .dinkster-resource-backend-toggle button`)!
+  await vi.waitFor(() => expect(toggle(local.id)?.getAttribute('aria-expanded')).toBe('true'))
+  toggle(local.id).click()
+  expect(toggle(local.id).getAttribute('aria-expanded')).toBe('false')
+  app.setTabTarget(app.activeTab()!.id, remote.id)
+  await vi.waitFor(() => expect(jump()?.getAttribute('aria-label')).toContain('Resources'))
+  jump().click()
+  await vi.waitFor(() => expect(toggle(remote.id).getAttribute('aria-expanded')).toBe('true'))
+  expect(toggle(local.id).getAttribute('aria-expanded')).toBe('false')
+  toggle(remote.id).click()
+  expect(toggle(remote.id).getAttribute('aria-expanded')).toBe('false')
+  jump().click()
+  await vi.waitFor(() => expect(toggle(remote.id).getAttribute('aria-expanded')).toBe('true'))
+  expect(toggle(local.id).getAttribute('aria-expanded')).toBe('false')
+})
+
 it('does not expose obsolete environment management when an older Desktop host supplies it', () => {
   app = new AppState()
   const host = document.createElement('div')
@@ -128,7 +165,7 @@ it('does not register disabled template surfaces and withdraws enabled surfaces'
 })
 
 it('shows Learn for any connected guide catalog and rejects stale availability', async () => {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{"mounts":[]}', {
     headers: { 'Content-Type': 'application/json' },
   }))
   app = new AppState()
@@ -196,17 +233,18 @@ it('renders backend targeting, review state and live shared-session tooltip hint
   option.click()
   expect(app.tabTargets.get().get(app.activeTab()!.id)).toBe(remote.id)
 
-  const review = host.querySelector<HTMLButtonElement>('[data-testid="review-upgrades-toggle"]')!
-  expect(review.getAttribute('aria-label')).toBe('Review upgrades')
-  expect(review.textContent).toBe('Review upgrades')
-  expect(review.getAttribute('aria-pressed')).toBe('false')
-  expect(review.hasAttribute('title')).toBe(false)
+  expect(host.querySelector('[data-testid="review-upgrades-toggle"]')).toBeNull()
+  app.settingsOpenRequest.set({ category: 'execution', id: 'execution.reviewUpgrades' })
+  app.modalPanel.set('settings')
+  const review = host.querySelector<HTMLButtonElement>('#setting-execution\\.reviewUpgrades')!
+  expect(review).not.toBeNull()
+  expect(review.getAttribute('aria-checked')).toBe('false')
   review.click()
-  expect(app.reviewReplacements.get()).toBe(true)
-  expect(review.getAttribute('aria-pressed')).toBe('true')
+  expect(app.settings.get('execution.reviewUpgrades')).toBe(true)
+  expect(review.getAttribute('aria-checked')).toBe('true')
   review.click()
-  expect(app.reviewReplacements.get()).toBe(false)
-  expect(review.getAttribute('aria-pressed')).toBe('false')
+  expect(app.settings.get('execution.reviewUpgrades')).toBe(false)
+  app.modalPanel.set('')
 
   const backends = host.querySelector<HTMLButtonElement>('[data-testid="backends-sidebar-toggle"]')!
   expect(backends.getAttribute('aria-pressed')).toBe('false')

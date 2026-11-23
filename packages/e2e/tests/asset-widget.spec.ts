@@ -50,7 +50,7 @@ async function targetNativeBackend(page: Page): Promise<void> {
       (app as unknown as { backendForTab(tab: unknown): { protocol: string } }).backendForTab(tab).protocol === 'dinkster'
   })
   if (!alreadyNative) {
-    await page.getByTestId('backends-toggle').click()
+    await page.getByTestId('status-connection').click()
     await page.getByRole('button', { name: 'Add backend', exact: true }).click()
     await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
     await page.getByTestId('backend-add').click()
@@ -80,7 +80,6 @@ async function targetNativeBackend(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   const opened = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

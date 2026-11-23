@@ -27,7 +27,7 @@ async function queueAndComplete(page: Page, expectedRows: number): Promise<void>
 
 /** Add the second origin through the panel UI and wait for schemas. */
 async function addSecondBackend(page: Page): Promise<void> {
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(secondBackend!)
   await page.getByTestId('backend-add').click()
@@ -47,12 +47,12 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
 })
 
-test('single backend shows none of the multi-backend chrome', async ({ page }) => {
+test('single backend omits targeting and execution groups but keeps its connection item', async ({ page }) => {
   await expect(page.getByTestId('tab-target')).toHaveCount(0)
-  await expect(page.getByTestId('statusbar-backend')).toHaveCount(0)
+  await expect(page.getByTestId('status-connection')).toContainText('Local')
   await expect(page.getByTestId('backend-group')).toHaveCount(0)
   // The panel still opens and shows the one (unremovable) default backend.
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await expect(page.getByTestId('backend-row')).toHaveCount(1)
   await expect(page.getByTestId('backend-remove')).toHaveCount(0)
 })
@@ -61,9 +61,9 @@ test('adding a backend connects it and reveals per-tab targeting', async ({ page
   await addSecondBackend(page)
   const rows = page.getByTestId('backend-row')
   await expect(rows.nth(1)).toContainText('Connected', { timeout: 15_000 })
-  // Multi-backend chrome appears: topbar selector + statusbar label.
+  // Targeting appears while the connection item keeps the active backend label.
   await expect(page.getByTestId('tab-target')).toBeVisible()
-  await expect(page.getByTestId('statusbar-backend')).toHaveText('Local')
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText('Local')
   // Duplicate registration is rejected (still 2 rows).
   await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(`${secondBackend}/`)
@@ -80,7 +80,7 @@ test('tab targets are per tab; runs group by backend with distinct connections',
   await selectProductOption(page, page.getByTestId('tab-target'), secondBackend!)
   const targets = await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get().values()])
   expect(targets).toEqual([secondBackend])
-  await expect(page.getByTestId('statusbar-backend')).toHaveText(secondBackend!)
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackend!)
 
   // Queue on the second origin, then retarget back to default and queue again.
   await queueAndComplete(page, 1)
@@ -124,7 +124,7 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(renditionUrls.length).toBeGreaterThan(0)
 
   // Removing the second origin keeps the history row and frozen image route.
-  if (!await page.getByTestId('backends-panel').isVisible()) await page.getByTestId('backends-toggle').click()
+  if (!await page.getByTestId('backends-panel').isVisible()) await page.getByTestId('status-connection').click()
   await page.getByTestId('backend-row').filter({ hasText: secondBackend! }).getByRole('button', { name: `Actions for ${secondBackend}` }).click()
   await page.getByRole('menuitem', { name: 'Remove backend', exact: true }).click()
   await page.getByRole('button', { name: 'Remove backend', exact: true }).click()

@@ -411,17 +411,26 @@
 }
 
 .frozen-banner {
-  border-color: var(--dinkster-info-border);
+  flex-wrap: nowrap;
 }
 
-.frozen-banner[data-sync='diverged'] {
-  border-color: var(--dinkster-warning-border);
+.frozen-banner > svg,
+.frozen-banner .frozen-label,
+.frozen-banner .banner-button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .frozen-label {
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--dinkster-info-foreground);
+  font-weight: var(--dinkster-weight-regular);
+  color: var(--dinkster-text-primary);
+}
+
+.frozen-banner .frozen-sync {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .frozen-schema-warning {

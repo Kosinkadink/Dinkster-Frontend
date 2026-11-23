@@ -2,6 +2,7 @@ import { createSignal, For, Show, type JSX } from 'solid-js'
 import type { MenuActionItem, MenuSubmenuItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
 import { ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
+import Snowflake from 'lucide-solid/icons/snowflake'
 import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
 import Spline from 'lucide-solid/icons/spline'
 import Code from 'lucide-solid/icons/code'
@@ -276,7 +277,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             {props.renderLeading?.(tab)}
             <Show when={renaming() !== tab.id} fallback={<span class="tab-select">
               <ProductRunIcon
-                icon={kindIcon(tab.editorKind)}
+                icon={props.isFrozen(tab) ? Snowflake : kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -315,7 +316,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               onKeyDown={(event) => onTabKeyDown(event, tab)}
             >
               <ProductRunIcon
-                icon={kindIcon(tab.editorKind)}
+                icon={props.isFrozen(tab) ? Snowflake : kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}

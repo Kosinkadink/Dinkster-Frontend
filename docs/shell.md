@@ -55,7 +55,7 @@ an environment.
 |    |               | bottom panel (exclusive:     |          |
 |    |               |  Log)                        |          |
 +----+---------------+------------------------------+----------+
-| status bar (optional: connection, schemas, Backends, review) |
+| status bar (connection, runs, problems, background, memory) |
 +--------------------------------------------------------------+
 ```
 
@@ -81,8 +81,15 @@ the group is focused. A single group's controls remain at full strength.
 Search keeps its outline with no fill. The workflow tab strip is frame-colored;
 the selected workflow tab joins the canvas-colored surface without a border.
 
-The minimap and its control bar share one width. The controls are minimap,
-view options, minus, zoom level, plus, and fit to view, in that order.
+The Minimap size setting chooses small (160 x 96 px, the default for new and
+existing users), medium (196 x 118 px), or large (256 x 150 px). The minimap
+and its control bar share one fixed width, with buttons spread evenly and no
+groups. Medium and large show minimap, view options, minus, zoom level, plus,
+and fit to view, in that order. Small omits minus and plus; the wheel and
+keyboard shortcuts still zoom. Future controls belong in view options, not a
+wider minimap. The panel-colored minimap has no outline; the current view has
+a quiet secondary-text rectangle with a 1 px half-strength line, 6 percent
+fill, and 3 px corners.
 
 The tab strip belongs to the center workspace column. It starts after both
 the icon sidebar and an open left dock, so those left-side regions own their
@@ -378,6 +385,30 @@ the definition and reports `import.subgraphs.boundaryUnresolved` in Problems.
 A structural boundary that cannot be represented without dropping an endpoint
 refuses the import with `import.subgraphs.boundaryUnsupported`; it never returns
 an empty, flattened, or otherwise lossy document as a successful import.
+
+The status bar contains changing state, not shortcuts. Connection opens Backends;
+run state opens Runs; the active workflow's problem count opens Problems;
+background work opens Log on App; graphics-memory use opens Memory. Connection
+and memory follow the open tab's backend. Run state counts only the focused
+workflow and always opens Runs at This workflow. One running job shows the
+workflow name and progress; several running jobs show the name without a
+single-job percentage. Queued-only work shows the name when its backend queue
+position is unknown. Frozen tabs show only their job's activity or elapsed
+completion time, and other editor kinds omit the run item. Background work
+covers every connected backend.
+Graphics memory shows the fullest measured card, with every card in its tooltip;
+CPU-only, missing and disconnected measurements are omitted. Stale readings use
+the Memory panel's existing threshold and are marked stale.
+
+Workflow tabs show node and selection counts at the right. Other editor kinds
+have no context count. Catalog counts are not shown after loading. Optional
+frame-rate diagnostics and pack-contributed status items remain. Review upgrades
+is in Settings > Execution and is saved with the other settings.
+
+The bar measures available space and removes context/FPS first, then the running
+workflow title, backend name, background description, extension items and memory.
+Connection warnings, run progress/counts and Problems remain. Shortened items keep
+their full accessible names and tooltips.
 
 The status bar has a polite live region for transient operation feedback. A
 successful library save reports `Saved to <backend> library`; a failed save

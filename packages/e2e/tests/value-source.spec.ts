@@ -6,7 +6,7 @@
  * normal command path, that spec pin/unpin never resets the value, that the
  * raw JSON fallback cannot corrupt state, and that frozen tabs stay read-only.
  */
-import { executionDetails, expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import fixture from '../../core/fixtures/workflows/value-source.json' with { type: 'json' }
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
@@ -81,8 +81,7 @@ const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   const nativeFixture = structuredClone(fixture)
   nativeFixture.graphs.g0.links.l7.from.port = 'IMAGE'
@@ -294,7 +293,7 @@ test('frozen execution tabs are read-only: no pill editor, no pin/unpin', async 
   await expect(row).toBeVisible({ timeout: 10_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
 
-  await (await executionDetails(row)).locator('.execution-open').click()
+  await row.locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await identityViewport(page)
 
