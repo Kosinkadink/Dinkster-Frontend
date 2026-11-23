@@ -549,6 +549,8 @@ function elaboratePass(
   const view = options.promoteGhosts ?? true
   const census = options.includeDormant ?? false
   const items: ElaboratedItem[] = []
+  /** Flattened ids of state rows, which a formula reads but the user does not edit as fields. */
+  const statePaths = new Set<string>()
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
@@ -931,6 +933,7 @@ function elaboratePass(
         emitOutput(row, scope.prefix + row.id, scope)
         return
       case 'state':
+        statePaths.add(scope.prefix + row.id)
         if (row.partOfRun) {
           emitInput({
             kind: 'input',
@@ -1517,14 +1520,51 @@ function elaboratePass(
   }
   rows(schema.body, topScope)
 
-  // A rule of the node as a whole. Unknown, or a check that cannot be worked
-  // out, passes; a failed rule is an error, or a warning when it has a fix.
+  /**
+   * The fields a rule's check reads, by flattened id, its derived formulas
+   * included: a column of a group's members reads each member's field.
+   */
+  const fieldsRead = (text: string): string[] => {
+    const names = framesNamesOf([schema.body])
+    let read: ReadonlySet<string>
+    try {
+      read = Formula.parse(text, { names: names.names, inputs: names.inputs, assets: names.assets, tables, derived }).uses().names
+    } catch (error) {
+      if (error instanceof FormulaRefused) return []
+      throw error
+    }
+    const inputs = new Set(items.flatMap((item) => item.kind === 'input' && !statePaths.has(item.address.port) ? [item.address.port] : []))
+    const fields = new Set<string>()
+    for (const name of read) {
+      const kind = names.names.get(name)
+      if (kind === undefined || kind === 'opaque' || kind === 'group') continue
+      if (!kind.endsWith('[]')) {
+        if (names.inputs.has(name)) fields.add(name)
+        continue
+      }
+      const dot = name.lastIndexOf('.')
+      for (const key of membersFor(name.slice(0, dot))) {
+        const path = `${name.slice(0, dot)}.${key}${name.slice(dot)}`
+        if (inputs.has(path)) fields.add(path)
+      }
+    }
+    return [...fields]
+  }
+
+  // A rule of the node. Unknown, or a check that cannot be worked out,
+  // passes; a failed rule is an error, or a warning when it has a fix. It
+  // names the fields its check reads; with exactly one, it is that field's
+  // problem.
   if (!census && !halted) {
     for (const [index, rule] of (schema.validate ?? []).entries()) {
       const outcome = evaluate(rule.check.formula, topScope)
       if (outcome.kind !== 'value' || outcome.value !== false) continue
+      const fields = fieldsRead(rule.check.formula)
       diagnostics.push(diag(rule.fix.length > 0 ? 'warning' : 'error', 'schema', 'node.rule.failed', rule.message, {
-        data: { rule: index, hasFix: rule.fix.length > 0 },
+        data: { rule: index, hasFix: rule.fix.length > 0, fields },
+        ...(fields.length === 1 && options.nodeId !== undefined
+          ? { anchor: { port: { node: options.nodeId, port: asPortId(fields[0]!) } } }
+          : {}),
       }))
     }
   }

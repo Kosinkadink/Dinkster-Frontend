@@ -4439,16 +4439,30 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
       // A node's declared rules are checked as the user edits, so a failed
-      // one is listed for its node before the run is queued, under the same
-      // workflow origin compile gives it.
+      // one is listed before the run is queued, under the same workflow
+      // origin compile gives it. A rule whose check reads exactly one field
+      // is that field's problem and outlines its row.
+      const marks: Record<string, Set<string>> = Object.fromEntries(
+        Object.entries(widgetDiags.marks).map(([nodeId, keys]) => [nodeId, new Set(keys)]))
       const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
         (elaborated?.diagnostics ?? [])
           .filter((d) => d.code === 'node.rule.failed')
-          .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: [{ graphId: scene.graphId, nodeId: node.id }] })))
+          .map((d): Diagnostic => {
+            const fields = d.data?.['fields']
+            const field = Array.isArray(fields) && fields.length === 1 && typeof fields[0] === 'string' ? fields[0] : undefined
+            if (field !== undefined) (marks[node.id] ??= new Set()).add(field)
+            return {
+              ...d,
+              origin: 'compile',
+              refs: [field === undefined
+                ? { graphId: scene.graphId, nodeId: node.id }
+                : { graphId: scene.graphId, nodeId: node.id, portId: field, valueKey: field, direction: 'input' }],
+            }
+          }))
       const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
+      renderer.setRowMarks(marks)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {

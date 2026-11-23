@@ -1109,19 +1109,27 @@ describe('formula properties', () => {
     expect(note(elaborate(body('str(1 // 0)'), { w: 4 }))).toEqual({ kind: 'note', id: 'n', text: 'working it out', unknown: true })
   })
 
-  it('reports a failed rule of the node, an error without a fix and a warning with one, and passes it while unknown or failed', () => {
+  it('reports a failed rule of the node, an error without a fix and a warning with one, naming the fields it reads, and passes it while unknown or failed', () => {
+    const sizes = { kind: 'group', id: 'g', member: [field('s')], keys: { numbered: { prefix: 'item', start: 0 } }, grows: 'link', minMembers: 2 }
     const rules = (check: string, fix: unknown[] = []) => {
-      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), pick], validate: [
-        { check: { formula: check }, message: 'Width must be even', fix },
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), field('h'), pick, sizes], validate: [
+        { check: { formula: check }, message: 'Too big', fix },
       ] } as never)
       expect(diagnostics).toEqual([])
       return (values: Record<string, unknown>, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) =>
-        elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }).diagnostics
-          .map((diagnostic) => [diagnostic.severity, diagnostic.code, diagnostic.message])
+        elaborateInterface(schema!, { values, dynamic: { g: { members: ['item0', 'item1'] }, ...dynamic } } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false, nodeId: 'n' as never })
+          .diagnostics.map((diagnostic) => [diagnostic.severity, diagnostic.code, diagnostic.message, diagnostic.data, diagnostic.anchor?.port?.port])
     }
-    expect(rules('w % 2 == 0')({ w: 3 })).toEqual([['error', 'node.rule.failed', 'Width must be even']])
+    expect(rules('w % 2 == 0')({ w: 3 })).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['w'] }, 'w']])
     expect(rules('w % 2 == 0')({ w: 4 })).toEqual([])
-    expect(rules('w % 2 == 0', [{ step: 'Set', row: 'w', value: { value: 4 } }])({ w: 3 })).toEqual([['warning', 'node.rule.failed', 'Width must be even']])
+    expect(rules('w % 2 == 0', [{ step: 'Set', row: 'w', value: { value: 4 } }])({ w: 3 }))
+      .toEqual([['warning', 'node.rule.failed', 'Too big', { rule: 0, hasFix: true, fields: ['w'] }, 'w']])
+    // Two fields, or none: a problem of the whole node, with no row anchor.
+    expect(rules('w + h < 6')({ w: 3, h: 4 })).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['w', 'h'] }, undefined]])
+    expect(rules('len(g) < 2')({})).toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: [] }, undefined]])
+    // A column of a group's members reads each member's field.
+    expect(rules('sum(g.s) < 5')({ 'g.item0.s': 3, 'g.item1.s': 4 }))
+      .toEqual([['error', 'node.rule.failed', 'Too big', { rule: 0, hasFix: false, fields: ['g.item0.s', 'g.item1.s'] }, undefined]])
     expect(rules('pick.under > 5')({}, { pick: { selected: 'b' } })).toEqual([])
     expect(rules('1 // 0 > 5')({ w: 3 })).toEqual([])
   })
