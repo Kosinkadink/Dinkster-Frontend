@@ -248,7 +248,7 @@ edits makes it available again, so it never undoes unrelated work.
 Saving or closing the tab clears the notice, and it is never written into the workflow. Upgraded nodes
 look ordinary. Schema-arrival diagnostics and legacy boolean normalization are independent.
 
-The status bar's **Review upgrades** toggle opts out of automatic migration
+The Settings > Execution > **Review upgrades** switch opts out of automatic migration
 for subsequently opened documents. Only this mode shows deprecation badges
 with each migration hop's author note, plan diagnostics and an Apply
 Replacement control. Successor pointers

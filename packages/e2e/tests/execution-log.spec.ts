@@ -22,7 +22,6 @@ async function seedRun(page: Page): Promise<Seed> {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!

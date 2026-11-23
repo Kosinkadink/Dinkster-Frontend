@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -32,8 +32,8 @@ const screenshot = async (page: Page, name: string, immediate = false): Promise<
 const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
-  await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
+  await waitForWorkspaceReady(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
 }
 
 for (const theme of ['dark', 'light'] as const) {
@@ -592,8 +592,11 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     backend.connection.status.set('connected')
     await app.refreshBackendSchemas(backend)
   })
-  await expect(page.getByTestId('status-bar')).toContainText('disconnected')
-  await expect(page.getByTestId('status-bar')).not.toContainText('loading schemas...')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'disconnected')
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).schemaState.get().status
+  })).toBe('error')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     for (const [toggle, name] of [['library-toggle', 'library'], ['assets-toggle', 'assets']] as const) {
@@ -621,8 +624,11 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
   await openDock(page, 'library-toggle')
   await page.getByTestId('dock-zone-left').getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(page.getByTestId('dock-zone-left').getByRole('alert')).toHaveCount(0)
-  await expect(page.getByTestId('status-bar')).not.toContainText('disconnected')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await expect(page.getByTestId('status-connection')).not.toHaveAttribute('data-state', 'disconnected')
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).registry.get() !== undefined
+  })).toBe(true)
 })
 
 test('Library Assets and Runs use shared empty and loading states', async ({ page }) => {

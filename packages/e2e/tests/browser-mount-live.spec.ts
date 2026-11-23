@@ -128,11 +128,7 @@ test("the browser template gallery grants a read-only model mount and the asset 
 
   try {
     await page.goto("/");
-    await expect(page.getByTestId("status-bar")).toContainText(
-      /\d+ node schemas/,
-      { timeout: 15_000 },
-    );
-    await expect(page.getByTestId("status-bar")).toContainText("connected");
+    await expect(page.getByTestId("status-connection")).toHaveAttribute("data-state", "connected");
     await waitForWorkspaceReady(page);
 
     await page
@@ -318,7 +314,7 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
       .toBe("ready");
 
     await page.goto("/");
-    await expect(page.getByTestId("status-bar")).toContainText("connected");
+    await expect(page.getByTestId("status-connection")).toHaveAttribute("data-state", "connected");
     await waitForWorkspaceReady(page);
     await expect
       .poll(() =>

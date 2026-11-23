@@ -5,8 +5,8 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
-import { FrameRateStatus } from './FrameRateStatus.js'
-import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
+import { StatusBar } from './StatusBar.js'
+import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
@@ -290,20 +290,6 @@ export function DinksterAppMenu(props: {
   )
 }
 
-const coreStatusProvider: HostUiProviderV1 = (context) => {
-  const data = context.data as { readonly connectionStatus: string; readonly schemaText: string }
-  const tone = data.connectionStatus === 'connected' ? 'success' : data.connectionStatus === 'disconnected' ? 'danger' : 'warning'
-  return {
-    version: 1,
-    root: {
-      kind: 'group', key: 'core.status', direction: 'row', children: [
-        { kind: 'status', key: 'core.connection', text: data.connectionStatus, tone },
-        { kind: 'text', key: 'core.schemas', text: data.schemaText },
-      ],
-    },
-  }
-}
-
 /** Shell-level keybinding dispatch, including explanatory disabled Ctrl+S. */
 export function dispatchAppCommandKey(
   app: Pick<AppState, 'commands' | 'keybindings'>,
@@ -409,7 +395,6 @@ export function App(props: {
     drain()
     onCleanup(desktop.onDeepLinkPending(drain))
   })
-  const coreStatusProblemsOwner = Symbol('core-status-problems')
   const contributionProblemsOwners = new WeakMap<ExtensionHostUiContributionV1, symbol>()
   const contributionProblemsOwner = (contribution: ExtensionHostUiContributionV1): symbol => {
     const existing = contributionProblemsOwners.get(contribution)
@@ -451,7 +436,6 @@ export function App(props: {
   const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
   const migrationNotices = useSignal(app.migrationNotices)
-  const reviewReplacements = useSignal(app.reviewReplacements)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
@@ -1189,11 +1173,6 @@ export function App(props: {
     backendsTick()
     return b.supervisor.get()
   }
-  /** Composition narration: supervisor progress or engine-level events. */
-  const composingOf = (b: Backend) => {
-    backendsTick()
-    return b.supervisor.get()?.progress ?? b.composition.get()
-  }
   /**
    * Supervisor state that gates the active backend (anything but ready):
    * rendered as "Dinkster is starting", never a connection failure (Ask 1).
@@ -1342,9 +1321,11 @@ export function App(props: {
     }))
   }
   const executionLogFocus = useSignal(app.executionLogFocus)
+  const [appLogRequest, setAppLogRequest] = createSolidSignal<number>()
   const LogsBody = () => (
     <LogPanel
       entries={logs}
+      appScopeRequest={appLogRequest}
       clearArmed={logsClearArmed}
       onClear={requestLogsClear}
       executions={() => { executions(); return app.executionList() }}
@@ -3120,78 +3101,33 @@ export function App(props: {
         />
       )}</Show>
       <TransientStatus message={transientStatus()} />
-      <footer class="statusbar" data-testid="status-bar" aria-label={message('shell.applicationStatus')} hidden={!statusBarVisible() && placementStatus() === undefined && transientStatus() === undefined}>
-        <div class="statusbar-left" role="group" aria-label={message('shell.workspaceBackendStatus')}>
-          <Show when={placementStatus()}>{(status) => <span class="placement-status" data-testid="placement-status">{status()}</span>}</Show>
-          <Show when={transientStatus()}>{(status) => <span class="transient-status">{status()}</span>}</Show>
-          <HostUiProviderHost
-            owner={coreStatusProblemsOwner}
-            provider={coreStatusProvider}
-            data={{
-              connectionStatus: statusOf(activeBackend()),
-              schemaText: schemaCountOf(activeBackend()) !== undefined
-                ? message('shell.status.nodeSchemas', { count: schemaCountOf(activeBackend())! })
-                : backendMetadataError(activeBackend())
-                  ? message('backendsPanel.schema.unavailable')
-                  : message('shell.status.loadingSchemas'),
-            }}
-            commands={app.commands}
-            replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
-            core
-          />
-          <Show when={composingOf(activeBackend())}>
-            {(p) => (
-              <span class="statusbar-composing" data-testid="composition-progress">
-                {message('shell.status.composingPacks', { done: p().done, total: p().total })}
-                {p().phase ? ` - ${p().phase}` : ''}
-              </span>
-            )}
-          </Show>
-          <Show when={multiBackend()}>
-            <span class="statusbar-backend" data-testid="statusbar-backend">
-              {activeBackend().label}
-            </span>
-          </Show>
-        </div>
-        <div class="statusbar-right" data-testid="status-trailing" role="group" aria-label={message('shell.tasksNotifications')}>
-          <Show when={(settingsTick(), statusBarVisible() && app.settings.get<boolean>('diagnostics.frameRate'))}>
-            <FrameRateStatus />
-          </Show>
-          <For each={statusTrailingContributions()}>{(contribution) => (
-            <span class="host-ui-contribution" data-host-ui-contribution={contribution.id}>
-              <HostUiProviderHost
-                owner={contributionProblemsOwner(contribution)}
-                provider={contribution.provider}
-                data={{
-                  connectionId: activeBackend().id,
-                  connectionLabel: activeBackend().label,
-                  connectionStatus: statusOf(activeBackend()),
-                  schemaCount: schemaCountOf(activeBackend()) ?? null,
-                } satisfies Json}
-                commands={app.commands}
-                replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)}
-              />
-            </span>
-          )}</For>
-          <ProductButton variant="ghost" size="compact"
-            class="statusbar-toggle"
-            data-testid="backends-toggle"
-            aria-pressed={sidebarPressed('backends')}
-            onClick={() => toggleSidebarPanel('backends')}
-          >
-            {multiBackend()
-              ? message('shell.status.backendsCount', { count: backends().length })
-              : message('shell.panel.backends.title')}
-          </ProductButton>
-          <ProductButton variant="ghost" size="compact" class="statusbar-toggle"
-            data-testid="review-upgrades-toggle"
-            aria-label={message('shell.reviewUpgrades.label')}
-            aria-pressed={reviewReplacements()}
-            onClick={() => app.reviewReplacements.update((value) => !value)}>
-            {message('shell.reviewUpgrades.label')}
-          </ProductButton>
-        </div>
-      </footer>
+      <StatusBar app={app} backend={activeBackend} tab={activeTab} problems={problemsIndicator}
+        visible={statusBarVisible} placement={placementStatus} transient={transientStatus}
+        context={() => {
+          const tab = activeTab()
+          const view = selectionContext()
+          const selected = app.canvasSelection.get()
+          if (tab === undefined || (tab.editorKind !== undefined && tab.editorKind !== GRAPH_EDITOR_KIND) || view === undefined) return undefined
+          return message('shell.status.workflowContext', { count: Object.keys(view.doc.graphs[view.graphId]?.nodes ?? {}).length, selected: selected.nodes.length })
+        }}
+        openPanel={(id) => setPanelOpen(app.panels, app.dock, id, id === 'problems' ? 'right' : 'left', true)}
+        openRuns={() => {
+          setRunScope('workflow')
+          setPanelOpen(app.panels, app.dock, 'runs', 'right', true)
+        }}
+        openAppLog={() => {
+          setAppLogRequest((token) => (token ?? 0) + 1)
+          setPanelOpen(app.panels, app.dock, 'logs', 'bottom', true)
+        }}
+        extensions={<For each={statusTrailingContributions()}>{(contribution) => (
+          <span class="host-ui-contribution" data-host-ui-contribution={contribution.id}>
+            <HostUiProviderHost owner={contributionProblemsOwner(contribution)} provider={contribution.provider}
+              data={{ connectionId: activeBackend().id, connectionLabel: activeBackend().label,
+                connectionStatus: statusOf(activeBackend()), schemaCount: schemaCountOf(activeBackend()) ?? null } satisfies Json}
+              commands={app.commands} replaceProblems={(owner, diagnostics) => app.replaceProblems(owner, diagnostics)} />
+          </span>
+        )}</For>}
+      />
       </div>
 
       <For each={floatingPanels()}>{(panel, index) => (

@@ -60,7 +60,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
       title: tab.title,
     }
   })
-  const backendStatusBeforeLocale = await page.locator('[data-host-ui-key="core.connection"]').textContent()
+  const backendStatusBeforeLocale = await page.getByTestId('status-connection').getAttribute('aria-label')
   expect(backendStatusBeforeLocale).not.toBeNull()
   const requestsBeforeLocale = { schemas: schemaRequests, diagnostics: diagnosticRequests }
 
@@ -93,7 +93,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await expect(dialog.locator('.dock-title')).toHaveText(pseudo['shell.panel.settings.title']!)
   await expect(dialog.locator('[data-setting-id="canvas.grid.visible"]')).toContainText(pseudo['settings.canvas.grid.visible']!)
   await expect(dialog.locator('[data-setting-id="canvas.grid.visible"] code')).toHaveText('canvas.grid.visible')
-  await expect(page.locator('[data-host-ui-key="core.connection"]')).toHaveText(backendStatusBeforeLocale!)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('aria-label', backendStatusBeforeLocale!)
   expect({ schemas: schemaRequests, diagnostics: diagnosticRequests }).toEqual(requestsBeforeLocale)
   expect(await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
@@ -111,7 +111,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText(pseudo['appView.arrange']!)
   await expect(page.getByTestId('app-view-empty')).toContainText(pseudo['appView.empty']!)
   await expect(page.getByTestId('library-toggle')).toContainText(pseudo['shell.panel.library.title']!)
-  await expect(page.getByTestId('backends-toggle')).toContainText(pseudo['shell.panel.backends.title']!)
+  await expect(page.getByTestId('backends-sidebar-toggle')).toHaveAttribute('aria-label', pseudo['shell.panel.backends.title']!)
   await expect(page.getByTestId('left-panel-toggle')).toHaveAttribute('aria-label', pseudo['shell.toggle.leftPanel']!)
 
   await page.getByTestId('dinkster-menu-button').click()

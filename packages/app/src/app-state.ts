@@ -3039,6 +3039,13 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
+    this.settings.register({
+      id: 'execution.reviewUpgrades',
+      get name() { return t('shell.reviewUpgrades.label') },
+      get description() { return t('settings.execution.reviewUpgrades.description') },
+      type: 'boolean',
+      defaultValue: false,
+    })
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',
@@ -5060,7 +5067,6 @@ export class AppState {
 
   // -- Schema arrival -------------------------------------------------------
 
-  readonly reviewReplacements = createSignal(false)
   private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
   private readonly replacementRegistries = new WeakMap<SchemaRegistry, { registry: ReplacementRegistry; version: number }>()
@@ -5173,7 +5179,7 @@ export class AppState {
   }
 
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
-    if (this.reviewReplacements.get()) return
+    if (this.settings.get<boolean>('execution.reviewUpgrades')) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
     if (items.length === 0) return
     const store = tab.store

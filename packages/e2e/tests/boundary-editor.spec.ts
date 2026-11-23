@@ -93,7 +93,6 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
  * optional x/y).
  */
 async function openBoundaryWorkflow(page: Page): Promise<void> {
-  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const socket = (id: string, optional: boolean) => ({
@@ -242,7 +241,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.routeWebSocket('**/api/events?*', () => {})
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openBoundaryWorkflow(page)
 })
 
@@ -515,7 +514,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   await capture(page, 'after-boundary-frozen-wide')
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openBoundaryWorkflow(page)
   await page.evaluate(() => {
     type BoundItem = {
