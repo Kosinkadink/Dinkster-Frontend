@@ -231,6 +231,10 @@ document, project or backend never replace the stored reference.
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,
 field of view, position, rotation quaternion and scale remain drafts until Apply.
+Apply stays unavailable, with the status "Nothing changed yet", until the first
+pointer action or key in the viewport or the first use of a control after the
+editor opened, so opening and applying does not store new captures and an undo
+step for nothing.
 Quaternion components are normalized to a unit rotation. Apply uploads
 scene, mask and normal PNG captures at the node's width and height and writes
 their granted file references with camera and model-transform metadata in one
