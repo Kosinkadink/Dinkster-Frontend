@@ -348,24 +348,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   createEffect(() => { activeTabId(); setOutputPages(new Map()) })
   const previewLoader = createPreviewLoader({
-    readAssetForExecution: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
-    inputAssetBytes: (digest) => {
-      const tab = activeTab()
-      if (tab === undefined) return undefined
-      const connection = props.app.backendForTab(tab).connection
-      return (signal) => connection.fetchAssetBytes(digest, signal)
-    },
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
-    },
-    inputAssetReader: (digest, holder) => {
-      const tab = activeTab()
-      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest, holder)
     },
     onDecoded: () => setPreviewTick((value) => value + 1),
     validateMediaRendition: validateBrowserMediaRendition,
@@ -546,8 +534,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         running: runtimeIds.some((runtimeId) => exec?.nodes[runtimeId]?.state === 'running'),
         frozen: tab.execution !== undefined,
         exactProducer,
-        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds,
-          ...(retained.executionOwners === undefined ? {} : { executionOwners: retained.executionOwners }) }),
+        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds }),
         companionSources: companionSourcesOf(def, undefined, (nodeId, inputId) => {
           const node = def.nodes[nodeId]
           const schema = node === undefined ? undefined : resolveSchema?.(node.type)

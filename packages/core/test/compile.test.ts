@@ -16,6 +16,8 @@ import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
@@ -638,6 +640,7 @@ const dynSchemas: Record<string, NodeSchema> = {
     required: false,
   }]),
   ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
+  OrderedGroup: dynSchemaOf('OrderedGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) }, { reorderable: true })]),
   NamedGroup: dynSchemaOf('NamedGroup', [{
     kind: 'group', id: 'args', value: dynInput('value'), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'link', minMembers: 1,
   }]),
@@ -1208,6 +1211,22 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
   })
 
+  it('sends the member order a move leaves, with each value and wire still on its member', () => {
+    const store = new DocumentStore(dynDoc({
+      nodes: {
+        source: { type: 'ImageSrc' },
+        target: { type: 'OrderedGroup', values: { 'items.item0': 1, 'items.item2': 3 }, dynamic: { items: { members: ['item0', 'item1', 'item2'], seq: 3 } } },
+      },
+      links: [[['source', 'out'], ['target', 'items.item1']]],
+    }), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => dynResolve }))
+    expect(store.dispatch({ command: 'dynamic.moveMember', params: { graphId: 'g0', nodeId: 'target', construct: 'items', member: 'item2', index: 0 } }).ok).toBe(true)
+    const result = dynCompile(store.doc)
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item2', 'item0', 'item1'] })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 1, 'items.item1': ['source', 0], 'items.item2': 3 })
+  })
+
   it('lowers named members by their names and enforces minimum membership', () => {
     const lowered = dynCompile(dynDoc({
       nodes: { target: { type: 'NamedGroup', values: { 'args.b': 9 }, dynamic: { args: { members: ['b'] } } } },
@@ -1307,14 +1326,16 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.slotVariants).toEqual({ mode: 'Flux.2 [pro]' })
   })
 
-  it('rejects an invalid stored choice without falling back', () => {
+  it('submits the start option when a stored choice names an option the pack no longer has', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
       type: 'NestedChoice',
       dynamic: { mode: { selected: 'gone' } },
     } } }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.target).toEqual({
+      class_type: 'NestedChoice', inputs: {}, slotVariants: { mode: 'none' }, outputIds: [],
+    })
   })
 
   it('submits an explicitly stored first option rather than the declared default', () => {
@@ -1512,9 +1533,9 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects a connected type choice storing an unknown variant key', () => {
-    // Unknown or stale keys are refused by the engine; surface them before
-    // submitting.
+  it('rejects a connected type choice whose stored variant the pack no longer has', () => {
+    // A removed variant is no pick, so a connected type choice still needs
+    // one before a run, as with no stored key.
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
@@ -1524,9 +1545,8 @@ describe('dynamic interfaces', () => {
     }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const d = result.diagnostics.find((c) => c.code === 'prompt.bad_dynamic_choice')
-    expect(d?.severity).toBe('error')
-    expect(d?.message).toContain("type choice 'slot' has unknown variant 'gone'")
+    expect(result.diagnostics.find((c) => c.code === 'elab.slot.removedVariant')?.severity).toBe('warning')
+    expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
   it('rejects a connected type choice with variants and no stored key', () => {

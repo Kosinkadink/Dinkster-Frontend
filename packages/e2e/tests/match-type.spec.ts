@@ -6,7 +6,7 @@
  * Asserted through the live renderer's scene - the same objects the paint
  * pass consumes; color mapping itself is pinned by canvas unit tests.
  */
-import { expect, openRailPanel, nativeTest as test, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function pinPoint(page: Page, nodeId: string, portId: string): Promise<{ x: number; y: number }> {
   return page.evaluate(({ nodeId, portId }) => {
@@ -30,12 +30,8 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 }
 
 async function drillInto(page: Page, nodeId: string): Promise<void> {
-  const header = await page.evaluate((nodeId) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === nodeId)!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  }, nodeId)
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, nodeId)
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
@@ -60,7 +56,7 @@ test.beforeEach(async ({ page }) => {
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     // One template shared by two inputs and the output: resolving any one
