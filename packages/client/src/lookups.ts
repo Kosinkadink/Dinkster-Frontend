@@ -56,16 +56,26 @@ export interface LookupPartition {
   readonly principal: number
 }
 
+/** Whose budget a new call counts against: the user's editing or a button press. */
+export type LookupAsker = 'edit' | 'press'
+
 export interface LookupRequestOptions {
   readonly signal?: AbortSignal
   /** Ask again even when a current answer is kept (the list's Refresh). */
   readonly refresh?: boolean
+  /** Default `edit`. A call already under way is shared whoever asked for it. */
+  readonly askedBy?: LookupAsker
 }
 
 export interface LookupClient {
   /** The current answer for these arguments, asking the host when there is none. */
   request(call: LookupCall, options?: LookupRequestOptions): Promise<LookupEntry>
-  /** For button steps: a stale answer is a failure, and `options` answers are shape checked. */
+  /**
+   * For button steps, counted against the press budget. A current ready answer
+   * serves without a call; otherwise (missing, old, stale, unavailable or
+   * paused) it calls once. A stale answer is a failure, and `options` answers
+   * are shape checked.
+   */
   resolve(call: LookupCall, use: 'options' | 'value', options: { readonly signal: AbortSignal }): Promise<LookupResult>
   /** What to show for these arguments now, without asking. */
   entry(call: Pick<LookupCall, 'function' | 'args'>): LookupEntry | undefined
@@ -161,7 +171,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return state
   }
 
-  const ask = async (call: LookupCall, signal: AbortSignal): Promise<unknown> => {
+  const ask = async (call: LookupCall, askedBy: LookupAsker, signal: AbortSignal): Promise<unknown> => {
     const limit = AbortSignal.timeout(LOOKUP_NETWORK_LIMIT_MS)
     const both = AbortSignal.any([signal, limit])
     let response: Response
@@ -171,7 +181,12 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
         redirect: 'error',
         signal: both,
         headers: { 'content-type': 'application/json', 'if-match': String(partition.epoch) },
-        body: lookupArgsJson({ nodeType: call.nodeType, function: call.function, args: call.args }),
+        body: lookupArgsJson({
+          nodeType: call.nodeType,
+          function: call.function,
+          args: call.args,
+          ...(askedBy === 'press' ? { askedBy } : {}),
+        }),
       })
     } catch (error) {
       if (signal.aborted) throw aborted()
@@ -195,7 +210,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return (body as { answer: unknown }).answer
   }
 
-  const start = (key: string, entry: Kept, call: LookupCall): Inflight => {
+  const start = (key: string, entry: Kept, call: LookupCall, askedBy: LookupAsker): Inflight => {
     const controller = new AbortController()
     const owner = kept
     const before = entry.answer || entry.state.state !== 'loading' ? entry.state : undefined
@@ -205,7 +220,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       await previous.catch(() => undefined)
       if (controller.signal.aborted) throw aborted()
       try {
-        const answer = await ask(call, controller.signal)
+        const answer = await ask(call, askedBy, controller.signal)
         if (kept !== owner) throw aborted()
         entry.answer = { value: answer }
         entry.old = false
@@ -287,14 +302,16 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       entry = { state: { state: 'loading' }, old: false }
       kept.set(key, entry)
     }
-    if (!entry.inflight) entry.inflight = start(key, entry, call)
+    if (!entry.inflight) entry.inflight = start(key, entry, call, options.askedBy ?? 'edit')
     return join(key, entry, entry.inflight, options.signal)
   }
 
   return {
     request,
     async resolve(call, use, options) {
-      const entry = await request(call, { signal: options.signal })
+      const current = kept.get(keyOf(call))
+      const fresh = current !== undefined && !current.old && (current.inflight !== undefined || current.state.state === 'ready')
+      const entry = await request(call, { signal: options.signal, askedBy: 'press', refresh: !fresh })
       if (entry.state === 'paused') return { state: 'paused' }
       if (entry.state === 'ready') {
         if (use === 'options' && !isLookupOptions(entry.answer)) return { state: 'failed', reason: 'wrong-shape' }
