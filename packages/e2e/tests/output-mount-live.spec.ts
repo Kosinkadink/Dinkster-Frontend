@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, unlink } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readdir, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
@@ -200,9 +201,25 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await page.getByRole("option", { name: "renders" }).click();
   await settings.getByRole("button", { name: "Apply" }).click();
   await expect(settings.getByText("Saved", { exact: true })).toBeVisible();
-  expect(await readFile(resolve(library, "mounts.toml"), "utf8")).toContain(
-    'output-mount = "renders"',
+  const persisted = execFileSync(
+    resolve(process.env["DINKSTER_E2E_GENERATION"]!, "python/bin/python"),
+    [
+      "-c",
+      [
+        "import json, sys",
+        "from pathlib import Path",
+        "from dinkster_library import LibraryClient",
+        "with LibraryClient(Path(sys.argv[1])) as helper:",
+        "    print(json.dumps(helper.call('folders.grants.get')['folders']['values']))",
+      ].join("\n"),
+      library,
+    ],
+    { encoding: "utf8" },
   );
+  expect(JSON.parse(persisted)).toMatchObject({
+    settings: { "output-mount": "renders" },
+    mounts: { renders: { path: alternateOutput, mode: "readwrite" } },
+  });
   await page.screenshot({
     path: evidencePath("issue-145", "alternate-output-setting.png"),
     fullPage: true,
