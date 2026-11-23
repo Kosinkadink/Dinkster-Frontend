@@ -1229,7 +1229,15 @@ export class CanvasRenderer {
     this.updateNodePaint(this.rowMarks, marks, () => { this.rowMarks = marks })
   }
 
+  getRowMarks(): RowMarkMap {
+    return this.rowMarks
+  }
+
   private problemRowHighlight: { readonly nodeId: string; readonly row: string } | undefined
+
+  getProblemRowHighlight(): { readonly nodeId: string; readonly row: string } | undefined {
+    return this.problemRowHighlight
+  }
 
   /** The row whose line is pointed at in the node's problem box, drawn stronger. */
   setProblemRowHighlight(highlight: { readonly nodeId: string; readonly row: string } | undefined): void {
