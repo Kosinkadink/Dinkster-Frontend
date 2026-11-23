@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
 import type { WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -21,6 +21,7 @@ import {
   type InNodeEditorExample,
 } from '../../canvas/gallery/in-node-editors.js'
 import {
+  CanvasCurvePlot,
   CanvasEditorButtons,
   CanvasEditorChoice,
   CanvasEditorFact,
@@ -34,6 +35,7 @@ import {
   CanvasRecorderStrip,
   ProductSection,
   canvasEditorIcons,
+  type CanvasCurveStrip,
 } from '../src/index.js'
 import { MARGIN } from './row-editing.js'
 
@@ -131,164 +133,8 @@ function AnglePicture(props: { horizontal?: number; vertical: number; hollow?: b
   )
 }
 
-/** A strip's two colors, low end first, as a curve's widget declares them. */
-type Strip = readonly [string, string]
-
-/**
- * The curve drawn large inside its plot: the border is where a point may go,
- * grid lines in quarters run from border to border, a dashed line shows the
- * curve that changes nothing, and a wired histogram sits behind the grid. A
- * declared strip runs under the plot along the input and at its left along
- * the output. Inside the plot and off a point, a dashed point shows where a
- * double-click adds one, with its position and value.
- */
-function CurvePicture(props: {
-  points: readonly { position: number; value: number }[]
-  interpolation: 'linear' | 'monotone_cubic'
-  selected?: number
-  histogram?: boolean
-  inputStrip?: Strip
-  outputStrip?: Strip
-  /** Where the pointer starts, for the page's still picture. */
-  hover?: { position: number; value: number }
-}) {
-  const id = createUniqueId()
-  // The plot and its strips sit in the picture's field at one margin on every
-  // side; the border sits on the half pixel so it stays one pixel wide.
-  const [size, setSize] = createSignal({ width: 320, height: 180 })
-  let svgElement: SVGSVGElement | undefined
-  onMount(() => {
-    const observer = new ResizeObserver(() => {
-      if (svgElement) setSize({ width: svgElement.clientWidth, height: svgElement.clientHeight })
-    })
-    observer.observe(svgElement!)
-    onCleanup(() => observer.disconnect())
-  })
-  const edge = 8.5
-  const stripRoom = 9
-  const left = () => edge + (props.outputStrip ? stripRoom : 0)
-  const right = () => size().width - edge
-  const top = edge
-  const bottom = () => size().height - edge - (props.inputStrip ? stripRoom : 0)
-  const x = (position: number) => left() + position * (right() - left())
-  const y = (value: number) => bottom() - value * (bottom() - top)
-  const curveRuns = () => {
-    const first = props.points[0]
-    const last = props.points.at(-1)
-    if (first === undefined || last === undefined) return []
-    const interpolate = curveInterpolator({ interpolation: props.interpolation, points: [...props.points] })
-    const run = (from: number, to: number, held: boolean) => {
-      const samples = Math.max(2, Math.ceil((x(to) - x(from)) / 2))
-      const points = Array.from({ length: samples + 1 }, (_, index) => {
-        const position = from + (to - from) * index / samples
-        return `${x(position)},${y(Math.max(0, Math.min(1, interpolate(position))))}`
-      }).join(' ')
-      return { held, points }
-    }
-    return [
-      ...(first.position > 0 ? [run(0, first.position, true)] : []),
-      run(first.position, last.position, false),
-      ...(last.position < 1 ? [run(last.position, 1, true)] : []),
-    ]
-  }
-  const [hover, setHover] = createSignal(untrack(() => props.hover))
-  const track = (event: PointerEvent) => {
-    const svg = event.currentTarget as SVGSVGElement
-    const matrix = svg.getScreenCTM()
-    if (!matrix) return
-    const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
-    const position = (at.x - left()) / (right() - left())
-    const value = (bottom() - at.y) / (bottom() - top)
-    const inside = position >= 0 && position <= 1 && value >= 0 && value <= 1
-    const onPoint = props.points.some((point) => Math.hypot(x(point.position) - at.x, y(point.value) - at.y) <= 8)
-    setHover(inside && !onPoint ? { position, value } : undefined)
-  }
-  const label = (h: { position: number; value: number }) => `${h.position.toFixed(2)}, ${h.value.toFixed(2)}`
-  return (
-    <svg ref={svgElement} viewBox={`0 0 ${size().width} ${size().height}`} aria-hidden="true" class="dinkster-gallery-curve"
-      onPointerMove={track} onPointerLeave={() => setHover(undefined)}>
-      <defs>
-        <Show when={props.inputStrip}>
-          {(strip) => (
-            <linearGradient id={`${id}-in`} x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stop-color={strip()[0]} /><stop offset="1" stop-color={strip()[1]} />
-            </linearGradient>
-          )}
-        </Show>
-        <Show when={props.outputStrip}>
-          {(strip) => (
-            <linearGradient id={`${id}-out`} x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0" stop-color={strip()[0]} /><stop offset="1" stop-color={strip()[1]} />
-            </linearGradient>
-          )}
-        </Show>
-      </defs>
-      <rect class="dinkster-gallery-curve-plot" x={left()} y={top} width={right() - left()} height={bottom() - top} />
-      <Show when={props.histogram}>
-        <For each={Array.from({ length: 30 }, (_, index) => index)}>
-          {(index) => {
-            const height = (0.12 + Math.abs(Math.sin(index / 4)) * 0.55) * (bottom() - top)
-            return <rect class="dinkster-gallery-curve-histogram" x={x(index / 30)} y={bottom() - height}
-              width={(right() - left()) / 30 - 1} height={height} />
-          }}
-        </For>
-      </Show>
-      <For each={[0.25, 0.5, 0.75]}>
-        {(at) => (
-          <>
-            <line class="dinkster-gallery-curve-grid" x1={x(at)} y1={top} x2={x(at)} y2={bottom()} />
-            <line class="dinkster-gallery-curve-grid" x1={left()} y1={y(at)} x2={right()} y2={y(at)} />
-          </>
-        )}
-      </For>
-      <line class="dinkster-gallery-curve-identity" x1={x(0)} y1={y(0)} x2={x(1)} y2={y(1)} />
-      <rect class="dinkster-gallery-curve-border" x={left()} y={top} width={right() - left()} height={bottom() - top} />
-      <Show when={props.inputStrip}>
-        <rect class="dinkster-gallery-curve-strip" x={left()} y={bottom() + 3} width={right() - left()} height="6" fill={`url(#${id}-in)`} />
-      </Show>
-      <Show when={props.outputStrip}>
-        <rect class="dinkster-gallery-curve-strip" x={edge} y={top} width="6" height={bottom() - top} fill={`url(#${id}-out)`} />
-      </Show>
-      {/* The curve as the node computes it, sampled across the plot; before the first
-          point and after the last it holds that point's value, drawn fainter. */}
-      <For each={curveRuns()}>
-        {(run) => <polyline class="dinkster-gallery-curve-line" data-held={run.held ? 'true' : 'false'} points={run.points} />}
-      </For>
-      <For each={props.points}>
-        {(point, index) => (
-          <circle class="dinkster-gallery-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
-            cx={x(point.position)} cy={y(point.value)} r="5" />
-        )}
-      </For>
-      <Show when={hover()}>
-        {(h) => {
-          const hx = () => x(h().position)
-          const hy = () => y(h().value)
-          const flip = () => hx() > right() - 70
-          // The readout sits on the plot's fill, 2 px around the text, so no grid line runs through it.
-          const [box, setBox] = createSignal<DOMRect>()
-          let text: SVGTextElement | undefined
-          createEffect(() => {
-            label(h())
-            flip()
-            if (text) setBox(text.getBBox())
-          })
-          return (
-            <g class="dinkster-gallery-curve-hover">
-              <line x1={left()} y1={hy()} x2={hx()} y2={hy()} />
-              <line x1={hx()} y1={hy()} x2={hx()} y2={bottom()} />
-              <circle cx={hx()} cy={hy()} r="5" />
-              <Show when={box()}>
-                {(b) => <rect class="dinkster-gallery-curve-readout" x={b().x - 2} y={b().y - 2} width={b().width + 4} height={b().height + 4} />}
-              </Show>
-              <text ref={text} x={flip() ? hx() - 9 : hx() + 9} y={hy() - 8} text-anchor={flip() ? 'end' : 'start'}>{label(h())}</text>
-            </g>
-          )
-        }}
-      </Show>
-    </svg>
-  )
-}
+/** A wired histogram for the curve's examples, as bar heights. */
+const GALLERY_HISTOGRAM = Array.from({ length: 30 }, (_, index) => 0.12 + Math.abs(Math.sin(index / 4)) * 0.55)
 
 /** An editor's own number in an example: it steps and is typed in, and keeps what it was given. */
 function GalleryNumber(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; precision?: number }) {
@@ -481,7 +327,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       const interpolation = value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
-      const strip = (key: string): Strip | undefined => {
+      const strip = (key: string): CanvasCurveStrip | undefined => {
         const colors = props.declared[key]
         return Array.isArray(colors) && colors.length === 2 && colors.every((color) => typeof color === 'string')
           ? [colors[0] as string, colors[1] as string] : undefined
@@ -492,8 +338,9 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       return (
         <>
           {picture(
-            <CurvePicture points={points} interpolation={interpolation} {...(selected === undefined ? {} : { selected })} histogram={state()['histogram'] === true}
-              {...(inputStrip ? { inputStrip } : {})} {...(outputStrip ? { outputStrip } : {})} {...(hover ? { hover } : {})} />,
+            <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
+              histogram={state()['histogram'] === true ? GALLERY_HISTOGRAM : undefined}
+              inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
           <CanvasEditorLine>
             <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />

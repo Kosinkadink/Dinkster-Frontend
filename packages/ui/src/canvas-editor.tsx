@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js'
 import {
   Camera,
   Circle,
@@ -428,5 +428,255 @@ export function CanvasEditorFact(props: { label: string; children: JSX.Element }
       <span class="dinkster-canvas-editor-fact-label">{props.label}</span>
       <span class="dinkster-canvas-editor-fact-value">{props.children}</span>
     </div>
+  )
+}
+
+/** A curve's point: where it sits along the input and the value it gives there, each from 0 to 1. */
+export interface CanvasCurvePoint {
+  readonly position: number
+  readonly value: number
+}
+
+/** A strip's two colors, the low end first. */
+export type CanvasCurveStrip = readonly [string, string]
+
+/** How near a point, in pixels, the pointer must be to take it. */
+const CURVE_POINT_REACH = 8
+
+/**
+ * A curve drawn large inside its plot. The border is where a point may go,
+ * grid lines in quarters run from border to border, a dashed line shows the
+ * curve that changes nothing, and a histogram sits behind the grid. A strip
+ * runs under the plot along the input and at its left along the output.
+ * Inside the plot and off a point, a dashed point shows where a double-click
+ * adds one, with its position and value.
+ *
+ * The points are the caller's: pressing a point selects it and dragging
+ * moves it between its neighbours, a double-click adds a point, and Delete
+ * or Backspace removes the selected one. The line is drawn from `sample`, the
+ * curve's own interpolation, which holds the end points' values beyond them.
+ */
+export function CanvasCurvePlot(props: {
+  points: readonly CanvasCurvePoint[]
+  sample: (position: number) => number
+  selected?: number | undefined
+  /** Bar heights from 0 to 1, from the low end of the input. */
+  histogram?: readonly number[] | undefined
+  inputStrip?: CanvasCurveStrip | undefined
+  outputStrip?: CanvasCurveStrip | undefined
+  /** Where the pointer starts, for a still picture. */
+  hover?: CanvasCurvePoint
+  label?: string
+  onSelect?: (index: number | undefined) => void
+  /** A point dragged to a new place; `onMoveEnd` follows when the drag ends. */
+  onMove?: (index: number, point: CanvasCurvePoint) => void
+  onMoveEnd?: () => void
+  onAdd?: (point: CanvasCurvePoint) => void
+  onDelete?: (index: number) => void
+}) {
+  const id = createUniqueId()
+  // The plot and its strips sit at one margin on every side; the border sits
+  // on the half pixel so it stays one pixel wide.
+  const [size, setSize] = createSignal({ width: 320, height: 180 })
+  let svgElement: SVGSVGElement | undefined
+  onMount(() => {
+    const observer = new ResizeObserver(() => {
+      if (svgElement) setSize({ width: svgElement.clientWidth, height: svgElement.clientHeight })
+    })
+    observer.observe(svgElement!)
+    onCleanup(() => observer.disconnect())
+  })
+  const edge = 8.5
+  const stripRoom = 9
+  const left = () => edge + (props.outputStrip ? stripRoom : 0)
+  const right = () => size().width - edge
+  const top = edge
+  const bottom = () => size().height - edge - (props.inputStrip ? stripRoom : 0)
+  const x = (position: number) => left() + position * (right() - left())
+  const y = (value: number) => bottom() - value * (bottom() - top)
+  const curveRuns = () => {
+    const first = props.points[0]
+    const last = props.points.at(-1)
+    if (first === undefined || last === undefined) return []
+    const run = (from: number, to: number, held: boolean) => {
+      const samples = Math.max(2, Math.ceil((x(to) - x(from)) / 2))
+      const points = Array.from({ length: samples + 1 }, (_, index) => {
+        const position = from + (to - from) * index / samples
+        return `${x(position)},${y(Math.max(0, Math.min(1, props.sample(position))))}`
+      }).join(' ')
+      return { held, points }
+    }
+    return [
+      ...(first.position > 0 ? [run(0, first.position, true)] : []),
+      run(first.position, last.position, false),
+      ...(last.position < 1 ? [run(last.position, 1, true)] : []),
+    ]
+  }
+  const [hover, setHover] = createSignal(untrack(() => props.hover))
+  let drag: { readonly pointerId: number; readonly index: number } | undefined
+  const local = (event: MouseEvent) => {
+    const matrix = svgElement?.getScreenCTM()
+    if (!matrix) return undefined
+    return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+  }
+  const clamp = (value: number) => Math.max(0, Math.min(1, value))
+  const plotPoint = (at: DOMPoint): CanvasCurvePoint => ({
+    position: (at.x - left()) / (right() - left()),
+    value: (bottom() - at.y) / (bottom() - top),
+  })
+  // The scale the plot is drawn at on screen, so a point is as easy to take at every zoom.
+  const reach = () => CURVE_POINT_REACH / (svgElement?.getScreenCTM()?.a ?? 1)
+  const pointAt = (at: DOMPoint): number | undefined => {
+    let nearest: number | undefined
+    let distance = reach()
+    props.points.forEach((point, index) => {
+      const away = Math.hypot(x(point.position) - at.x, y(point.value) - at.y)
+      if (away <= distance) {
+        nearest = index
+        distance = away
+      }
+    })
+    return nearest
+  }
+  const track = (event: PointerEvent) => {
+    const at = local(event)
+    if (!at) return
+    if (drag !== undefined && drag.pointerId === event.pointerId) {
+      const point = plotPoint(at)
+      const before = props.points[drag.index - 1]?.position
+      const after = props.points[drag.index + 1]?.position
+      // A point stays between its neighbours, so the points keep their order.
+      const gap = 1e-3
+      const position = Math.max(before === undefined ? 0 : before + gap, Math.min(after === undefined ? 1 : after - gap, point.position))
+      props.onMove?.(drag.index, { position, value: clamp(point.value) })
+      setHover(undefined)
+      return
+    }
+    const point = plotPoint(at)
+    const inside = point.position >= 0 && point.position <= 1 && point.value >= 0 && point.value <= 1
+    setHover(inside && pointAt(at) === undefined ? point : undefined)
+  }
+  const press = (event: PointerEvent) => {
+    if (event.button !== 0) return
+    svgElement?.focus({ preventScroll: true })
+    const at = local(event)
+    if (!at) return
+    const index = pointAt(at)
+    props.onSelect?.(index)
+    if (index === undefined || props.onMove === undefined) return
+    drag = { pointerId: event.pointerId, index }
+    svgElement?.setPointerCapture(event.pointerId)
+  }
+  const release = (event: PointerEvent) => {
+    if (drag?.pointerId !== event.pointerId) return
+    drag = undefined
+    props.onMoveEnd?.()
+  }
+  const add = (event: MouseEvent) => {
+    const at = local(event)
+    if (!at || pointAt(at) !== undefined) return
+    const point = plotPoint(at)
+    if (point.position < 0 || point.position > 1 || point.value < 0 || point.value > 1) return
+    // The new point is under the pointer, where no dashed point shows.
+    setHover(undefined)
+    props.onAdd?.(point)
+  }
+  const key = (event: KeyboardEvent) => {
+    const index = props.selected
+    if ((event.key !== 'Delete' && event.key !== 'Backspace') || index === undefined || props.onDelete === undefined) return
+    // The key is the curve's: the canvas behind it must not also delete the node.
+    event.preventDefault()
+    event.stopPropagation()
+    props.onDelete(index)
+  }
+  const label = (h: CanvasCurvePoint) => `${h.position.toFixed(2)}, ${h.value.toFixed(2)}`
+  return (
+    <svg ref={svgElement} viewBox={`0 0 ${size().width} ${size().height}`} class="dinkster-canvas-curve"
+      tabindex={props.onSelect === undefined ? undefined : 0} role={props.onSelect === undefined ? 'img' : 'application'}
+      aria-label={props.label}
+      onPointerDown={press} onPointerMove={track} onPointerUp={release} onPointerCancel={release}
+      onLostPointerCapture={release} onPointerLeave={() => setHover(undefined)} onDblClick={add} on:keydown={key}>
+      <defs>
+        <Show when={props.inputStrip}>
+          {(strip) => (
+            <linearGradient id={`${id}-in`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color={strip()[0]} /><stop offset="1" stop-color={strip()[1]} />
+            </linearGradient>
+          )}
+        </Show>
+        <Show when={props.outputStrip}>
+          {(strip) => (
+            <linearGradient id={`${id}-out`} x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0" stop-color={strip()[0]} /><stop offset="1" stop-color={strip()[1]} />
+            </linearGradient>
+          )}
+        </Show>
+      </defs>
+      <rect class="dinkster-canvas-curve-plot" x={left()} y={top} width={right() - left()} height={bottom() - top} />
+      <Show when={props.histogram}>
+        {(bars) => (
+          <For each={bars()}>
+            {(bar, index) => {
+              const width = () => (right() - left()) / bars().length
+              const height = () => clamp(bar) * (bottom() - top)
+              return <rect class="dinkster-canvas-curve-histogram" x={left() + index() * width()} y={bottom() - height()}
+                width={Math.max(0, width() - (bars().length > 64 ? 0 : 1))} height={height()} />
+            }}
+          </For>
+        )}
+      </Show>
+      <For each={[0.25, 0.5, 0.75]}>
+        {(at) => (
+          <>
+            <line class="dinkster-canvas-curve-grid" x1={x(at)} y1={top} x2={x(at)} y2={bottom()} />
+            <line class="dinkster-canvas-curve-grid" x1={left()} y1={y(at)} x2={right()} y2={y(at)} />
+          </>
+        )}
+      </For>
+      <line class="dinkster-canvas-curve-identity" x1={x(0)} y1={y(0)} x2={x(1)} y2={y(1)} />
+      <rect class="dinkster-canvas-curve-border" x={left()} y={top} width={right() - left()} height={bottom() - top} />
+      <Show when={props.inputStrip}>
+        <rect class="dinkster-canvas-curve-strip" x={left()} y={bottom() + 3} width={right() - left()} height="6" fill={`url(#${id}-in)`} />
+      </Show>
+      <Show when={props.outputStrip}>
+        <rect class="dinkster-canvas-curve-strip" x={edge} y={top} width="6" height={bottom() - top} fill={`url(#${id}-out)`} />
+      </Show>
+      {/* Before the first point and after the last the curve holds that point's value, drawn fainter. */}
+      <For each={curveRuns()}>
+        {(run) => <polyline class="dinkster-canvas-curve-line" data-held={run.held ? 'true' : 'false'} points={run.points} />}
+      </For>
+      <For each={props.points}>
+        {(point, index) => (
+          <circle class="dinkster-canvas-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
+            cx={x(point.position)} cy={y(point.value)} r="5" />
+        )}
+      </For>
+      <Show when={hover()}>
+        {(h) => {
+          const hx = () => x(h().position)
+          const hy = () => y(h().value)
+          const flip = () => hx() > right() - 70
+          // The readout sits on the plot's fill, 2 px around the text, so no grid line runs through it.
+          const [box, setBox] = createSignal<DOMRect>()
+          let text: SVGTextElement | undefined
+          createEffect(() => {
+            label(h())
+            flip()
+            if (text) setBox(text.getBBox())
+          })
+          return (
+            <g class="dinkster-canvas-curve-hover">
+              <line x1={left()} y1={hy()} x2={hx()} y2={hy()} />
+              <line x1={hx()} y1={hy()} x2={hx()} y2={bottom()} />
+              <circle cx={hx()} cy={hy()} r="5" />
+              <Show when={box()}>
+                {(b) => <rect class="dinkster-canvas-curve-readout" x={b().x - 2} y={b().y - 2} width={b().width + 4} height={b().height + 4} />}
+              </Show>
+              <text ref={text} x={flip() ? hx() - 9 : hx() + 9} y={hy() - 8} text-anchor={flip() ? 'end' : 'start'}>{label(h())}</text>
+            </g>
+          )
+        }}
+      </Show>
+    </svg>
   )
 }

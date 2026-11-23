@@ -571,6 +571,8 @@
 .dinkster-canvas-editor-line, .dinkster-canvas-editor-buttons { gap: var(--dinkster-space-4); }
 /* A button in an editor keeps to the row it sits on, as the node's own buttons do. */
 .dinkster-canvas-editor-buttons .dinkster-button { box-sizing: border-box; min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
+/* The canvas overlays sit outside the page root, so an editor dims its own disabled buttons. */
+.dinkster-canvas-editor-buttons .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 /* A row of an editor's buttons: each as the node's row button, the row split evenly between them. */
 .dinkster-canvas-editor > .dinkster-canvas-editor-buttons > .dinkster-button, .dinkster-canvas-editor-section-rows > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-text-secondary); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); }
 .dinkster-canvas-editor-section > summary { gap: calc(var(--dinkster-space-4) * 1.5); padding: 0 var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); list-style: none; cursor: pointer; user-select: none; }
@@ -611,17 +613,18 @@
 .dinkster-gallery-angle-ring { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1.5; }
 .dinkster-gallery-angle-dot { fill: var(--dinkster-accent-border); }
 .dinkster-gallery-angle-dot[data-hollow='true'] { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-accent-border); stroke-width: 2; }
-.dinkster-gallery-curve { cursor: crosshair; }
-.dinkster-gallery-curve-hover .dinkster-gallery-curve-readout { fill: var(--dinkster-surface-raised); stroke: none; }
-.dinkster-gallery-curve-plot { fill: var(--dinkster-surface-raised); }
-.dinkster-gallery-curve-border { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.dinkster-gallery-curve-grid { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.dinkster-gallery-curve-identity { stroke: var(--dinkster-text-muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
-.dinkster-gallery-curve-histogram { fill: var(--dinkster-border-group); }
-.dinkster-gallery-curve-strip { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.dinkster-gallery-curve-hover { pointer-events: none; fill: none; stroke: var(--dinkster-text-secondary); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-.dinkster-gallery-curve-hover text { fill: var(--dinkster-text-secondary); stroke: none; font-size: var(--dinkster-type-metadata-size); font-family: var(--dinkster-font-family); }
-.dinkster-gallery-curve-line { fill: none; stroke: var(--dinkster-accent-border); stroke-width: 2; }
-.dinkster-gallery-curve-line[data-held='true'] { stroke: var(--dinkster-text-muted); }
-.dinkster-gallery-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
-.dinkster-gallery-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }
+.dinkster-canvas-curve { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; -webkit-user-select: none; user-select: none; }
+.dinkster-canvas-curve:focus-visible { outline: none; }
+.dinkster-canvas-curve-hover .dinkster-canvas-curve-readout { fill: var(--dinkster-surface-raised); stroke: none; }
+.dinkster-canvas-curve-plot { fill: var(--dinkster-surface-raised); }
+.dinkster-canvas-curve-border { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dinkster-canvas-curve-grid { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dinkster-canvas-curve-identity { stroke: var(--dinkster-text-muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.dinkster-canvas-curve-histogram { fill: var(--dinkster-border-group); }
+.dinkster-canvas-curve-strip { stroke: var(--dinkster-border-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dinkster-canvas-curve-hover { pointer-events: none; fill: none; stroke: var(--dinkster-text-secondary); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.dinkster-canvas-curve-hover text { fill: var(--dinkster-text-secondary); stroke: none; font-size: var(--dinkster-type-metadata-size); font-family: var(--dinkster-font-family); }
+.dinkster-canvas-curve-line { fill: none; stroke: var(--dinkster-accent-border); stroke-width: 2; }
+.dinkster-canvas-curve-line[data-held='true'] { stroke: var(--dinkster-text-muted); }
+.dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
+.dinkster-canvas-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }

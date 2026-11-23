@@ -66,7 +66,7 @@ import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
-import { colorFieldHasOpacity, colorKind, resolveColorText } from '@dinkster/widgets'
+import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
@@ -181,7 +181,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, type EditorSpaceItem } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, type EditorSpaceItem } from './InNodeEditorSpaces.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
@@ -1600,7 +1600,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
       // The editors whose controls the app lays over their space.
-      editorSpaces().filter((item) => item.row.viewId === 'core.audioRecord'),
+      editorSpaces().filter((item) => item.row.viewId === 'core.audioRecord' || item.row.viewId === 'core.curve'),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -6630,28 +6630,52 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const current = item()
           return current === undefined ? undefined : mediaScreenRect(current.node, current.space, editorViewport(), canvasClientRect())
         }
-        const recorder = () => {
+        /** Where the editor's value is written: a group member's goes to its family's owner. */
+        const valueTarget = () => {
           const current = item()
           const tab = activeTab()
-          if (current === undefined || tab === undefined || current.row.viewId !== 'core.audioRecord') return undefined
+          if (current === undefined || tab === undefined) return undefined
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.row.valueKey }
-          const backend = props.app.backendForTab(tab)
+          const commit = (value: Json): void => void props.app.dispatchTo(tab, withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize,
+            { command: 'node.setValue', params: { ...target, value } }))
+          return { tab, graphId, current, target, commit }
+        }
+        const recorder = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
+          const backend = props.app.backendForTab(at.tab)
           const native = backend.protocol === 'dinkster' ? backend.connection : undefined
-          return audioRecorders.get(`${tab.id}:${graphId}:${current.key}`, {
+          return audioRecorders.get(`${at.tab.id}:${at.graphId}:${at.current.key}`, {
             upload: native === undefined ? undefined
               : (file, signal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/audio', name: file.name, signal }),
             fetchBytes: native === undefined ? undefined : (clip, signal) => native.fetchAssetBytes(clip.digest, signal),
-            commit: (value) => void props.app.dispatchTo(tab, withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize,
-              { command: 'node.setValue', params: { ...target, value } })),
+            commit: at.commit,
           })
+        }
+        const curve = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
+          const fallback = effectiveWidgetDefault(at.current.field.spec)
+          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined) return undefined
+          executions()
+          return {
+            value,
+            commit: (next: CurveValue) => at.commit(next as unknown as Json),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+          }
         }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
               <Show when={recorder()}>
                 {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+              </Show>
+              <Show when={curve()}>
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                  pictureHeight={item()?.row.picture?.height ?? 0} options={item()?.field.spec.options ?? {}} />}
               </Show>
             </NodeEditorSpaceOverlay>
           </Show>

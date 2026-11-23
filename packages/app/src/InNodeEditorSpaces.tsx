@@ -1,16 +1,21 @@
-import type { AssetRef, Json, JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { defaultTokens, type LayoutRow } from '@dinkster/canvas'
-import { audioRecordKind } from '@dinkster/widgets'
+import { audioRecordKind, curveInterpolator, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
+  CanvasCurvePlot,
+  CanvasEditorButtons,
   CanvasEditorChoice,
   CanvasEditorLine,
   CanvasEditorNote,
   CanvasEditorNumber,
+  CanvasEditorPicture,
   CanvasEditorSpace,
   CanvasRecorderStrip,
   canvasEditorIcons,
+  type CanvasCurveStrip,
 } from '@dinkster/ui'
-import { createSignal, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
+import type { ExecutionState } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
 import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position.js'
 
@@ -503,4 +508,135 @@ export function createAudioRecorders(): {
       return created
     },
   }
+}
+
+/** The 256 bins of a run's latest histogram for a curve node, when it sent one. */
+export function latestCurveHistogram(execution: ExecutionState | undefined, instancePath: readonly string[], nodeId: string): readonly number[] | undefined {
+  if (!execution?.artifact) return undefined
+  const source = occurrenceKey({ instancePath: instancePath.map(asNodeId), node: asNodeId(nodeId) })
+  const frames = (execution.artifact.provenance.fromSource[source] ?? []).flatMap((runtimeId) => {
+    const frame = execution.previews[runtimeId]?.['curve-histogram']
+    return frame?.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL ? [frame] : []
+  }).sort((left, right) => right.timestamp - left.timestamp)
+  const payload = frames[0]?.payload
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
+  const histogram = (payload as Readonly<Record<string, unknown>>)['histogram']
+  return Array.isArray(histogram) && histogram.length === 256 && histogram.every((entry) =>
+    typeof entry === 'number' && Number.isSafeInteger(entry) && entry >= 0)
+    ? histogram as readonly number[]
+    : undefined
+}
+
+const stripOf = (colors: unknown): CanvasCurveStrip | undefined =>
+  Array.isArray(colors) && colors.length === 2 && colors.every((color) => typeof color === 'string')
+    ? [colors[0] as string, colors[1] as string]
+    : undefined
+
+/**
+ * The curve's controls in the node: the plot, the interpolation, the selected
+ * point's position and value, and Delete point. Each change is written to the
+ * node's value as one Undo step; a drag is one change, written when it ends.
+ * Which point is selected is the editor's own and is not stored.
+ */
+export function CurveSpace(props: {
+  readonly value: CurveValue
+  readonly pictureHeight: number
+  /** The curve widget's declared options, which name its strips. */
+  readonly options: Readonly<Record<string, unknown>>
+  /** The latest run's histogram bins, when it sent one. */
+  readonly histogram: readonly number[] | undefined
+  readonly commit: (value: CurveValue) => void
+}) {
+  const message = useAppMessage()
+  const [selected, setSelected] = createSignal<number>()
+  const [draft, setDraft] = createSignal<CurveValue>()
+  const curve = () => draft() ?? props.value
+  const interpolation = () => curve().interpolation ?? 'linear'
+  const points = () => curve().points
+  const point = () => {
+    const index = selected()
+    return index === undefined ? undefined : points()[index]
+  }
+  // A point taken away by Undo or by another change leaves nothing selected.
+  createEffect(() => {
+    const index = selected()
+    if (index !== undefined && index >= points().length) setSelected(undefined)
+  })
+  const store = (next: readonly CurvePoint[], nextInterpolation = interpolation()) =>
+    props.commit({ interpolation: nextInterpolation, points: next.map((item) => ({ position: item.position, value: item.value })) })
+  const bars = () => {
+    const bins = props.histogram
+    const highest = bins === undefined ? 0 : Math.max(...bins)
+    return bins === undefined || highest === 0 ? undefined : bins.map((count) => count / highest)
+  }
+  /** The selected point moved to a typed place, kept between its neighbours. */
+  const place = (change: Partial<CurvePoint>) => {
+    const index = selected()
+    const current = point()
+    if (index === undefined || current === undefined) return
+    const before = points()[index - 1]?.position
+    const after = points()[index + 1]?.position
+    const gap = 1e-3
+    const position = Math.max(before === undefined ? 0 : before + gap, Math.min(after === undefined ? 1 : after - gap, change.position ?? current.position))
+    store(points().map((item, at) => at === index ? { position, value: change.value ?? current.value } : item))
+  }
+  const remove = (index: number) => {
+    if (points().length < 2) return
+    setSelected(undefined)
+    store(points().filter((_item, at) => at !== index))
+  }
+  const linear = () => message('inNodeCurve.linear')
+  const cubic = () => message('inNodeCurve.monotoneCubic')
+  return (
+    <>
+      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}>
+        <CanvasCurvePlot
+          label={message('inNodeCurve.plot')}
+          points={points()}
+          sample={curveInterpolator(curve())}
+          selected={selected()}
+          histogram={bars()}
+          inputStrip={stripOf(props.options['inputStrip'])}
+          outputStrip={stripOf(props.options['outputStrip'])}
+          onSelect={setSelected}
+          onMove={(index, moved) => {
+            setDraft({ interpolation: interpolation(), points: points().map((item, at) => at === index ? moved : item) })
+          }}
+          onMoveEnd={() => {
+            const moved = draft()
+            setDraft(undefined)
+            if (moved !== undefined) store(moved.points)
+          }}
+          onAdd={(added) => {
+            const next = [...points(), added].sort((left, right) => left.position - right.position)
+            if (next.some((item, at) => at > 0 && item.position === next[at - 1]!.position)) return
+            setSelected(next.indexOf(added))
+            store(next)
+          }}
+          onDelete={remove}
+        />
+      </CanvasEditorPicture>
+      <CanvasEditorLine>
+        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={interpolation() === 'linear' ? linear() : cubic()}
+          options={[linear(), cubic()]}
+          onChange={(label) => store(points(), label === linear() ? 'linear' : 'monotone_cubic')} />
+      </CanvasEditorLine>
+      <CanvasEditorLine dimmed={point() === undefined}>
+        <CanvasEditorNumber label={message('inNodeCurve.position')} value={point()?.position} min={0} max={1} step={0.01} precision={2}
+          onChange={(position) => place({ position })} />
+      </CanvasEditorLine>
+      <CanvasEditorLine dimmed={point() === undefined}>
+        <CanvasEditorNumber label={message('inNodeCurve.value')} value={point()?.value} min={0} max={1} step={0.01} precision={2}
+          onChange={(value) => place({ value })} />
+      </CanvasEditorLine>
+      {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
+      <CanvasEditorButtons buttons={[{ label: message('inNodeCurve.deletePoint'), icon: canvasEditorIcons.remove, intent: 'remove',
+        disabled: selected() === undefined || points().length < 2, onClick: () => {
+          const index = selected()
+          if (index !== undefined) remove(index)
+        } }]} />
+      <CanvasEditorNote tone="muted">{bars() === undefined ? message('inNodeCurve.help') : message('inNodeCurve.histogram')}</CanvasEditorNote>
+      <CanvasEditorNote tone="muted">{message('inNodeCurve.select')}</CanvasEditorNote>
+    </>
+  )
 }
