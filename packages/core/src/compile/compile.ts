@@ -3111,7 +3111,23 @@ function compileImpl(
     return { nodes }
   }
   const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
-  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
+  if (dinksterGraph !== undefined) {
+    diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
+    // The engine refuses a node whose inputs bring types its one type
+    // variable cannot match; refuse it here before anything is submitted. A
+    // Switch whose pick compiled to a stored value is lowered away by the
+    // server, so only a linked pick counts.
+    for (const fn of flat.values()) {
+      if (!included.has(fn.runtimeId) || regions.has(fn.runtimeId)) continue
+      if (fn.selector !== undefined && !Array.isArray(fn.inputs[fn.selectorInputKey!])) continue
+      for (const conflict of solvedTypes.get(fn.graphId)?.diagnostics ?? []) {
+        if (conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
+        diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
+          anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
+        }))
+      }
+    }
+  }
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
