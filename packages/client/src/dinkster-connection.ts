@@ -1800,6 +1800,7 @@ export interface HistoryRunRecord {
   readonly principalId?: string
   readonly principalKind?: 'human' | 'agent'
   readonly nodeReceipts?: readonly NodeExecutionReceipt[]
+  readonly thumbnail?: MediaAssetRef
   readonly error?: { readonly kind?: string; readonly message?: string } & Record<string, unknown>
 }
 
@@ -1856,10 +1857,22 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
+    thumbnail: wireThumbnail,
     ...record
   } = r
+  let thumbnail: MediaAssetRef | undefined
+  if (typeof wireThumbnail === 'object' && wireThumbnail !== null && !Array.isArray(wireThumbnail)) {
+    const asset = wireThumbnail as Record<string, unknown>
+    if (typeof asset['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(asset['digest']) &&
+        typeof asset['name'] === 'string' && typeof asset['virtualPath'] === 'string' &&
+        typeof asset['size'] === 'number' && Number.isSafeInteger(asset['size']) && asset['size'] >= 0 &&
+        typeof asset['mediaType'] === 'string' && /^(image|video)\//.test(asset['mediaType'])) {
+      thumbnail = asset as MediaAssetRef
+    }
+  }
   return {
     ...record,
+    ...(thumbnail === undefined ? {} : { thumbnail }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }

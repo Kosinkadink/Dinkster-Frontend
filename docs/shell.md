@@ -448,9 +448,9 @@ Panels:
   delete and clear actions. An empty stored list says no finished runs are
   stored; search misses do not fall back to finished runs in browser memory.
   A backend without durable history uses this browser's execution history.
-  Browser-known runs show thumbnails immediately;
-  other stored runs fetch outputs only after selection. Until selected they
-  show list metadata without placeholder thumbnails. Fetch failures stay on
+  Finished image/video runs show a retained thumbnail before selection,
+  including stored runs this browser has not seen; absent or unavailable
+  media leaves no thumbnail. Stored runs fetch full outputs only after selection. Fetch failures stay on
   the selectable row. Refreshing the same backend's page preserves the row's
   disclosure and in-flight output read; switching owners does not reuse them.
   Stored-run inspection never registers a new live run or records temporary file lists.
