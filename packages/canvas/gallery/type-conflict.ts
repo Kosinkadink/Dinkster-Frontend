@@ -146,7 +146,7 @@ export function typeConflictGallery(
       switchGraph(true, true),
     ),
     card(
-      'A Switch whose Pick is stored on the node runs only the branch it names, so branches of different types stay a warning and the workflow runs: the wires are drawn red and Problems lists a warning, but the node has no error and Run is not refused.',
+      'A Switch whose Pick is stored on the node runs only the branch it names, so branches of different types stay a warning and the workflow runs. The Switch shows a warning in the same words, its wires are drawn red as for every type warning, and Run is not refused.',
       switchGraph(true, false),
     ),
     card(
