@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '../visual.js'
-import { waitForStartupOwnership } from './fixtures.js'
+import { waitForWorkspaceReady } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_NODE_HELP_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -137,7 +137,7 @@ test('live wire-42 backend serves descriptor metadata separately from the Markdo
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return backend?.schemaState.get().status === 'ready' && backend.workerCatalog.get().status !== 'loading'
   })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return {

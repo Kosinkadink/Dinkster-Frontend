@@ -498,6 +498,14 @@ export interface BoundaryItem {
    * widget). Only meaningful for 'port' bindings.
    */
   readonly promoted?: boolean
+  /**
+   * Presentation only: the input still drives its bound fields exactly as a
+   * wired one does, but no wire is drawn from the Inputs panel and the panel
+   * row has no pin. Valid only on an input the instance shows as a field (a
+   * promoted 'port' binding). Never semantic:
+   * compile and the cache key ignore it.
+   */
+  readonly wireHidden?: true
   readonly ext?: ExtData
 }
 
@@ -667,6 +675,18 @@ export interface NodeViewState {
   readonly video?: { readonly loop: boolean; readonly muted: boolean; readonly autoplay: boolean }
   /** Chosen schema widget representation id per input/value key. */
   readonly views?: Readonly<Record<string, string>>
+  /**
+   * Height in whole lines of each multiline text box the user resized, by
+   * input/value key. Absent = the height the widget declares.
+   */
+  readonly textLines?: Readonly<Record<string, number>>
+  /** The open node's preview is folded to its caption row. */
+  readonly previewFolded?: boolean
+  /**
+   * A minimized node's preview was opened by its caption. Minimized nodes
+   * start folded; minimizing or restoring clears this.
+   */
+  readonly minimizedPreviewOpen?: boolean
   /**
    * Per-section collapse OVERRIDES by section id. Absent = the schema's
    * collapsedByDefault. An override record (not a plain collapsed list) so a

@@ -2,6 +2,7 @@ import { expect, test } from '../../e2e/visual.js'
 
 test('browse projects and separately paged workflows and files without network access', async ({
   page,
+  baseURL,
 }) => {
   await page.addInitScript(() => {
     Object.assign(window, {
@@ -169,7 +170,7 @@ test('browse projects and separately paged workflows and files without network a
     fullPage: true,
   })
   expect(
-    requests.every((url) => new URL(url).origin === 'http://127.0.0.1:5287'),
+    requests.every((url) => new URL(url).origin === new URL(baseURL!).origin),
   ).toBe(true)
 })
 

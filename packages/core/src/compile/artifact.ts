@@ -65,12 +65,14 @@ export interface Provenance {
 /**
  * A selector choice resolved at compile time, recorded for reproducibility:
  * a frozen view must show exactly what executed, and re-running the artifact
- * must not re-roll random policies. One entry per (graph definition,
- * selector) - all occurrences of a definition share one resolution, exactly
- * like they share values and dynamic state.
+ * must not re-roll random policies. A graph selector has one entry per
+ * (graph definition, selector), shared by every occurrence of the
+ * definition. A Switch node whose pick is random has one entry per
+ * occurrence: `selector` is the occurrence's runtime id and `candidate` the
+ * picked member key.
  */
 export interface SelectorChoice {
-  /** Graph definition id the selector lives in. */
+  /** Graph definition id the selector or Switch lives in. */
   readonly graph: string
   readonly selector: string
   /** The policy that produced this choice. */

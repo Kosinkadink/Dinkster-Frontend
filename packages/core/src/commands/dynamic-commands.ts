@@ -11,6 +11,7 @@
  *   node.setValue) so materialization is transactionally atomic with its
  *   cause - one undo step removes both.
  * - selection commands write a schema-authored dynamic choice (state.selected).
+ * - `dynamic.moveMember` reorders a reorderable group's stored members.
  *
  * Every command addresses its construct by flattened id ('items',
  * 'items.item1.mode'); all state lives at that key of `NodeData.dynamic`.
@@ -481,6 +482,46 @@ const dynamicCompact: CommandDefinition = {
 }
 
 /**
+ * dynamic.moveMember {graphId, nodeId, construct, member, index}: move one
+ * stored member of a reorderable group to `index` in its stored order. Keys,
+ * values, labels and `seq` stay, so a wire or a promoted row keeps pointing
+ * at the same member; a member's shown number and the order a run receives
+ * follow its new position.
+ */
+const dynamicMoveMember: CommandDefinition = {
+  id: 'dynamic.moveMember',
+  run(doc, params, tx, context) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string' ||
+      typeof params.construct !== 'string' || params.construct.length === 0 ||
+      typeof params.member !== 'string' || typeof params.index !== 'number' || !Number.isSafeInteger(params.index))
+      return [err('params.invalid', 'dynamic.moveMember: params must be {graphId, nodeId, construct, member, index}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `dynamic.moveMember: unknown graph '${params.graphId}'`)]
+    const node = def.nodes[params.nodeId]
+    if (!node) return [err('node.missing', `dynamic.moveMember: unknown node '${params.nodeId}'`)]
+    // A shared session's rebase replays a move that was already checked.
+    if (context.kind === 'initial') {
+      const schema = context.schemaResolverFor?.(doc)?.(node.type)
+      const group = schema === undefined ? undefined : constructsOf(schema, node.dynamic).get(params.construct)
+      if (group?.kind !== 'group' || group.reorderable !== true || typeof group.grows !== 'string')
+        return [err('dynamic.notReorderable', `dynamic.moveMember: '${params.construct}' is not a group whose members can be reordered`)]
+    }
+    const state = node.dynamic?.[params.construct]
+    const members = [...(state?.members ?? [])]
+    const from = members.indexOf(params.member)
+    if (from < 0) return [err('dynamic.memberMissing', `dynamic.moveMember: '${params.construct}' has no stored member '${params.member}'`)]
+    if (params.index < 0 || params.index >= members.length)
+      return [err('params.invalid', `dynamic.moveMember: index ${params.index} is outside 0..${members.length - 1}`)]
+    if (from === params.index) return []
+    members.splice(from, 1)
+    members.splice(params.index, 0, params.member)
+    tx.set(['graphs', params.graphId, 'nodes', params.nodeId, 'dynamic'],
+      { ...node.dynamic, [params.construct]: { ...state, members } } as unknown as Json)
+    return []
+  },
+}
+
+/**
  * dynamic.storeStartState {}: store the start key of every required choice,
  * and the minimum members of every group that grows by hand, in the
  * document that has nothing stored. Run when a document meets its
@@ -503,5 +544,6 @@ export const DYNAMIC_COMMANDS: readonly CommandDefinition[] = [
   dynamicLabelMembers,
   dynamicSpecializeSlot,
   dynamicCompact,
+  dynamicMoveMember,
   dynamicStoreStartState,
 ]
