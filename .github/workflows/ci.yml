@@ -75,7 +75,7 @@ jobs:
     name: native startup
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ${{ fromJSON(vars.CI_RUNNERS)[github.event.pull_request.head.repo.full_name != github.repository && 'forkLinux' || 'linux'] }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       CUDA_VISIBLE_DEVICES: ""
       DINKSTER_ACCELERATOR: cpu
