@@ -1058,8 +1058,11 @@ describe('sections', () => {
     })
     const fields = (grows: 'button' | 'link', tokens = { ...defaultTokens, memberRemoveCross: true }) => {
       const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, tokens, measure, widgetMeasure)
+      const outline = l.boxes!.find((b) => b.id === 'group:prompts')!
+      // From the inner side of the group's outline to the node's right edge.
+      const outlineRight = l.width - (outline.x + outline.width - canvasPaintTokens.node.box.stroke)
       return l.rows.flatMap((r) => r.kind === 'widget'
-        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2) }]
+        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2), outlineRight }]
         : [])
     }
     const cross = canvasPaintTokens.node.box.cross
@@ -1067,9 +1070,9 @@ describe('sections', () => {
     expect(top).toMatchObject({ id: 'top', cross: undefined, right: top!.inset })
     expect(members.map((m) => m.id)).toEqual(['prompts.prompt0', 'prompts.prompt1'])
     for (const member of members) {
-      // The cross's right edge is where the field's would be; the field ends before it.
-      expect(member.cross).toBe(member.inset)
-      expect(member.right - member.inset).toBe(cross.size + cross.fieldGap)
+      // The cross stands as far inside the outline as before the field's end.
+      expect(member.cross! - member.outlineRight).toBe(cross.fieldGap)
+      expect(member.right - (member.cross! + cross.size)).toBe(cross.fieldGap)
     }
     expect(fields('link').every((field) => field.cross === undefined)).toBe(true)
     // The editor draws no cross until pressing it removes the member.

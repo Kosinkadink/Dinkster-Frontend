@@ -3760,10 +3760,11 @@ export class CanvasRenderer {
           const left = node.x + row.inset
           const right = node.x + l.width - row.inset
           const cy = node.y + row.top + closedHeight / 2
-          const textX = left + boxPaint.textInset + boxPaint.gripWidth + boxPaint.labelGap
+          // The grip stands as far from the outline as from the label, and
+          // the cross as far from the outline as a one-row member's does.
+          const textX = left + boxPaint.stroke + boxPaint.labelGap + boxPaint.gripWidth + boxPaint.labelGap
           if (row.reorder !== undefined) paintGrip(row.reorder, node.x + row.reorder.gripX, cy)
-          // The cross's right edge lines up with the fields inside the box.
-          if (t.memberRemoveCross) paintCross(right - boxPaint.stroke - boxPaint.fieldGap, cy)
+          if (t.memberRemoveCross) paintCross(right - boxPaint.stroke - boxPaint.cross.fieldGap, cy)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
           ctx.fillText(fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy)

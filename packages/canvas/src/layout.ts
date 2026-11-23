@@ -1013,6 +1013,11 @@ export function layoutNode(
   /** Left edge of a field inside `depth` boxes. */
   const fieldInset = (depth: number): number =>
     depth === 0 ? tokens.rowGeometry.fieldInsetX : outlineX(depth) + box.stroke + box.fieldGap
+  /**
+   * A one-row member's remove cross stands as far inside its group's outline
+   * as it stands from the field: its right edge's distance from the node's.
+   */
+  const crossInset = (depth: number): number => fieldInset(depth) - box.fieldGap + box.cross.fieldGap
   /** How far a pin row's names move in inside `depth` boxes. */
   const nameInset = (depth: number): number => depth * (box.stroke + box.step)
 
@@ -1487,7 +1492,7 @@ export function layoutNode(
           push({
             kind: 'member', y, height, construct: decl.construct!, memberId: decl.id, label: decl.label,
             ordinal: decl.ordinal ?? 0, ...(decl.ghost ? { ghost: true as const } : {}), inset: outlineX(depth), top,
-            ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.textInset + box.gripWidth / 2 } } : {}),
+            ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.stroke + box.labelGap + box.gripWidth / 2 } } : {}),
           }, depth)
           open.push({ decl, top, first: index })
           y += height
@@ -1557,7 +1562,7 @@ export function layoutNode(
           ...(depth > 0 ? { nameInset: nameInset(depth) } : {}),
           ...(row.input ? { input: row.input } : {}),
           ...(row.output ? { output: row.output } : {}),
-          ...(row.removable && !row.output ? { crossInset: fieldInset(depth) } : {}),
+          ...(row.removable && !row.output ? { crossInset: crossInset(depth) } : {}),
           // The grip's place on the row is set once the node's width is known.
           ...(row.reorder && !row.output ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
@@ -1581,7 +1586,7 @@ export function layoutNode(
         // line, and its cross once, after it.
         const line = lines.get(row)!
         push({
-          kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: inset } : {}),
+          kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: crossInset(depth) } : {}),
           ...(row.reorder && line[0] === row ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
         // Socketless controls keep their editor and outgoing value tap.
@@ -1723,22 +1728,28 @@ export function layoutNode(
       left += cellWidth + gap
     }
   }
-  // A member that can be moved has its grip at the left end, where its field
-  // or name would start, and they start after the grip. A field that is a
-  // whole member ends before its remove cross, whose right edge sits where
-  // the field's would. A spare member starts where the members' fields do.
+  // A member that can be moved has its grip at the left end, and its field
+  // or name starts after it; a field that is a whole member ends before its
+  // remove cross. Each stands as far from the group's outline as from the
+  // field. A spare member starts where the members' fields do.
   const gripSpaces = new Set(pending.flatMap((row) =>
     row.gripSpace && lines.get(row)![0] === row ? [rowIndex.get(row)] : []))
+  const gap = box.cross.fieldGap
   for (const [index, row] of rows.entries()) {
     if (row.kind !== 'widget' && row.kind !== 'ports') continue
-    const crossRoom = row.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap
-    const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : box.gripWidth + box.cross.fieldGap
-    if (crossRoom + gripRoom === 0) continue
-    const left = row.kind === 'widget' ? row.inset : fieldInset(rowDepth[index]!)
-    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: left + box.gripWidth / 2 } }
-    rows[index] = row.kind === 'widget'
-      ? { ...row, inset: row.inset + gripRoom, width: (row.width ?? width - row.inset * 2) - crossRoom - gripRoom, ...reorder }
-      : { ...row, nameInset: (row.nameInset ?? 0) + gripRoom, ...reorder }
+    const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : gap + box.gripWidth + gap - box.fieldGap
+    if (row.crossInset === undefined && gripRoom === 0) continue
+    // The inner side of the group's outline.
+    const outline = (row.kind === 'widget' ? row.inset : fieldInset(rowDepth[index]!)) - box.fieldGap
+    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: outline + gap + box.gripWidth / 2 } }
+    if (row.kind === 'ports') {
+      rows[index] = { ...row, nameInset: (row.nameInset ?? 0) + gripRoom, ...reorder }
+      continue
+    }
+    const right = row.crossInset === undefined
+      ? row.inset + (row.width ?? width - row.inset * 2)
+      : width - row.crossInset - box.cross.size - gap
+    rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
   }
 
   if (options.minimized) {

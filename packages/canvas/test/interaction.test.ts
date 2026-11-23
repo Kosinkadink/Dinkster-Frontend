@@ -4628,32 +4628,28 @@ describe('moving a member by its grip', () => {
   const gripRows = (scene: Scene) => scene.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' && row.reorder !== undefined) as
     Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>[]
 
-  it('puts the grip before a member\'s field and the cross after it, each 4 px from the field', () => {
+  it('puts the grip before a member\'s field and the cross after it, each as far from the field as from the outline', () => {
     const scene = sceneWith(['lora0', 'lora1', 'lora2'])
-    const { width } = scene.nodes[0]!.layout
+    const layout = scene.nodes[0]!.layout
     const box = canvasPaintTokens.node.box
-    // The same group without reordering: where its fields would stand with no grip.
-    const { reorderable: _reorderable, ...group } = schema().body[0] as Extract<NodeSchema['body'][number], { kind: 'group' }>
-    const fixed = layoutNode({ ...schema(), body: [group] },
-      scene.nodes[0]!.node, { ...defaultTokens, memberRemoveCross: true }, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
-    const plain = fixed.rows.find((row) => row.kind === 'widget') as Extract<LayoutRow, { kind: 'widget' }>
+    const outline = layout.boxes!.find((b) => b.id === 'group:loras')!
+    const inner = { left: outline.x + box.stroke, right: outline.x + outline.width - box.stroke }
     const rows = gripRows(scene)
     expect(rows.map((row) => row.reorder!.member)).toEqual(['lora0', 'lora1', 'lora2'])
     for (const row of rows) {
       const gripLeft = row.reorder!.gripX - box.gripWidth / 2
-      expect(gripLeft).toBe(plain.inset)
+      expect(gripLeft - inner.left).toBe(4)
       expect(row.inset - (gripLeft + box.gripWidth)).toBe(4)
-      const crossLeft = width - row.crossInset! - box.cross.size
-      expect(crossLeft - (row.inset + row.width!)).toBe(4)
-      expect(row.inset + row.width!).toBe(plain.inset + plain.width!)
+      const crossRight = layout.width - row.crossInset!
+      expect(inner.right - crossRight).toBe(4)
+      expect(crossRight - box.cross.size - (row.inset + row.width!)).toBe(4)
       expect(row.reorder!.alone).toBeUndefined()
     }
-    // Without the cross the field runs to the group's right inset.
+    // Without the cross the field runs to where any field in the group ends.
     const bare = sceneWith(['lora0', 'lora1'], defaultTokens)
     for (const row of gripRows(bare)) {
       expect(row.crossInset).toBeUndefined()
-      expect(row.inset + row.width!).toBe(bare.nodes[0]!.layout.width - plain.inset)
-      expect(row.inset - (row.reorder!.gripX + box.gripWidth / 2)).toBe(4)
+      expect(inner.right - (row.inset + row.width!)).toBe(box.fieldGap)
     }
     // A group's only member has a grip that does nothing.
     expect(gripRows(sceneWith(['lora0']))[0]!.reorder).toMatchObject({ member: 'lora0', alone: true })
