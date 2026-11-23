@@ -188,6 +188,15 @@ export const canvasPaintTokens = {
     dividerMinWorld: 0.75,
     dividerMaxWorld: canvasSemanticTokens.space[4],
     diamondScale: 1.25,
+    /**
+     * The pin for an input that takes one value or a list: the list diamond
+     * behind a smaller circle with a dark ring around the circle. Multiples of
+     * an ordinary pin's radius: the diamond's corner, the circle's radius and
+     * the ring's width.
+     */
+    eitherDiamond: 1.65,
+    eitherCircle: 0.75,
+    eitherRing: 0.22,
     /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
     hoverGrowth: 1,
     statusRingGap: 3.5,
@@ -338,6 +347,8 @@ export const canvasPaintTokens = {
     multilineLeadingNumerator: 4,
     multilineLeadingDenominator: 3,
     semiboldWeight: 600,
+    /** Noto Sans capital height in ems; a pin's name centers its capitals on the pin. */
+    capHeight: 0.714,
     smallMinSize: 9,
     smallReduction: 1,
     adornmentMinSize: 8,
@@ -769,6 +780,9 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
   typeFallbackLightness: 62,
 }
 
+/** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */
+const defaultFieldInsetX = 8
+
 export const defaultTokens: DesignTokens = {
   rowHeight: 26,
   headerHeight: 26,
@@ -794,13 +808,14 @@ export const defaultTokens: DesignTokens = {
   rowGeometry: {
     portRowHeight: 26,
     fieldInsetY: 1,
-    fieldInsetX: 8,
+    fieldInsetX: defaultFieldInsetX,
     stepperZone: 22,
     stepperCenter: 12.5,
     stepperStroke: 1,
     stepperLabelInset: 2,
     textEndInset: 4,
-    portLabelInset: 10,
+    // A pin's name starts where a text or choice field's label does.
+    portLabelInset: defaultFieldInsetX + canvasPaintTokens.widget.labelInset,
     boxedTopInset: 5,
     pinTopInset: 1,
     pinBottomInset: 2,

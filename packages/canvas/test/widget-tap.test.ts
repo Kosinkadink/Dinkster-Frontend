@@ -151,6 +151,15 @@ describe('widget tap interaction', () => {
     }))
   })
 
+  it('holds a wire dragged from an input at the center of the field pin under the pointer', () => {
+    const h = interactionHarness(tapScene())
+    h.fire('pointerdown', 200, 42)
+    h.fire('pointermove', 107, 39)
+    const ghost = h.overlays.filter((overlay) => overlay.ghostLink !== undefined).at(-1)?.ghostLink
+    // The tap sits on the source node's right edge (10 + 100) at its row (10 + 32).
+    expect({ x: ghost?.x1, y: ghost?.y1 }).toEqual({ x: 110, y: 42 })
+  })
+
   it('steps a number row from its plus while the row\'s tap is revealed beside it', () => {
     const scene = builtNumberScene()
     const node = scene.nodes[0]!
