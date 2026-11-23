@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
 import { fitItems, paintSwatchRow } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
 
 beforeAll(() => {
@@ -26,6 +26,7 @@ function fakeCtx(charWidth = 6) {
   const roundedFills: { x: number; y: number; width: number; height: number; radius: number; fillStyle: string }[] = []
   const strokes: Array<{ points: Array<{ x: number; y: number }>; strokeStyle: string }> = []
   const transforms: Array<{ method: 'translate' | 'scale'; x: number; y: number }> = []
+  const images: Array<{ image: unknown; x: number; y: number; width: number; height: number }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
   let pendingPoints: Array<{ x: number; y: number }> = []
   const ctx = {
@@ -54,12 +55,13 @@ function fakeCtx(charWidth = 6) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
     measureText: (t: string) => ({ width: t.length * charWidth }),
+    drawImage: (image: unknown, x: number, y: number, width: number, height: number) => { images.push({ image, x, y, width, height }) },
     fillText(text: string, x: number, y: number) {
       texts.push(text)
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, transforms }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, transforms, images }
 }
 
 const LABEL = 'control_after_generate'
@@ -484,6 +486,13 @@ describe('registry painter label/value split', () => {
     expect(named.fill).toBe(defaultTokens.colors.value)
     expect(named.font).not.toContain('italic')
     expect(paintSummary(undefined).texts.some((text) => text.startsWith('3D'))).toBe(true)
+    // A thumbnail is drawn just before the text, at its token size.
+    const thumbnail = {} as CanvasImageSource
+    const withPicture = paintSummary({ text: 'No model', thumbnail })
+    const call = withPicture.textCalls.find((text) => text.text.startsWith('No'))!
+    const { size, gap } = canvasPaintTokens.widget.valueThumbnail
+    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: Math.round(call.y - size / 2), width: size, height: size }])
+    expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
   })
 
   it('measures a custom BOOLEAN label from the text the view paints', () => {

@@ -241,6 +241,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ? usableWidth * paint.structuredValueRatio
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
+        + (args.editorSummary?.thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
@@ -406,8 +407,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
             const swatches = alignRight ? stringList(style['swatches']) : undefined
+            const thumbnail = alignRight ? summary?.thumbnail : undefined
             const iconReserve = (modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
+              + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const text = swatches !== undefined ? ''
               : items !== undefined ? fitItems(ctx, items, fitWidth)
@@ -435,6 +438,17 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,
                   textY - modeIconSize / 2, modeIconSize, tokens.colors.valueMark)
+              }
+              if (thumbnail !== undefined) {
+                const { size, radius, gap } = paint.valueThumbnail
+                const left = Math.round(textX - measureWidth(ctx, text) - gap - size)
+                const top = Math.round(textY - size / 2)
+                ctx.save()
+                ctx.beginPath()
+                ctx.roundRect(left, top, size, size, radius)
+                ctx.clip()
+                ctx.drawImage(thumbnail, left, top, size, size)
+                ctx.restore()
               }
               if (swatch !== undefined) {
                 paintValueSwatch(ctx, swatch, textX - measureWidth(ctx, text) - paint.valueSwatch.gap - paint.valueSwatch.size,

@@ -324,6 +324,8 @@ export interface EditorSummary {
   readonly text: string
   /** Drawn in the placeholder color, for an editor that holds nothing. */
   readonly placeholder?: boolean
+  /** A small picture before the text, such as the stored frame or the last 3D view. */
+  readonly thumbnail?: CanvasImageSource
 }
 
 /** node id -> value key -> what that folded editor row reads. Derived by the host, never stored. */

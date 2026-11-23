@@ -68,6 +68,28 @@ function Still(props: { kind: 'frame' | 'model' | 'live' | 'image-a' | 'compare'
   )
 }
 
+/** A small stand-in for a stored frame or a last 3D view, drawn in the canvas's own colors. */
+function thumbnailOf(kind: 'frame' | 'view', tokens: DesignTokens): HTMLCanvasElement {
+  const image = document.createElement('canvas')
+  image.width = 32
+  image.height = 32
+  const context = image.getContext('2d')!
+  context.fillStyle = tokens.colors.nodeHeader
+  context.fillRect(0, 0, 32, 32)
+  context.fillStyle = tokens.colors.selection
+  context.beginPath()
+  if (kind === 'frame') {
+    context.arc(16, 13, 7, 0, Math.PI * 2)
+    context.fill()
+    context.fillRect(7, 22, 18, 10)
+  } else {
+    context.moveTo(9, 11); context.lineTo(21, 8); context.lineTo(23, 22); context.lineTo(11, 25)
+    context.closePath()
+    context.fill()
+  }
+  return image
+}
+
 /** The orbit and elevation drawing of the camera angle, with its dots. */
 function AnglePicture(props: { horizontal?: number; vertical: number; hollow?: boolean }) {
   const dot = (cx: number, cy: number, hollow: boolean) => (
@@ -345,7 +367,11 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
       renderer.setReducedMotion(true)
       renderer.setGridVisible(false)
       renderer.setScene(built)
-      renderer.setEditorSummaries(example.summaries === undefined ? {} : { [example.id]: example.summaries })
+      const summaries = Object.fromEntries(Object.entries(example.summaries ?? {}).map(([key, summary]) => {
+        const kind = example.thumbnails?.[key]
+        return [key, kind === undefined ? summary : { ...summary, thumbnail: thumbnailOf(kind, tokens) }]
+      }))
+      renderer.setEditorSummaries({ [example.id]: summaries })
       renderer.setViewport({ x: 0, y: 0, scale: 1 })
       renderer.renderNow()
       setScene(built)
