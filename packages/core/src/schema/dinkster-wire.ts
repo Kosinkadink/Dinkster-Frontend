@@ -18,6 +18,7 @@ import type {
   DeprecationInfo,
   BodyRow,
   ChoiceSpec,
+  GroupSpec,
   DescribedSpec,
   FormulaSpec,
   Formulated,
@@ -228,45 +229,35 @@ export interface DinksterWireSchema {
   readonly chunkSafe?: unknown
 }
 
-function decodeWireSelector(wire: unknown, inputs: ReadonlyMap<string, InputSpec>, outputs: readonly OutputSpec[]): NodeSelectorSpec | undefined {
+function decodeWireSelector(
+  wire: unknown,
+  inputs: ReadonlyMap<string, InputSpec>,
+  rows: readonly OptionRow[],
+  outputs: readonly OutputSpec[],
+): NodeSelectorSpec | undefined {
   if (wire === undefined) return undefined
   const selector = wireObject(wire, 'selector')
   const selectorKeys = Object.keys(selector).sort()
-  if (selectorKeys.length !== 2 || selectorKeys[0] !== 'branches' || selectorKeys[1] !== 'input') {
-    throw new Error('selector must contain exactly input and branches')
+  if (selectorKeys.length !== 2 || selectorKeys[0] !== 'group' || selectorKeys[1] !== 'input') {
+    throw new Error('selector must contain exactly input and group')
   }
-  if (typeof selector['input'] !== 'string') throw new Error('selector.input must be a string')
   const input = selector['input']
-  const selectorInput = inputs.get(input)
-  if (selectorInput === undefined) throw new Error(`selector.input names unknown input '${input}'`)
-  if (JSON.stringify(selectorInput.type) !== JSON.stringify({ kind: 'concrete', name: 'BOOLEAN' })) {
-    throw new Error('selector.input must have type BOOLEAN')
+  const group = selector['group']
+  if (typeof input !== 'string' || typeof group !== 'string') throw new Error('selector input and group must be strings')
+  const pick = inputs.get(input)
+  if (pick === undefined) throw new Error(`selector.input names unknown input '${input}'`)
+  if (pick.type.kind !== 'union' || [...pick.type.names].sort().join() !== 'BOOLEAN,INT') {
+    throw new Error('selector.input must have type INT | BOOLEAN')
   }
-
-  const branches = wireObject(selector['branches'], 'selector.branches')
-  const branchKeys = Object.keys(branches).sort()
-  if (branchKeys.length !== 2 || branchKeys[0] !== 'false' || branchKeys[1] !== 'true') {
-    throw new Error('selector.branches must contain exactly false and true')
+  const branches = rows.find((row): row is GroupSpec => row.kind === 'group' && row.id === group)
+  if (branches?.value?.kind !== 'input' || branches.value.lazy !== true) {
+    throw new Error(`selector.group must name a top-level group of lazy inputs, not '${group}'`)
   }
-  if (typeof branches['false'] !== 'string' || typeof branches['true'] !== 'string') {
-    throw new Error('selector branch input ids must be strings')
-  }
-  const falseInput = branches['false']
-  const trueInput = branches['true']
-  if (falseInput === trueInput) throw new Error('selector branch input ids must be distinct')
-  if (input === falseInput || input === trueInput) {
-    throw new Error('selector.input must be distinct from both branch input ids')
-  }
-  const falseSpec = inputs.get(falseInput)
-  const trueSpec = inputs.get(trueInput)
-  if (falseSpec === undefined) throw new Error(`selector false branch names unknown input '${falseInput}'`)
-  if (trueSpec === undefined) throw new Error(`selector true branch names unknown input '${trueInput}'`)
   if (outputs.length !== 1) throw new Error('selector-bearing schema must declare exactly one output')
-  const outputType = JSON.stringify(outputs[0]!.type)
-  if (JSON.stringify(falseSpec.type) !== outputType || JSON.stringify(trueSpec.type) !== outputType) {
-    throw new Error('selector branch inputs must share the sole output type')
+  if (JSON.stringify(branches.value.type) !== JSON.stringify(outputs[0]!.type)) {
+    throw new Error('selector branches must share the sole output type')
   }
-  return { input, branches: { false: falseInput, true: trueInput } }
+  return { input, group }
 }
 
 export interface DinksterNodesPayload {
@@ -631,6 +622,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+      checkWidgetFields(descriptor, ['type', 'alpha'], where, diags)
+      if (descriptor['alpha'] !== undefined && typeof descriptor['alpha'] !== 'boolean') {
+        throw new Error(`${where}.alpha must be a boolean`)
+      }
+      return
     case 'MOUNT':
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
@@ -820,6 +816,7 @@ function widgetFor(
       offset?: unknown
       special?: unknown
       reason?: unknown
+      alpha?: unknown
     }
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
@@ -1155,7 +1152,8 @@ function widgetFor(
     if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
         widgetType: descriptor.type,
-        options: {},
+        // A color field that uses opacity says so; the editor offers opacity only there.
+        options: descriptor.type === 'COLOR' && descriptor.alpha === true ? { alpha: true } : {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -2098,7 +2096,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
         throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type`)
       }
     }
-    const selector = decodeWireSelector(wire.selector, decodedInputs, decodedOutputs)
+    const selector = decodeWireSelector(wire.selector, decodedInputs, scopeRowsOf(baseSchema.body), decodedOutputs)
     if (wire.widgetGroups !== undefined) throw new Error('widgetGroups is not part of a body node; a Choice or a visible formula shows and hides rows')
     const mirror = decodeMirror(wire.mirror)
     const topChoices = new Map(scopeRowsOf(baseSchema.body).filter((row): row is ChoiceSpec => row.kind === 'choice').map((row) => [row.id, row]))
@@ -2654,8 +2652,8 @@ export function graphFeaturesFromDinksterWire(payload: DinksterNodesPayload): re
 }
 
 /**
- * Decode the /api/nodes "dinkster" header's mergeableTypes list (additive,
- * joint contract 2026-07-26, Dinkster 6dbbddd): the sorted ATOM type ids with a
+ * Decode the /api/nodes "dinkster" header's mergeableTypes list:
+ * the sorted ATOM type ids with a
  * registered batch-merge provider (list<T> -> one batched T), derived from
  * the composed registry at envelope build time. PRESENTATION gating only -
  * the widget layer offers the multi-select merge arm on membership; the

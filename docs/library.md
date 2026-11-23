@@ -1,7 +1,8 @@
 # Library
 
-The left-dock Library browses five sources in a stable order: Packs,
-Templates, Workflows, History, and Runs. The Library header names the backend
+The left-dock Library browses Packs, Templates, and Workflows in that order.
+Execution history and stored runs live in the right-side Runs panel, not in
+Library. The Library header names the backend
 that owns the current tab and shows its exact protocol and connection state.
 Search, filters, paging, grid/list preference, and row keyboard navigation use
 the shared `CollectionPanel` contract; each source remains responsible for
@@ -16,7 +17,11 @@ rail when space permits, or inline at narrow widths. Long identifiers wrap and
 remain selectable. Loading, failure, empty-corpus, and no-match states name the
 active source instead of presenting a generic blank panel. Switching sources
 hides rows from the previous source while the replacement page loads. Backend
-status updates preserve the active source and its browsing context. ComfyUI
+status updates preserve the active source and its browsing context. Changes
+published by another engine sharing the native library refresh collections,
+asset listings, and open workflows' asset-presence diagnostics through the
+connected backend's authorized reads. They do not replace open documents or
+unsaved edits, and do not replay another engine's execution events. ComfyUI
 backends identify saved workflows as unavailable instead of suggesting an
 unsupported save.
 
@@ -69,5 +74,5 @@ The labelled source button group supports Arrow keys to move and select, while
 Home and End choose the first and last source. A compact source selector
 replaces the buttons at narrow viewport widths. Workflow rows retain
 their direct open behavior. Templates open only through **Open template** after
-selection. Pack rows select for inspection. History and Runs retain their
-existing execution-owned activation, actions, and clear semantics.
+selection. Pack rows select for inspection. Runs retains execution-owned
+actions and clear semantics in its All workflows scope.

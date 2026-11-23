@@ -28,6 +28,10 @@ interface DinksterBridgeSceneNode {
       inputId?: string
       viewId?: string
       representationId?: string
+      /** Field rows: the input port (and members) the row edits. */
+      address?: { port: string; members?: readonly string[] }
+      /** Field rows shown on the subgraph node without a wire. */
+      subgraphMark?: { item: string; label: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -101,6 +105,14 @@ interface DinksterBridgeLifecycleEvent {
   kind: 'started' | 'completed'
   execution: DinksterBridgeExecutionRef
   timestamp: number
+}
+
+interface DinksterBridgeNodeStatesEvent {
+  kind: 'nodeStates'
+  execution: DinksterBridgeExecutionRef
+  timestamp: number
+  nodes: Readonly<Record<string, import('@dinkster/core').NodeProgress>>
+  snapshot?: true
 }
 
 /** Injectable preview frame: the same NormalizedEvent shape the metadata
@@ -303,9 +315,9 @@ interface DinksterTestBridge {
           }
         >
       }
-      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent): void
+      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent | DinksterBridgeNodeStatesEvent): void
       /** Register a run directly (AP5 spec bypasses the compile path). */
-      register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number): void
+      register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number, identity?: { readonly jobRef?: string; readonly sourceDocument?: string }): void
     }
     connection: {
       readonly id: import('@dinkster/core').ConnectionId
@@ -314,11 +326,13 @@ interface DinksterTestBridge {
     }
     registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
+    editorSplits: { readonly layout: { get(): unknown; set(value: unknown): void } }
     readonly appViewEnabled: boolean
     panels: {
       register(panel: {
         id: string; title: string; placement: string; allowedPlacements: readonly string[]
-        order: number; when(): boolean; component(): HTMLElement
+        description?: string; toggleTestId?: string
+        order: number; when?(): boolean; component(): HTMLElement
       }): void
       changed: { get(): number; set(value: number): void }
     }
@@ -338,10 +352,11 @@ interface DinksterTestBridge {
     confirmStartupOwnership(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
+    renameTab(id: string, title: string): void
+    executionsForTab(tab: DinksterBridgeTab): readonly import('@dinkster/client').ExecutionState[]
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    reviewReplacements: { set(enabled: boolean): void }
     migrationNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
@@ -373,6 +388,7 @@ interface DinksterTestBridge {
     openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean>
     openEditorForBinding(tabId: string, context: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }): boolean
     dock: {
+      dock(panelId: string, zone: 'left' | 'right' | 'bottom'): void
       activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
       setOpen(zone: 'left' | 'right' | 'bottom', open: boolean): void
     }
@@ -473,6 +489,7 @@ interface DinksterTestBridge {
       register(descriptor: { id: string; title: string; component: () => unknown }): () => void
       get(id: string): { id: string; title: string } | undefined
     }
+    backendsTick: { update(fn: (value: number) => number): void }
     /** Multi-backend surface: connected backends and per-tab targeting. */
     backends: {
       get(): ReadonlyArray<{
@@ -520,6 +537,7 @@ interface DinksterTestBridge {
     setViewport(viewport: { x: number; y: number; scale: number }): void
     /** Grid preference as the renderer holds it (canvas.grid.visible). */
     getGridVisible(): boolean
+    getInactiveNodes(): ReadonlySet<string> | undefined
     /** Ephemeral overlay state; specs assert ghost-noodle persistence. */
     getOverlay(): {
       /** Selected ordinary and boundary-node scene ids. */
@@ -534,6 +552,8 @@ interface DinksterTestBridge {
       hoveredWidget?: { nodeId: string; valueKey: string }
     }
     getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string }>>>
+    /** Where each badge of a node is painted and hit, in world units. */
+    getNodeBadgeLayout(node: unknown): ReadonlyArray<{ badge: { id: string; placement?: string }; x: number; y: number; width: number; height: number }>
     getNodeOutputTexts(): Readonly<Record<string, { text: string; stale?: true; estimate?: true }>>
     /** Selection toolbox placement (undefined = hidden). */
     getToolboxLayout():
@@ -608,6 +628,7 @@ interface DinksterTestBridge {
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
     getBadges(): Readonly<Record<string, readonly { id: string }[]>>
+    getDesignTokens(): { rowHeight: number; rowGeometry: { stepperZone: number; stepperLabelInset: number } }
     getScene(): {
       graphId: string
       nodes: readonly DinksterBridgeSceneNode[]
@@ -629,6 +650,7 @@ interface DinksterTestBridge {
         netId?: string
         netName?: string
         hidden?: true
+        boundary?: true
         mismatch?: true
       }>
       reroutes: ReadonlyArray<{

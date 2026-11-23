@@ -145,9 +145,9 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
     return
   }
   checkPortRef(c, v, path)
-  if (binding['tap'] !== undefined) c.fail(`${path}.tap`, "invalid on kind 'port'")
-  if (kind !== 'port') {
-    c.fail(`${path}.kind`, "must be 'port', 'widgetTap', 'unbound', or 'valueSource'")
+  if (binding['tap'] !== undefined) c.fail(`${path}.tap`, `invalid on kind '${String(kind)}'`)
+  if (kind !== 'port' && kind !== 'construct') {
+    c.fail(`${path}.kind`, "must be 'port', 'construct', 'widgetTap', 'unbound', or 'valueSource'")
   }
 }
 
@@ -209,6 +209,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     }
   }
   c.optBool(v['promoted'], `${path}.promoted`)
+  if (v['wireHidden'] !== undefined && v['wireHidden'] !== true) c.fail(`${path}.wireHidden`, 'must be true when present')
   const binds = v['binds']
   if (
     v['promoted'] !== undefined &&
@@ -217,7 +218,7 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     (binds as Record<string, unknown>)['kind'] !== 'port' &&
     (binds as Record<string, unknown>)['kind'] !== 'valueSource'
   ) {
-    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port or value source')
+    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port or value source; a forwarded construct always carries its fields')
   }
   c.optExt(v['ext'], `${path}.ext`)
 }
@@ -591,6 +592,11 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   if (v['views'] !== undefined && c.obj(v['views'], `${path}.views`)) {
     for (const [k, view] of Object.entries(v['views'])) c.str(view, `${path}.views.${k}`)
   }
+  if (v['textLines'] !== undefined && c.obj(v['textLines'], `${path}.textLines`)) {
+    for (const [k, lines] of Object.entries(v['textLines'])) c.num(lines, `${path}.textLines.${k}`)
+  }
+  c.optBool(v['previewFolded'], `${path}.previewFolded`)
+  c.optBool(v['minimizedPreviewOpen'], `${path}.minimizedPreviewOpen`)
   if (v['sections'] !== undefined && c.obj(v['sections'], `${path}.sections`)) {
     for (const [k, s] of Object.entries(v['sections'])) {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)

@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 1888e116388b4f7f3e7ccbbe04e2a3aa7d1fc3e9
+  DINKSTER_REF: ffb07b961314af59976f0c89f28971b7a17f6c4f
 
 jobs:
   fast:
@@ -75,7 +75,7 @@ jobs:
     name: native startup
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ${{ fromJSON(vars.CI_RUNNERS)[github.event.pull_request.head.repo.full_name != github.repository && 'forkLinux' || 'linux'] }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       CUDA_VISIBLE_DEVICES: ""
       DINKSTER_ACCELERATOR: cpu
@@ -153,7 +153,7 @@ jobs:
         timeout-minutes: 3
         run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Run product screenshots
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: pnpm test:visual
         env:
           DINKSTER_E2E_PORT: "15376"

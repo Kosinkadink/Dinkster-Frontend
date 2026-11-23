@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { waitForStartupOwnership } from './fixtures.js'
+import { waitForWorkspaceReady } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -111,7 +111,7 @@ test.beforeEach(async ({ page }, testInfo) => {
       return schemas?.has('std.string.split') === true && schemas.has('dinkster.text.string_concatenate')
     })
   }, { timeout: 15_000 }).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'string-split-output-lifecycle', root: 'g0',

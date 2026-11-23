@@ -44,12 +44,17 @@ import {
 } from './body.js'
 import type {
   BodyRow,
+  ButtonSpec,
   ChoiceSpec,
   DescribedSpec,
   GroupSpec,
   InputSpec,
+  NoteSpec,
   NodeSchema,
+  NodeSelectorSpec,
   OptionRow,
+  OuterName,
+  OuterScope,
   OutputSpec,
   SectionSpec,
   TypeChoiceSpec,
@@ -259,7 +264,39 @@ export interface ElaboratedGrowth {
   readonly section?: string
 }
 
-export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth
+/**
+ * Read-only text drawn as a row. A note whose text is a formula or a lookup
+ * shows its `unknown` text: the editor does not evaluate it here.
+ */
+export interface ElaboratedNote {
+  readonly kind: 'note'
+  /** Flattened id. */
+  readonly id: string
+  readonly text: string
+  /** The text is the note's "while unknown" answer. */
+  readonly unknown?: true
+  readonly section?: string
+  /** Line key of the cell drawn before this one in a `Row`. */
+  readonly adjacentTo?: string
+}
+
+/** An action drawn as a row. The editor does not run its steps. */
+export interface ElaboratedButton {
+  readonly kind: 'button'
+  /** Flattened id. */
+  readonly id: string
+  readonly label: string
+  readonly section?: string
+  /** Line key of the cell drawn before this one in a `Row`. */
+  readonly adjacentTo?: string
+}
+
+/** The key a cell of a `Row` names the cell before it by: an input's flattened id, or a note's or button's. */
+export const lineKeyOf = (item: ElaboratedItem): string | undefined =>
+  item.kind === 'input' ? item.spec.id
+    : item.kind === 'note' || item.kind === 'button' ? `${item.kind}:${item.id}` : undefined
+
+export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth | ElaboratedNote | ElaboratedButton
 
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
@@ -296,6 +333,18 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
  * flattened id. The one rule compile, the canvas and the app share.
  */
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
+
+/**
+ * A Switch's member inputs that take part in the run (not the offered add
+ * slot), by value key, in stored order.
+ */
+export const selectorMembersOf = (
+  selector: NodeSelectorSpec,
+  inputs: readonly ElaboratedInput[],
+): readonly string[] =>
+  inputs
+    .filter((input) => input.apiName !== undefined && valueKeyOf(input).startsWith(`${selector.group}.`))
+    .map(valueKeyOf)
 
 // ---------------------------------------------------------------------------
 // Options and budget
@@ -372,6 +421,8 @@ interface FormulaFrame {
   readonly key?: string
   /** Names of this scope under the options of its choice that are not chosen. */
   readonly hidden?: ReadonlySet<string>
+  /** An inner node's scope around a construct a subgraph node shows whole. */
+  readonly outer?: Readonly<Record<string, OuterName>>
 }
 
 interface Scope {
@@ -525,12 +576,17 @@ function elaboratePass(
     early.add(path)
     return settled.get(path)
   }
+  /** Every key of the shared choice a Use narrowed with `only`, by the narrowed row. */
+  const declaredKeys = new WeakMap<ChoiceSpec, readonly string[]>()
+  /** Choices already reported for a stored key their place does not offer, by diagnostic index. */
+  const unknownChoices = new Map<string, { readonly index: number; readonly dormant: boolean }>()
   let depth = 0
   let membersVisited = 0
   let halted = false
 
-  const report = (code: string, message: string, port?: string, severity: 'error' | 'warning' = 'error'): void => {
+  const report = (code: string, message: string, port?: string, severity: 'error' | 'warning' = 'error', data?: Readonly<Record<string, unknown>>): void => {
     diagnostics.push(diag(severity, 'schema', code, `${schema.type}: ${message}`, {
+      ...(data !== undefined ? { data } : {}),
       ...(options.nodeId !== undefined && port !== undefined
         ? { anchor: { port: { node: options.nodeId, port: asPortId(port) } } }
         : {}),
@@ -639,11 +695,30 @@ function elaboratePass(
     const defaults = new Map<string, unknown>()
     defaultsUnder(schema.body, '', defaults)
     const unknown = new Set<string>()
+    const fixed = new Map<string, Extract<OuterName, { value: unknown }>>()
     for (const frame of scope.formulaFrames) {
+      if (frame.outer !== undefined) {
+        // A name outside a forwarded construct: a row of this node, or the
+        // definition's fixed value, or unknown when the inner scope cannot say.
+        for (const name of framesNamesOf([frame.rows]).names.keys()) {
+          const meaning = frame.outer[name]
+          fixed.delete(name)
+          if (meaning === undefined) unknown.add(name)
+          else if ('row' in meaning) {
+            where.set(name, meaning.row)
+            unknown.delete(name)
+          } else {
+            fixed.set(name, meaning)
+            unknown.delete(name)
+          }
+        }
+        continue
+      }
       const hidden = unchosen(frame.rows, frame.prefix)
       for (const name of frame.hidden ?? []) hidden.add(name)
       for (const name of framesNamesOf([frame.rows]).names.keys()) {
         where.set(name, frame.prefix + name)
+        fixed.delete(name)
         if (hidden.has(name)) unknown.add(name)
         else unknown.delete(name)
       }
@@ -660,7 +735,11 @@ function elaboratePass(
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
-      if (unknown.has(name)) {
+      const constant = fixed.get(name)
+      if (constant !== undefined) {
+        if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.set(name, formulaValueOf(constant.value, kind))
+        if (names.inputs.has(name)) wired.set(name, constant.linked === true)
+      } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
         if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
         if (names.inputs.has(name)) wired.set(name, false)
@@ -782,6 +861,7 @@ function elaboratePass(
         const shared = scope.shared?.get(raw.id)
         if (shared === undefined) continue
         row = applyUse(shared, raw as UseSpec)
+        if (shared.kind === 'choice' && row.kind === 'choice') declaredKeys.set(row, shared.options.map((option) => option.key))
       } else {
         row = raw
       }
@@ -789,7 +869,15 @@ function elaboratePass(
     }
   }
 
-  const one = (row: BodyRow, scope: Scope): void => {
+  /** The formula scope of a construct a subgraph node shows whole: its inner node's. */
+  const outerFrames = (outer: OuterScope): readonly FormulaFrame[] =>
+    outer.frames.map((frame) => ({ prefix: '', rows: frame.rows, outer: frame.names }))
+
+  /** Inside a construct a subgraph node shows whole, whose defaults are the definition's values. */
+  const shownWhole = (scope: Scope): boolean => scope.formulaFrames.some((frame) => frame.outer !== undefined)
+
+  const one = (row: BodyRow, raw: Scope): void => {
+    const scope = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw
     switch (row.kind) {
       case 'input':
         emitInput(row, scope.prefix + row.id, scope)
@@ -829,10 +917,28 @@ function elaboratePass(
         described(row, scope.prefix + row.id, scope)
         return
       case 'note':
-      case 'editor':
       case 'button':
+        layoutRow(row, scope)
+        return
+      case 'editor':
         return
     }
+  }
+
+  /** A note or a button: drawn, never stored, compiled or wired. */
+  const layoutRow = (row: NoteSpec | ButtonSpec, scope: Scope, adjacentTo?: string): string | undefined => {
+    if (scope.ghost || scope.dormant || scope.hidden) return undefined
+    const id = scope.prefix + row.id
+    const placed = {
+      ...(scope.section !== undefined ? { section: scope.section } : {}),
+      ...(adjacentTo !== undefined ? { adjacentTo } : {}),
+    }
+    const item: ElaboratedItem = row.kind === 'note'
+      ? typeof row.text === 'string'
+        ? { kind: 'note', id, text: row.text, ...placed }
+        : { kind: 'note', id, text: row.unknown ?? '', unknown: true, ...placed }
+      : { kind: 'button', id, label: row.label, ...placed }
+    return push(item) ? lineKeyOf(item) : undefined
   }
 
   const section = (row: SectionSpec, scope: Scope): void => {
@@ -858,6 +964,10 @@ function elaboratePass(
     if (!enter(`${scope.prefix}row`)) return
     let previous: string | undefined
     for (const row of list) {
+      if (row.kind === 'note' || row.kind === 'button') {
+        previous = layoutRow(row, scope, previous) ?? previous
+        continue
+      }
       if (row.kind !== 'input') continue
       const path = scope.prefix + row.id
       emitInput(previous === undefined ? row : { ...row, adjacentTo: previous }, path, scope)
@@ -1095,6 +1205,9 @@ function elaboratePass(
     const keys = row.options.map((option) => option.key)
     const storedKey = row.leader === undefined ? stateOf(path)?.selected : undefined
     let key: string | undefined
+    // Set when an option that is not chosen reads a stored key it does not
+    // offer: that place reads as its start key and stores nothing.
+    let startOfPlace = false
     if (row.leader !== undefined) {
       const outcome = evaluate(row.leader, scope)
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && keys.includes(outcome.value)) key = outcome.value
@@ -1106,20 +1219,38 @@ function elaboratePass(
         return
       }
     } else if (storedKey !== undefined) {
-      if (!keys.includes(storedKey)) {
-        report('prompt.bad_dynamic_choice', `choice '${path}' has unknown option '${storedKey}'`, path)
-        return
+      if (keys.includes(storedKey)) {
+        key = storedKey
+      } else if (scope.dormant && declaredKeys.get(row)?.includes(storedKey)) {
+        startOfPlace = true
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+      } else {
+        // A stored key the pack no longer has is no pick: a required choice
+        // goes to its start key and an optional one to none. Opening stores
+        // that change (`selected`); the old option's values stay stored.
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+        startOfPlace = scope.dormant === true
+        // A shared choice is reported once; the chosen place's start key
+        // replaces one an unchosen place reported first.
+        const earlier = unknownChoices.get(path)
+        if (earlier === undefined || (earlier.dormant && !scope.dormant)) {
+          report('elab.combo.removedOption',
+            `option '${storedKey}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. It is now ${key === undefined ? 'none' : `'${key}'`}. The old values are kept.`,
+            path, 'warning', { construct: path, selected: key ?? null })
+          if (earlier !== undefined) diagnostics.splice(earlier.index, 1, diagnostics.pop()!)
+          unknownChoices.set(path, { index: earlier?.index ?? diagnostics.length - 1, dormant: scope.dormant === true })
+        }
       }
-      key = storedKey
-    } else if (row.required && !view && !scope.ghost && !scope.dormant) {
+    } else if (row.required && !(shownWhole(scope) && row.default !== undefined) && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
       // (storeStartState); a run never makes one up.
       report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
-      key = row.required ? row.default ?? keys[0] : undefined
+      // On a subgraph node that shows the choice whole, the default is the definition's pick.
+      key = row.required ? row.default ?? keys[0] : shownWhole(scope) ? row.default : undefined
     }
-    chosen.set(path, key ?? null)
+    if (!startOfPlace) chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
@@ -1227,11 +1358,14 @@ function elaboratePass(
       return
     }
     const variants = row.variants.map(({ key, type }) => ({ key, type }))
-    const key = stateOf(path)?.selected
+    // On a subgraph node that shows the type choice whole, the default is the definition's pick.
+    const key = stateOf(path)?.selected ?? (shownWhole(scope) ? row.default : undefined)
     const variant = row.variants.find((item) => item.key === key)
     if (key !== undefined && variant === undefined) {
-      report('prompt.bad_dynamic_choice', `type choice '${path}' has unknown variant '${key}'`, path)
-      return
+      // A stored variant the pack no longer has is no pick; opening clears it.
+      report('elab.slot.removedVariant',
+        `variant '${key}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. ${row.required ? 'Pick a variant before running.' : 'Nothing is selected now.'} The old values are kept.`,
+        path, 'warning', { construct: path, selected: null })
     }
     if (variant === undefined && row.required && !view && !scope.ghost && !scope.dormant) {
       report('prompt.missing_dynamic_choice', `required type choice '${path}' has no stored variant`, path)
@@ -1279,7 +1413,7 @@ function elaboratePass(
         report('elab.outputDescriptors.linkedSource', `described '${path}': the description is a stored value, not a wire`, path)
         return
       }
-      const raw = node.values[path]
+      const raw = Object.hasOwn(node.values, path) ? node.values[path] : shownWhole(scope) ? row.default : undefined
       const parsed = describedEntries(row, raw === undefined || raw === null ? undefined : raw, path)
       if (typeof parsed === 'string') {
         report('elab.outputDescriptors.invalid', parsed, path)
@@ -1328,7 +1462,7 @@ function elaboratePass(
 
   if (census && !halted) {
     for (const key of Object.keys(node.dynamic ?? {})) {
-      if (!readState.has(key)) report('elab.dynamic.unknownState', `unknown stored dynamic state '${key}'`, key)
+      if (!readState.has(key)) report('elab.dynamic.unknownState', `'${key}' is no longer part of this node. What was stored for it is kept in the file.`, key, 'error', { construct: key })
     }
   }
 

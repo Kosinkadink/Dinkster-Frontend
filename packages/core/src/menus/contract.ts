@@ -22,6 +22,7 @@
 
 import type { CommandInvocation } from '../commands/contract.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
+import type { NodeSchema } from '../schema/model.js'
 
 // ---------------------------------------------------------------------------
 // Targets and context
@@ -75,12 +76,19 @@ export type MenuTarget =
        * must use this triple; nodeId/inputId stay the displayed identity.
        */
       readonly owner?: { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
+      /** The field's structural input address, for items that bind the input itself. */
+      readonly address?: { readonly port: string; readonly members?: readonly string[] }
       /**
        * Unpersisted presentation row (ghost/materialize affordance): there
        * is no document value to address, so identity-recording items must
        * not offer themselves.
        */
       readonly synthetic?: true
+      /**
+       * The row picks a choice's option or a type choice's variant: it
+       * controls a construct rather than holding a stored field.
+       */
+      readonly construct?: true
     }
   | { readonly kind: 'group'; readonly groupId: string }
   | {
@@ -113,6 +121,11 @@ export interface MenuContext {
    * that can never estimate would be dead state).
    */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /**
+   * Node schemas by type, subgraph types included. Omitted for headless
+   * consumers; items that need a node's rows then offer nothing.
+   */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   /** Graph definition being edited (root or a drilled-in subgraph). */
   readonly graphId: string
   readonly target: MenuTarget

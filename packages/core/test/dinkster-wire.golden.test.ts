@@ -13,6 +13,21 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 
 describe('Dinkster schema wire', () => {
 
+  it('decodes a Switch selector as its pick and group of branches, and refuses the two-branch form', () => {
+    // The engine's schema_to_wire output for a Switch.
+    const body = [
+      { kind: 'input', id: 'pick', type: { kind: 'union', types: ['INT', 'BOOLEAN'] }, required: false },
+      { kind: 'group', id: 'branch', value: { kind: 'input', id: 'branch', type: { kind: 'concrete', types: ['IMAGE'] }, required: false, lazy: true },
+        keys: { numbered: { prefix: 'branch', start: 1, pad: 0 } }, grows: 'button', minMembers: 1 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['IMAGE'] } },
+    ]
+    const { schema, diagnostics } = parseDinksterSchema('Switch', { body, selector: { input: 'pick', group: 'branch' } } as never)
+    expect(diagnostics).toEqual([])
+    expect(schema!.selector).toEqual({ input: 'pick', group: 'branch' })
+    const old = parseDinksterSchema('Switch', { body, selector: { input: 'pick', branches: { false: 'a', true: 'b' } } } as never)
+    expect(old.schema).toBeUndefined()
+  })
+
   it('keeps formula labels and visible on inputs and outputs as declared', () => {
     const { schema, diagnostics } = parseDinksterSchema('Labels', { body: [
       { kind: 'input', id: 'count', type: concrete('INT'), label: { formula: 'mode' }, visible: { formula: 'count > 1' } },
@@ -403,6 +418,26 @@ describe('Dinkster schema wire', () => {
       expect(rejected.schema).toBeUndefined()
       expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
     }
+  })
+
+  it('carries a color field that uses opacity to the schema model, and only that field', () => {
+    const decoded = parseDinksterSchema('Colors', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        { kind: 'input', id: 'fill', type: concrete('STRING'), required: true, default: '#33669980', widget: { type: 'COLOR', alpha: true } },
+        { kind: 'input', id: 'line', type: concrete('COLOR'), required: true, default: '#336699', widget: { type: 'COLOR' } },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [fill, line] = inputsOf(decoded.schema!)
+    expect(fill!.widget).toMatchObject({ widgetType: 'COLOR', options: { alpha: true } })
+    expect(line!.widget!.options).toEqual({})
+    const rejected = parseDinksterSchema('BadColor', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [{ kind: 'input', id: 'fill', type: concrete('STRING'), required: true, widget: { type: 'COLOR', alpha: 'yes' } }],
+    })
+    expect(rejected.schema).toBeUndefined()
+    expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('alpha must be a boolean') })])
   })
 
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {

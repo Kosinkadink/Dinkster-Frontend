@@ -179,6 +179,46 @@ export function stepNumericValue(
   return Math.min(constraints.max, Math.max(constraints.min, stepped))
 }
 
+/** A press that moves less than this many screen pixels is a click, not a drag. */
+export const NUMBER_DRAG_THRESHOLD = 4
+const NUMBER_DRAG_SLOW_DISTANCE = 100
+const NUMBER_DRAG_PIXELS_PER_STEP = 4
+
+/**
+ * Steps a sideways drag is worth, from its signed screen distance to the
+ * press point: one step per 4 px for the first 100 px, then
+ * 25 + ((d - 100) / 4)^2, so a long throw covers a large range while small
+ * moves stay exact. Returning to the press point gives zero.
+ */
+export function numberDragSteps(distance: number): number {
+  const reach = Math.abs(distance)
+  const steps = reach <= NUMBER_DRAG_SLOW_DISTANCE
+    ? Math.floor(reach / NUMBER_DRAG_PIXELS_PER_STEP)
+    : NUMBER_DRAG_SLOW_DISTANCE / NUMBER_DRAG_PIXELS_PER_STEP
+      + Math.floor(((reach - NUMBER_DRAG_SLOW_DISTANCE) / NUMBER_DRAG_PIXELS_PER_STEP) ** 2)
+  return distance < 0 ? -steps : steps
+}
+
+/** The value a drag of `distance` screen pixels gives, from the value at the press; Shift is ten times faster. */
+export function dragNumericValue(
+  start: IntegerWidgetValue,
+  distance: number,
+  constraints: NumericStepConstraints,
+  fast = false,
+): IntegerWidgetValue {
+  const steps = numberDragSteps(distance) * (fast ? 10 : 1)
+  if (constraints.integer) {
+    const min = constraints.min ?? MIN_INTEGER_WIDGET_VALUE
+    const max = constraints.max ?? MAX_INTEGER_WIDGET_VALUE
+    const moved = integerValue(start) + BigInt(steps) * constraints.step
+    return integerWidgetValue(moved < min ? min : moved > max ? max : moved)
+  }
+  const numericStart = typeof start === 'number' ? start : 0
+  if (steps === 0) return numericStart
+  const moved = quantize(numericStart + steps * constraints.step)
+  return Math.min(constraints.max, Math.max(constraints.min, moved))
+}
+
 function randomBits96(random: () => number): bigint {
   const chunk = (): bigint => BigInt(Math.floor(Math.max(0, Math.min(0.9999999999999999, random())) * 0x100000000))
   return (chunk() << 64n) | (chunk() << 32n) | chunk()
