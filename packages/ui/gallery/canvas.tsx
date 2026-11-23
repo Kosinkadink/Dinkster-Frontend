@@ -354,6 +354,14 @@ export function CanvasGallery() {
           unchanged, not the number-editing proposal.
         </p>
       </Show>
+      <Show when={page() === 'boxes'}>
+        <p class="dinkster-description">
+          Sections, groups and choices drawn as boxes. A closed box shows how
+          many rows it hides, gathers their pins on its row and marks a changed
+          value with a dot. The closed section in the first row is hovered.
+          Opening or closing a box moves neither its name nor any row above it.
+        </p>
+      </Show>
       <Show when={page() === 'collection-rows'}>
         <ProductField label="Collection row look">
           {(attributes) => (

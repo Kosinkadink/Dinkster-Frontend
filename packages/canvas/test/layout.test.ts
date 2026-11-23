@@ -858,6 +858,46 @@ describe('sections', () => {
     expect(outer!.y + outer!.height).toBeGreaterThan(inner!.y + inner!.height)
   })
 
+  it('opening or closing a box moves neither its name nor any row above it', () => {
+    const nested: NodeSchema['body'] = [
+      input('a'),
+      widget('top'),
+      section('outer', [
+        widget('w1'),
+        {
+          kind: 'group',
+          id: 'loras',
+          member: [widget('name'), widget('strength')],
+          keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 },
+          grows: 'button',
+          minMembers: 2,
+        },
+        section('inner', [widget('q')], { displayName: 'Inner', openName: false }),
+      ], { displayName: 'Outer' }),
+      widget('after'),
+      output('x'),
+    ]
+    const key = (row: { kind: string }) =>
+      'inputId' in row ? `${row.kind}:${String(row.inputId)}`
+        : 'sectionId' in row ? `${row.kind}:${String(row.sectionId)}`
+          : 'input' in row && row.input ? `ports:${String((row.input as { portId: string }).portId)}`
+            : row.kind
+    for (const box of ['outer', 'group:loras', 'inner']) {
+      const [open, closed] = [false, true].map((shut) =>
+        layoutNode(schemaOf(nested), nodeData, defaultTokens, measure, widgetMeasure, {
+          sectionOverrides: { [box]: shut },
+        }))
+      const at = (l: typeof open) => l!.rows.findIndex((row) => row.kind === 'section' && row.sectionId === box)
+      const above = (l: typeof open) => l!.rows.slice(0, at(l)).map((row) => [key(row), row.y])
+      expect(at(open), box).toBeGreaterThan(0)
+      expect(above(closed), box).toEqual(above(open))
+      const [openHeader, closedHeader] = [open, closed].map((l) => l!.rows[at(l)] as { top: number; tab?: boolean })
+      // A box with no name while open shows only a tab on its top edge.
+      if (!openHeader!.tab) expect(closedHeader!.top, box).toBe(openHeader!.top)
+      expect(closed!.height, box).toBeLessThan(open!.height)
+    }
+  })
+
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
     const l = layoutNode(
       schemaOf([

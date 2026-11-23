@@ -963,9 +963,9 @@ export function layoutNode(
   for (const item of items) {
     if (item.kind === 'section' || item.kind === 'box') {
       const decl = decls.get(item.kind === 'section' ? item.spec.id : item.id)!
+      hold(decl.parents)
       // An option's rows hang under the dropdown that picks it: no header.
       if (decl.kind === 'option') continue
-      hold(decl.parents)
       if (isHidden(decl.parents)) continue
       pending.push({ kind: decl.kind === 'member' ? 'member' : 'section', boxes: decl.parents, header: decl })
       continue

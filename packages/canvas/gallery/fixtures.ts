@@ -1,6 +1,9 @@
 import {
   defaultValuesOf,
   loadDocument,
+  type DynamicPortState,
+  type GroupSpec,
+  type SectionSpec,
   type InputSpec,
   type Json,
   type NodeSchema,
@@ -46,6 +49,7 @@ import {
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
+  ['boxes', 'Node boxes'],
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
@@ -184,6 +188,19 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('uninstalled', 'pack.unknownKind', 'Stored value'),
 ]
 
+/** Placement and stored state for one gallery node beyond its values. */
+interface BoxedNode {
+  readonly at?: { readonly x: number; readonly y: number }
+  readonly dynamic?: Readonly<Record<string, DynamicPortState>>
+  /** View open state per box key: true closes it, false opens it. */
+  readonly closed?: Readonly<Record<string, boolean>>
+  /** Ports fed from a source node by port id, with the wire's type. */
+  readonly wired?: {
+    readonly ports: Readonly<Record<string, string>>
+    readonly at: { readonly x: number; readonly y: number }
+  }
+}
+
 export interface CanvasGalleryFixture {
   scene: {
     -readonly [K in keyof Scene]: Scene[K] extends readonly (infer T)[]
@@ -244,24 +261,34 @@ export function createCanvasGalleryFixture(
     values: Record<string, Json> = {},
     index = fixture.scene.nodes.length,
     driven = false,
+    extra: BoxedNode = {},
   ) => {
-    const x = driven ? 244 : 24 + (index % 3) * 312
-    const y = driven
+    const x = extra.at?.x ?? (driven ? 244 : 24 + (index % 3) * 312)
+    const y = extra.at?.y ?? (driven
       ? Math.max(
           54,
           ...fixture.scene.nodes.map(
             (node) => node.y + node.layout.height + 64,
           ),
         )
-      : 54 + Math.floor(index / 3) * 250
+      : 54 + Math.floor(index / 3) * 250)
+    const wired = Object.entries(extra.wired?.ports ?? {})
     const producer = schema(
       'Source',
-      definition.body.flatMap((item) =>
-        item.kind === 'input' && item.widget
-          ? [{ kind: 'output' as const, id: item.id, type: item.type }]
-          : [],
-      ),
+      wired.length > 0
+        ? wired.map(([port, type]) => ({
+            kind: 'output' as const,
+            id: port,
+            displayName: port.split('.').pop()!,
+            type: concrete(type),
+          }))
+        : definition.body.flatMap((item) =>
+            item.kind === 'input' && item.widget
+              ? [{ kind: 'output' as const, id: item.id, type: item.type }]
+              : [],
+          ),
     )
+    const sourced = driven || wired.length > 0
     const loaded = loadDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
@@ -273,7 +300,7 @@ export function createCanvasGalleryFixture(
           name: 'Gallery',
           nextOrdinal: 2,
           nodes: {
-            ...(driven
+            ...(sourced
               ? {
                   [`${id} source`]: {
                     id: `${id} source`,
@@ -295,9 +322,21 @@ export function createCanvasGalleryFixture(
                 : id === 'Bypassed'
                   ? { mode: 'bypassed' }
                   : {}),
+              ...(extra.dynamic ? { dynamic: extra.dynamic } : {}),
             },
           },
-          links: driven
+          links: wired.length > 0
+            ? Object.fromEntries(
+                wired.map(([port]) => [
+                  `${id}-${port}`,
+                  {
+                    id: `${id}-${port}`,
+                    from: { node: `${id} source`, port },
+                    to: { node: id, port },
+                  },
+                ]),
+              )
+            : driven
             ? Object.fromEntries(
                 definition.body.flatMap((item, i) =>
                   item.kind === 'input' && item.widget
@@ -323,10 +362,10 @@ export function createCanvasGalleryFixture(
         graphs: {
           gallery: {
             nodes: {
-              ...(driven
+              ...(sourced
                 ? {
                     [`${id} source`]: {
-                      position: { x: 24, y },
+                      position: extra.wired?.at ?? { x: 24, y },
                       size: { width: 160, height: 0 },
                     },
                   }
@@ -336,6 +375,16 @@ export function createCanvasGalleryFixture(
                 size: { width: id === 'Narrow' ? 112 : 280, height: 0 },
                 ...(id === 'Minimized' || id === 'Long minimized'
                   ? { collapsed: true }
+                  : {}),
+                ...(extra.closed
+                  ? {
+                      sections: Object.fromEntries(
+                        Object.entries(extra.closed).map(([box, collapsed]) => [
+                          box,
+                          { collapsed },
+                        ]),
+                      ),
+                    }
                   : {}),
               },
             },
@@ -944,6 +993,186 @@ export function createCanvasGalleryFixture(
     }
     fixture.rowMarks = { Invalid: new Set([widgetInput.id]) }
     fixture.height = 850
+  } else if (page === 'boxes') {
+    const socket = (id: string, type: string): InputSpec => ({
+      kind: 'input',
+      id,
+      type: concrete(type),
+      optional: true,
+    })
+    const image = { kind: 'output' as const, id: 'IMAGE', type: concrete('IMAGE') }
+    const section = (
+      id: string,
+      displayName: string,
+      rows: SectionSpec['rows'],
+      openName?: false,
+    ): SectionSpec => ({
+      kind: 'section',
+      id,
+      displayName,
+      rows,
+      ...(openName === false ? { openName } : {}),
+    })
+    const sampling = schema('Sampler', [
+      socket('model', 'MODEL'),
+      image,
+      widget('seed', 'INT', 42),
+      section('sampling', 'Sampling', [
+        widget('steps', 'INT', 20, { min: 1, max: 100 }),
+        widget('cfg', 'FLOAT', 7.5, { min: 0, max: 30, step: 0.1 }),
+        socket('mask', 'MASK'),
+      ]),
+      widget('denoise', 'FLOAT', 1, { min: 0, max: 1, step: 0.01 }),
+    ])
+    const resize = schema('Resize', [
+      socket('image', 'IMAGE'),
+      image,
+      {
+        kind: 'choice',
+        id: 'resize',
+        displayName: 'Resize',
+        options: [
+          {
+            key: 'scale',
+            label: 'Scale by',
+            rows: [
+              widget('factor', 'FLOAT', 1.5, { min: 0.1, max: 8, step: 0.1 }),
+              widget('method', 'COMBO', 'lanczos', {
+                options: ['lanczos', 'bilinear', 'nearest'],
+              }),
+            ],
+          },
+          { key: 'keep', label: 'Keep size', rows: [] },
+        ],
+        shared: [],
+        required: true,
+        default: 'scale',
+      },
+      widget('crop', 'BOOLEAN', false),
+    ])
+    const loras = (id: string, displayName: string): GroupSpec => ({
+      kind: 'group',
+      id,
+      displayName,
+      member: [
+        widget('name', 'COMBO', 'detail.safetensors', {
+          options: ['detail.safetensors', 'style.safetensors'],
+        }),
+        widget('strength', 'FLOAT', 1, { min: -4, max: 4, step: 0.05 }),
+      ],
+      keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 },
+      grows: 'button',
+      minMembers: 1,
+      maxMembers: 4,
+      addLabel: 'Add LoRA',
+    })
+    let rowY = 54
+    const nextRow = () => {
+      rowY =
+        Math.max(
+          ...fixture.scene.nodes.map((node) => node.y + node.layout.height),
+        ) + 64
+    }
+    const column = (index: number) => ({ x: 24 + index * 312, y: rowY })
+    add('Section open', sampling, {}, 0, false, { at: column(0) })
+    add('Section closed', sampling, {}, 1, false, {
+      at: column(1),
+      closed: { sampling: true },
+    })
+    add('Choice with rows', resize, {}, 2, false, { at: column(2) })
+    nextRow()
+    add('Closed, wired and changed', sampling, { cfg: 4 }, 3, false, {
+      at: column(1),
+      closed: { sampling: true },
+      wired: { ports: { steps: 'INT' }, at: { x: 24, y: rowY + 40 } },
+    })
+    add('Choice with none', resize, {}, 4, false, {
+      at: column(2),
+      dynamic: { resize: { selected: 'keep' } },
+    })
+    nextRow()
+    add(
+      'Grows by plugging in',
+      schema('Batch', [
+        image,
+        {
+          kind: 'group',
+          id: 'images',
+          displayName: 'Images',
+          value: socket('image', 'IMAGE'),
+          keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+          grows: 'link',
+          minMembers: 1,
+          maxMembers: 4,
+        },
+        widget('spacing', 'INT', 8, { min: 0, max: 64 }),
+      ]),
+      {},
+      5,
+      false,
+      {
+        at: column(1),
+        dynamic: { images: { members: ['image0', 'image1'] } },
+        wired: {
+          ports: { 'images.image0': 'IMAGE', 'images.image1': 'IMAGE' },
+          at: { x: 24, y: rowY + 40 },
+        },
+      },
+    )
+    add(
+      'Grows by hand',
+      schema('LoRA stack', [
+        socket('model', 'MODEL'),
+        { kind: 'output', id: 'MODEL', type: concrete('MODEL') },
+        loras('loras', 'LoRAs'),
+      ]),
+      {},
+      6,
+      false,
+      { at: column(2), dynamic: { loras: { members: ['lora0', 'lora1'] } } },
+    )
+    nextRow()
+    add(
+      'Three levels',
+      schema('Refiner', [
+        socket('model', 'MODEL'),
+        { kind: 'output', id: 'MODEL', type: concrete('MODEL') },
+        section('refine', 'Refine', [
+          widget('passes', 'INT', 2, { min: 1, max: 4 }),
+          loras('loras', 'LoRAs'),
+        ]),
+      ]),
+      {},
+      7,
+      false,
+      { at: column(0), dynamic: { loras: { members: ['lora0', 'lora1'] } } },
+    )
+    const unnamed = schema('Tiles', [
+      image,
+      widget('tile', 'INT', 512, { min: 64, max: 2048 }),
+      section(
+        'overlap',
+        'Overlap',
+        [
+          widget('overlap', 'INT', 64, { min: 0, max: 256 }),
+          widget('feather', 'FLOAT', 0.5, { min: 0, max: 1, step: 0.05 }),
+        ],
+        false,
+      ),
+      widget('seam_fix', 'BOOLEAN', true),
+    ])
+    add('No name, open', unnamed, {}, 8, false, { at: column(1) })
+    add('No name, closed', unnamed, {}, 9, false, {
+      at: column(2),
+      closed: { overlap: true },
+    })
+    fixture.overlay = {
+      hoveredBox: { nodeId: 'Section closed', boxId: 'sampling' },
+    }
+    fixture.height =
+      Math.max(
+        ...fixture.scene.nodes.map((node) => node.y + node.layout.height),
+      ) + 40
   } else if (page === 'previews') {
     for (const id of [
       'Image',
