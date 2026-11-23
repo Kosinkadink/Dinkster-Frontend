@@ -81,8 +81,15 @@ the group is focused. A single group's controls remain at full strength.
 Search keeps its outline with no fill. The workflow tab strip is frame-colored;
 the selected workflow tab joins the canvas-colored surface without a border.
 
-The minimap and its control bar share one width. The controls are minimap,
-view options, minus, zoom level, plus, and fit to view, in that order.
+The Minimap size setting chooses small (160 x 96 px, the default for new and
+existing users), medium (196 x 118 px), or large (256 x 150 px). The minimap
+and its control bar share one fixed width, with buttons spread evenly and no
+groups. Medium and large show minimap, view options, minus, zoom level, plus,
+and fit to view, in that order. Small omits minus and plus; the wheel and
+keyboard shortcuts still zoom. Future controls belong in view options, not a
+wider minimap. The panel-colored minimap has no outline; the current view has
+a quiet secondary-text rectangle with a 1 px half-strength line, 6 percent
+fill, and 3 px corners.
 
 The tab strip belongs to the center workspace column. It starts after both
 the icon sidebar and an open left dock, so those left-side regions own their
