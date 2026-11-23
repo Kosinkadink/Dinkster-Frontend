@@ -62,7 +62,21 @@ const MOUNT_ID_RE = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/
 const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
 
+/** A declared special value is allowed outside the limits; only an exactly equal number counts. */
+function isSpecialValue(value: number | bigint, spec: WidgetSpec): boolean {
+  const special = spec.options['special']
+  if (!Array.isArray(special)) return false
+  return special.some((item: unknown) => {
+    const declared = typeof item === 'object' && item !== null ? (item as { value?: unknown }).value : undefined
+    if (typeof value === 'bigint') {
+      return (Number.isSafeInteger(declared) || isCanonicalUnsafeInteger(declared)) && BigInt(declared as number | string) === value
+    }
+    return declared === value
+  })
+}
+
 function rangeDiags(value: number, spec: WidgetSpec, type: string): Diagnostic[] {
+  if (isSpecialValue(value, spec)) return []
   const out: Diagnostic[] = []
   const min = spec.options['min']
   const max = spec.options['max']
@@ -84,6 +98,7 @@ function integerRangeDiags(value: IntegerWidgetValue, spec: WidgetSpec): Diagnos
   }
   const out: Diagnostic[] = []
   const numeric = BigInt(value)
+  if (isSpecialValue(numeric, spec)) return out
   const min = spec.options['min']
   const max = spec.options['max']
   if ((Number.isSafeInteger(min) || isCanonicalUnsafeInteger(min)) && numeric < BigInt(min as number | string)) {

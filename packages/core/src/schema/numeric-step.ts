@@ -16,6 +16,10 @@ export interface IntegerStepConstraints {
   readonly step: bigint
   readonly min?: bigint
   readonly max?: bigint
+  /** What the step counts from: the declared offset, else min, else 0. */
+  readonly offset: bigint
+  /** Values allowed outside the limits and off the step, ascending. */
+  readonly special: readonly bigint[]
 }
 
 export interface FloatStepConstraints {
@@ -23,6 +27,8 @@ export interface FloatStepConstraints {
   readonly step: number
   readonly min: number
   readonly max: number
+  /** Values allowed outside the limits, ascending. */
+  readonly special: readonly number[]
 }
 
 export type NumericStepConstraints = IntegerStepConstraints | FloatStepConstraints
@@ -79,6 +85,8 @@ export function numericStepConstraints(widget: Pick<WidgetSpec, 'widgetType' | '
       step: declaredStep !== undefined && declaredStep > 0n ? declaredStep : 1n,
       ...(min !== undefined ? { min } : {}),
       ...(max !== undefined ? { max } : {}),
+      offset: integerOption(widget.options['offset']) ?? min ?? 0n,
+      special: specialValues(widget.options['special'], integerOption),
     }
   }
 
@@ -91,7 +99,45 @@ export function numericStepConstraints(widget: Pick<WidgetSpec, 'widgetType' | '
     step: declaredStep !== undefined && declaredStep > 0 ? declaredStep : 0.1,
     min: validRange ? (rawMin ?? -Infinity) : -Infinity,
     max: validRange ? (rawMax ?? Infinity) : Infinity,
+    special: specialValues(widget.options['special'], finiteOption),
   }
+}
+
+function specialValues<T extends bigint | number>(raw: unknown, read: (value: unknown) => T | undefined): T[] {
+  if (!Array.isArray(raw)) return []
+  const values: T[] = []
+  for (const item of raw) {
+    const value = typeof item === 'object' && item !== null ? read((item as { value?: unknown }).value) : undefined
+    if (value !== undefined) values.push(value)
+  }
+  return values.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+const floorDiv = (a: bigint, b: bigint): bigint => (a % b === 0n || a >= 0n ? a / b : a / b - 1n)
+
+/**
+ * The next allowed whole number past `current` in `direction`: offset plus a multiple of
+ * step inside the limits, or a special value. Undefined when there is none.
+ */
+function nextIntegerValue(current: bigint, direction: -1 | 1, constraints: IntegerStepConstraints): bigint | undefined {
+  const { step, offset } = constraints
+  const min = constraints.min ?? MIN_INTEGER_WIDGET_VALUE
+  const max = constraints.max ?? MAX_INTEGER_WIDGET_VALUE
+  let onStep: bigint | undefined
+  if (direction === 1) {
+    const from = current < min ? min - 1n : current
+    const candidate = offset + (floorDiv(from - offset, step) + 1n) * step
+    if (candidate <= max) onStep = candidate
+  } else {
+    const from = current > max ? max + 1n : current
+    const candidate = offset + (-floorDiv(offset - from, step) - 1n) * step
+    if (candidate >= min) onStep = candidate
+  }
+  const beyond = constraints.special.filter((value) => (direction === 1 ? value > current : value < current))
+  const special = direction === 1 ? beyond[0] : beyond[beyond.length - 1]
+  if (onStep === undefined) return special
+  if (special === undefined) return onStep
+  return direction === 1 ? (special < onStep ? special : onStep) : (special > onStep ? special : onStep)
 }
 
 export function numericStepPrecision(step: number): number {
@@ -116,13 +162,20 @@ export function stepNumericValue(
   constraints: NumericStepConstraints,
 ): IntegerWidgetValue {
   if (constraints.integer) {
-    const min = constraints.min ?? MIN_INTEGER_WIDGET_VALUE
-    const max = constraints.max ?? MAX_INTEGER_WIDGET_VALUE
-    const stepped = integerValue(current) + BigInt(direction) * constraints.step
-    return integerWidgetValue(stepped < min ? min : stepped > max ? max : stepped)
+    const value = integerValue(current)
+    return integerWidgetValue(nextIntegerValue(value, direction, constraints) ?? value)
   }
   const numericCurrent = typeof current === 'number' ? current : 0
   const stepped = quantize(numericCurrent + direction * constraints.step)
+  // A step that would pass a limit goes to the nearest special value beyond it, if any.
+  if (direction === 1 && stepped > constraints.max) {
+    const special = constraints.special.find((value) => value > constraints.max && value > numericCurrent)
+    if (special !== undefined) return special
+  }
+  if (direction === -1 && stepped < constraints.min) {
+    const below = constraints.special.filter((value) => value < constraints.min && value < numericCurrent)
+    if (below.length > 0) return below[below.length - 1]!
+  }
   return Math.min(constraints.max, Math.max(constraints.min, stepped))
 }
 
