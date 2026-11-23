@@ -1,4 +1,5 @@
 import { Show, createResource, onCleanup } from 'solid-js'
+import { PreviewDownload } from './PreviewDownload.js'
 
 /**
  * Poster still for a GLB or splat PLY source, rendered lazily through the
@@ -35,7 +36,7 @@ export function Model3dPosterImage(props: {
       }>
         <div class="asset-preview asset-preview-fallback" data-testid="asset-model3d-fallback" role="status">
           <span>3D preview unavailable.</span>
-          <a href={props.src} download={props.name}>Download model</a>
+          <PreviewDownload class="" download={{ src: props.src, name: props.name }} label="Download model" />
         </div>
       </Show>
     }>

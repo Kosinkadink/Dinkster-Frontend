@@ -133,6 +133,18 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
 })
 
 test('toolbar activity counts all workflows and excludes terminal history', async ({ page }) => {
+  const reconciled = new Set<string>()
+  let completed = false
+  await page.routeWebSocket('**/api/events?*', () => {})
+  // Synthetic store entries need matching server records when schema refresh reconciles them.
+  await page.route('/api/jobs/*/toolbar-*', (route) => {
+    const jobId = new URL(route.request().url()).pathname.split('/').at(-1)!
+    reconciled.add(jobId)
+    return route.fulfill({ json: {
+      jobId, state: jobId === 'toolbar-waiting' ? 'queued' : completed ? 'completed' : 'running',
+      nodeStates: {}, outputs: {}, artifacts: [],
+    } })
+  })
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled()
   const activity = page.locator('.dinkster-window-toolbar-actions .dinkster-run-activity')
@@ -154,6 +166,13 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
     }
   })
   await expect(activity).toHaveAccessibleName('2 running, 1 queued')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
+  await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get()[0]!
+    backend.registry.set({ ...backend.registry.get()! } as unknown as Parameters<typeof backend.registry.set>[0])
+  })
+  await expect.poll(() => reconciled.size).toBe(3)
+  await expect(activity).toHaveAccessibleName('2 running, 1 queued')
   await expect(activity.locator('.dinkster-run-activity-running')).toHaveText('2')
   await expect(activity.locator('.dinkster-run-activity-waiting')).toHaveText('1')
   for (const width of [1440, 390]) {
@@ -165,6 +184,7 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
     }
     await page.locator('.dinkster-window-toolbar-host').screenshot({ path: `test-results/captures/app-toolbar-activity-${width}.png` })
   }
+  completed = true
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     for (const execution of app.store.executions.get().values()) {
