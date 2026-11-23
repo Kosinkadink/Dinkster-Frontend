@@ -51,6 +51,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { switchPrimitiveGallery } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
@@ -85,6 +86,7 @@ export const canvasGalleryPages = [
   ['zoom-content', 'Content zoom'],
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
+  ['switch-primitive', 'Switch and Primitive'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -226,6 +228,12 @@ export interface CanvasGalleryFixture {
     caption: string
     nodes?: readonly number[]
     overlay?: OverlayState
+    /** A card drawn from a scene of its own instead of the page's scene, with its own run states, values, marks and dimmed nodes. */
+    scene?: Scene
+    states?: Readonly<Record<string, NodeProgress>>
+    companions?: CompanionMap
+    rowMarks?: RowMarkMap
+    inactive?: ReadonlySet<string>
   }[]
 }
 
@@ -688,6 +696,15 @@ export function createCanvasGalleryFixture(
         }
       })
     }
+  } else if (page === 'switch-primitive') {
+    const cards = switchPrimitiveGallery(tokens, measure, widgetMeasure)
+    // Each card draws its own scene; the page's scene is the first card's,
+    // for checks that read one scene per page.
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)
     fixture.scene.nodes = [...gallery.scene.nodes]
