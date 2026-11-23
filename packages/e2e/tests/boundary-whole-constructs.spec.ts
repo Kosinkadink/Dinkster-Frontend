@@ -197,9 +197,9 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   // Picking inside writes the subgraph node's pick, never the definition's.
   const leader = await widgetPoint(page, 'm', 'mode')
   await page.mouse.click(leader.x, leader.y)
-  const dropdown = page.getByTestId('combo-dropdown')
-  await expect(dropdown).toBeVisible()
-  await dropdown.getByRole('option', { name: 'image', exact: true }).click()
+  const option = page.getByRole('option', { name: 'image', exact: true })
+  await expect(option).toBeVisible()
+  await option.click()
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.dynamic?.['look']?.selected).toBe('image')
   expect((await activeDoc(page)).graphs['sub']!.nodes['m']!.dynamic?.['mode']?.selected).toBe('image')
   await expect.poll(() => widgetRows(page, 'm')).toEqual([
