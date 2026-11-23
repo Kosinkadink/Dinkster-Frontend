@@ -5,9 +5,8 @@ documented in [clipboard.md](clipboard.md). It covers Cut, cross-instance graph
 paste, ComfyUI node paste, and a media clipboard inspired by ComfyUI clipspace.
 It does not promise implementation or a mask editor.
 
-Research was performed against the local ComfyUI frontend and backend source
-and against the running Dinkster frontend on `:5199` and native backend on
-`:8765` on 2026-07-28. No server was restarted.
+The ComfyUI findings below were collected from frontend and backend source
+on 2026-07-28.
 
 ## 1. What ComfyUI clipspace actually is
 
@@ -132,34 +131,6 @@ media handoff or return protocol, so this is an architecture direction pending
 the editor design rather than a ready integration contract.
 
 ## 2. Dinkster cross-instance graph paste today
-
-### Empirical result
-
-An inline headless Playwright run opened Chromium on the running `:5199`
-frontend with clipboard permission and exercised the keyboard-shortcut copy
-path. Synthetic unknown-node fixtures carried an AssetRef-shaped value, a
-remote-combo-like string, and a `#g1` subgraph instance. Reading the system
-clipboard returned version 1 `dinkster-clipboard` JSON in `text/plain`, including
-the full shaped value and string but only the `#g1` instance, not its
-definition. A representative payload fragment was:
-
-```json
-{"format":"dinkster-clipboard","version":1,"nodes":[{"data":{"type":"UnknownAssetNode","values":{"image":{"digest":"blake3:...","mediaType":"image/png","virtualPath":"images/source.png"}}}},{"data":{"type":"UnknownRemoteCombo","values":{"model":"remote-choice.safetensors"}}},{"data":{"type":"#g1","values":{"prompt":"preserved override"}}}]}
-```
-
-This proves shortcut-path JSON serialization of those synthetic values only.
-It does not prove AssetWidget behavior, asset-byte availability,
-remote-option resolution, executable schema availability, or target paste.
-
-Attempts to drive the corresponding paste into a separate empty browser
-context were inconclusive: isolated browser contexts did not reliably share
-the host clipboard, and synthetic canvas keyboard input did not provide an
-independent proof of the target transaction. The survival and rejection rules
-below therefore combine the directly observed system payload with the cited
-serializer, validator, and paste-planner source. They are not reported as an
-empirically completed cross-context paste. Existing E2E coverage independently
-proves a same-origin cross-document system-clipboard paste for ordinary nodes.
-No server was restarted or mutated during this research.
 
 ### Exact envelope and survival rules
 

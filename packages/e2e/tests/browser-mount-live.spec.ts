@@ -4,7 +4,7 @@ import type { APIRequestContext } from "@playwright/test";
 import {
   expect,
   nativeTest as test,
-  waitForStartupOwnership,
+  waitForWorkspaceReady,
   type Page,
 } from "./fixtures.js";
 import { evidencePath } from "./evidence-output.js";
@@ -128,12 +128,8 @@ test("the browser template gallery grants a read-only model mount and the asset 
 
   try {
     await page.goto("/");
-    await expect(page.getByTestId("status-bar")).toContainText(
-      /\d+ node schemas/,
-      { timeout: 15_000 },
-    );
-    await expect(page.getByTestId("status-bar")).toContainText("connected");
-    await waitForStartupOwnership(page);
+    await expect(page.getByTestId("status-connection")).toHaveAttribute("data-state", "connected");
+    await waitForWorkspaceReady(page);
 
     await page
       .getByRole("button", { name: "Browse starter templates" })
@@ -318,8 +314,8 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
       .toBe("ready");
 
     await page.goto("/");
-    await expect(page.getByTestId("status-bar")).toContainText("connected");
-    await waitForStartupOwnership(page);
+    await expect(page.getByTestId("status-connection")).toHaveAttribute("data-state", "connected");
+    await waitForWorkspaceReady(page);
     await expect
       .poll(() =>
         page.evaluate(() =>

@@ -421,6 +421,11 @@ export interface NamedNetData {
  *
  * - 'port': a concrete endpoint. `port` is the inner row's flattened id -
  *   exactly PortRef semantics.
+ * - 'construct': a whole group, choice, type choice or described row, named
+ *   by its flattened id. The instance carries the whole construct: a group's
+ *   member template and growth rule (each instance owns the members it adds
+ *   after the definition's own), every option of a choice (each instance
+ *   picks), a type choice's variants, a described row's description.
  * - 'widgetTap': an output endpoint backed by one static inner widget input.
  *   `tap` is the input id. This remains distinct from a node output port so
  *   compilation can preserve linked-input and stored-value tap semantics.
@@ -432,6 +437,14 @@ export interface PortBoundaryBinding {
   readonly tap?: never
   /** Input-only junction attachment; node/port remains the schema authority. */
   readonly viaReroute?: RerouteId
+}
+
+export interface ConstructBoundaryBinding {
+  readonly kind: 'construct'
+  readonly node: NodeId
+  readonly port: PortId
+  readonly tap?: never
+  readonly viaReroute?: never
 }
 
 export interface WidgetTapBoundaryBinding {
@@ -463,13 +476,20 @@ export interface ValueSourceBoundaryBinding {
   readonly viaReroute?: never
 }
 
-export type BoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding | ValueSourceBoundaryBinding | UnboundBoundaryBinding
+export type BoundaryBinding = PortBoundaryBinding | ConstructBoundaryBinding | WidgetTapBoundaryBinding | ValueSourceBoundaryBinding | UnboundBoundaryBinding
 
-export type NodeBoundaryBinding = PortBoundaryBinding | WidgetTapBoundaryBinding
+export type NodeBoundaryBinding = PortBoundaryBinding | ConstructBoundaryBinding | WidgetTapBoundaryBinding
+
+/** A binding that names an inner row by its flattened id: a port or a whole construct. */
+export type RouteBoundaryBinding = PortBoundaryBinding | ConstructBoundaryBinding
 
 /** Whether a boundary endpoint is addressed by node identity. */
 export const isNodeBoundaryBinding = (binding: BoundaryBinding): binding is NodeBoundaryBinding =>
-  binding.kind === 'port' || binding.kind === 'widgetTap'
+  binding.kind === 'port' || binding.kind === 'construct' || binding.kind === 'widgetTap'
+
+/** Whether a binding names an inner row by its flattened id. */
+export const isRouteBoundaryBinding = (binding: BoundaryBinding): binding is RouteBoundaryBinding =>
+  binding.kind === 'port' || binding.kind === 'construct'
 
 /**
  * A subgraph definition's boundary: the ordered interface it exposes.
@@ -484,8 +504,9 @@ export interface BoundaryItem {
   readonly binds: BoundaryBinding
   /**
    * Fan-out: ADDITIONAL inner inputs this boundary input also drives.
-   * Input-side only, and only when the primary `binds` is a 'port' binding;
-   * every entry must itself be kind 'port'. The PRIMARY binding stays
+   * Input-side only, and only when the primary `binds` is a 'port' or a
+   * 'construct' binding; every entry has the primary's kind, and a forwarded
+   * construct drives only constructs of the same shape. The PRIMARY binding stays
    * authoritative for the derived type/widget; additional targets receive
    * the same connection or promoted value at compile. Canonical form: omit
    * when empty (never `[]`), and no target may repeat the primary or
@@ -498,6 +519,14 @@ export interface BoundaryItem {
    * widget). Only meaningful for 'port' bindings.
    */
   readonly promoted?: boolean
+  /**
+   * Presentation only: the input still drives its bound fields exactly as a
+   * wired one does, but no wire is drawn from the Inputs panel and the panel
+   * row has no pin. Valid only on an input the instance shows as a field (a
+   * promoted 'port' binding). Never semantic:
+   * compile and the cache key ignore it.
+   */
+  readonly wireHidden?: true
   readonly ext?: ExtData
 }
 
@@ -667,6 +696,18 @@ export interface NodeViewState {
   readonly video?: { readonly loop: boolean; readonly muted: boolean; readonly autoplay: boolean }
   /** Chosen schema widget representation id per input/value key. */
   readonly views?: Readonly<Record<string, string>>
+  /**
+   * Height in whole lines of each multiline text box the user resized, by
+   * input/value key. Absent = the height the widget declares.
+   */
+  readonly textLines?: Readonly<Record<string, number>>
+  /** The open node's preview is folded to its caption row. */
+  readonly previewFolded?: boolean
+  /**
+   * A minimized node's preview was opened by its caption. Minimized nodes
+   * start folded; minimizing or restoring clears this.
+   */
+  readonly minimizedPreviewOpen?: boolean
   /**
    * Per-section collapse OVERRIDES by section id. Absent = the schema's
    * collapsedByDefault. An override record (not a plain collapsed list) so a

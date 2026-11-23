@@ -284,8 +284,9 @@ describe('deriveGlslMirrorBindings', () => {
     expect(bindingOf(def)).toBeUndefined()
   })
 
-  it('yields no binding for a stored key the choice does not declare', () => {
-    expect(bindingOf(adjustGraph('sharpen'))).toBeUndefined()
+  it('binds the start option for a stored key the choice no longer declares, as a run does', () => {
+    expect(bindingOf(adjustGraph('sharpen'))).toEqual(bindingOf(adjustGraph('brightness')))
+    expect(bindingOf(adjustGraph('brightness'))).toBeDefined()
   })
 
   it('yields no binding for non-finite or non-integer-int scalars', () => {

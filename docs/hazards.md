@@ -109,10 +109,9 @@ structurally impossible. Keep it that way.
 `traceEndpoint` in `packages/core/src/reroute.ts` is the ONLY code that
 answers "what really drives this endpoint". The compiler, the semantic hash,
 and the scene builder all call it. Never write a second upstream-walking loop,
-even a "simpler local one" - the hash-vs-compiler divergence bug caught in
-review (undriven chains hashed as dangling pairs while the compiler omitted
-them) is exactly what a second implementation produces. If you need different
-trace output, extend `RerouteTrace`, do not fork the walk.
+even a "simpler local one" - separate implementations can diverge when one
+hashes undriven chains as dangling pairs while the compiler omits them. If you
+need different trace output, extend `RerouteTrace`, do not fork the walk.
 
 Failure mode if broken: frozen views dirty (or fail to dirty) on edits that
 do (or do not) change execution; sync badges lie to the user.
@@ -199,8 +198,6 @@ Concrete rules that fell out of those bugs:
 
 `traceEndpoint` is O(chain length) and runs at scene-build/compile/hash time,
 never per-frame. Keep tracing calls out of `render()`/pointer-move paths.
-Historical reroute-heavy measurements remain in [Performance baselines](perf.md);
-the uncalibrated browser timing cases are not a regression gate.
 
 ### R10. Importer absorption stays import-only
 
@@ -271,17 +268,18 @@ The old frontend mutates the shared definition's slot arrays when an instance
 connects to a dynamic input, then compensates across every other instance and
 nesting level - the bookkeeping nightmare that makes autogrow-in-subgraphs
 untrustworthy there. Dinkster avoids that class of bug by never letting an
-instance own part of an inner group, choice or type choice. These invariants
-are what keep it that way.
+instance write the definition's part of an inner group, choice or type
+choice. These invariants are what keep it that way.
 
-### F1. A boundary forwards one flattened row, never a whole construct
+### F1. A construct shown whole is owned per instance, and never written into the definition
 
-A boundary item binds one inner input or output by its flattened id
-([Node body](node-body.md)). Forwarding a whole group, choice or type choice
-is refused (`boundary.familyBind` at derive time, `compile.port.unknownInput`
-or `compile.port.unknownOutput` at compile time). Member and choice state
-therefore lives only on the inner node inside the definition, shared by all
-instances like every other definition edit.
+A `construct` boundary item shows a whole group, choice, type choice or
+described row ([Node body](node-body.md)). Each instance stores its own
+members, pick and values under the item's id; the definition's members stay
+on the inner node and come first. Compile, the entered view and flatten
+project the instance's state onto the inner node for that occurrence only,
+and an edit made inside writes the instance. One construct has one owner
+(`boundary.constructOwned`, `boundary.constructConflict`).
 
 Failure mode if broken: an instance growing or switching an inner construct
 writes state the definition and sibling instances also read - the
@@ -437,7 +435,7 @@ bug again the moment a key is recomputed from a member's position.
   tale - if a feature "just needs a little mirror state", derive it or put it
   in the document.
 
-## Lessons from the pack audit (see docs/archive/node-pack-extension-audit.md)
+## Extension contract failure modes
 
 Failure modes observed in the wild that our contracts must not re-enable:
 

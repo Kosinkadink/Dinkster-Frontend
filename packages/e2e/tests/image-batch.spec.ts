@@ -3,7 +3,7 @@ import { expect, nativeAppViewTest as test } from './fixtures.js'
 for (const nested of [false, true]) for (const batchSupported of [false, true]) test(`IMAGE batch in Canvas and App View (nested list: ${nested}, batch capability: ${batchSupported})`, async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'image-test', schemaWire: 2 }, nodes: {} } }))
@@ -75,6 +75,8 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
     const reason = 'IMAGE batch preview unavailable: backend does not advertise the PNG batch parameter.'
     await expect(pager.getByRole('alert')).toHaveText(reason)
     await expect(pager.getByRole('button')).toHaveCount(0)
+    // The caption row paints the same reason.
+    expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.statusMessage)).toBe(reason)
     await page.screenshot({ path: testInfo.outputPath('canvas-unsupported-batch.png') })
     await page.getByTestId('views-switcher').click()
     await page.getByRole('menuitemradio', { name: 'App view' }).click()

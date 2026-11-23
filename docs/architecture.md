@@ -1,6 +1,6 @@
 # New ComfyUI Frontend: Architecture Plan
 
-Status: proposal (researched against ComfyUI backend, ComfyUI_frontend, and KJNodes/rgthree sources; stress-tested via design review)
+Status: proposal (researched against ComfyUI backend, ComfyUI_frontend, and KJNodes/rgthree sources)
 
 See also [hazards.md](./hazards.md): the load-bearing invariants (reroutes especially) that keep the old frontend's minefields defused, and the failure mode each one prevents.
 
@@ -19,762 +19,62 @@ values remain protocol errors. Configured mounts, source browsing, retained
 outputs and Library reopen do not require a default output mount.
 
 Assets shows an explicit unconfigured notice while keeping its sources
-available. Configure output folder opens Project folders and the output
-selector. Backends shows the same state beside the writable-folder selector
-and Apply action; when there are no writable folders, it directs the operator
-to add one in Project folders. Policy-disabled configuration stays read-only.
+available. Configure output folder opens Storage, which holds the default-save
+selector and folder setup. Backends links to Storage instead of holding a
+second folder editor. When there are no writable folders, add one through
+Storage -> Folders -> Add. Policy-disabled configuration stays read-only.
 Selecting an explicit save target does not require a configured default.
 
-## Retained asset wire contract
-
-`DinksterConnection` reads and writes scoped manifests at
-`/api/library/retentions/{ownerKind}/{ownerId}?scope=`. Owner kinds are
-`document`, `history`, `shown-result` and `preview`; independent retained
-generations use distinct IDs. PUT sends `{revision, digests, complete}` with
-canonical, sorted, deduplicated `blake3:` identities (at most 4096). Unknown or
-opaque typed values require incomplete ownership, not an empty complete set.
-The transport rejects oversized declarations rather than truncating them.
-Ownership admission refuses error-severity elaboration diagnostics. Warning
-and info diagnostics remain visible without making known roots incomplete;
-generated boundary IDs containing reserved characters are one such warning.
-
-An acknowledgment must match the exact scope, owner kind and ID. Mutations
-also require the requested canonical set, completeness and next revision.
-GET 404 means absent; conflicts, unavailable storage and malformed responses
-are errors, not successful release. No mutation is automatically retried:
-a lost response requires GET reconciliation against the entire expected set,
-completeness and revision before publication or a subsequent mutation.
-DELETE requires the acknowledged positive revision and returns a complete
-empty manifest at the next revision, preserving the durable tombstone.
-Restart, disconnection and view unmount do not authorize release.
-
-`claimResultAssets` claims a server-created source token for a fresh
-`shown-result` or `preview` owner with PUT `{revision: 0, sourceToken}`.
-Caller-supplied roots are not sent: the backend selects the offer's roots and
-completeness. The acknowledgment must name the same token and revision 1;
-GET preserves that binding for explicit lost-response reconciliation against
-the original offer. An unavailable source or reused owner is an error, never
-an empty complete manifest. Claims do not retry or release older owners.
-Ordinary manifest replacement and DELETE acknowledgments must clear the source
-binding. This transport contract alone does not certify holder completeness.
-
-`fetchResultAssetOffer` reads the immutable offer by scoped token without
-caching, validating its canonical full roots and exact source identity.
-Terminal artifact offers include the saved file and its optional preview;
-their roots must match both descriptors. Unknown or malformed offers are not
-substituted with an empty complete manifest.
-
-Terminal hydration reads the sealed `/api/library/terminal-results/{jobRef}`
-manifest without caching. Client, job, attempt, runtime output and artifact
-index identities must agree; duplicate tokens or contradictory completeness
-are refused. Reconnect, completion and cached-output hydration claim every
-sealed offer before publishing descriptors or artifacts. A changed backend,
-registry or stored execution closes publication even after acknowledgment.
-Missing sealed authority refuses terminal hydration. The offer keys must cover
-every fetched output key and every saved artifact by index and value. Sealed
-intermediate outputs may be absent from the fetched display inventory; their
-sources are still claimed before publication. Partial source authority cannot
-authorize unoffered results. These claims do not certify the execution's full
-holder set.
-
-Value discovery carries the parent output's offer even for a nested-element
-peek. Discovery is uncached and validates the runtime node and output before
-admission. The application binds the offer to the stored execution's jobRef,
-journals its source token and full roots, and claims those roots before returning
-the value descriptor or admitting rendition reads. Lost-response recovery checks
-the exact token, roots, completeness and revision. Discovery without an offer
-uses explicitly incomplete ownership; a malformed present offer is refused.
-
-Pack blueprint bodies, pack icons, local template thumbnails and documentation
-media use the captured backend connection's enrolled transport rather than global
-fetch or native media URLs. Blueprint decoding preserves digest-based negative
-caching and retries transport failures. Pack and template images load through the
-cancellable collection-image lifetime; documentation images and videos use owned
-Blob URLs that are revoked when their page or locale changes or the panel closes.
-External registry template thumbnails keep their registry transport and never
-receive a backend retention generation. Immutable installed module imports retain
-their native HTTP URLs under the backend's exact-module exemption.
-
-Shared asset-browser model thumbnails acknowledge independent incomplete
-`preview` ownership before entering the poster queue/cache. The project,
-connection and browser/picker lifetime must still match before publication.
-Cancellation does not settle pending native rendering or encoding; the read
-spans actual poster completion. Preview intents use the same durable journal
-and exact GET reconciliation as workflow/result intents, without assigning
-arbitrary catalog entries to a workflow. These conservative owners are not
-released by thumbnail disposal.
-
-Asset image thumbnails and selection-detail images use that independent
-preview admission through the complete response body. Their native image
-source is then a self-contained Blob URL, not a CAS URL; decode and display
-no longer borrow backend bytes. Closing or replacing the image aborts its
-loader and revokes its local URL. A cancellation-ignoring body remains owned
-until settlement and cannot create or publish a late URL. The detail rail
-uses the same loader as cards, without an unadmitted digest-URL fallback.
-
-Library workflows and recorded-run workflows admit their source-document
-digest through independent preview ownership before fetching or parsing the
-payload. The captured backend and open intent must remain current through
-body settlement. Parsed local data then enters workflow-root admission;
-publishing the new tab is separate from the payload read it supersedes.
-Only a successfully admitted destination workflow authorizes retiring that
-source-read owner, at its captured revision. Failed or superseded opens keep
-the source owner. Release intent and acknowledgment remain journaled; lost
-responses reconcile the exact empty complete tombstone at the next revision,
-without repeating DELETE or adopting another generation's revision. A failed
-retirement does not roll back a workflow with independent acknowledged roots.
-At full browser storage, the release revision can replace the redundant
-acknowledgment field in the same journal without growing it. The exact durable
-release intent still precedes DELETE; storage refusal preserves protection.
-
-After a successful saved-client reopen, startup can reclaim that client's
-superseded shown-result journals before restoring results. Each release needs
-a freshly verified complete persisted receipt for the same execution covering
-all old roots. Persisted or live receipt IDs, locally admitted readers, document
-owners and other clients remain protected; matching digests alone do not confer
-release authority. Unknown or refused observations leave protection intact.
-Participating windows fence publication through each candidate's acknowledged
-release. A detected older, unfenced census member blocks the reclamation pass,
-including members using a different project's rendezvous name. If browser UUID
-generation, Web Locks enumeration or BroadcastChannel is unavailable, the shell
-still starts but census-based reclamation stays disabled; missing capabilities
-do not authorize releasing protected results.
-
-Startup restoration of persisted results also admits source-workflow bytes
-before parsing or compiling their proof. The original backend, registry and
-connection lifetime must remain current. Refused or stale reads preserve the
-saved result for retry; malformed or absent source documents remain invalid.
-A peer's saved-result update also retries restoration after a window opens.
-A completed stream-only entry missing both its compile artifact and job identity
-can receive the validated result; registered and running entries cannot. A
-concurrent registration invalidates the pending restoration. Covered incomplete
-receipts may be replaced, while independent complete and uncovered receipts stay
-protected.
-The source owner survives proof validation, output discovery and reconciliation
-of every saved receipt. Only publication with independent acknowledged
-shown-result ownership permits its revision-bound retirement. A registered execution
-key, refused admission or changed registry keeps the source owner protected.
-
-Each queued source-document stamp captures its own acknowledged document
-receipt, even when unchanged source bytes reuse a cached digest. A successful
-submission, including an asset-consent retry, associates that receipt with the
-accepted execution. Complete result ownership retires it only when the new
-receipts cover every captured root. Rejected or uncertain submissions keep their
-source receipt; cached bytes never grant release authority. Project or connection
-lifetime changes prevent a later execution from retiring the earlier receipt.
-
-Retained previews carry the original stored execution for each runtime
-occurrence, including when a partial run displays outputs from several runs.
-The composite overlay is presentation data, not an ownership record. Recorded
-asset reads admit the original execution and keep its replacement and connection
-lifetime guards through decode and download in both graph and App views.
-
-These manifests do not enumerate all frontend holders or enable collection.
-Bounded output descriptors, rendition fingerprints and cache keys are not
-complete typed asset-reference sets. The backend source gate
-`FRONTEND_RETENTION_COMPLETE` remains false; no HTTP flag enables deletion.
-
-Application-owned value peeks retain descriptor roots with incomplete
-shown-result ownership before returning the descriptor or announcing rendition
-identity, including opaque descriptors with no known digest. An empty known
-root set does not establish completeness. Refusal keeps the descriptor
-unpublished and permits a later read to retry. A quota failure while writing the
-ownership intent returns `storage-full` with a browser-storage message instead of
-`ownership-unconfirmed`; a failed initial write makes no owner claim. Reads stay on the original live
-or retired backend; removing a backend
-does not redirect historical results. Application disposal or caller cancellation
-prevents late publication. Each application descriptor captures its acknowledged
-receipt and backend-affine reader. Repeated peeks of the same execution and exact
-root declaration or sealed offer reuse this application's acknowledged receipt
-within its backend, connection generation, project and storage lifetime. Concurrent
-admissions share one request; changed offers, releasing or modified journals and
-stale lifetimes require new admission. Reused readers drain all overlapping bodies
-before retirement, while each descriptor keeps its own publication-validity check.
-A changed offer for the same output still needs a fresh acknowledgment. When its
-complete inventory equals the prior complete inventory, locally admitted readers
-can share the replacement protection. Older admitted descriptors remain usable;
-release waits for their pending bodies and rechecks live and persisted references.
-Independent result receipts and mismatched or incomplete inventories are not
-superseded by this reader handoff.
-Peer receipts never enter this reuse inventory. `AppState.retentionActivity()`
-reports in-flight restoration, hydration, value admission and reads, reader drain,
-owner retirement, delayed recovery scans and persistence work; a persistence flush
-alone is not a quiescence barrier. Consumers require all activity to finish before
-measuring flat storage and owner traffic. Rendition callers pass that exact descriptor,
-including lazy audio/video and image-batch reads. Another client's descriptor,
-a copied descriptor, a mismatched query or missing admission refuses before
-network or cache access. Later peeks cannot substitute their selectors or reader
-for an earlier descriptor. Managed cache hits use the same reader boundary.
-Readers capture the observed connection lifetime at ownership admission. A later
-connection transition refuses pending admission, lazy/cache reads and late byte
-publication from that lifetime; a new peek must obtain acknowledged ownership
-again. This does not identify a server restart before an observed transition or
-settle independent native-media and viewer consumers.
-Application disposal closes admission for active value readers; their pending
-bodies remain tracked until settlement, and late publication is refused.
-The closing app remains a live ownership-census participant until admitted
-reads, source previews, restorations, hydrations and retirements settle. It
-refuses census replies while closing, so a cancellation-ignoring body prevents
-historical reclamation rather than appearing to have departed. Membership ends
-after the tracked work drains; disposal does not wait synchronously.
-Participating apps use origin-wide membership. Historical release queries one
-candidate at a time and excludes that receipt's adoption in each answering app
-until its release journal settles. A browser lock excludes new registrations
-through the release. Result publication validates the durable acknowledgment and
-refuses a releasing or removed receipt, including delayed value publication.
-This boundary does not settle model viewers, shared poster queues or durable
-recovery references, and does not release any retained owner. Standalone values
-clients without an admission policy keep their transport behavior and bounded
-byte cache.
-
-Canvas input-image and model-poster sources capture their document session, revision, registry,
-backend and observed connection lifetime before loading. The document and its
-history roots receive acknowledged ownership before native image decode or model
-poster work begins, including time waiting in the shared renderer queue.
-Only identities present in that captured census can use the reader. Decoded
-cache keys are partitioned by the captured owner. Recorded session continuations
-keep pending reads valid across local-to-shared promotion only while the document
-and revision remain unchanged. Changed documents, closed or reopened tabs, backend
-switches or connection transitions refuse stale reads and cache publication.
-A failed ownership request permits a later attempt; it is not a permanent
-missing-image result. Input-model sources also carry that reader into
-the orbit overlay. Its independent read covers pending mount and the mounted
-handle until disposal; closing during mount waits for actual mount completion
-and disposes the late handle. A different captured owner closes the old viewer
-even when its URL is unchanged. Canvas orbit viewers remain open across preview
-refreshes with the same URL and captured reader; only an actual source replacement
-closes them. Direct input-audio sources carry their document
-reader into the native transport. Admission precedes assigning the audio source;
-the independent read spans native resource reset on replacement or unmount.
-A replacement waits for the old element's emptied event unless it was already
-empty. This does not cover result orbit viewers, cached picker/collection posters,
-native result audio/video handles, recovery references or retirement.
-No retained owner is released when a source becomes obsolete.
-
-App-view input previews use the same captured document/history reader as canvas
-previews. Exposed input-image and model-poster loads cannot bypass admission or
-publish after their document becomes stale. App preview audio surfaces carry
-their source reader into the shared native transport, including same-URL owner
-replacement; surfaces with no source reader retain their existing behavior.
-
-Native asset-picker image byte reads use the admitted selection's captured
-reader. Closing or replacing the preview does not settle a still-pending byte
-fetch; that read remains tracked until its body settles. Refused reads never
-fetch bytes, and stale selection readers or changed backend/project targets
-cannot publish object URLs. This byte-read boundary does not cover image decode
-or native video/model resource lifetimes and does not release retained owners.
-
-Picker model posters independently borrow the captured selection reader across
-the shared render queue, model load, render and poster encoding. Closing or
-replacing the selection keeps started work tracked until settlement; refused or
-expired readers cannot start loading, and obsolete work cannot publish its
-poster. Local-file posters keep their separate path. This does not certify
-collection thumbnails, native asynchronous teardown or retained-owner release.
-
-Native picker video assigns its source only inside the captured selection
-reader. Closing, failure or replacement resets the native resource; the read
-stays active until `emptied` (or an already-empty resource) confirms the reset,
-and a replacement waits for that reset before attaching. Refused or expired
-admission cannot assign a source. Local-file previews remain separate. This
-does not certify other native handles or release retained owners.
-
-Recorded FILE_3D original and sidecar digest reads acknowledge their newly
-revealed identities as incomplete shown-result roots on the original live or
-retired backend before fetching bytes. The captured result and observed
-connection lifetime guard admission and pending bodies; replacement, disconnect,
-disposal or caller cancellation refuses late bytes. A held body stays tracked
-until settlement. Granted local bindings keep their separate read path. This
-does not cover model decode, viewer handles, complete dependencies or retirement.
-
-Load3d producer manifests and camera/model JSON fetch and decode inside the
-captured native value reader. Refused or expired admission cannot publish
-metadata; closing, editing or replacing the execution refuses stale work before
-fetch and publication. Original model resources and viewer handles have separate
-lifetimes and are not covered by this metadata boundary.
-
-Load3d original model and sidecar reads selected from producer outputs use the
-captured execution's original-byte reader. A stored manifest remains the source
-even when other inputs have producers. Stored and literal digest resources use
-the captured document/history reader; missing, refused or expired admission
-cannot publish object URLs or enable Apply. Closing aborts the read and stale
-source state cannot publish object URLs. Local grants keep their separate path.
-Load3d also borrows the captured owner independently across model decode, mount
-and the mounted viewer. Closing while mount is pending keeps its read and object
-URLs alive until the late handle is disposed. Closing a mounted viewer disposes
-the handle promptly but waits for any pending capture encoding before settling
-that borrow and revoking object URLs. Expired viewer ownership refuses capture,
-and expiration during capture or upload prevents late publication. Producer
-models acknowledge the selected primary and sidecar digest union as incomplete
-shown-result roots for this lifetime. Recording also retains the mounted borrow
-until MediaRecorder delivers its final stop event, including close or error
-while final data is pending. Tracks and the viewer stop promptly; failed,
-expired or obsolete recordings cannot publish a captured video. A failed start
-settles without waiting for an event from a recorder that never started.
-This does not certify local bindings, other native asynchronous teardown,
-complete dependencies or retained-owner retirement.
-
-Live and mirrored structured outputs and preview records also await incomplete
-shown-result ownership, including records with no known digest. Later events
-for that execution wait for admission so completion cannot overtake the held
-payload. Refusal withholds that payload without blocking unrelated executions.
-If submit registration overtakes live-event admission, the event retains roots
-again under that first registered owner before publication. A replacement,
-disconnect or registry change still invalidates the pending event.
-Self-contained Blob and ArrayBuffer preview bytes need no additional ownership
-request, but still follow any pending event from the same execution.
-
-## Staged document commands
+## Document commands and preview loading
 
 `DocumentStore.prepareDispatch()` evaluates and validates a command without
-changing the document, revision, undo/redo stacks or observers. A successful
-candidate exposes frozen current and proposed documents and history snapshots.
-The proposed history includes the new forward/inverse record, undo-depth
-trimming and redo-branch removal. Callers can retain both snapshots while
-awaiting external admission; preparation itself is not an acknowledgment.
+changing the document, revision, undo/redo stacks, or observers. A successful
+candidate captures the current and proposed documents and their history
+snapshots. `commit()` publishes a candidate once and refuses one whose captured
+document, revision, or history no longer matches. Ordinary `dispatch()` prepares
+and commits synchronously.
 
-`commit()` publishes the candidate once. It refuses a consumed candidate or
-one whose captured document, revision or history has changed, including an
-edit followed by undo and a history-only clear. Refusal leaves current state
-untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
-its synchronous final-outcome contract. A prepared command does not certify
-typed asset completeness or register a frontend holder.
+`AppState.dispatchTo()` may return a final outcome or a promise of one. Callers
+that inspect an outcome or update UI after a command must await it. Rejected or
+stale commands leave the current document and history unchanged. Shared sessions
+prepare actor-stamped invocations against their confirmed and pending state;
+optimistic publication and submission refuse a changed baseline, rebuilt store,
+or closed connection.
 
-The app-level `AppState.dispatchTo()` contract permits either a final outcome
-or a promise of one. Callers that inspect the outcome or depend on publication
-must await it. Asset-neutral commands can finish synchronously; native
-candidates that introduce known asset identities or lose census completeness
-await retained admission before publication.
+Document loading, imports, and session adoption preserve the loaded data while
+validating the current schema and destination. A tab or session change during an
+asynchronous load rejects that stale result. Persistence stages local recovery
+state without blocking normal editing. Recovery and reload use the latest valid
+local stage, keep failed writes visible as Problems, and never replay a command
+that was not confirmed by the session. A staged asset selection can follow an
+unchanged workspace session promotion; it cannot follow an independent reopen,
+a changed document, or a changed backend, schema, project, or connection.
 
-Shared sessions stage the actor-stamped, shared-replay-prepared invocation once.
-Their candidates include the participant's undo/redo history and confirmed and
-pending documents. Commit refuses a changed confirmed baseline, rebuilt store,
-history or connection status before optimistic publication and submission. The
-candidate's history record is installed before document observers run.
+Preview and result consumers request the backend selected by the execution or
+input source. Requests remain abortable and verify their backend, project,
+execution, result, and source identities before publishing decoded media. Image,
+audio, video, model, and rendition paths preserve their MIME, size, decode, and
+stale-result validation. A failed request is retryable through the normal UI;
+cache and cancellation keys prevent an earlier request from replacing a newer
+source.
 
-Native commands through `AppState.dispatchTo` use an awaited retained
-dispatch path when the candidate introduces a known asset digest. Existing malformed identities
-and census uncertainty alone do not delay asset-neutral commands or migrations.
-The selection compares the captured current and candidate
-documents; admission includes their history and shared pending roots. Direct
-session dispatch is not covered by this application-level selection.
-The retained path journals the exact backend, owner, root union and document
-lineage/revision before requesting ownership; workflow contents remain in their
-separate persistence path rather than being duplicated in each retention intent.
-Successful local command commits replace the editing session's acknowledged
-document/history receipt, including a receipt admitted during startup or import.
-The previous complete receipt retires only after the new complete inventory is
-acknowledged and committed on the same backend connection generation. Settled
-retirement refreshes the local ownership observer so an older in-flight read
-cannot report the retired receipt as unresolved. Unknown
-inventories, failed candidates and superseded sessions keep their protection;
-another session's receipt is independent even when it holds the same digests.
-Acknowledged command candidates remain tracked even when their destination changes
-or their commit is stale. A rejected candidate retires only after its admission
-settles and no live document or completely resolved durable recovery source names
-its roots, on the same backend connection generation.
-Superseded receipts also protect roots still named by canonical tab snapshots,
-workspace candidates, document recovery slots and operation-journal additions.
-If the replacement no longer covers a root, retirement waits for a complete
-durable-source census that no longer names it. Persistence compaction retries
-that check. Configured recipes use only this application's complete acknowledged
-slot inventory, bound to the exact saved bytes, backend, registry, connection
-generation, project and storage object. Recovered receipts never substitute for
-local admission; unreadable, corrupt or unknown sources keep protection. Crash-safe
-staging stays synchronous, and disconnect or session displacement never grants
-release authority over a pending receipt.
-Canonical workspace snapshots, per-window candidates, per-lineage recovery
-documents and operation-journal additions each have independent saved-document
-owners. Exact complete acknowledgment precedes retiring covered candidate and
-operation slots. A registry refresh during slot admission recomputes the captured
-document's roots and requires a fresh acknowledgment before publishing the slot
-or its shared-tab operation; later tab changes cannot skip that admission.
-A live window reconciles newly staged workspace candidates and canonical commits
-from its peers, retaining their captured roots before compaction. An identical
-complete canonical snapshot stays byte-identical while each window admits its own
-owners; peer receipts never replace local admission. A peer's canonical metadata
-change does not end this window's complete local receipt: unchanged document bytes
-reuse it while its exact journal, backend, catalog and connection lifetime remain
-valid. The acknowledged snapshot then permits retirement of that window's captured closed documents and superseded
-slots without repeated cross-window writes. A disposed window
-only stages recovery data and cannot finish network admission or release owners.
-A local slot replacement retires its previous owners only after
-complete acknowledgment on the same backend/catalog lifetime; incomplete or
-refused replacements keep them. Cleanup releases only receipts admitted by this
-application for the removed generation and unchanged payload; retention metadata
-updates do not change that identity or transfer release authority. Other windows'
-receipts and recovered receipts are observation-only, even when their digests match. Release remains
-revision-bound and uncertain responses stay journaled for observation, not replay.
-The asset census treats node extension metadata as opaque. A MOUNT widget
-binds a STRING mount ID or null for the default
-output mount; neither is an asset identity. Other value shapes or socket types
-remain incomplete, with any known embedded asset roots preserved.
-Declared COLOR widgets bind to concrete COLOR or STRING inputs and use the
-string value contract, including empty strings, without interpreting color syntax
-or inventing asset identities. Non-string values, mismatched typed literals and
-COLOR widgets bound to other socket types remain
-incomplete. Stored dormant branches and undo/redo history use the same contract.
-The empty COMPOSITOR default `{}` and its normalized recipe (version 2, null
-documentDigest, no commands) have no asset roots. A configured recipe retains its
-canonical documentDigest. At asynchronous retention boundaries, an independent
-incomplete preview owner protects reads while the document and every external
-resource are checked for canonical structure, digest and byte size. Native
-compositor commands are applied to an owned copy and the resulting document is
-validated before completeness is acknowledged. The closed `comfy` extension with
-only an `inputs` array of 16-character lowercase hexadecimal source fingerprints
-has no asset roots; these are source-match metadata, not asset digests. Unknown
-extensions, extra fields and malformed fingerprint vectors keep the inventory
-incomplete while preserving known roots. The destination owner must
-acknowledge the resolved inventory before the preview owner retires. Resolution
-is operation-local and never reused across backend lifetimes. Malformed or
-unknown commands remain incomplete and keep known roots; clearing a recipe does
-not discard document identities still present in history. Synchronous dispatch
-also compares recipe contents, so changed commands with an unchanged document
-digest still require admission. Save and sharing resolve before publication.
-Metadata and unknown schemas remain
-incomplete. Known canonical references in opaque stored values are retained, but
-the owner explicitly declares `complete: false`, even for an empty known set.
-Unresolved filename strings in asset widgets also keep ownership incomplete,
-so resolving an imported filename can preserve its undo state without inventing
-a digest. Unmarked asset filename strings and malformed AssetRef objects still refuse.
-This conservative document owner blocks collection; it does not certify byte
-availability or global retention completeness. Malformed identities, invalid
-dynamic identities and stale history replay still refuse publication.
-Document-open admission compares the raw schema contract beneath pack locale
-overlays. Label and search-term updates do not invalidate a retained open;
-schema, capability and connection changes still refuse stale publication.
-History array additions insert before occupied entries without overwriting them;
-object additions still require an absent key, and replacements and removals
-still require their recorded value.
-Document admission and execution permit the dormant census diagnostic
-`elab.dormant.unsupported` when active elaboration is valid. Opening, restoring,
-promoting, editing (including fresh palette nodes) and reading retain known active roots with
-`complete: false`; the durable intent preserves the node-qualified diagnostic
-and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
-warning naming the node and reason, and the workspace tab may be shared.
-Publication remains the strict default: library save requires a complete census
-of the current snapshot it uploads; collaboration sharing requires a complete
-census of the whole session, including undo and redo history. Saving a complete
-snapshot does not certify opaque history, change its retention declaration,
-clear its ownership warning or make the session cleanup-eligible. An incomplete
-snapshot still refuses library save. Local download is not publication: admitted documents export
-losslessly with opaque data and ownership warnings preserved, without posting a
-retention declaration. Malformed or invalid identities still refuse export.
-The stored-state census also records actual state reads from active elaboration.
-A key read from its exact state table is verified even when the dormant walk
-stops before it. The census walk also elaborates the rows of every option and
-variant that is not chosen (`includeDormant`). A stored dynamic state key that
-no walk reads is an unknown-state error (`elab.dynamic.unknownState`). Active
-elaboration errors still refuse admission. Rows of options and variants that
-are not chosen are enumerated under their flattened ids; the active interface
-and stored keys are unchanged. Enumerating input evidence does not verify a key.
-An incomplete document is never evidence of cleanup eligibility for anything it
-references: a collector must retain those assets or defer collection until the
-roots are complete. No collector runs on the strength of this record.
-App View layout, exposed controls and exposed previews contribute no roots only
-when their core parsers and serializers reproduce every stored field exactly.
-Unknown fields and malformed entries remain opaque, contribute any known asset
-roots and keep the document incomplete.
-The union includes current, undo, redo, proposed and shared pending roots.
-The journal includes the exact completeness declaration. Exact acknowledgment or
-exact owner reconciliation, including completeness and the new revision, precedes
-publication. Reconciliation GET bypasses the HTTP cache, including against servers
-without retention response cache headers. A changed destination or stale
-candidate is refused. Editor projection changes preserve admission when the live
-tab keeps the same document session, backend and registry. Closing the tab or
-replacing its session still refuses the candidate, even with the same tab ID.
-Connection lifecycle changes, backend removal and application disposal also
-refuse publication after acknowledgment.
-Native backend connect/reconnect also checks existing candidate journals in the
-current project against that connection with cache-bypassing GETs. Stored
-endpoints never route requests. Only the exact owner, revision 1, canonical
-root union and completeness declaration resolve an observation. Missing,
-malformed, changed or unavailable observations produce a backend-owned Problems
-warning. Disconnect, removal and disposal cancel stale observations. All journals
-remain unchanged; recovery never replays a command, retries PUT, releases an
-owner, or certifies other holders or global completeness.
-Native direct document opens, file imports and library/template/run workflow opens
-stage their loaded snapshot before publishing a tab. They use the same durable
-owner protocol, preserving existing tabs on refusal or an uncertain response.
-`openDocument` returns a promise of diagnostics; callers await it before reading
-the opened tab. Only creation of the built-in empty workflow remains synchronous,
-because that document introduces no asset identities.
-Unknown schemas retain known roots with explicit incomplete ownership. An
-open can also retain an invalid stored description of a described row for
-repair. Historical dynamic state is admitted only when a declared migration
-plans successfully;
-it remains incomplete until migration, and malformed asset identities still refuse.
-A persisted snapshot admitted before its schemas arrive keeps its incomplete
-receipt until this window acknowledges a complete replacement for the exact
-same document on the same backend, project, storage and connection lifetime.
-While the event transport is connecting or reconnecting, persistence keeps its
-local recovery stage unacknowledged without creating server owners. The connected
-catalog reschedules that pending stage before it can publish acknowledged roots.
-Schema arrival also reschedules incomplete local persistence. Candidate cleanup can
-use this window's current acknowledged canonical snapshot as the exact-document
-replacement. Receipts admitted during a superseded schema request remain tracked
-through that handoff. A peer storage write can supersede publication but does
-not discard this window's admitted receipts; canonical compaction retries without
-staging another workspace candidate, before the same-lifetime replacement retires
-them. Journal changes from peers and completed local persisted-owner retirements
-reschedule read-only ownership checks, so a transient observation does not leave
-a stale warning. Scheduling a replacement check immediately cancels the older
-observation; its response cannot publish a warning during the refresh debounce.
-Recording a matching admission or release acknowledgment during a check does not
-change the intent's authority or produce an ownership warning. Any other journal
-change, or a mismatched backend receipt, remains unconfirmed. These checks never
-replay admission or release commands.
-An acknowledged local canonical receipt remains reusable while an overlapping
-workspace edit leaves its containing slot pending. Reuse still requires exact
-document bytes, backend, registry, connection generation, project and storage,
-plus the unchanged acknowledged journal revision with no release fence. Aggregate
-slot completion does not determine an individual receipt's lifetime. When several
-local slots already hold receipts for the same unchanged document, publication
-keeps each acknowledged receipt in its local inventory, even when only one is
-serialized. A later document change or the final local slot's removal ends those
-lifetimes through the ordinary guarded retirement path.
-Recovered receipts from another window or lifetime never confer release authority.
-A newer open, changed tab/session/history/target, changed registry or connection, caller
-cancellation or disposal prevents a late open from publishing. View-only changes
-keep the same document session and do not cancel admission. Library/template/run
-tabs publish with their source backend already selected. Local file imports keep
-their existing untargeted semantics: legacy translation uses the chosen source
-schemas, but ownership is requested from the default destination backend.
-An unchanged SharedWorker session continuation does not cancel an opening view:
-tab order, title, editor kind, document, revision and backend must still match.
-Frozen execution opens also await snapshot ownership on the execution's original
-live or retired backend, never the default backend. Root discovery uses the
-exact compile-time registry; unavailable historical schemas remain incomplete.
-A temporary in-memory execution pin prevents eviction during acknowledgment;
-success transfers the pin to the frozen tab, while failed or stale attempts
-drop only that temporary pin. Existing frozen tabs focus without another PUT.
-Each published frozen tab captures its independent acknowledged owner and
-connection lifetime. Explicit close retires that exact revision after the tab
-is removed; other views of the same digest and later reopenings keep their own
-owners. Lost release responses reconcile by GET against the exact tombstone,
-never another revision. Same-id replacement without an acknowledged handoff,
-disconnect and application disposal keep the old protection journaled.
-Read-only inspection and close/displacement execution-pin balancing stay unchanged.
-Initial collaboration adoption (Share, Join and reload rejoin) also retains the
-session snapshot and any adopted local history on the session's source backend
-before publishing its tab. Failed or stale acknowledgments keep the existing
-tab and close only the unadopted transport. Reload failures preserve pending
-membership for retry; metadata-only editor switches survive adoption. The
-source target is installed before tab publication. SharedWorker canonical
-session promotion retains its snapshot and adopted history on the local tab's
-current backend after the shared session opens and before swapping stores. A
-target change during opening is included in that ownership request; a target
-change while its acknowledgment is pending keeps the local store. A refused or stale acknowledgment
-keeps the local store; metadata-only changes survive the swap. Disabling workspace
-authority also closes connections whose promotion acknowledgment is pending, so
-a disposed renderer cannot keep an obsolete SharedWorker snapshot alive.
-Journal replay restores tab membership independently of staged document edits.
-When it restores the original creation record, startup supplies the recovered
-document only after incoming ownership admission. Closed membership is not
-resurrected, and a later shared record or live document authority stays authoritative.
-Incoming workspace inventories retain newly received native tab snapshots before publishing tabs or
-displacing local views. Refusal or a changed local inventory, document, backend,
-registry, connection or workspace authority keeps local tabs. Newer shared
-inventories supersede outstanding acknowledgments. Successful publication keeps
-the admitted tab and its exact receipt together; shared-session promotion transfers
-that lifetime to the promoted store, and acknowledged close retires it through
-the ordinary local document lifecycle. Rejected or historical admissions remain
-protected. Reentrant local tab changes during publication are submitted after the
-incoming inventory is applied, without waiting for another tab change. Existing-tab
-metadata updates do not wait for another ownership request. A refused local tab
-addition stays open with its current document and a shared-tab failure diagnostic;
-a later accepted focus or metadata change does not discard it. Admission is still
-required before sharing that addition. Once shared membership acknowledges the
-tab, later shared removals apply normally; an explicit local close also removes
-an unacknowledged tab. Independent newer operations continue after a refusal. Subsequent ordered shared documents and
-resync snapshots await ownership before confirmed-ground publication; this does not
-certify every optimistic rebase result. Bootstrap also confirms restored tabs and
-all valid canonical, workspace-candidate, document-recovery and operation-journal
-addition snapshots captured by the constructor, including losing versions and
-closed-lineage recovery slots. Journal additions are confirmed before worker replay.
-An explicit confirmed Close Tab ends only the captured local document lifetime,
-after closed membership is admitted at the authoritative workspace revision. It
-hands off that lifetime's receipt and retires its recovery slot only when both
-the stage ID and content digest match the stage incorporated into the
-canonical document. A stage acknowledged or durably written with the exact
-closing document before Close may finish acknowledgment and canonical
-incorporation after Close. An edit still waiting to write its recovery stage
-cannot gain discard authority by acknowledging later. Reopening the same
-lineage hands its displaced live receipt to the new document's ordinary
-complete-replacement checks.
-Staging, acknowledgment and retirement use the same
-cross-window commit lock; retirement rechecks the exact admitted canonical
-snapshot and current recovery stage inside that lock. Without the lock, recovery
-sources stay protected. Newer, unmerged or different stages survive, as do live,
-undo, frozen, shared, restored and pending-read holders with independent receipts.
-A close does not release recovered historical receipts or grant discard authority.
-Explicit flushes prepare recovery synchronously before Close or pagehide can
-capture or end the document lifetime; ordinary debounced saves keep workflow
-preparation off-thread. Pending off-thread preparation counts as retention
-activity until it settles. Synchronous per-window recovery retains dirty
-documents if teardown cannot await the locked document stage. Canonical snapshots
-record the exact dirty workspace stages already incorporated, so another admission
-or restart does not replay the
-same captured edits over the selected document. A new workspace stage still
-contributes even at an equal captured document revision. Incorporation metadata
-covers only currently present dirty snapshots and does not confer receipt-release
-authority.
-Those sources stay captured even if local compaction retires them before the
-acknowledgment. Recovery documents use the same-origin backend, matching restored
-tabs' default target; session-only targets do not persist. Registry loading and
-the first local frame do not wait for ownership or shared-workspace promotion.
-Startup ownership captures its snapshot after an opening native transport and
-its connected catalog publication settle. Connected refreshes remain loading
-until their coalesced catalog work finishes; synchronous connection observers
-settle before admission checks readiness. No failed admission is retried.
-Refused, unavailable or stale startup acknowledgments leave ownership unconfirmed
-in Problems and prevent shared promotion without discarding saved documents.
-Pack locale labels may arrive during confirmation without invalidating its schema
-snapshot. Real registry replacements still invalidate it, even with the same hash;
-startup does not wait for locale downloads.
-Asset publication still requires its exact acknowledgment; an unavailable
-retention route never implies an empty complete set. Connection startup scans the
-full journal; subsequent notifications coalesce only their changed owner keys
-without canceling an active read. Unresolved diagnostics for other keys remain
-until those owners are observed again or their journals are removed. Local
-retirement, including source-preview handoff and ImageDocument replacement,
-notifies the same connection-scoped observer because it emits no storage event
-in its own renderer. Backend disposal removes that observer. An unreadable
-inventory requires a full scan on the next notification. These observations grant
-no adoption or release authority. A scan remains busy through its follow-up; its
-ten-second timeout applies separately to each owner read, not to the total number
-of journals. Disconnect and disposal still cancel
-the old connection's scan, and a timed-out owner remains unconfirmed. Restoration
-and crash-safe local writes remain synchronous; newly created durable holders
-are not certified by this startup check.
+Stored runs load lazily after selection. The run record and stored job must agree
+on run, client, job, and terminal state before outputs are shown. Result values
+keep the stored run's client identity, while rendition requests retain their
+query selectors and reject mismatched responses. Frozen execution views continue
+to route history, output, and preview reads to the execution's original backend.
 
-An invalid stored description of a described row remains openable for
-correction with incomplete ownership. Its known asset roots are retained, but
-compilation and publication remain refused until the description is repaired.
-Invalid stored dynamic member and choice identities still refuse admission.
-Document opening tolerates replacement of a registry by identical schema and
-capability content while ownership is pending. Changed schemas, capabilities,
-connection lifetimes, documents and open intents still invalidate that admission.
-Ordinary native dispatch selects admission from its candidate; complete
-frontend retention and collection remain disabled. The legacy bridge keeps
-its existing non-retained opening behavior.
-Unsupported schemas, opaque dynamic state and unrecognized extension
-records are incomplete, not empty root sets. Core session dispatch remains synchronous.
-Schema defaults contribute roots only when the node has no stored override.
-The parser's exact scalar `schema.ext.dinkster` execution metadata is asset-free;
-unknown keys or non-scalar fields still refuse certification. Non-widget input
-`ext.default` values are collected through their declared types when effective,
-including historical snapshots. That exception applies only to schema inputs,
-not arbitrary extension records or dormant branch defaults.
-Concrete nodes use occurrence-aware schemas, including a region's list-valued
-element inputs; definition-only boundary types do not describe those values.
-Standard NUMBER widgets are asset-free metadata; unknown widget kinds still
-make the census incomplete.
-Retained MARKDOWN, BUTTON and CAMERA_ANGLE_VIEW values use their declared
-STRING binding. MULTI_COMBO, COLORS and LIST require their declared primitive
-list bindings; embedded objects do not become asset-free by appearing in a list.
-SAVE_TARGET accepts only null or the closed mount/prefix record, and BOUNDING_BOX
-accepts only its four finite coordinates. AUDIO_RECORD accepts the served AUDIO
-socket binding. It and WEBCAM retain exact asset references with the matching
-media type, or accept null when cleared.
-IMAGECOMPARE and RESOLUTION_PREVIEW accept their null presentation state.
-Open-ended LOAD_3D and VIDEO_EDIT bindings remain incomplete even when unset,
-and retain any known embedded roots. Editor acceptance is not an ownership guarantee.
-Inputs of the node body use their flattened ids: values stored for options and
-variants that are not chosen and for stored group members contribute roots,
-while defaults come only from the active interface. Historical connectivity
-changes recheck dynamic nodes even when their objects are shared. Dynamic
-metadata must have the known asset-free shape, and every stored state key must
-be read by elaboration. Unknown stored keys, elaboration diagnostics or budget
-exhaustion and unsupported declarations remain incomplete.
-The census visits every option and variant at its flattened ids without
-changing the active interface. Rows of different options can share a flattened
-id; a stored untyped value whose rows have conflicting types stays incomplete
-and names the input in its diagnostic; a typed literal must match a declared
-row type exactly to disambiguate it. Only effective defaults contribute roots,
-while stored values of all options are retained.
-Missing node or input schemas, unsupported value types, malformed containers and
-unresolved selection names identify the exact stored input (or effective default)
-in ownership diagnostics. A failed list element does not stop enumeration of later
-elements. Known identities remain retained even when another input is unresolved;
-an unresolved selection name is incomplete, not an asset identity.
-Untyped literal producers use every connected static consumer's input type;
-unconnected producers, unknown ports and unsupported consumer types remain
-incomplete. Their roots are rechecked against each historical document's
-consumer schemas, even when the literal object itself is unchanged.
-
-Delayed blueprint, clipboard, image-drop and latent-drop insertion await their
-owner-routed dispatch result before announcing inserted ids or completing the
-gesture. Both synchronous and asynchronous final results are supported; a
-pending result is not success. Their canvas adapters await the result before
-reading `ok`. Native ordinary dispatch selects retained admission for newly
-introduced known identities; it does not certify unknown holders. Existing
-malformed identities and census uncertainty alone do not delay asset-neutral
-commands or migrations.
-
-App-owned local sessions also validate at the store's synchronous publication
-boundary, including exposed prepared commits and history replay. A new known
-identity absent from the current document and history refuses direct publication;
-the application route grants only its exact candidate a transient commit permit
-after admission. Refusal preserves document, revision, history and persistence.
-The optional core policy does not change default session behavior. Shared local
-public dispatch and prepared commits use the same application policy before
-optimistic document/history publication or transport submission. Both network
-collaboration and SharedWorker sessions install it. The shared session's
-optional commit policy also validates undo/redo against the current document
-and both history stacks before removing the replayed record. A policy refusal
-keeps the record retryable; stale recorded-value conflicts still discard it.
-Rebased intentions validate their newly computed candidate before committing;
-refused intentions drop their history record and report a rebase conflict.
-Remote confirmed documents await ownership of the incoming document, current
-document, history, confirmed baseline and every pending patch prefix, including
-when local history is disabled or cleared. Editing during that wait confirms a
-fresh snapshot before adoption. Rebase also supplies the pre-rebase held
-snapshots to the policy so previously admitted pending identities remain known
-after history is cleared. Unknown holders are not certified by these local
-commit policies.
-
-Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
-the final command result. Pending actions disable duplicate submission and
-editor mutation; refused edits remain open. A completion cannot close or add
-errors to a replacement editor or modal. These callers use ordinary dispatch;
-the application selects retention when the candidate requires it.
-
-Ordinary dispatch also confirms ownership when a complete root census becomes
-incomplete, even if no new digest is visible. For example, adding a node with an
-opaque default requires an incomplete owner before publication. Refusal keeps
-the existing document and history; direct store commits cannot bypass this
-admission. These owners do not certify opaque dependencies or enable cleanup.
-
-Shared rebase validates each rebuilt pending prefix against the retained old
-optimistic documents, not undo patches rooted at the old full document.
-Pending intentions keep their acknowledged roots without replaying history
-against a prefix where its nodes do not yet exist.
-
-Canvas gesture dispatch accepts asynchronous outcomes; the host owns final
-diagnostics, while the controller drops only its transient gesture overlay.
-Selection deletion waits for acceptance before clearing selection. Refusal
-preserves selection, and delayed completion cannot clear a newer selection
-or report a refusal toast into another tab, session, navigation or canvas.
-Occurrence-local deletion uses the same rule after atomic planner dispatch.
-These gestures use ordinary dispatch and its candidate-based retention selection.
-
-Each admission shares its census across snapshots. Replayed node-only changes
-visit changed nodes when no subgraph instances are present; structural changes
-and subgraph instances require the full snapshot schema context. Object reuse
-is local to that census and node checks are keyed by resolved schema as well as
-node identity. Proposed history adds the captured current state and trims prior
-records, so it does not require replaying the same historical documents twice.
-
-Candidate owners remain retained and journaled, including after uncertain writes
-or failed publication. This path does not automatically release them or certify
-other workflow holders, restored sessions or collection safety.
+Malformed or unknown stored values are preserved for repair. They remain visible
+in Problems with their original diagnostics and do not silently discard document
+data.
 
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).
 - Full V3 node schema support: MatchType templates, Autogrow, DynamicCombo, DynamicSlot, multi-type unions, remote combos, lazy/hidden inputs, price badges (later), previews.
 
-Canvas slot language distinguishes type families at a glance, built from four independent visual axes that always compose. SHAPE carries cardinality: definitely-scalar pins are circles, definitely-list pins are diamonds (45-degree squares, vertex radius scaled by `PIN_DIAMOND_SCALE` so both shapes read the same visual weight), and an unconstrained match-type input that accepts either cardinality uses an axis-aligned square with a tangent inscribed circle. Outputs never use the combined shape. FILL carries the data type: concrete slots are solid type colors, MultiType slots divide the body into colored wedges (list colors always peel to the element type - shape says list-ness, color says what data flows, so `list<union<...>>` is a segmented diamond). OPTIONALITY punches out the center. IDENTITY marks Any/wildcard with a neutral gray fill and a thin dashed outer ring, while a match variable displays its identity such as `T`. Fixed and match pins use the same dark outer border. When graph inference resolves a match variable, its pin adopts the ordinary definite circle or diamond and concrete color. The first MultiType divider sits perpendicular to the node border, pointing at the noodle side (west for inputs on the left border, east for outputs on the right), so the split reads as a deliberate seam at any member count; wedges and dividers clip to the pin outline so one fill implementation covers every shape. Because the axes are orthogonal, an optional Any input keeps the dashed ring and hollow center without resembling a MultiType pie, and an optional list MultiType is a segmented diamond with a punched center. See [Match types and lists](./match-types-and-lists.md) for user-facing behavior.
+Canvas slot language distinguishes type families at a glance, built from four independent visual axes that always compose. SHAPE carries cardinality: definitely-scalar pins are circles, definitely-list pins are diamonds (45-degree squares, vertex radius scaled by `PIN_DIAMOND_SCALE` so both shapes read the same visual weight), and an input that accepts either cardinality (an unconstrained match-type input, or an input declared with `accepts_list` whatever its matched type) draws the list diamond behind a smaller circle with a dark ring between them (1.65, 0.75 and 0.22 of an ordinary pin's radius). A subgraph input takes a whole list, and draws the combined shape on its node and in its Inputs panel, when every inner input it is bound to declares `accepts_list`. No other output uses the combined shape. FILL carries the data type: concrete slots are solid type colors, MultiType slots divide the body into colored wedges (list colors always peel to the element type - shape says list-ness, color says what data flows, so `list<union<...>>` is a segmented diamond). OPTIONALITY punches out the center. IDENTITY marks Any/wildcard with a neutral gray fill and a thin dashed outer ring, while a match variable displays its identity such as `T`. Fixed and match pins use the same dark outer border. When graph inference resolves a match variable, its pin adopts the ordinary definite circle or diamond and concrete color, except that an `accepts_list` input keeps the combined shape in the concrete color. The first MultiType divider sits perpendicular to the node border, pointing at the noodle side (west for inputs on the left border, east for outputs on the right), so the split reads as a deliberate seam at any member count; wedges and dividers clip to the pin outline so one fill implementation covers every shape. Because the axes are orthogonal, an optional Any input keeps the dashed ring and hollow center without resembling a MultiType pie, and an optional list MultiType is a segmented diamond with a punched center. See [Match types and lists](./match-types-and-lists.md) for user-facing behavior.
+
 - Subgraphs as a sound abstraction: anything that works on a node works on a subgraph, including dynamic types.
 - Get/Set ("named links") as a native graph primitive: real topology, optionally hidden, scoped to one graph (never crossing subgraph boundaries).
 - Correct multi-tab execution tracking: progress never bleeds onto the wrong tab.
@@ -884,7 +184,7 @@ Raw `/object_info` is parsed once into a normalized, tagged schema model; no oth
 
 Unknown constructs produce an explicit **unsupported-node** state (rendered as an inert node with raw config preserved), never guessed behavior. The raw def is retained for diagnostics.
 
-**The critical property: this normalized NodeSchema is the ONLY interface description in the whole system.** Backend nodes normalize into it, and subgraph definitions *derive* one from their boundary (section 4). Everything downstream - elaboration, type solving, rendering, promotion, compilation, app-mode bindings - consumes NodeSchema and never asks "is this a real node or a subgraph?". That is what makes "anything that works on a node works on a subgraph" true by construction instead of by bug-fixing.
+**The critical property: this normalized NodeSchema is the ONLY interface description in the whole system.** Backend nodes normalize into it, and subgraph definitions _derive_ one from their boundary (section 4). Everything downstream - elaboration, type solving, rendering, promotion, compilation, app-mode bindings - consumes NodeSchema and never asks "is this a real node or a subgraph?". That is what makes "anything that works on a node works on a subgraph" true by construction instead of by bug-fixing.
 
 **Deprecation and native migration rules are distinct.** The native schema wire
 carries `deprecation: { message, since?, replacement? }`, `searchVisibility`, and
@@ -948,7 +248,7 @@ edits makes it available again, so it never undoes unrelated work.
 Saving or closing the tab clears the notice, and it is never written into the workflow. Upgraded nodes
 look ordinary. Schema-arrival diagnostics and legacy boolean normalization are independent.
 
-The status bar's **Review upgrades** toggle opts out of automatic migration
+The Settings > Execution > **Review upgrades** switch opts out of automatic migration
 for subsequently opened documents. Only this mode shows deprecation badges
 with each migration hop's author note, plan diagnostics and an Apply
 Replacement control. Successor pointers
@@ -1012,7 +312,7 @@ into normal typed inputs and outputs; labels and order can change without
 retargeting stable entry ids. A linked description is invalid rather than a
 guessed interface. See [Node body](node-body.md).
 
-**Stage 1 - interface elaboration** (per node, from schema + stored values + connection state): produces the node's *effective interface* - the concrete, ordered set of input AND output ports that exist right now. `elaborateInterface` walks the node body once: group members, rows of a choice's chosen option, rows a type choice reveals, and entries of described rows all elaborate through the same code path. Every row gets a **flattened id** (`<group>.<key>`, `<group>.<key>.<row>`, `<choice>.<row>`, `<typeChoice>.<row>`, `<described>.<entry>`; sections and lines add nothing) that is at once its stored value key, link port and run input name, so nothing is renamed between editing and running. Dynamic state (`members`, `seq`, member labels, a choice's `selected` key) is keyed by flattened id too. Transition policies: switching a choice keeps the other options' values stored; a group that grows by link or filled field shows one spare member once every stored member is used. Groups, choices and type choices nest inside one another (custom packs invent their own dynamic schemes; the system is designed to absorb them rather than force hacks). Members the node shows but does not store (up to the minimum, and the spare) never compile; interacting with one is an **atomic materialize-and-write command** - store the offered members on its path, write the link/value/selection - one transaction, one undo step; a committed document never references a member it does not store (violations are diagnostics, never elaboration-time mutation). Hard budgets (16 nested boxes, 512 members per group, 1024 flattened rows) fail deterministically instead of warning after exponential work. See [Node body](node-body.md); invariants N1-N6 in hazards.md.
+**Stage 1 - interface elaboration** (per node, from schema + stored values + connection state): produces the node's _effective interface_ - the concrete, ordered set of input AND output ports that exist right now. `elaborateInterface` walks the node body once: group members, rows of a choice's chosen option, rows a type choice reveals, and entries of described rows all elaborate through the same code path. Every row gets a **flattened id** (`<group>.<key>`, `<group>.<key>.<row>`, `<choice>.<row>`, `<typeChoice>.<row>`, `<described>.<entry>`; sections and lines add nothing) that is at once its stored value key, link port and run input name, so nothing is renamed between editing and running. Dynamic state (`members`, `seq`, member labels, a choice's `selected` key) is keyed by flattened id too. Transition policies: switching a choice keeps the other options' values stored; a group that grows by link or filled field shows one spare member once every stored member is used. Groups, choices and type choices nest inside one another (custom packs invent their own dynamic schemes; the system is designed to absorb them rather than force hacks). Members the node shows but does not store (up to the minimum, and the spare) never compile; interacting with one is an **atomic materialize-and-write command** - store the offered members on its path, write the link/value/selection - one transaction, one undo step; a committed document never references a member it does not store (violations are diagnostics, never elaboration-time mutation). Hard budgets (16 nested boxes, 512 members per group, 1024 flattened rows) fail deterministically instead of warning after exponential work. See [Node body](node-body.md); invariants N1-N6 in hazards.md.
 
 **Stage 2 - type constraint solving** over the elaborated topology. Not naive whole-graph unification - a constraint system that respects backend semantics:
 
@@ -1023,9 +323,9 @@ guessed interface. See [Node body](node-body.md).
 
 Solved types are derived state: recomputed (incrementally, dirty-region) on topology change, rendered from, but never written back into the document or schema. Conformance fixtures are generated against `comfy_execution/validation.py` rules so frontend and server agree on compatibility.
 
-**Why this pipeline cannot oscillate** (the old frontend's callback cascades are the cautionary tale): elaboration inputs are restricted by construction to (schema, stored values and dynamic state, link *existence*). Groups depend on stored members or a count formula, choices on a stored key or a leader formula, type choices on a stored variant - none depend on solved types. So the dependency structure is a DAG: `document -> elaboration -> solving -> rendering`, evaluated innermost-definition-first and memoized per definition. There is no feedback edge from solving into elaboration, hence no fixpoint iteration, no ordering sensitivity, and no "connect A then B behaves differently than B then A" class of bugs. Any future feature that would need type-dependent elaboration must be rejected or given an explicit, documented stratification - this invariant is load-bearing.
+**Why this pipeline cannot oscillate** (the old frontend's callback cascades are the cautionary tale): elaboration inputs are restricted by construction to (schema, stored values and dynamic state, link _existence_). Groups depend on stored members or a count formula, choices on a stored key or a leader formula, type choices on a stored variant - none depend on solved types. So the dependency structure is a DAG: `document -> elaboration -> solving -> rendering`, evaluated innermost-definition-first and memoized per definition. There is no feedback edge from solving into elaboration, hence no fixpoint iteration, no ordering sensitivity, and no "connect A then B behaves differently than B then A" class of bugs. Any future feature that would need type-dependent elaboration must be rejected or given an explicit, documented stratification - this invariant is load-bearing.
 
-**Type-driven specialization (type choices) is a materialized choice.** A schema may declare a type choice whose variants reveal rows per connected type. The mechanism: connecting is a command, and the interaction layer - which may legitimately read solved types for UI decisions - writes the selected variant into the node's **persisted dynamic state** (`dynamic.specializeSlot`), exactly like a choice's key set by a gesture instead of a keystroke. Elaboration keeps its restricted inputs, so the no-feedback DAG holds by construction, and the choice is serialized (exact reproduction), deterministic on load, undo-friendly, and user-overridable like any value. A type choice may additionally bind its chosen variant type to a MatchType variable shared by outputs (`typeVariable`). The stored choice remains the sole authority: solving substitutes it through the active interface, but solved graph types never choose or rewrite the variant. If the upstream type later changes, the stored choice goes stale like any other mismatch: the advisory solver marks it, nothing auto-deletes, and re-picking (manually or via a repair command) resolves it. When the connected type is generic/unresolved at connect time, no variant is auto-selected - the type choice stays in its unspecialized base form until the type is known at a later gesture or the user picks. The alternative - elaboration reading the *declared* type of the linked producer's port - was considered and rejected: it makes one node's elaboration read another node's elaborated ports (cycle risk once producer ports are themselves dynamic) and still cannot specialize on generic producers (hazard T1).
+**Type-driven specialization (type choices) is a materialized choice.** A schema may declare a type choice whose variants reveal rows per connected type. The mechanism: connecting is a command, and the interaction layer - which may legitimately read solved types for UI decisions - writes the selected variant into the node's **persisted dynamic state** (`dynamic.specializeSlot`), exactly like a choice's key set by a gesture instead of a keystroke. Elaboration keeps its restricted inputs, so the no-feedback DAG holds by construction, and the choice is serialized (exact reproduction), deterministic on load, undo-friendly, and user-overridable like any value. A type choice may additionally bind its chosen variant type to a MatchType variable shared by outputs (`typeVariable`). The stored choice remains the sole authority: solving substitutes it through the active interface, but solved graph types never choose or rewrite the variant. If the upstream type later changes, the stored choice goes stale like any other mismatch: the advisory solver marks it, nothing auto-deletes, and re-picking (manually or via a repair command) resolves it. When the connected type is generic/unresolved at connect time, no variant is auto-selected - the type choice stays in its unspecialized base form until the type is known at a later gesture or the user picks. The alternative - elaboration reading the _declared_ type of the linked producer's port - was considered and rejected: it makes one node's elaboration read another node's elaborated ports (cycle risk once producer ports are themselves dynamic) and still cannot specialize on generic producers (hazard T1).
 
 Clearing the variant of a required type choice keeps its unspecialized pin and variant menu reachable. Until a declared variant is stored, the run refuses it (`prompt.missing_dynamic_choice`). Shared editing admits this missing-choice intermediate state with incomplete retained ownership so the user can correct it; it does not certify unknown roots or permit publication. Malformed choices and identities remain refused. An optional type choice without a stored variant reveals no rows.
 
@@ -1037,10 +337,10 @@ Clearing the variant of a required type choice keeps its unspecialized pin and v
 - Occurrence identity is a path: `{instancePath: SubgraphInstanceId[], localNodeId}`. Compiler provenance, execution projection, diagnostics, and (later) app-mode bindings all use qualified occurrences, since one definition node exists once per instance.
 - Recursive definitions are prohibited (validator-enforced).
 - **A subgraph's public interface IS a NodeSchema.** The boundary declaration compiles into the exact same normalized schema representation backend nodes use - including type variables (generic ports). Instances are elaborated and type-solved by the same code paths as any node; nothing downstream distinguishes them. This is the anti-cornering guarantee: dynamic-type support for subgraphs is not a special case that accumulates bug fixes - it is literally the same mechanism.
-- **Forwarding is by flattened row.** A boundary item forwards one inner input or output by its flattened id (`loras.lora0.strength`). The member must be stored on the inner node and a row under a choice or type choice must belong to the chosen option or variant. Forwarding a whole group, choice or type choice is refused (`boundary.familyBind`, `compile.port.unknownInput`/`compile.port.unknownOutput`), so member and choice state stays on the inner node in the definition and instances never own part of it. Invariants F1-F5 in hazards.md.
-- **Boundary input fan-out (`alsoBinds`)**: one boundary input may drive MANY inner inputs. The primary `binds` stays authoritative for the derived type, widget promotion, and display; `alsoBinds` is an optional, input-side-only list of additional `'port'` targets that receive the same outer edge or promoted value (the compiler lowers one delivery per target; a muted/bypassed target drops out without killing the live ones). Outputs keep exactly one source, and fan-out entries must be concrete port routes (flattened member rows included). Satisfiable-without-a-connection is the conjunction over all targets; an additional target that does not accept the primary's type is an advisory warning (`boundary.fanoutTypeMismatch`), never a load failure. Edited via the undoable `boundary.addBinding`/`boundary.removeBinding` commands; node removal prunes only the affected route (removing the primary's node drops the item). This mirrors backend regions, where any number of body links may read the same `$region` port.
+- **Forwarding is by flattened row or by whole construct.** A `port` boundary item forwards one inner input or output by its flattened id (`loras.lora0.strength`); the member must be stored on the inner node and a row under a choice or type choice must belong to the chosen option or variant. A `construct` item shows a whole group, choice, type choice or described row on the subgraph node, through any number of boundaries: each instance owns its members, pick and values under the item's id, the definition's own members stay interior and come first, and a choice or type choice the instance has not picked uses the definition's pick, optional or required. No stored "none" exists yet, so a subgraph node does not offer to clear a variant its definition picks inside. One construct has one owner: a construct item and an item for a row inside it refuse each other (`boundary.constructOwned`, `boundary.constructConflict`), and a `port` binding that names a construct is refused (`boundary.familyBind`). Invariants F1-F5 in hazards.md.
+- **Boundary input fan-out (`alsoBinds`)**: one boundary input may drive MANY inner inputs. The primary `binds` stays authoritative for the derived type, widget promotion, and display; `alsoBinds` is an optional, input-side-only list of additional `'port'` targets that receive the same outer edge or promoted value (the compiler lowers one delivery per target; a muted/bypassed target drops out without killing the live ones). Outputs keep exactly one source, and fan-out entries must be concrete port routes (flattened member rows included), or, for a `construct` item, constructs of the same shape (`boundary.constructShapeMismatch` otherwise). Satisfiable-without-a-connection is the conjunction over all targets; an additional target that does not accept the primary's type is an advisory warning (`boundary.fanoutTypeMismatch`), never a load failure. Edited via the undoable `boundary.addBinding`/`boundary.removeBinding` commands; node removal prunes only the affected route (removing the primary's node drops the item). This mirrors backend regions, where any number of body links may read the same `$region` port.
 - **Boundary spec refinement**: a boundary port / promoted parameter may carry an optional declared partial widget spec (min/max/step/precision, options...) that **narrows** the inner input's constraints - the subgraph author's "rules for this value". It serializes with the definition, flows into the derived NodeSchema, and is therefore seen identically by the graph view, value sources feeding the instance, and later app-mode bindings. A refinement that widens or contradicts the inner constraint is a boundary diagnostic. (Replaces the legacy frontend's hidden PrimitiveInt/Float property-proxy hack with a declared, serialized field.)
-- **Unsync is one cheap command.** Instances share a definition by reference (copying an instance copies the reference - synced by construction), and **detach** is the first-class inverse: one undoable command that clones the definition and repoints the instance at the clone, preserving connections, promoted values, position, and view state. Surfaced wherever the sync question arises: on the instance (context menu/badge showing "1 of N instances"), and as a guard on definition editing - entering edit mode on a multi-instance definition offers "edit all N instances" vs "detach and edit this copy". **Retention amendment (2026-07-29):** definitions with no remaining instances are retained on save. No persisted provenance distinguishes a reusable orphan from a detached clone, and automatic garbage collection risks silent data loss under undo/collaboration. Deletion is an explicit future command with dependency preview, as specified by `docs/archive/subgraph-lifecycle-design.md`.
+- **Unsync is one cheap command.** Instances share a definition by reference (copying an instance copies the reference - synced by construction), and **detach** is the first-class inverse: one undoable command that clones the definition and repoints the instance at the clone, preserving connections, promoted values, position, and view state. Surfaced wherever the sync question arises: on the instance (context menu/badge showing "1 of N instances"), and as a guard on definition editing - entering edit mode on a multi-instance definition offers "edit all N instances" vs "detach and edit this copy". No persisted provenance distinguishes a reusable orphan from a detached clone, and automatic garbage collection risks silent data loss under undo/collaboration. Deletion requires an explicit command with dependency preview.
 - **Fixed-arity boundaries.** The boundary exposes concrete and generic (type-variable) ports with fixed arity; each item is one row. Never ship a boundary feature whose identity/serialization story is not already in the format.
 
 ### 5. Named nets: get/set as first-class topology
@@ -1049,10 +349,10 @@ Modeled as a **named net** (hyperedge), not virtual nodes and not a name attribu
 
 ```ts
 interface NamedNet {
-  id: NamedNetId
-  name: string            // unique per graph definition (case-insensitive)
-  source: OutputEndpoint | null   // exactly one writer
-  sinks: InputEndpoint[]          // many readers
+  id: NamedNetId;
+  name: string; // unique per graph definition (case-insensitive)
+  source: OutputEndpoint | null; // exactly one writer
+  sinks: InputEndpoint[]; // many readers
 }
 ```
 
@@ -1070,7 +370,7 @@ interface NamedNet {
 
 The legacy frontend PrimitiveNode is the archetype of everything section 6 bans: a virtual node with a `*` output that mutates its own type/widget from whatever it touches first, and smuggles its value into real nodes by write-through widget mutation at queue time (`applyToGraph`). Its replacement is a **value source**: the fourth member of the closed structural-construct set (reroutes, named nets, selectors, value sources) - real topology, one output, fan-out to many inputs, compiled away deterministically.
 
-Note the backend now ships real primitive nodes (PrimitiveInt/Float/String/Boolean) - those are ordinary compute nodes needing zero frontend support. The value source exists for what they cannot cover: consumer-defined widget config (COMBO option lists, custom widget kinds) and compile-time literal baking.
+Note the backend now ships real primitive nodes (PrimitiveInt/Float/String/Boolean) - those are ordinary nodes. An output that declares a known value (`knownValue`) is never invoked: compile bakes its input's occurrence-effective value into every field it feeds, or links those fields to the input's producer when the input is wired, and a stored or baked Switch pick then decides which branches run. Inside a region body the Primitive runs as an ordinary node, so each element gets its own value. A Switch pick in Random mode (taken from the outermost subgraph node that promotes it, else the Switch) rolls one member per executed occurrence at queue time and records it as a `random` choice, so a replay reproduces it; a pick fed by anything in the document is never rolled. The value source exists for what they cannot cover: consumer-defined widget config (COMBO option lists, custom widget kinds) and compile-time literal baking.
 
 - **The document stores: value, optional declared spec, controller state, position/view.** Nothing else. The declared spec is a serialized partial widget spec (kind, min/max/step/precision, options, controller slot...) and is **authoritative**: declared fields are taken as-is.
 - **Derivation only fills undeclared fields.** The constraint solver (NOT elaboration - the no-type-feedback DAG invariant holds) unifies the connected consumers' input specs and fills whatever the user left unspecified. A fully-declared source is static: the solver only checks compatibility. A "pin current spec" command converts derived -> declared in one step, so if derivation ever proves to be a minefield it can be narrowed or removed **without breaking any saved workflow** - the dynamic part is a convenience, never load-bearing (the exact inverse of the legacy design, where dynamic adoption WAS the serialization story).
@@ -1082,32 +382,33 @@ Note the backend now ships real primitive nodes (PrimitiveInt/Float/String/Boole
 
 ### 5c. Widget taps: any widget as a producer (implemented)
 
-The old ecosystem's "widget as output" requests dead-ended because node definitions and the prompt format were fixed server-side. Here the prompt is compiler output, so the feature needs zero backend or schema changes. A **widget tap** is a new link *producer endpoint kind* - `(node, inputId)` - alongside port/reroute/value-source endpoints; NOT a fifth structural construct (it introduces no topology entity of its own, just edges).
+The old ecosystem's "widget as output" requests dead-ended because node definitions and the prompt format were fixed server-side. Here the prompt is compiler output, so the feature needs zero backend or schema changes. A **widget tap** is a new link _producer endpoint kind_ - `(node, inputId)` - alongside port/reroute/value-source endpoints; NOT a fifth structural construct (it introduces no topology entity of its own, just edges).
 
-- **Semantics: "the value this node will execute with."** If the tapped input holds a literal, the compiler bakes the *effective* value (instance-promotion overrides included, per occurrence - the value-source baking path, reused). If the tapped input is itself link-driven, the tap **aliases the incoming link**: consumers get exactly the producer the node itself consumes. Both lower deterministically and are recorded in the CompileArtifact.
+- **Semantics: "the value this node will execute with."** If the tapped input holds a literal, the compiler bakes the _effective_ value (instance-promotion overrides included, per occurrence - the value-source baking path, reused). If the tapped input is itself link-driven, the tap **aliases the incoming link**: consumers get exactly the producer the node itself consumes. Both lower deterministically and are recorded in the CompileArtifact.
 - **Type** is the tapped input's declared concrete type; combo values are strings (remote combos included - the value is the chosen string, section 10's value-never-hostage rule applies). Taps on non-concrete inputs are a document diagnostic.
-- **Non-concrete destinations** (wildcard/union/variable inputs, e.g. PreviewAny): an undriven tap's literal lowers to the reserved `{"$typed": {type, value}}` graph wire marker stamping the tapped input's concrete type, gated on the backend advertising `typedLiteral` in `/api/nodes` `dinkster.graphFeatures` (joint contract, Dinkster ea6eca7). Concrete destinations always keep the canonical plain literal (emission rule); without the capability the compile refuses loudly with `compile.tap.nonConcreteTarget` instead of bouncing off the server. Value sources declare no runtime type, so a value-source bake into a non-concrete input refuses even with the capability. Capability plumbing has two invariants: queue compiles and would-run scope previews share ONE input builder (`AppState.compileInputForTab`) so they can never disagree on `graphFeatures`, and a backend reconnect invalidates held capabilities unconditionally (a restarted server can change `graphFeatures` at an equal or lower schema epoch, so the epoch gate alone must not swallow the refetch).
+- **Non-concrete destinations** (wildcard/union/variable inputs, e.g. PreviewAny): an undriven tap's literal lowers to the reserved `{"$typed": {type, value}}` graph wire marker stamping the tapped input's concrete type, gated on the backend advertising `typedLiteral` in `/api/nodes` `dinkster.graphFeatures`. Concrete destinations always keep the canonical plain literal (emission rule); without the capability the compile refuses loudly with `compile.tap.nonConcreteTarget` instead of bouncing off the server. Value sources declare no runtime type, so a value-source bake into a non-concrete input refuses even with the capability. Capability plumbing has two invariants: queue compiles and would-run scope previews share ONE input builder (`AppState.compileInputForTab`) so they can never disagree on `graphFeatures`, and a backend reconnect invalidates held capabilities unconditionally (a restarted server can change `graphFeatures` at an equal or lower schema epoch, so the epoch gate alone must not swallow the refetch).
 - **Format**: additive LinkEndpoint variant. Tap edges participate in cycle validation like any edge (a tap that aliases a link contributes the aliased edge's dependency, so alias cycles are caught by the same pass).
-- **Rendering**: a tap pin on the widget row's right edge, revealed on hover/drag-over and when connected - a row affordance within the section-12 design system (which already guarantees no widget-vs-output line collisions), never always-on pin clutter.
-- **Relation to value sources**: value sources remain the standalone declared-literal construct with fan-out; a tap turns an *existing* node's widget into the source without restructuring. The two compose (a value source feeding an input that is then tapped aliases through).
+- **Rendering**: a tap pin on the widget row's right edge, revealed on hover/drag-over and when connected - a row affordance within the section-12 design system (which already guarantees no widget-vs-output line collisions), never always-on pin clutter. A pin's hit circle reaches a few pixels over the end of the field's row; where it covers a field's control (a stepper, for one), a click goes to the control and a press that moves starts the wire. The same holds for a widget-backed input pin at the row's left end.
+- **Relation to value sources**: value sources remain the standalone declared-literal construct with fan-out; a tap turns an _existing_ node's widget into the source without restructuring. The two compose (a value source feeding an input that is then tapped aliases through).
 - **Subgraph boundaries**: a tap on a promoted boundary widget reads the derived NodeSchema input like any consumer; taps forward through flattening per occurrence with the same machinery as value-source baking. No definition-level special case.
 
 ### 6. Graph control: mode flags, control surfaces, and selectors
 
 The control-surface design below is parked on the branch recorded in
-`rework-queue.md`. Main retains saved surface data and binding lifecycle
+[Control surfaces](https://github.com/Kosinkadink/comfy-vibe-station/issues/1207).
+Main retains saved surface data and binding lifecycle
 protection, but no panel, setting, registry or surface commands. App View,
 ordinary node mode commands and selectors remain separate working features.
 
 rgthree's Fast Muter/Bypasser, Fast Groups Muter, Node Mode Relay/Repeater, and Random Unmuter prove real demand for controlling the graph (mute/bypass, group toggles, randomized branch selection) without server involvement. Their current embodiment is everything this architecture bans: virtual nodes with `*` control links masquerading as dataflow, group targeting by re-scanning geometry every 500ms, procedural `node.mode` assignment with no command boundaries (bulk toggles are not atomic undo steps), a monkey-patched mode setter, and Random Unmuter temporarily mutating live graph state around the prompt-compile call. The demand decomposes onto three contracts this design already has - **no second category of "node" is needed**:
 
-1. **Mute/bypass are document mode flags** on any node or subgraph instance, changed only through commands - so a bulk toggle is one atomic, undoable transaction, whoever initiates it. Compiler semantics are specified, not incidental: *bypass* lowers to a type-matched passthrough (same-slot-index preferred, then exact type match, using solved types - the current frontend's DTO heuristic, made deterministic and testable); *mute* drops the node's contribution and surfaces "required input now unsatisfied" as a **compile diagnostic before submit** instead of a server round-trip error. Subgraph instances mute/bypass at their boundary NodeSchema; flattening respects the flag - no recursive descendant-poking (rgthree needed a depth-first hack for exactly this).
+1. **Mute/bypass are document mode flags** on any node or subgraph instance, changed only through commands - so a bulk toggle is one atomic, undoable transaction, whoever initiates it. Compiler semantics are specified, not incidental: _bypass_ lowers to a type-matched passthrough (same-slot-index preferred, then exact type match, using solved types - the current frontend's DTO heuristic, made deterministic and testable); _mute_ drops the node's contribution and surfaces "required input now unsatisfied" as a **compile diagnostic before submit** instead of a server round-trip error. Subgraph instances mute/bypass at their boundary NodeSchema; flattening respects the flag - no recursive descendant-poking (rgthree needed a depth-first hack for exactly this).
 2. **Control surfaces** are canvas-resident panels that are NOT nodes: no ports, no types, no presence in compilation. They hold stable **bindings** (node IDs, group IDs, tag/color queries) and **dispatch commands** (set mode, queue an ExecutionScope, run a macro). Fast Muter becomes a mode panel bound to picked nodes; Fast Groups Muter binds to a group ID with membership as subscribed derived state (no polling); Fast Actions Button is a macro panel over the command registry. They render with the same row/widget machinery, inherit undo for free because everything is a command, and are an extension point (register new surface types via the extension API). Constraints like "at most one active" are declared invariants on the surface, enforced in its command - not a UI-only convention that external changes silently violate.
-3. **Selectors** join reroutes, named nets, and value sources (section 5b) in the existing third category, **structural constructs**: entities with real topology, type-solved like ordinary fan-in, compiled away deterministically. A selector picks one of N incoming branches - by widget value, or by policy including *random* - and the choice is resolved **at compile time and recorded in the CompileArtifact**, so a randomized run's frozen view shows exactly which branch executed (Random Unmuter's choice is invisible and unserialized). Unselected branches drop out of the prompt closure, the would-run highlight, and controller advancement - all for free, because they all derive from the same compile/scope machinery.
+3. **Selectors** join reroutes, named nets, and value sources (section 5b) in the existing third category, **structural constructs**: entities with real topology, type-solved like ordinary fan-in, compiled away deterministically. A selector picks one of N incoming branches - by widget value, or by policy including _random_ - and the choice is resolved **at compile time and recorded in the CompileArtifact**, so a randomized run's frozen view shows exactly which branch executed (Random Unmuter's choice is invisible and unserialized). Unselected branches drop out of the prompt closure, the would-run highlight, and controller advancement - all for free, because they all derive from the same compile/scope machinery.
 
-**Serialization (decided)**: control surfaces are part of the document and serialize in the workflow format - a shared workflow must arrive with its mode panels, bindings, and macros intact. They are, however, excluded from the **execution-semantic hash**: a surface never affects compilation (only the mode flags / selector values it *sets* do, and those are ordinary serialized document state), so adding/moving/rebinding a panel must not make a frozen view report divergence. Exact-result reproducibility is carried by the chain that already exists: mode flags and selector widget values serialize with the document, and the CompileArtifact snapshot records resolved random selector choices - so "what actually ran" is always recoverable even for randomized runs.
+**Serialization (decided)**: control surfaces are part of the document and serialize in the workflow format - a shared workflow must arrive with its mode panels, bindings, and macros intact. They are, however, excluded from the **execution-semantic hash**: a surface never affects compilation (only the mode flags / selector values it _sets_ do, and those are ordinary serialized document state), so adding/moving/rebinding a panel must not make a frozen view report divergence. Exact-result reproducibility is carried by the chain that already exists: mode flags and selector widget values serialize with the document, and the CompileArtifact snapshot records resolved random selector choices - so "what actually ran" is always recoverable even for randomized runs.
 
-Why this avoids the two-category confusion: the old ecosystem's confusion came from control logic *pretending to be executable nodes*. The taxonomy here is explicit, small, and visually distinct - **compute nodes** (NodeSchema, compiled to the prompt), **structural constructs** (real topology, compiled away: reroutes, named nets, selectors, value sources - a closed core set), and **control surfaces** (no topology, commands only). Each has a distinct contract and design language; nothing masquerades. Relay/Repeater chains become largely unnecessary - they were wire-plumbing to fan out mode changes, which bindings, group targets, and command macros express directly; aggregate mode display ("all my targets muted?") is just a derived-state subscription on a control surface.
+Why this avoids the two-category confusion: the old ecosystem's confusion came from control logic _pretending to be executable nodes_. The taxonomy here is explicit, small, and visually distinct - **compute nodes** (NodeSchema, compiled to the prompt), **structural constructs** (real topology, compiled away: reroutes, named nets, selectors, value sources - a closed core set), and **control surfaces** (no topology, commands only). Each has a distinct contract and design language; nothing masquerades. Relay/Repeater chains become largely unnecessary - they were wire-plumbing to fan out mode changes, which bindings, group targets, and command macros express directly; aggregate mode display ("all my targets muted?") is just a derived-state subscription on a control surface.
 
 **Virtual nodes** are a fourth document category for durable frontend content:
 they serialize and participate in ordinary editing, clipboard, undo, and shared
@@ -1122,14 +423,14 @@ Compilation is a pure function `(document, schemaRegistry) -> CompileArtifact`:
 
 ```ts
 interface CompileArtifact {
-  documentSnapshot: WorkflowDocument      // immutable snapshot at submit time
-  documentContentHash: string
-  executionSemanticHash: string
-  prompt: ApiPrompt                       // flat {id: {class_type, inputs}}
-  flatToSource: Map<FlatNodeId, NodeOccurrence>
-  sourceToFlat: Map<OccurrenceKey, FlatNodeId[]>
-  diagnostics: CompileDiagnostic[]
-  schemaFingerprint: string
+  documentSnapshot: WorkflowDocument; // immutable snapshot at submit time
+  documentContentHash: string;
+  executionSemanticHash: string;
+  prompt: ApiPrompt; // flat {id: {class_type, inputs}}
+  flatToSource: Map<FlatNodeId, NodeOccurrence>;
+  sourceToFlat: Map<OccurrenceKey, FlatNodeId[]>;
+  diagnostics: CompileDiagnostic[];
+  schemaFingerprint: string;
 }
 ```
 
@@ -1137,7 +438,7 @@ Stages: structural validation -> interface elaboration -> type validation -> sub
 
 The submitted `extra_data.extra_pnginfo` embeds a versioned workflow snapshot (as today) so PNG metadata and `/history` recovery keep working.
 
-**Native graph wire with first-class regions.** The native Dinkster submit shape (`{nodes}` entries of `{nodeType, inputs}` OR `{region: {...}}` - map/fold/while with typed ports, element/state port roles, gather/state/flatten output modes, zip/cross/broadcast binding, nested body graphs reading ports through the reserved `$region` pseudo-node) is owned by ONE core module (`compile/dinkster-graph.ts`), same quarantine rule as the schema-wire decoder: types, the TypeExpr *encoder* (region ports put type expressions on the wire, refusing atoms-only violations the backend bans), and the admission validator. The validator covers shape, ports, state chains, dangling outputs, ids, cycles, gather/flatten runtime-resolvability, and plain literals on non-concrete inputs. Compile supplies occurrence-local elaborated types and resolves a native selector's variable output from matching concrete branch types for region admission; validation never derives producer types from literal stamps. Diagnostics retain the backend-compatible `/`-joined wire path (`r/add`) in data while their anchors point to the authored occurrence and port. Backend selectors are valid in region bodies and retain their per-iteration lazy demand behavior. A `lazy` input marker by itself is not a selector marker. Flatten concatenates list-typed body outputs in iteration order and preserves their `list<T>` type, including a typed empty list for zero iterations; it is legal for every region kind and never participates in state chaining. Broadcast iterates to the longest element list and repeats each shorter list's final element; map and fold accept it under their existing element-port rules, while rejects it like cross. Submit runs the wire-only part again after dynamic prompt expansion. Runtime iteration ids (`r[3]/node`) resolve through the existing runtime-path parser; regions are the backend's loop/conditional model (zero-or-one-element map = "run this subgraph, or don't").
+**Native graph wire with first-class regions.** The native Dinkster submit shape (`{nodes}` entries of `{nodeType, inputs}` OR `{region: {...}}` - map/fold/while with typed ports, element/state port roles, gather/state/flatten output modes, zip/cross/broadcast binding, nested body graphs reading ports through the reserved `$region` pseudo-node) is implemented by one core module (`compile/dinkster-graph.ts`), with the same quarantine rule as the schema-wire decoder: types, the TypeExpr _encoder_ (region ports put type expressions on the wire, refusing atoms-only violations the backend bans), and the wire validator. The validator covers shape, ports, state chains, dangling outputs, ids, cycles, gather/flatten runtime-resolvability, and plain literals on non-concrete inputs. Compile supplies occurrence-local elaborated types and resolves a native selector's variable output from matching concrete branch types for region validation; validation never derives producer types from literal stamps. Diagnostics retain the backend-compatible `/`-joined wire path (`r/add`) in data while their anchors point to the authored occurrence and port. Backend selectors are valid in region bodies and retain their per-iteration lazy demand behavior. A `lazy` input marker by itself is not a selector marker. Flatten concatenates list-typed body outputs in iteration order and preserves their `list<T>` type, including a typed empty list for zero iterations; it is legal for every region kind and never participates in state chaining. Broadcast iterates to the longest element list and repeats each shorter list's final element; map and fold accept it under their existing element-port rules, while rejects it like cross. Submit runs the wire-only part again after dynamic prompt expansion. Runtime iteration ids (`r[3]/node`) resolve through the existing runtime-path parser; regions are the backend's loop/conditional model (zero-or-one-element map = "run this subgraph, or don't").
 
 For broadcast runtime cardinality, all element lists empty means zero iterations; mixed empty and non-empty lists fail loudly because there is no final element to repeat from an empty list.
 
@@ -1166,7 +467,7 @@ For broadcast runtime cardinality, all element lists empty means zero iterations
 **Partial execution is a first-class scope, not a checkbox.** The server accepts `partial_execution_targets` (a subset of output nodes; it schedules only them and their dependency closure). We model this as an **ExecutionScope**: a pure function of the document that yields the target set and its upstream closure. Everything derives from that one object:
 
 - **Queueing**: the compiler receives the scope and emits `partial_execution_targets`; the CompileArtifact records the scope, so frozen views and history show what was actually requested.
-- **Scope-aware compile diagnostics**: link lowering runs before closure construction because the staged producer references define the closure and structural failures must explain broken in-scope paths. Values and dynamic interfaces are also staged first because taps and dynamic ports affect lowering. Once the closure is known, node-owned diagnostics apply only to included nodes, so an invalid node on an unrelated branch neither blocks partial submission nor hides its partial actions. Invalid nodes within the closure still block. Full compilation keeps its historical behavior of validating every flattened node, including disconnected non-output nodes. Unowned structural topology diagnostics remain graph-wide. CanvasHost's live solver and widget-value diagnostics also remain graph-wide because they describe the editable document, not one queued artifact.
+- **Scope-aware compile diagnostics**: link lowering runs before closure construction because the staged producer references define the closure and structural failures must explain broken in-scope paths. Values and dynamic interfaces are also staged first because taps and dynamic ports affect lowering. Once the closure is known, node-owned diagnostics apply only to included nodes, so an invalid node on an unrelated branch neither blocks partial submission nor hides its partial actions. Invalid nodes within the closure still block. Full compilation validates every flattened node, including disconnected non-output nodes. Unowned structural topology diagnostics remain graph-wide. CanvasHost's live solver and widget-value diagnostics also remain graph-wide because they describe the editable document, not one queued artifact.
 - **Would-run highlight**: selecting a partial-executable node (or arming a partial-queue action) highlights the closure - the same closure object the compiler will use, so the preview and the submission cannot disagree. Performance: the closure is an O(V+E) upstream traversal computed once per selection change (not per frame), memoized against the document revision, rendered as a scene overlay (dim excluded / outline included) - no per-node work in the render loop. After submit, `execution_cached` refines the picture: nodes the server skipped get a cached marker on the live overlay, so "requested" vs "actually ran" are both visible.
 - **Value controllers respect scope**: controllers advance only on nodes inside the executed closure. Partial execution shuffles exactly the seeds it consumed and leaves the rest untouched - fixing the old frontend's bug where partial runs didn't advance seeds at all (and avoiding the opposite bug of shuffling seeds that never ran).
 - **Extensible modes**: new modes are just new scope providers - queue-selected-outputs, queue-multiple-targets (server supports a list), and later "execute up to this non-output node" (requires injecting a sink/preview node into the compiled prompt or backend support - flagged as a backend collaboration item, since a synthetic node changes cache keys). The scope abstraction means a new mode is a command + a closure function, not new execution plumbing.
@@ -1201,11 +502,11 @@ Custom packs like VideoHelperSuite have to fight the current frontend to show li
   3. **Media resources**: files served via `/view`, streamed on demand (HTTP range requests for video/audio - real `<video>`/`<audio>` elements in the DOM overlay when playing, static poster frame drawn in-canvas otherwise).
 - A **PreviewRenderer registry** (same extension pattern as WidgetKind) maps payload kinds to renderers. Core ships: image, animated sequence, video, audio, text, 3D (later). A custom pack that emits a novel payload kind ships a PreviewRenderer and gets rendering everywhere previews appear - node body, frozen views, queue rail thumbnails, later app mode - because all of those render the channel, not the node.
 - Preview area is just a layout row in the node body (section 12), so it participates in sizing, collapsing, and culling like everything else.
-- Budgets: latest-frame-only retention for live streams, capped animation buffers, offscreen channels drop to poster frames. Preview memory is a metered pool, not an accident.
+- Budgets: latest-frame-only buffering for live streams, capped animation buffers, offscreen channels drop to poster frames. Preview memory is a metered pool, not an accident.
 
-**Input materialization ("peek") - assessed viable, exposure post-v1.** Rich-typed inputs (IMAGE first) can be widget-capable like any other port: an asset-reference WidgetKind (upload/pick/paste), value stored ID-keyed, compiled as a literal - no architectural change, just a registry entry. For *connected* inputs, an input's best available value can be resolved from prior executions without executing: hash the input's upstream cone (same memoized closure machinery as ExecutionScope) and compare against the same cone in each execution snapshot via provenance maps. Equal -> that run's output media is an **exact** materialization; unequal -> stale, shown dimmed with a provenance badge ("from run at T, upstream changed" - decided default; a settings toggle can suppress instead, and interactive approximation editors suppress stale inputs since editing against outdated pixels is the one costly case) - never silently wrong, which is what makes this safe where an "whatever image is lying around" heuristic would not be. "Materialize this input" is just partial execution targeting the feeding node. On top of peeked media, widgets/editors may declare an opt-in **interactive approximation** capability (e.g. crop-rectangle preview over the real upstream image, updating as values change client-side); approximations must be visually distinct from authoritative execution outputs at the design-language level. Known caveat: cone equality guarantees semantic identity, not bit-identity (GPU nondeterminism) - same caveat as the backend's own caching.
+**Input materialization ("peek") - assessed viable, exposure post-v1.** Rich-typed inputs (IMAGE first) can be widget-capable like any other port: an asset-reference WidgetKind (upload/pick/paste), value stored ID-keyed, compiled as a literal - no architectural change, just a registry entry. For _connected_ inputs, an input's best available value can be resolved from prior executions without executing: hash the input's upstream cone (same memoized closure machinery as ExecutionScope) and compare against the same cone in each execution snapshot via provenance maps. Equal -> that run's output media is an **exact** materialization; unequal -> stale, shown dimmed with a provenance badge ("from run at T, upstream changed" - decided default; a settings toggle can suppress instead, and interactive approximation editors suppress stale inputs since editing against outdated pixels is the one costly case) - never silently wrong, which is what makes this safe where an "whatever image is lying around" heuristic would not be. "Materialize this input" is just partial execution targeting the feeding node. On top of peeked media, widgets/editors may declare an opt-in **interactive approximation** capability (e.g. crop-rectangle preview over the real upstream image, updating as values change client-side); approximations must be visually distinct from authoritative execution outputs at the design-language level. Known caveat: cone equality guarantees semantic identity, not bit-identity (GPU nondeterminism) - same caveat as the backend's own caching.
 
-**Peek backend contracts (SHIPPED, Dinkster commit a58cdb6).** The frontend side of peek is pure document+snapshot computation; payload access rides two native-protocol capabilities: (1) `GET /api/values?clientId&jobId&nodeId&outputId` - runtime node ids verbatim (region paths included), optional `element=i,j` list descent, optional `rendition=<kind>`; JSON descriptor + declared rendition list without a rendition, raw bytes with one (`ETag "<fingerprint>/<kind>"`, immutable - cache client-side forever, conditional GET honored). Lookup identity is job/node/output - fingerprint is ONLY the cache-validation tag, never a fetch key. Refusals are structured and distinct (`unknown-*`, `not-retained`, `not-complete`, `evicted`, `no-rendition`) - an evicted value can never silently resolve to a newer one, which is the property peek's "never silently wrong" story rests on. Rendition kinds are registry-extensible per type (packs register through the same TypeRegistry door as atoms), so negotiation is generic over the declared list, never hardcoded to PNG. (2) **Inline small scalars**: completed-job descriptors AND `node_finished`/`node_cached` per-output summaries carry optional `value` for registry-approved JSON scalars (strings capped, lists never inline at top level, absence never inlines; omission means "not inline", never null) - int/string/bool peeks need zero round trips, including mid-run intermediates. Retention: bounded server job history + cache residency for intermediates; leaving history is a clean `unknown-job`. Which execution peek resolves against is the section-8 overlay binding (follow-latest or pinned) - no new selection machinery.
+**Peek backend contracts.** The frontend side of peek is pure document+snapshot computation; payload access rides two native-protocol capabilities: (1) `GET /api/values?clientId&jobId&nodeId&outputId` - runtime node ids verbatim (region paths included), optional `element=i,j` list descent, optional `rendition=<kind>`; JSON descriptor + declared rendition list without a rendition, raw bytes with one (`ETag "<fingerprint>/<kind>"`, immutable - cache client-side forever, conditional GET honored). Lookup identity is job/node/output - fingerprint is ONLY the cache-validation tag, never a fetch key. Refusals are structured and distinct (`unknown-*`, `not-retained`, `not-complete`, `evicted`, `no-rendition`) - an evicted value can never silently resolve to a newer one, which is the property peek's "never silently wrong" story rests on. Rendition kinds are registry-extensible per type (packs register through the same TypeRegistry door as atoms), so negotiation is generic over the declared list, never hardcoded to PNG. (2) **Inline small scalars**: completed-job descriptors AND `node_finished`/`node_cached` per-output summaries carry optional `value` for registry-approved JSON scalars (strings capped, lists never inline at top level, absence never inlines; omission means "not inline", never null) - int/string/bool peeks need zero round trips, including mid-run intermediates. Retention: bounded server job history + cache residency for intermediates; leaving history is a clean `unknown-job`. Which execution peek resolves against is the section-8 overlay binding (follow-latest or pinned) - no new selection machinery.
 
 **Local asset catalog transport.** `DinksterConnection.listLocalAssets` reads
 `GET /api/assets/catalog` with scope and the immutable connection project.
@@ -1264,9 +565,7 @@ history are unchanged. Reopened missing-asset details show matching last-known
 machine/path hints without reading them. Hints with a different digest or input
 occurrence are ignored; permission failures preserve previous hints rather than
 inventing a location or inferring byte presence.
-The ownership census recognizes exact version-1 location observations as hints,
-not malformed five-field AssetRefs. Their extension still makes the census
-incomplete; malformed or extended observations retain the conservative checks.
+Exact version-1 location observations are hints, not malformed five-field AssetRefs. Malformed or extended observations remain visible for repair and do not replace canonical asset references.
 
 Missing-asset Problems rows offer **Locate or replace** for reachable node
 definitions. The action navigates to the input and opens its ordinary compatible
@@ -1278,25 +577,25 @@ not read. Frozen or wire-driven inputs remain read-only. A stored input without
 a currently exposed editable ASSET row reports that replacement is unavailable
 instead of silently focusing the node; its stored value is preserved.
 
-**Filesystem mounts backend contract (SHIPPED, Dinkster commit ddb4729).** The multi-directory replacement for ComfyUI's one-input/one-output-dir model; this is the surface a file-picker / mount-browser UX builds on. Read surface (always on when the backend serves with `--library-root`): `GET /api/mounts` -> `{"mounts": [{id, path, mode, source, state, entryCount?, error?}]}` with `state` pending|scanning|ready|failed, `mode` read|readwrite, `source` config|derived - real filesystem paths appear ONLY here (operator surface); documents never see them. `GET /api/mounts/{id}/list?path=<rel>` returns one level (`{"folders", "entries"}`) for folder navigation; `GET /api/mounts/{id}/entries?q=&cursor=&limit=` is the query-first cursor-paged catalog under the standing collection contract (cursor query-bound, 400 on mismatch, limit 1..500 default 100). Entry rows are EXACTLY the upload path's AssetRef fields plus `virtualPath` (`mounts/<id>/<relpath>`): `{virtualPath, name, digest, size, mediaType}` - so a browsed entry commits as a widget value through the existing ASSET path with zero decoder change. Previews: `GET /api/assets/{digest}` falls through from the upload vault to ready mounts (streamed, same ETag/immutable-cache contract) - no upload/copy needed. Mutation is policy-gated, not absent: `POST /api/mounts {id, path, mode?}` -> 201 descriptor, `DELETE /api/mounts/{id}`; without `--allow-mount-changes` both answer 403 `{"error": "mount-changes-disabled"}` (machine-readable, engine-not-ready mold - distinguish policy from missing endpoint and hide/disable the grant UI accordingly). Grants are durable immediately (mounts.toml), visible as a pending row at once, scanned in background; derived mounts (comfy-input read-only, comfy-output readwrite, auto-derived from `--comfy-root`) refuse runtime deletion with 409. Event: every mutation and finished scan publishes non-droppable `{"type": "mounts_changed"}` - a refetch ping for `GET /api/mounts`, never a diff (no epoch; the list is tiny). Workers resolve mounted digests live via an engine-republished snapshot file - no restart. Writes use the separate filename prefix and mount inputs described below.
+**Filesystem mounts backend contract.** The multi-directory replacement for ComfyUI's one-input/one-output-dir model; this is the surface a file-picker / mount-browser UX builds on. Read surface (always on when the backend serves with `--library-root`): `GET /api/mounts` -> `{"mounts": [{id, path, mode, source, state, entryCount?, error?}]}` with `state` pending|scanning|ready|failed, `mode` read|readwrite, `source` config|derived - real filesystem paths appear ONLY here (operator surface); documents never see them. `GET /api/mounts/{id}/list?path=<rel>` returns one level (`{"folders", "entries"}`) for folder navigation; `GET /api/mounts/{id}/entries?q=&cursor=&limit=` is the query-first cursor-paged catalog under the standing collection contract (cursor query-bound, 400 on mismatch, limit 1..500 default 100). Entry rows are EXACTLY the upload path's AssetRef fields plus `virtualPath` (`mounts/<id>/<relpath>`): `{virtualPath, name, digest, size, mediaType}` - so a browsed entry commits as a widget value through the existing ASSET path with zero decoder change. Previews: `GET /api/assets/{digest}` falls through from the upload vault to ready mounts (streamed, same ETag/immutable-cache contract) - no upload/copy needed. Mutation is policy-gated, not absent: `POST /api/mounts {id, path, mode?}` -> 201 descriptor, `DELETE /api/mounts/{id}`; without `--allow-mount-changes` both answer 403 `{"error": "mount-changes-disabled"}` (machine-readable, engine-not-ready mold - distinguish policy from missing endpoint and hide/disable the grant UI accordingly). Grants are durable immediately (mounts.toml), visible as a pending row at once, scanned in background; derived mounts (comfy-input read-only, comfy-output readwrite, auto-derived from `--comfy-root`) refuse runtime deletion with 409. Event: every mutation and finished scan publishes non-droppable `{"type": "mounts_changed"}` - a refetch ping for `GET /api/mounts`, never a diff (no epoch; the list is tiny). Workers resolve mounted digests live via an engine-republished snapshot file - no restart. Writes use the separate filename prefix and mount inputs described below.
 
 **Save mount presentation.** Save declarations retain `filename_prefix: STRING` and append an optional `mount: STRING` with the closed widget descriptor `{"type":"MOUNT"}`. Null or omitted mount selects the backend snapshot's default output mount. No combined destination object, helper node, prefix-derived authority or socket type bridge is introduced. The widget kind validates mount-id grammar; the backend remains authoritative for paths and execution. Choices come from `GET /api/mounts` rows with `mode === "readwrite"` and `state === "ready"`, fetched on editor open. A stored unavailable mount remains visible rather than silently changing. Declaring the prefix and mount in one Row of the node body is presentation-only and never reorders interface declarations or positional workflow values. The canonical MOUNT kind, compact view and editor share the ordinary widget registry; `e2e/save-mount.spec.ts` exercises representative schema-backed controls, default selection, explicit selection, undo and nested presentation. Native save-node acceptance requires the actual registered native schemas in addition to this fixture contract.
 
-**Choice keys on the graph wire.** Stored keys of choices and type choices are DOCUMENT state, authoritative for the backend's elaborated interface, and travel ONCE per node on the graph wire as `"slotVariants": {"<flattened id>": "<key>"}` (sibling of `inputs`, omitted when empty) - never per input. A choice's dropdown is not an input of the run; its key travels only here. Every choice and type choice that takes part in the run sends its key, and rows of options and variants that are not chosen are not sent. A new node stores its required choices' start keys, and compile refuses a required choice with no stored key instead of making one up. Rows submit under their flattened ids (`<typeChoice>.<row>`, `<choice>.<row>`), which are also their document value keys, so switching variants never reinterprets stored values. Cache identity: the backend's elaborated schema carries the keys into its schema signature, so switching options is a cache miss even between byte-identical interfaces. Compile fails loudly (`compile.slot.missingVariant`) when a connected type choice with variants has no stored variant or stores an unknown key. Runtime type mismatch stays the ordinary advisory warning (the backend never re-dispatches variants). Recipe identity includes `slotVariants` and `outputMembers`.
+**Choice keys on the graph wire.** Stored keys of choices and type choices are DOCUMENT state, authoritative for the backend's elaborated interface, and travel ONCE per node on the graph wire as `"slotVariants": {"<flattened id>": "<key>"}` (sibling of `inputs`, omitted when empty) - never per input. A choice's dropdown is not an input of the run; its key travels only here. Every choice and type choice that takes part in the run sends its key, and rows of options and variants that are not chosen are not sent. A new node stores its required choices' start keys, and compile refuses a required choice with no stored key instead of making one up; on a subgraph node that shows the choice whole, the definition's pick is the stored key. Rows submit under their flattened ids (`<typeChoice>.<row>`, `<choice>.<row>`), which are also their document value keys, so switching variants never reinterprets stored values. Cache identity: the backend's elaborated schema carries the keys into its schema signature, so switching options is a cache miss even between byte-identical interfaces. Compile fails loudly (`compile.slot.missingVariant`) when a connected type choice with variants has no stored variant or stores an unknown key. Runtime type mismatch stays the ordinary advisory warning (the backend never re-dispatches variants). Recipe identity includes `slotVariants` and `outputMembers`.
 
-**Type choice + MatchType binding.** A type choice may carry `"typeVariable": "T"`. Its stored chosen variant binds that node-level TypeExpr variable, and every active input/output occurrence of `T` resolves to the variant's concrete type, including occurrences below list/asset constructors. The choice already participates in computation identity; the binding adds no graph-derived identity or solver-to-elaboration feedback. Subgraph boundaries project the chosen concrete type through forwarded rows and outputs; forwarding the type choice itself is refused (`boundary.familyBind`).
+**Type choice + MatchType binding.** A type choice may carry `"typeVariable": "T"`. Its stored chosen variant binds that node-level TypeExpr variable, and every active input/output occurrence of `T` resolves to the variant's concrete type, including occurrences below list/asset constructors. The choice already participates in computation identity; the binding adds no graph-derived identity or solver-to-elaboration feedback. Subgraph boundaries project the chosen concrete type through forwarded rows and outputs, and a type choice shown whole keeps its variant per instance.
 
 **Exact integer bounds.** A NUMBER descriptor on `INT` carries min, max, and step outside JavaScript's safe-integer range as canonical decimal strings; safe integers remain JSON numbers and `FLOAT` remains number-only. INT widget state likewise stores a safe number or an exact decimal string from signed 64-bit minimum through unsigned 64-bit maximum. Submission lowers an unsafe value to `{"$int":"..."}` only when the backend advertises `decimalInt` in `dinkster.graphFeatures`; otherwise compile refuses the input instead of rounding it. Steppers, after-generate controllers, app-view controls, validation, serialization, and reload all preserve the exact value.
 
-**Node discoverability terms (Dinkster commit d36d2c9).** A node schema may carry `searchTerms: string[]`, omitted when empty; the decoder normalizes omission to an empty array. These terms are presentation-only vocabulary for node discovery, never node-resolution aliases, and may collide freely. They are excluded from backend schema signatures and all identity. The node palette gives them the same weight as type ids and ComfyUI search aliases, below display-name matches, while retaining the shared exact, prefix, word-prefix, substring, and typo tiers.
+**Node discoverability terms.** A node schema may carry `searchTerms: string[]`, omitted when empty; the decoder normalizes omission to an empty array. These terms are presentation-only vocabulary for node discovery, never node-resolution aliases, and may collide freely. They are excluded from backend schema signatures and all identity. The node palette gives them the same weight as type ids and ComfyUI search aliases, below display-name matches, while retaining the shared exact, prefix, word-prefix, substring, and typo tiers.
 
-**Node palette discovery and link insertion (SHIPPED).** Input and output type controls are searchable multi-selects: selections are ORed within a direction and the active input/output groups are ANDed. A base atom discovers recursively wrapped `list<T>` and `asset<T>` ports without changing connection compatibility; explicitly structured tokens remain structure-exact. Slash-delimited schema categories render as a counted, collapsible folder tree and folder selection includes its descendants. Reroute is a synthetic utility entry and can terminate an empty-canvas noodle drop atomically. Double-clicking an ordinary noodle now offers either the former `reroute.insert` action or an `Insert node...` palette constrained in both directions; insertion disconnects the original noodle and reconnects both sides in one command batch. Link-drop creation requires a closed TypeExpr anchor, so an untyped dangling end, missing schema, or failed fresh elaboration never produces an accept-all palette or arbitrary auto-connect. Candidate matching uses the fresh elaborated surface rather than an Autogrow wrapper: concrete and constrained variables filter exactly, while intentionally wildcard or unconstrained generic ports remain valid deterministic fallbacks after compatible closed-domain ports. List/scalar cardinality remains exact. The fresh elaborated target, any required Autogrow materialization, and `link.connect` stay in the same node-add batch.
+**Node palette discovery and link insertion.** Input and output type controls are searchable multi-selects: selections are ORed within a direction and the active input/output groups are ANDed. A base atom discovers recursively wrapped `list<T>` and `asset<T>` ports without changing connection compatibility; explicitly structured tokens remain structure-exact. Slash-delimited schema categories render as a counted, collapsible folder tree and folder selection includes its descendants. Reroute is a synthetic utility entry and can terminate an empty-canvas noodle drop atomically. Double-clicking an ordinary noodle now offers either the former `reroute.insert` action or an `Insert node...` palette constrained in both directions; insertion disconnects the original noodle and reconnects both sides in one command batch. Link-drop creation requires a closed TypeExpr anchor, so an untyped dangling end, missing schema, or failed fresh elaboration never produces an accept-all palette or arbitrary auto-connect. Candidate matching uses the fresh elaborated surface rather than an Autogrow wrapper: concrete and constrained variables filter exactly, while intentionally wildcard or unconstrained generic ports remain valid deterministic fallbacks after compatible closed-domain ports. List/scalar cardinality remains exact. The fresh elaborated target, any required Autogrow materialization, and `link.connect` stay in the same node-add batch.
 
 **COMBO widget descriptor.** The descriptor is `{"type": "COMBO", "options"?: ["auto", 8, 10, ...], "remote"?: {"route": "/api/...", "refreshButton"?: true}}`, with static and remote validation and replacement semantics. Its socket is the ordinary concrete atom `COMBO`, carrying a string, boolean, or finite number. Values keep exact scalar identity through defaults, import, literal fan-out, and compilation: `8` differs from `"8"`, and `true` differs from `1`. Static choices may carry independent label/info/folder metadata; labels never rewrite imported values. Null, containers, and non-finite numbers are not choices. Membership diagnostics belong to the client, not runtime rejection. Remote choices, dynamic branch keys, input-family identifiers, and MULTI_COMBO selections remain strings. Direct STRING<->COMBO links remain invalid; COMBO-to-COMBO links remain legal regardless of option lists. Pins, widget taps, noodles, reroutes, lenses, palette previews, and tooltips derive COMBO presentation directly from canonical COMBO.
 
-**Labeled booleans (Dinkster commit 1007114).** This widget kind appears only on `BOOLEAN` inputs: `{"type": "BOOLEAN", "labelOn"?: "enable", "labelOff"?: "disable"}` - optional strings omitted when empty, never both absent (a label-less boolean carries no widget; the type alone means "render a toggle"). Presentation only, never identity. The compact toggle renders the custom label for the current side, falling back to true/false per side when a label is missing. Backend translation turns boolean-like two-option v1 combos - enable/disable, on/off, true/false, yes/no, either order, case-insensitive - into real `BOOLEAN` inputs wearing the original strings as labels, with `execute()` mapping the boolean back to the legacy vocabulary; raw legacy strings still submit unchanged. The frontend's half of that story is a document migration (`normalizeLegacyBooleans` in `app-state.ts`): stored STRING values on BOOLEAN-widget inputs matching exactly the eight recognized tokens are rewritten to real booleans in one undoable batch (surfaced as `upgrade.legacyBoolean` in Problems); anything else is left alone for the `widget.BOOLEAN.badValue` advisory. This pass re-arms on explicit backend retarget: which schemas interpret a document is the tab's target backend, and a document opened while targeting a backend where its types don't resolve can later be pointed at the backend its strings were written for. The pass is idempotent and only rewrites the exact tokens, so retarget re-runs are safe; a mere schema refresh never re-arms it, so an undone migration stays undone within a session.
+**Labeled booleans.** This widget kind appears only on `BOOLEAN` inputs: `{"type": "BOOLEAN", "labelOn"?: "enable", "labelOff"?: "disable"}` - optional strings omitted when empty, never both absent (a label-less boolean carries no widget; the type alone means "render a toggle"). Presentation only, never identity. The compact toggle renders the custom label for the current side, falling back to true/false per side when a label is missing. Backend translation turns boolean-like two-option v1 combos - enable/disable, on/off, true/false, yes/no, either order, case-insensitive - into real `BOOLEAN` inputs wearing the original strings as labels, with `execute()` mapping the boolean back to the legacy vocabulary; raw legacy strings still submit unchanged. The frontend's half of that story is a document migration (`normalizeLegacyBooleans` in `app-state.ts`): stored STRING values on BOOLEAN-widget inputs matching exactly the eight recognized tokens are rewritten to real booleans in one undoable batch (surfaced as `upgrade.legacyBoolean` in Problems); anything else is left alone for the `widget.BOOLEAN.badValue` advisory. This pass re-arms on explicit backend retarget: which schemas interpret a document is the tab's target backend, and a document opened while targeting a backend where its types don't resolve can later be pointed at the backend its strings were written for. The pass is idempotent and only rewrites the exact tokens, so retarget re-runs are safe; a mere schema refresh never re-arms it, so an undone migration stays undone within a session.
 
-**Portable preview kernels ("mirror" tier) - future direction, hook designed now.** Precedent: core's GLSLShader node authors in GLSL ES 3.00 *because* the same source runs in the browser (WebGL2) for live preview and on the backend (desktop GL/ANGLE) at execution - one implementation, two executors. Generalized: a node schema may declare a **portable kernel** (GLSL ES 3.00 now; WGSL/WebGPU via `wgpu-py` and WASM for non-GPU ops later) that IS its backend implementation; the frontend executes the same source over peeked/materialized inputs for live feedback. This defines a preview-fidelity ladder: *approximation* (client-only reimplementation, opt-in, visibly approximate) < **mirror** (same kernel both sides - semantically exact by construction; WASM can be bit-exact) < *authoritative* (execution output). Kernels compose: a chain of kernel-bearing nodes (crop -> color -> LUT) live-previews end-to-end from one materialized input without queueing. Constraints: kernels are declared schema data executed in sandboxed substrates (shader/WASM - no arbitrary JS on the backend, which would add a runtime + sandboxing problem while still not matching torch semantics); frontend execution runs in workers/GPU under the preview memory/compute budgets; graceful fallback to approximation/authoritative tiers when WebGPU is absent. v1 ships the *hook* (schema field + fidelity-tier semantics in the design language); kernel execution is post-v1. **Kernels are pack-extensible from the moment they ship (decided)**: any node pack may declare kernels through the same schema field core uses - a core-only capability would just push packs back into hand-rolled canvas/DOM preview hacks, recreating the old ecosystem's failure mode. The safety boundary is the substrate (sandboxed shader/WASM execution, budget-metered), not the author. What protects evolvability instead: the kernel declaration is **versioned** (`kernelVersion` + substrate id), unknown substrates/versions degrade gracefully to the approximation/authoritative tiers, and the declaration schema follows the format's additive-first evolution policy.
+**Portable preview kernels ("mirror" tier) - proposed capability.** Precedent: core's GLSLShader node authors in GLSL ES 3.00 _because_ the same source runs in the browser (WebGL2) for live preview and on the backend (desktop GL/ANGLE) at execution - one implementation, two executors. Generalized: a node schema may declare a **portable kernel** (GLSL ES 3.00 now; WGSL/WebGPU via `wgpu-py` and WASM for non-GPU ops later) that IS its backend implementation; the frontend executes the same source over peeked/materialized inputs for live feedback. This defines a preview-fidelity ladder: _approximation_ (client-only reimplementation, opt-in, visibly approximate) < **mirror** (same kernel both sides - semantically exact by construction; WASM can be bit-exact) < _authoritative_ (execution output). Kernels compose: a chain of kernel-bearing nodes (crop -> color -> LUT) live-previews end-to-end from one materialized input without queueing. Constraints: kernels are declared schema data executed in sandboxed substrates (shader/WASM - no arbitrary JS on the backend, which would add a runtime + sandboxing problem while still not matching torch semantics); frontend execution runs in workers/GPU under the preview memory/compute budgets; graceful fallback to approximation/authoritative tiers when WebGPU is absent. v1 ships the _hook_ (schema field + fidelity-tier semantics in the design language); kernel execution is post-v1. **Kernels are pack-extensible from the moment they ship (decided)**: any node pack may declare kernels through the same schema field core uses - a core-only capability would just push packs back into hand-rolled canvas/DOM preview hacks, recreating the old ecosystem's failure mode. The safety boundary is the substrate (sandboxed shader/WASM execution, budget-metered), not the author. What protects evolvability instead: the kernel declaration is **versioned** (`kernelVersion` + substrate id), unknown substrates/versions degrade gracefully to the approximation/authoritative tiers, and the declaration schema follows the format's additive-first evolution policy.
 
 ### 10. Widget system: pluggable by contract
 
@@ -1332,24 +631,24 @@ and route semantics remain outside the frontend contract.
 
 **Click-to-expand: node size is never a readability requirement.** A design smell the current frontend normalizes: content (long prompts, file paths, combo labels, previews) gets clipped by the node's box, and the user's only recourse is manually resizing the node. Here the compact and expanded representations are decoupled by contract:
 
-- `drawCompact` renders within the widget's row and truncates *honestly* (ellipsis/fade affordance signals hidden content) - it never dictates how much content the user can see.
+- `drawCompact` renders within the widget's row and truncates _honestly_ (ellipsis/fade affordance signals hidden content) - it never dictates how much content the user can see.
 - Activating a widget (click/Enter) opens its `editorUi` tree in a **core-owned overlay anchored to the widget but sized independently of the node**. The view declares sizing preferences; core owns placement, focus, dismissal, rendering, and command invocation.
 - Scene-driven dismissal of a focused non-ASSET editor restores canvas focus in the same graph, including when an accepted commit invalidates its own draft. It does not take focus from another control or a replacement editor.
 - The same path works **read-only**: on frozen views and locked documents, activation opens the editor in inspect mode (select/copy enabled, commit disabled). Reading a long prompt on a frozen snapshot requires zero layout changes.
-- Expansion is transient UI state - not view state, not semantic state. Nothing serializes; the node's layout is untouched. Manual node resizing remains available as a *layout* preference (how much space you want a node to occupy in the composition), but is never the price of legibility.
+- Expansion is transient UI state - not view state, not semantic state. Nothing serializes; the node's layout is untouched. Manual node resizing remains available as a _layout_ preference (how much space you want a node to occupy in the composition), but is never the price of legibility.
 
-**Views are user-switchable.** The STRING single-line/multiline split is the canonical case: it is one value kind with two views, not two widget types. The node author's `multiline`/`display` hints select the *default* view; any widget with more than one compatible view gets a "change view" affordance, and the user's choice is stored per widget instance in **view state** (not semantic state - it never touches the semantic hash, compilation, or the value itself, and switching views is always lossless). Same mechanism covers INT/FLOAT as field vs. slider vs. stepper, COMBO as dropdown vs. radio row, color as swatch vs. hex field - and later, app-mode bindings picking a different view of the same widget than the graph shows. Extensions can register additional views for existing kinds (a fancy prompt editor for STRING) without touching the kind or the nodes that use it - the view registry is open in both directions: new views for existing kinds, and new kinds with their own views. If the schema ever needs to *restrict* which views a widget allows, that is one additive optional field (`allowedViews`) checked alongside `isCompatible` - designed for, deferred until needed.
+**Views are user-switchable.** The STRING single-line/multiline split is the canonical case: it is one value kind with two views, not two widget types. The node author's `multiline`/`display` hints select the _default_ view; any widget with more than one compatible view gets a "change view" affordance, and the user's choice is stored per widget instance in **view state** (not semantic state - it never touches the semantic hash, compilation, or the value itself, and switching views is always lossless). Same mechanism covers INT/FLOAT as field vs. slider vs. stepper, COMBO as dropdown vs. radio row, color as swatch vs. hex field - and later, app-mode bindings picking a different view of the same widget than the graph shows. Extensions can register additional views for existing kinds (a fancy prompt editor for STRING) without touching the kind or the nodes that use it - the view registry is open in both directions: new views for existing kinds, and new kinds with their own views. If the schema ever needs to _restrict_ which views a widget allows, that is one additive optional field (`allowedViews`) checked alongside `isCompatible` - designed for, deferred until needed.
 
 **Value controllers (control_after_generate, done right).** The seed-randomization feature is the canonical example of state that the old format mangles: it is a phantom second widget occupying a positional `widgets_values` slot, mutated as a hidden side effect of queueing. Here it is a first-class concept:
 
 - A schema flag (`control_after_generate` on INT, `control_after_refresh` on COMBO, open to other kinds) gives the widget spec a **controller slot**. Controller state (`fixed | increment | decrement | randomize`) is stored as ID-keyed structured state alongside the value - never a second widget, never positional.
 - The mutation is a **document command emitted by the queue flow**: compile + snapshot first (the executed value is captured), then apply the controller's mutation through the normal command layer. It is undoable, visible in history, and cannot desync anything because it is not a side channel. Controllers advance **only within the queued ExecutionScope** (section 8) - partial execution advances exactly the seeds it used.
 - Presentation is the view's choice: the default INT-with-controller view renders one combined row (value + compact mode adornment, the Nodes 2.0 look); a two-row view or a bare view (controller hidden, e.g. in app mode) are just other views of the same state.
-- Interaction with frozen views, resolved rather than accidental: a randomize controller means the document diverges from the execution *immediately* after queueing - which is exactly when the frozen snapshot (holding the executed seed) matters. The divergence badge distinguishes "advanced only by controllers" (soft state, expected) from real user edits, by checking whether the semantic diff touches anything beyond controlled widget values.
+- Interaction with frozen views, resolved rather than accidental: a randomize controller means the document diverges from the execution _immediately_ after queueing - which is exactly when the frozen snapshot (holding the executed seed) matters. The divergence badge distinguishes "advanced only by controllers" (soft state, expected) from real user edits, by checking whether the semantic diff touches anything beyond controlled widget values.
 
-**Remote-valued widgets (remote combos and kin) - a first-class contract, because they break purity if handled ad hoc.** The pipeline claims elaboration/validation are pure functions; remote options are IO. The resolution is to make the remote data an explicit *input* to the pipeline instead of letting widgets fetch:
+**Remote-valued widgets (remote combos and kin) - a first-class contract, because they break purity if handled ad hoc.** The pipeline claims elaboration/validation are pure functions; remote options are IO. The resolution is to make the remote data an explicit _input_ to the pipeline instead of letting widgets fetch:
 
-- Schema declares a **RemoteSource**: route, params (which may reference *other widget values by ID* - dependent combos like "files in the folder chosen above" - declared as dependencies, so refetch is reactive, never polled), TTL, refresh triggers (on editor open, on execution completed, manual), and pagination/search hints.
+- Schema declares a **RemoteSource**: route, params (which may reference _other widget values by ID_ - dependent combos like "files in the folder chosen above" - declared as dependencies, so refetch is reactive, never polled), TTL, refresh triggers (on editor open, on execution completed, manual), and pagination/search hints.
 - A single **RemoteSourceService** owns all fetching: deduplicates identical route+params across nodes, caches with TTL, exposes each source as explicit state - `loading | ready(options, fetchedAt) | stale(options, error) | unavailable(error)`. No widget ever fetches directly; effects live in one place.
 - Derived state consumes the cache as a third input: elaboration/validation are pure over `(document, schemaRegistry, remoteCache)`. A cache update is just a new input revision flowing through the same signal graph.
 - **Values are never hostage to option lists.** The stored value is authoritative; an absent/loading/changed option list yields a diagnostic ("value not in current options" / "options unavailable"), never a value reset or block. Raw-value editing is the fallback view when a source is unavailable. This kills the classic failure mode of combos self-clearing because a list loaded late.
@@ -1357,7 +656,7 @@ and route semantics remain outside the frontend contract.
 - Snapshots/frozen views store only the chosen value, never fetched lists; frozen views render values as-is with zero fetching. Multi-window: the cache lives with the authoritative store in the shared process.
 - Security (hardens risk item 5): same-origin routes only, TTL respected, no auto-fetch on schema load - fetch on first editor open or explicit refresh.
 - `control_after_refresh` composes: it is a controller on the widget whose trigger is the source transitioning to fresh `ready`, going through the normal command layer like `control_after_generate`.
-- **RemoteSource generalizes to pack services.** Node packs register backend routes today (VHS: `/vhs/queryvideo` metadata, `/vhs/viewvideo`//`vhs/viewaudio` path-streaming with transform params, `/vhs/getpath` autocomplete) and the frontend hits them ad hoc. Here a pack declares typed **services**: *queries* (JSON request/response, e.g. media metadata) and *media resources* (streamable route templates consumed by PreviewRenderers/widget views). All go through the same single IO service - same-origin, cached, deduped, explicit states - and are the ONLY network access WidgetKind/PreviewRenderer code gets (the contract passes a scoped client, not `fetch`). `getpath`-style autocomplete is just a RemoteSource with dependent params.
+- **RemoteSource generalizes to pack services.** Node packs register backend routes today (VHS: `/vhs/queryvideo` metadata, `/vhs/viewvideo`//`vhs/viewaudio` path-streaming with transform params, `/vhs/getpath` autocomplete) and the frontend hits them ad hoc. Here a pack declares typed **services**: _queries_ (JSON request/response, e.g. media metadata) and _media resources_ (streamable route templates consumed by PreviewRenderers/widget views). All go through the same single IO service - same-origin, cached, deduped, explicit states - and are the ONLY network access WidgetKind/PreviewRenderer code gets (the contract passes a scoped client, not `fetch`). `getpath`-style autocomplete is just a RemoteSource with dependent params.
 
 Rules that make widgets "just work" everywhere:
 
@@ -1378,8 +677,8 @@ The old frontend's extension model failed because extensions and core share one 
 
 - **Menus**: every context menu (node, port, widget, link, named net, group, control surface, selection, canvas, tab, executions rail, subgraph breadcrumb) and every menubar/toolbar is an anchor accepting contributions: `{command, group, order, when}`. The `when` clause is a declarative context expression over read-only selectors ("selection contains subgraph instance", "port type is IMAGE", "execution running") - evaluated by core, so a contribution cannot run code just to decide visibility. Groups + ordering are specified, so packs cannot fight over placement; core's own menu items are contributions to the same anchors (dogfood rule again - if core can special-case its items, the contract is broken).
 - **Surfaces**: sidebar panels, bottom panels, dialogs, settings pages, status-bar items, and empty-state actions use registered declarative providers. Providers receive frozen data and return typed content and commands; the host owns elements, styles, placement, focus, and lifecycle.
-- **Interactions**: keybindings bind to commands through the same keymap (user-remappable, conflict-surfaced, never `addEventListener` on the canvas). Canvas gestures are NOT freely interceptable - that is the hack vector that makes packs break each other. Instead: drag-and-drop accepts declared payload handlers (drop a file/asset/library entry -> command), and custom canvas *tools* (marquee-like modes) are a registered capability with enter/exit lifecycle, one active at a time, arbitrated by core.
-- **The escape-hatch rule**: there is deliberately no "give me the DOM/canvas and I'll wire it myself" API. When a pack cannot express something, that is a feature request against a contribution point - the same pressure-on-the-contract policy as the rest of the API. Hacks are prevented by module boundaries (core does not export internals), and kept unnecessary by making the declared path genuinely cover the use cases packs have today (audited against rgthree/KJNodes/VHS/pysssss menu and panel usage before freezing API v1 in extension API implementation). That audit is done: see `docs/archive/node-pack-extension-audit.md` for the usage-weighted coverage matrix, the confirmed gaps (widget interaction envelope, result channel, link/widget-row menu anchors, backend route/event contract, annotations), and the recorded refusals with their declared alternatives.
+- **Interactions**: keybindings bind to commands through the same keymap (user-remappable, conflict-surfaced, never `addEventListener` on the canvas). Canvas gestures are NOT freely interceptable - that is the hack vector that makes packs break each other. Instead: drag-and-drop accepts declared payload handlers (drop a file/asset/library entry -> command), and custom canvas _tools_ (marquee-like modes) are a registered capability with enter/exit lifecycle, one active at a time, arbitrated by core.
+- **The escape-hatch rule**: there is deliberately no "give me the DOM/canvas and I'll wire it myself" API. When a pack cannot express something, that is a feature request against a contribution point - the same pressure-on-the-contract policy as the rest of the API. Hacks are prevented by module boundaries (core does not export internals), and kept unnecessary by making the declared path genuinely cover the use cases packs have today (validated against rgthree/KJNodes/VHS/pysssss menu and panel usage before freezing API v1). See [Frontend extensions](frontend-extensions.md) for the supported contribution points and contracts.
 - Extensions read state through the same read-only selectors the UI uses, and write exclusively by dispatching commands (which enforce invariants and produce undo patches). There is no path to core internals - the core package simply does not export them. "No dirty hacks" is enforced by module boundaries, not review policy.
 - The API surface is versioned and small (deep module: small interface, big implementation). Anything not expressible via the API is a feature request against the API, which keeps pressure on the contract instead of on workarounds.
 
@@ -1425,24 +724,26 @@ Resolving the same-line dilemma:
 
 - **Input/output pairing on one line is the default** - it is familiar and conserves vertical space, and most nodes are fine with it. The classic two-column look is preserved.
 - **Widgets always own the full row width.** This is the invariant that kills the old ugliness: an output is never placed beside a widget row.
-- Those two rules compose in the layout function: outputs fill slots opposite connection-input rows top-down; only **overflow outputs** (more outputs than pairable rows, i.e. the ones that would have collided with widgets) get their own dedicated rows (decided default - a compact pin stack was judged potentially confusing and is deprioritized to an initial implementation curiosity prototype at most). The common node never changes; the problem case resolves itself.
+- Those two rules compose in the layout function: outputs fill slots opposite connection-input rows top-down; only **overflow outputs** (more outputs than pairable rows, i.e. the ones that would have collided with widgets) get their own dedicated rows (the default avoids a potentially confusing compact pin stack). The common node never changes; the problem case resolves itself.
 - **Deviating is the explicit part**: schema hints can opt a node out of pairing (e.g. outputs-in-header compact template, or a specific output pinned to a specific row) where that reads better. Default stays classic; alternatives are opt-in.
-- To be validated with visual prototypes in initial implementation/editing implementation against real workflows; the row model itself is the commitment, the default template is tunable.
+- Validate with visual prototypes against real workflows; the row model itself is the commitment, the default template is tunable.
 - **Rows never grow to fit content; depth lives in the expanded editor.** Rows have fixed, type-appropriate heights (a multiline string gets a few preview lines, not its full text); anything deeper is one click away via the widget's expanded overlay editor (section 10). Node resizing is a composition preference, never the price of reading a value - the current frontend's "resize the node to read your own prompt" pattern is explicitly designed out.
 - **Auto-size by default, manual resize as an explicit override.** A node's natural size is a pure function of its row stack (schema + active views + design tokens) - new nodes always spawn correctly sized, nothing ever spawns clipped, and interface changes (group growth, section collapse, view switch) re-derive the size automatically. Manual resize stores an override in layout state (width freely, within a minimum that never clips pins/rows; extra height renders as padding); an overridden node keeps its size across interface changes, and "reset to auto size" (context menu / command) clears the override. Since size is derived-unless-overridden, most documents never serialize sizes at all.
+
+**Dropping a wire on a node.** A wire dropped on a pin connects to that pin. A wire dropped on a field's row connects to that field when it fits, even when the field already has a wire, and the row shows a drop-target outline while the wire is held over it. A wire dragged back from an input and dropped on a field takes that field's value through its widget tap (section 5c), when the field has one. A wire dropped anywhere else on the node, or on a field it does not fit, takes the node's next input that fits: free inputs before driven ones, the fields on the same line as the pointer before the rest, then declared order, with the node outlined while the wire is held. Subgraph boundary panels keep their own ranking.
 
 **Badges are interactive, by contract.** A badge registration is not just a glyph: it declares optional **popover content** (info rendered on click/tap - same row/section machinery) and **actions** (commands, shown as popover buttons). One contract covers all of them uniformly: the subgraph instance badge ("1 of N") opens instance count + jump-to-other-instances + **detach**; the error badge opens that occurrence's diagnostics with jump-to-problems-panel; the divergence badge summarizes what changed vs. the execution (controller-only vs real edits) with open-frozen-view; the deprecation badge shows only its message and name-only successor guidance, never executable rules or an apply action; a stale-peek badge shows run provenance + materialize. Because badge actions are ordinary commands, they are undoable, keyboard-accessible via the command palette, and extensions registering badges get interactivity through the same declaration - no custom canvas hit-testing.
 
 **Modified-from-default indicators + reset, derived not stored.** Anything that hides widgets (collapsed sections today; other folding surfaces later) must not hide the fact that hidden values were tuned - a loaded workflow's collapsed "advanced" section may hold exactly the values that matter. The rules:
 
-- **"Modified" is a pure derivation, never serialized**: a widget is modified when its stored value differs (canonical JSON equality) from the *live* schema default. A missing values key means "at the default" (compile fills defaults for absent keys), so it is not modified. No dirty flags in the document, so no migration and no format change - and the semantics stay correct across schema versions: loading never mutates values, stored values always win, and a value equal to an OLD default but different from the CURRENT one honestly reads as modified, because it does differ from what a freshly added node gets today.
-- **Exclusions that keep the signal honest**: widgets with no schema default (nothing to compare or reset to); controller-slotted widgets (control_after_generate/_refresh - their values advance by design every queue, so default-comparison is permanent noise; a future schema flag can opt one in); DynamicCombo selector rows (their value is dynamic state, not node.values); ghost/unmaterialized dynamic members (nothing persisted yet). Connectivity is ignored: a connected widget's dormant value still serializes and returns on disconnect, so it counts.
+- **"Modified" is a pure derivation, never serialized**: a widget is modified when its stored value differs (canonical JSON equality) from the _live_ schema default. A missing values key means "at the default" (compile fills defaults for absent keys), so it is not modified. No dirty flags in the document, so no migration and no format change - and the semantics stay correct across schema versions: loading never mutates values, stored values always win, and a value equal to an OLD default but different from the CURRENT one honestly reads as modified, because it does differ from what a freshly added node gets today.
+- **Exclusions that keep the signal honest**: widgets with no schema default (nothing to compare or reset to); controller-slotted widgets (control_after_generate/\_refresh - their values advance by design every queue, so default-comparison is permanent noise; a future schema flag can opt one in); DynamicCombo selector rows (their value is dynamic state, not node.values); ghost/unmaterialized dynamic members (nothing persisted yet). Connectivity is ignored: a connected widget's dormant value still serializes and returns on disconnect, so it counts.
 - **Collapsed sections render a subtle indicator** (small dot on the header strip) when they hide one or more modified widgets - only while collapsed; an expanded section shows the widgets themselves. The count rides the layout row (`hiddenModified`), so any renderer or test can read it without re-deriving.
 - **Reset writes the current default EXPLICITLY - never deletes the key.** A deleted key would silently track future schema defaults and break exact reproduction, the workflow format's first duty. Reset means "make this widget equal to a freshly added node today", not restore a historical schema's semantics. Undo restores the pre-reset value.
 - **Reset ships at three scopes through the menu registry** (widget / section / node targets), not hardcoded app chrome. The items are schema-aware, so they are a contribution FACTORY over a schema resolver closure - MenuContext itself stays plain data. Multi-widget resets dispatch ONE schema-blind `node.setValues` command (atomic, one undo step, skips already-equal writes so a fully-matching dispatch is a no-op with no undo entry); only modified widgets are written, so a section reset never pins explicit defaults onto untouched neighbors. Items hide when the target has no resettable widgets and disable when none are modified.
 - Future: a clickable indicator popover (changed widgets, current vs default, per-item reset) rides the interactive-badge/popover contract above when that lands - it is NOT a one-off interaction.
 
-**Resolved-value display (companion values) - decided, lands with peek/tap exposure.** A link-driven input's widget renders the value it *would* execute with, inline, in a visually distinct "propagated" style (read-only - the stored dormant value stays untouched underneath, per the disconnect-returns-your-value rule). Two derivation sources, one display contract: (1) **document-static chains** (value source / widget tap / alias chains ending in a literal) resolve at document time and are always exact - this is a pure compile-machinery query, no execution involved; (2) **runtime producers** resolve via peek (section 9) against the tab's bound execution, styled with the same exact/stale provenance distinction - a stale companion value shows dimmed with the run-provenance badge (interactive per the badge contract: shows source run, offers "materialize" = partial execution of the feeding node). Companion values are derived state, never serialized, and excluded from the modified-from-default signal (they describe the wire, not the stored value). Media-typed inputs render their companion as the peeked thumbnail through the ordinary PreviewRenderer registry - same pipeline, so pack-defined payload kinds get companion display for free.
+**Resolved-value display (companion values).** A link-driven input's widget renders the value it _would_ execute with, inline, in a visually distinct "propagated" style (read-only - the stored dormant value stays untouched underneath, per the disconnect-returns-your-value rule). Two derivation sources, one display contract: (1) **document-static chains** (value source / widget tap / alias chains ending in a literal) resolve at document time and are always exact - this is a pure compile-machinery query, no execution involved; (2) **runtime producers** resolve via peek (section 9) against the tab's bound execution, styled with the same exact/stale provenance distinction - a stale companion value shows dimmed with the run-provenance badge (interactive per the badge contract: shows source run, offers "materialize" = partial execution of the feeding node). Companion values are derived state, never serialized, and excluded from the modified-from-default signal (they describe the wire, not the stored value). Media-typed inputs render their companion as the peeked thumbnail through the ordinary PreviewRenderer registry - same pipeline, so pack-defined payload kinds get companion display for free.
 
 Design language: a token system (spacing, typography, type-color palette, pin shapes, state styles) shared by canvas rendering and DOM widgets, so in-canvas and DOM presentation match. Standard row/section components mean "make these inputs a collapsable section" is one schema flag, not custom node code. Not everything needs to be semantically dynamic: purely visual simplifications (sections, separators, advanced-input folding, alternate compact templates) are schema-dictated presentation over the same document state.
 
@@ -1452,8 +753,8 @@ Design language: a token system (spacing, typography, type-color palette, pin sh
 - Canvas2D first with: viewport culling via a spatial index (also used for picking), budgeted LRU offscreen caching of expensive static node layers (scale-bucketed, not unconditional per-node surfaces), batched link drawing, text metric caching. WebGL is a possible later swap behind the same scene contract - not promised for v1.
 - Widgets render in-canvas via `drawCompact` (crisp, cheap, cullable); the DOM overlay renders only the active view's host-owned declarative tree.
 - No per-node framework components, no reactive mirrors, no layout CRDT. The shell owns everything around the canvas: tabs, sidebars, node library, queue rail, dialogs, settings.
-- Performance budget from day one: benchmark workflows (1k+ nodes, heavy noodles) in CI with frame-time and memory budgets, starting at initial implementation.
-- Accessibility decided now, not retrofitted: keyboard navigation model for canvas (focus follows selection, arrow/tab traversal), screen-reader exposure via an offscreen semantic list of nodes, standard DOM for all shell UI.
+- Performance budget: benchmark workflows (1k+ nodes, heavy noodles) in CI with frame-time and memory budgets.
+- Accessibility: keyboard navigation model for canvas (focus follows selection, arrow/tab traversal), screen-reader exposure via an offscreen semantic list of nodes, standard DOM for all shell UI.
 
 ### 14. Shell framework: chosen on merit, and deliberately low-stakes
 
@@ -1469,7 +770,7 @@ What remains for the framework is genuinely shell work: tabs, sidebars, node lib
 - **Vue 3**: mature, signals-based under the hood (ref/computed), huge component ecosystem. More framework machinery than the shell strictly needs.
 - **React**: largest ecosystem, but the coarse re-render model is the worst fit for a signal-driven core and would reintroduce the adapter/memoization discipline we are designing away.
 
-**Decision: SolidJS first**, with Svelte 5 as the fallback. The initial implementation spike (tab bar + queue rail against the real signal store) becomes a validation gate for Solid rather than a two-way bake-off; Svelte 5 is tried only if the spike surfaces real friction. Because the core, canvas, and widget contracts are framework-free, a wrong call here is a contained rewrite of shell chrome, not of the product.
+**Decision: SolidJS first**, with Svelte 5 as the fallback. The tab bar and queue rail against the real signal store validate Solid rather than serving as a two-way bake-off; Svelte 5 is tried only if this validation surfaces real friction. Because the core, canvas, and widget contracts are framework-free, a wrong call here is a contained rewrite of shell chrome, not of the product.
 
 ### 15. Views / app-mode readiness
 
@@ -1554,13 +855,11 @@ not hide or disable valid actions.
 
 **Multi-window (one app, several OS windows, shared state).** A same-origin SharedWorker owns each live document's canonical snapshot, revision, and ordered patch log. Windows dispatch serializable commands and receive patches while derived state (elaboration, typing, layout) recomputes locally, so the render hot path never crosses IPC. Selection, viewport, and frozen execution-tab focus remain per-window view state; shared workspace focus always names a live tab. All windows use one durable `client_id` per backend connection, and normalized execution registrations and events are mirrored across the workspace so every view observes live runs. Electron main owns native-window assignment and durable bounds; browser-only launchers coordinate equivalent pop-out assignments over a same-origin channel.
 
-Remote document admission confirms ownership against the receiving tab's current
-backend, including after retargeting. A store or destination change while that
-acknowledgment is pending refuses the stale admission.
+Remote document adoption validates the receiving tab's current backend, including after retargeting. A store or destination change while that work is pending refuses the stale result.
 
 **Multi-user (real-time collaboration on one workflow) - significant but additive, not a rewrite.** The classic rewrite-forcers are already absent by design: no shared mutable object graph, no positional arrays, no index-based links, no side-channel mutations. Stable UUIDs, ID-keyed values, and discrete commands with patches are the prerequisites for any sync scheme. The pragmatic path is a server-ordered command log (Figma-style: optimistic local apply, rebase to canonical order, last-writer-wins per property), which the per-entity/per-property document shape suits. Genuinely remaining work: selective per-user undo (the hard classic collab problem), a sync/presence/permissions server, and conflict UX. The execution model cooperates as-is: runs are snapshot-anchored objects keyed by `prompt_id`, so concurrent users queueing from one evolving document just produce independent frozen views.
 
-**Binding guards (enforced from the initial contracts, cheap now, expensive to retrofit):**
+**Binding guards:**
 
 1. Core packages never touch DOM or window-scoped globals - already a design rule; multi-window makes it load-bearing.
 2. The document store remains a forest of ID-keyed entities with independently mergeable properties - no cross-entity denormalization, no order-dependent meaning outside explicit ordered lists.
@@ -1580,13 +879,14 @@ A backend rewrite/refactor follows the frontend rewrite. The frontend is archite
 - **Portable kernels** (section 9): backend executes declared GLSL/WGSL/WASM kernels as node implementations, making the mirror tier exact by construction.
 - **Named nets/selectors stay frontend-side** (compiled away) even post-rewrite - pushing them into the engine buys nothing and splits one concept across two systems.
 
-Sequencing guard: the frontend never blocks on any of these (each has a shipping fallback path), and none of them, when they land, invalidate a format or contract decision - that is what the initial contracts are for.
+Sequencing guard: the frontend never blocks on any of these (each has a shipping fallback path), and none of them, when they land, invalidate a format or contract decision - the format and contracts must already cover them.
 
 ### 20. Testing strategy: headless-first, gesture-real, no pixel-hunting
 
 The architecture's layering is what makes testing convenient: the further down the stack, the less machinery a test needs.
 
 **Tier 1 - headless pure-TS (Vitest, no browser).** Document model, commands/undo, elaboration, type solver, subgraph flattening, named-net lowering, compiler + provenance, importer, schema metadata. This is where subgraph and dynamic-type correctness is proven, because these layers have zero DOM/canvas dependencies (a multi-window guard, section 17, doubling as a testability guarantee). Includes:
+
 - Golden fixtures (schemas, workflows, prompts, event streams) as regression tests: fixture in -> expected CompileArtifact/elaborated interface out.
 - Property-based tests (fast-check style): random valid command sequences preserve structural invariants; undo/redo round-trips restore exact document state; type solving is order-independent; import->save->import is a fixed point.
 - The structural invariant checker runs as a test oracle in all of these.
@@ -1594,19 +894,20 @@ The architecture's layering is what makes testing convenient: the further down t
 **Tier 2 - scene-level tests (Vitest or jsdom, still no real browser).** The retained scene graph is renderer-neutral data (section 13), so layout and presentation are testable by building a scene from a document and asserting on primitives: row placement, paired lines, overflow rows, badge presence, would-run overlay membership, net collapse rendering. **Scene snapshots (JSON) are the primary visual-regression tier** - stable, diffable, no font/GPU flake - catching layout regressions more precisely than screenshots.
 
 **Tier 3 - browser interaction tests (Playwright).** SolidJS is a non-factor here: Playwright is framework-agnostic and Solid emits plain DOM; Vite integrates via `webServer`. The canvas is the real problem - Playwright cannot query into a Canvas2D bitmap - solved by contract:
-- **Test bridge**: an explicitly supported `window.__comfyTest` API resolving any semantic element ID (node, port, widget, badge, net endpoint, popover item) to screen coordinates + state, built on the same hit-region/spatial-index data the renderer already maintains. Tests then drive *real* pointer gestures (`page.mouse.down/move/up`) through the actual event pipeline - "drag output A to input B", "open subgraph badge popover, click Detach", "box-select, mute" - with no coordinate hardcoding.
+
+- **Test bridge**: an explicitly supported `window.__comfyTest` API resolving any semantic element ID (node, port, widget, badge, net endpoint, popover item) to screen coordinates + state, built on the same hit-region/spatial-index data the renderer already maintains. Tests then drive _real_ pointer gestures (`page.mouse.down/move/up`) through the actual event pipeline - "drag output A to input B", "open subgraph badge popover, click Detach", "box-select, mute" - with no coordinate hardcoding.
 - The offscreen accessibility list (section 13) gives Playwright queryable DOM for state assertions (selection, badges, error text) for free.
 - A small pinned-environment `toHaveScreenshot` suite (one browser/OS, bundled fonts) covers actual paint quality; kept small because Tier 2 owns layout.
 
-**Execution flows without a GPU.** The WS event normalization contract + recorded event-stream fixtures back a **fake backend server** that replays streams deterministically with controllable timing: tabs, frozen views, divergence badges, partial execution, error routing, and reconnect/history reconciliation all run in CI. A thin smoke suite against a real ComfyUI (managed via comfy-runner) runs on a slower cadence to catch contract drift. **Once the backend rewrite lands, this smoke suite is promoted to a full e2e gate**: real backend in CI, covering submit/progress/outputs/errors and eventually parallel-prompt and branch-parallel event streams - the fake backend stays for speed and for simulating timings a real backend can't produce on demand (races, disconnects, reordered events).
+**Execution flows without a GPU.** The WS event normalization contract + recorded event-stream fixtures back a **fake backend server** that replays streams deterministically with controllable timing: tabs, frozen views, divergence badges, partial execution, error routing, and reconnect/history reconciliation all run in CI. A thin smoke suite against a real ComfyUI (managed via comfy-runner) runs on a slower cadence to catch contract drift. Real-backend e2e coverage requires submit/progress/outputs/errors and, when supported, parallel-prompt and branch-parallel event streams. The fake backend remains useful for speed and for simulating timings a real backend can't produce on demand (races, disconnects, reordered events).
 
 **Determinism rules**: RNG and clock are injected services (already required for seed controllers and selector random policies), so any test can pin them. Component-level shell tests use `@solidjs/testing-library` where a full page is overkill.
 
-**Extension API tests**: the extension API implementation pack audit (rgthree/KJNodes/VHS/pysssss coverage) is executed as a test suite - each capability claim gets a Playwright or headless test against a sample extension, so API regressions surface mechanically.
+**Extension API tests**: the pack capability audit (rgthree/KJNodes/VHS/pysssss coverage) is executed as a test suite - each capability claim gets a Playwright or headless test against a sample extension, so API regressions surface mechanically.
 
 ### Diagnostics on the graph
 
-Document diagnostics are projected onto node header badges and exact input-pin
+Document diagnostics are projected onto tabs below the node and exact input-pin
 rings without changing their raw severity. One composition step retains the
 active tab's compile/submit-validation diagnostics, scene solver/widget
 diagnostics, frozen artifact diagnostics, and bound execution errors before one
@@ -1659,19 +960,19 @@ current node and port names are shown while stable raw ids and messages remain
 unchanged. `blocksExecution` is diagnostic metadata only: it is not document
 data and is not emitted on the graph wire.
 
-## Milestones (demo-first, reordered per design review)
+## Validation workloads
 
-- **Initial contracts (short)**: file format v1 (ID-keyed values, semantic/view split, formatVersion + migration pipeline, ext namespaces, **ordered interface items + presentation constructs + variadic output families modeled**), normalized NodeSchema model **including the subgraph boundary -> NodeSchema derivation (variadic/conditional constructs specified even though exposed later)**, identity scheme (node/port/dynamic-member/occurrence; executions identified by `(connectionId, prompt_id)` even though initial implementation has one implicit connection), structural invariants, CompileArtifact + provenance contract, WS event normalization contract (normalizes legacy single-node and multi-node `progress_state` events into the per-node state map; no single-cursor assumption), **WidgetKind/WidgetView + PreviewRenderer contracts v1**. Golden fixtures: representative V1 + V3 object_info entries, prompts, event streams. Structural invariant checker doubles as the test oracle (section 19).
-- **initial implementation Vertical slice**: load schema from a live ComfyUI, render a fixed-arity workflow read-only, compile, submit, live progress + previews (image channel) + outputs, execution object with snapshot. Core widgets implemented through the public WidgetKind registry from the start. Node layout prototypes (row model, paired lines + overflow-output rows) against real workflows. SolidJS validation spike (tab bar + queue rail against the real signal store; Svelte 5 only as fallback if friction appears). Persistence round-trip. Benchmark harness established. Test infrastructure lands here: fake backend replaying event-stream fixtures, scene-snapshot testing, and the `__comfyTest` bridge (section 19) - so editing implementation editing features arrive with Playwright coverage from day one.
-- **editing implementation Editing**: command/transaction layer, undo, connect/disconnect, widget editing (compact draw + declarative host UI), groups, reroutes, collapsible sections. Type validation for concrete unions + wildcard + MatchType. Partial execution v1: ExecutionScope, queue-selected-outputs, would-run highlight, scope-aware controller advance. Mute/bypass mode flags with typed bypass lowering and mute compile diagnostics. Diagnostics v1: unified problems panel + node error badges + runtime error details (traceback, inputs) anchored to executions. Minimal litegraph importer with positional-value mapping diagnostics (gets us real test graphs).
-- **dynamic interface implementation Dynamic interface engine**: Autogrow (single-input AND group templates - the wire format already carries a template input map; model as a list before the solver bakes in single-input assumptions), DynamicCombo, DynamicSlot, nested dynamics inside Autogrow templates including Autogrow-in-Autogrow (member-path identity, atomic materialization commands, hard budgets - hazards N1-N6), remote combos, stable generated-port identities + transition policies, lazy/hidden compilation. Family forwarding through subgraph boundaries including split forwarding and slot-selective forwarding (section 4, hazards F1-F10) lands with the compile-integration/subgraph-proof step of this milestone. Animated/video/audio preview renderers (VHS-class support). Value sources (section 5b): declared-spec-first literals with solver-side spec fill-in, compile-time baking, legacy PrimitiveNode import.
-- **subgraph implementation Subgraphs**: nonrecursive definitions, boundary -> NodeSchema derivation live (concrete + generic ports), per-instance type schemes, promoted parameters, flattening + occurrence provenance, shared-definition edit invalidation.
-- **execution UX implementation Named nets + execution UX**: named nets with hide/show rendering; multi-tab correctness; frozen views + diverged badges; reconnect/history reconciliation; collapsed-subgraph progress aggregation. Concurrent-execution UX: overlay binding/pinning switcher, executions rail with multiple in-flight runs. Multi-backend: BackendConnection UI (add/select connections, per-connection registries and queues, retarget-with-diagnostics). Control surfaces v1 (mode panel, group binding) and selectors (value + random policy, choice recorded in CompileArtifact).
-- **extension API implementation Extensibility + views foundation + polish**: freeze and document extension API v1 (registries + command API), informational deprecation badges, variadic/conditional subgraph boundaries exposed, app-view binding model (design + minimal proof), full importer diagnostics, accessibility completion, perf optimization against the budgets.
+- **Format and schema contracts**: file format v1 with ID-keyed values, semantic/view separation, formatVersion and migration pipeline, extension namespaces, ordered interface items, presentation constructs, and variadic output families. Normalized NodeSchema includes boundary derivation for variadic/conditional constructs before UI exposure. Node, port, dynamic-member and occurrence identities are stable; execution identity is `(connectionId, prompt_id)`. Validate structural invariants, CompileArtifact provenance, WidgetKind/WidgetView and PreviewRenderer v1 contracts, and normalization of single-node and multi-node `progress_state` events into one per-node map, never a shared cursor. Golden fixtures cover V1/V3 object_info, prompts and event streams; the structural invariant checker is also a test oracle.
+- **Compile and execute**: load a live ComfyUI schema, render a fixed-arity workflow read-only, compile, submit, and display live progress, image previews and outputs against an execution snapshot. Core widgets use the public WidgetKind registry. Validate the row model, paired lines and overflow-output rows against real workflows; validate SolidJS tabs and queue rail against the real signal store, with Svelte 5 only as a fallback for friction. Check persistence round-trips and performance budgets through a benchmark harness. Fake-backend event replay, scene snapshots and the `__comfyTest` bridge support Playwright coverage of editing.
+- **Editing**: commands/transactions, undo, connect/disconnect, compact widget drawing and declarative host editors, groups, reroutes and collapsible sections. Validate concrete unions, wildcard and MatchType; ExecutionScope, selected-output queueing, would-run highlighting and scope-aware controller advance; typed bypass lowering and mute compile diagnostics. Problems, node badges, tracebacks and runtime input details stay anchored to executions. The litegraph importer reports positional-value mapping diagnostics.
+- **Dynamic interfaces**: single-input and grouped Autogrow templates use an input map modeled as a list, not a single-input assumption. Cover DynamicCombo, DynamicSlot and recursively nested Autogrow with member-path identity, atomic materialization and hard budgets (hazards N1-N6). Validate remote combos, generated-port identity/transition policies, lazy/hidden compilation, split and slot-selective subgraph family forwarding (section 4, hazards F1-F10), animated/video/audio previews, and declared-spec-first value sources with solver fill-in, compile-time baking and legacy PrimitiveNode import.
+- **Subgraphs**: nonrecursive definitions, live boundary-to-NodeSchema derivation for concrete/generic ports, per-instance type schemes, promoted parameters, flattening/occurrence provenance and shared-definition edit invalidation.
+- **Named nets and executions**: hide/show rendering, multi-tab correctness, frozen views/divergence badges, reconnect/history reconciliation and collapsed-subgraph progress. Validate overlay binding/pinning and multiple in-flight runs; BackendConnection add/select, per-connection registries/queues and retarget diagnostics; v1 mode-panel/group-binding control surfaces and selectors with value/random policy and CompileArtifact-recorded choices.
+- **Extension and view contracts**: extension API v1 with versioned registries/command API, informational deprecation badges, variadic/conditional boundary exposure, app-view bindings with a minimal proof, full importer diagnostics, accessibility and performance budgets.
 
 ## Saved image outputs
 
-The Outputs panel lists retained image files alongside tensor renditions. Saved
+The Outputs panel lists saved image files alongside tensor renditions. Saved
 files show the backend's content digest and written virtual path even when the
 save node returns only an IMAGE tensor. A file already represented by a typed
 asset from that node is listed once; files from different nodes retain their
@@ -1679,13 +980,13 @@ separate provenance.
 
 ## Key risks / open questions
 
-1. **Groups and choices at subgraph boundaries**: a boundary forwards one flattened row; forwarding a whole group, choice or type choice is refused. Guard: never ship a boundary feature not already modeled in the format.
+1. **Groups and choices at subgraph boundaries**: a boundary forwards one flattened row or one whole construct, modeled in the format as a `port` or `construct` binding. Guard: never ship a boundary feature not already modeled in the format.
 2. **Widget contract completeness**: the WidgetKind interface must be proven by porting the hardest core widgets (curve editor, bbox, webcam, image compare) through the public API before freezing it. Triage top custom-node packs to size what the contract must cover.
 3. **Extension API scope creep vs. starvation**: too small and authors hack around it (old frontend failure mode), too big and it fossilizes. Mitigation: core dogfoods every registry; API additions driven by concrete extension requests.
 4. **Cross-window live progress** limited by server's client_id routing; v1 accepts it, later options: history polling or a server-side broadcast opt-in.
-5. **Remote combo security/caching policy** (arbitrary routes declared by nodes): now specified in the RemoteSource contract (section 10) - same-origin only, TTL respected, no auto-fetch on schema load. Implementation lands in dynamic interface implementation.
-6. **Get/Set migration**: imported KJNodes Set/Get pairs should be converted to named nets by the importer (pattern-matched by class name) - nice-to-have, listed for execution UX implementation/extension API implementation.
+5. **Remote combo security/caching policy** (arbitrary routes declared by nodes): the RemoteSource contract (section 10) requires same-origin only, TTL respected, and no auto-fetch on schema load.
+6. **Get/Set migration**: imported KJNodes Set/Get pairs should be converted to named nets by the importer (pattern-matched by class name) - an optional importer capability.
 7. **Shell framework ecosystem risk** (if SolidJS): smaller component ecosystem; contained because the shell surface is thin and the core/canvas/widget layers are framework-free.
-8. **Legacy import fidelity**: positional `widgets_values` -> ID mapping depends on the *current* schema's widget order matching the schema the workflow was saved under; mismatches are surfaced as review diagnostics rather than silent misassignment, but very old workflows against changed nodes will need manual fixes. Mitigate with per-node-pack mapping tables for the most common historical schema changes.
+8. **Legacy import fidelity**: positional `widgets_values` -> ID mapping depends on the _current_ schema's widget order matching the schema the workflow was saved under; mismatches are surfaced as review diagnostics rather than silent misassignment, but very old workflows against changed nodes will need manual fixes. Mitigate with per-node-pack mapping tables for the most common historical schema changes.
 9. **Dynamic outputs** derive from stored members, count formulas over stored values, or stored descriptions, preserving the elaboration DAG constraint (no type feedback) and stable output identity; runtime-derived arity remains unsupported.
-10. **Overflow-output placement**: decided - dedicated rows for overflow outputs; pin stack rejected as potentially confusing (may still be mocked once in initial implementation for reference). The row model survives either answer, so this is reversible if prototypes surprise us.
+10. **Overflow-output placement**: dedicated rows for overflow outputs avoid a potentially confusing pin stack. The row model permits changing this default if visual prototypes expose a problem.

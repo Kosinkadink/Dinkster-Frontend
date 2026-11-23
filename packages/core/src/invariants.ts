@@ -763,6 +763,10 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
           diags.push(diag('error', 'invariant', 'doc.boundary.duplicateId', where(`duplicate boundary id '${item.id}'`)))
         }
         boundaryIds.add(item.id)
+        if (item.wireHidden !== undefined &&
+            !(side === 'inputs' && item.binds.kind === 'port' && item.promoted === true)) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.wireHidden', where(`boundary '${item.id}' hides its wire but is not shown as a field on the subgraph node`)))
+        }
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
           if (b.kind === 'unbound') {
             if (item.alsoBinds !== undefined || item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.unbound', where(`unattached boundary '${item.id}' cannot fan out or promote a widget`)))

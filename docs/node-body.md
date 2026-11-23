@@ -136,6 +136,14 @@ Member labels come from the group's `memberLabel`, else the name, else the
 prefix and the member's position counted from 1. Rows of a record member are
 labelled with the member label first.
 
+The members of a `reorderable` group that grows by link, filled field or
+button can be moved (`dynamic.moveMember`, one undo step). A move changes
+only the stored order: keys, values, labels a user typed, wires and boundary
+bindings stay with their member, while the shown number and the order a run
+receives follow the new position. A count group, a group that is not
+`reorderable`, and a node whose schema is not loaded refuse the move
+(`dynamic.notReorderable`). The canvas has no gesture for it yet.
+
 ## Choices
 
 A choice holds a list of options, each with its own rows, and rows several
@@ -160,6 +168,26 @@ choice starts on none, which shows no option's rows, and may not declare a
 default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
+
+A stored key that names an option the pack no longer has is treated as no
+pick when the document opens: a required choice goes to its start key, an
+optional choice and an optional type choice go to none, and a required type
+choice has nothing selected, so the document opens and a run is refused until
+a variant is picked. Opening stores that change in one undoable edit; the old
+values stay in the document. Stored state for a removed group or choice also
+stays in the document but contributes no live rows. Malformed state is still
+refused when opening the file. Problems lists one warning per adjusted node
+under "Upgraded on open"; selecting it moves the canvas to the node, and
+undoing the edit restores the old key without dismissing the warning.
+
+A shared choice has one stored key, and each `Use` of it may offer fewer of
+its options with `only`. When retention, flattening or a replacement reads an
+option that is not chosen, a stored key that place leaves out is not a
+problem. The place reads as its start key: its default when it offers it,
+otherwise its first offered option. Nothing is stored or changed. A stored key
+that no option of the shared choice declares, or that the chosen option leaves
+out, is treated as an option the pack no longer has, and is reported once for
+the choice.
 
 ## Type choices
 
@@ -194,8 +222,9 @@ outermost first: a section's flattened id, `group:<path>`,
 `member:<path>.<key>` and `option:<path>`. A box is layout only: ids, stored
 values and pin positions are the same with or without it.
 
-- The outline sits 1 px past the inner half of a pin, and each box inside a
-  box steps in by the same amount. A pin row inside a box keeps its pin on
+- The outline sits past the pins: its inner side lines up with a field
+  outside any box, and a field in one box sits 3 px inside it, so it is
+  3 px narrower on each side. Each box inside a box steps in 7 px more. A pin row inside a box keeps its pin on
   the node's edge; only its name moves in. The node's least width grows with
   the nesting.
 - A section or group box opens from its own header row: an arrow, the name,
@@ -249,8 +278,8 @@ A boundary forwards one inner input or output by its flattened id, such as
 `loras.lora0.strength`. The member must be stored on the inner node
 (`boundary.memberMissing`), except in a group grown to a count; a row under a
 choice or type choice must belong to the chosen option or variant
-(`boundary.branchInactive`). Forwarding a whole group, choice or type choice
-is refused: the boundary schema reports `boundary.familyBind` and compile
-reports the bound id as an unknown port (`compile.port.unknownInput` or
-`compile.port.unknownOutput`). See
-[Boundary editor](boundary-editor.md).
+(`boundary.branchInactive`). A `construct` binding shows a whole group,
+choice, type choice or described row instead: each subgraph node owns its
+members, pick and values under the item's id, after the definition's own
+members. A `port` binding that names a construct is refused
+(`boundary.familyBind`). See [Boundary editor](boundary-editor.md).
