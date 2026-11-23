@@ -1,5 +1,5 @@
 
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
   if (mockLegacyDiscovery) {
@@ -9,7 +9,7 @@ async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 }
 
 async function nodePoint(page: Page, index = 0): Promise<{ id: string; x: number; y: number }> {
@@ -111,7 +111,6 @@ test('creates an empty subgraph from universal search and drills into it', async
 
 test('previews and removes root-unreachable subgraph definitions', async ({ page }, testInfo) => {
   await ready(page, true)
-  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-cleanup-e2e', root: 'root',
@@ -516,7 +515,8 @@ test('supports nested drill-in after extraction', async ({ page }) => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
   })))
-  await page.mouse.dblclick(outer.x, outer.y)
+  const outerMark = await subgraphMarkPoint(page, outer.id)
+  await page.mouse.dblclick(outerMark.x, outerMark.y)
   await selectNode(page)
   await extractSelected(page)
   const nested = await nodePoint(page, await page.evaluate(() => {
@@ -524,8 +524,42 @@ test('supports nested drill-in after extraction', async ({ page }) => {
     const graphId = tab.graphStack.get().at(-1)!
     return window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => tab.store.doc.graphs[graphId]!.nodes[node.id]!.type.startsWith('#'))
   }))
-  await page.mouse.dblclick(nested.x, nested.y)
+  const nestedMark = await subgraphMarkPoint(page, nested.id)
+  await page.mouse.dblclick(nestedMark.x, nestedMark.y)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
+})
+
+test('opens a subgraph from the selection toolbar and from the node menu', async ({ page }) => {
+  await ready(page)
+  await selectNode(page)
+  await extractSelected(page)
+  const subgraphIndex = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
+  }))
+  const breadcrumbButtons = page.getByTestId('graph-breadcrumb').getByRole('button')
+
+  const subgraph = await nodePoint(page, subgraphIndex)
+  await page.mouse.click(subgraph.x, subgraph.y)
+  const openButton = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const button = renderer.getToolboxLayout()!.buttons.find((candidate) => candidate.button.id === 'core.openSubgraph')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (button.x + button.size / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (button.y + button.size / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(openButton.x, openButton.y)
+  await expect(breadcrumbButtons).toHaveCount(2)
+
+  await breadcrumbButtons.first().click()
+  await expect(page.getByTestId('graph-breadcrumb')).toHaveCount(0)
+  const returned = await nodePoint(page, subgraphIndex)
+  await page.mouse.click(returned.x, returned.y, { button: 'right' })
+  await page.locator('[data-item-id="core.node.openSubgraph"]').click()
+  await expect(breadcrumbButtons).toHaveCount(2)
 })
 
 test('flatten is one undoable and redoable operation', async ({ page }) => {

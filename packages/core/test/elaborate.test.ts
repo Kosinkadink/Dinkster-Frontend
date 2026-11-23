@@ -169,7 +169,7 @@ describe('static schemas', () => {
     expect(elaborateInterface(schema, node)).toEqual(active)
   })
 
-  it('reads a shared choice key an unchosen option leaves out as that option\'s start key, and still reports an undeclared key once', () => {
+  it('reads a shared choice key an unchosen option leaves out as that option\'s start key, and reports an undeclared key once', () => {
     // Save Video's shape: webm offers only auto and av1 of the shared codec.
     const schema = schemaOf([choiceOf('format', [
       { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
@@ -192,12 +192,15 @@ describe('static schemas', () => {
     const selectors = elabInputsOf(stored).filter((input) => input.spec.id === 'format.codec')
     expect(selectors.map((input) => input.derivedValue)).toEqual(['h264', 'auto'])
 
-    // The chosen option that leaves the key out still reports it.
-    expect(census('webm', 'h264').diagnostics.map((diagnostic) => diagnostic.message))
-      .toEqual(["Test: choice 'format.codec' has unknown option 'h264'"])
-    // A key no option declares is reported once, not once per place.
-    expect(census('mp4', 'vp9').diagnostics.map((diagnostic) => diagnostic.message))
-      .toEqual(["Test: choice 'format.codec' has unknown option 'vp9'"])
+    // The chosen option that leaves the key out treats it as a removed
+    // option and goes to its own start key.
+    const removed = (format: string, codec: string) => census(format, codec).diagnostics
+      .map((diagnostic) => [diagnostic.code, diagnostic.severity, diagnostic.data])
+    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    // A key no option declares is reported once, not once per place, with
+    // the chosen place's start key whichever place is read first.
+    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264' }]])
+    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
   })
 })
 
@@ -534,10 +537,18 @@ describe('choices', () => {
     }
   })
 
-  it('an unknown stored option is refused, never replaced', () => {
-    const e = elaborateInterface(schemaOf([modes]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
-    expect(e.diagnostics.map((d) => d.code)).toEqual(['prompt.bad_dynamic_choice'])
-    expect(elabInputsOf(e)).toEqual([])
+  it('a stored option the pack no longer has is no pick: a required choice shows its start option', () => {
+    const e = elaborateInterface(schemaOf([modes]), { values: { 'mode.mask': 4 }, dynamic: { mode: { selected: 'gone' } } })
+    expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
+      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple' }],
+    ])
+    expect(elabInputsOf(e).map((input) => input.address.port)).toEqual(['mode', 'mode.strength'])
+    expect(e.choices).toEqual({ mode: 'simple' })
+    const optional = choiceOf('mode', [{ key: 'on', rows: [intInput('value')] }], { required: false })
+    const none = elaborateInterface(schemaOf([optional]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
+    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null }]])
+    expect(none.diagnostics[0]!.message).toContain("option 'gone' of 'mode' is no longer in the pack. It is now none.")
+    expect(elabInputsOf(none).map((input) => input.address.port)).toEqual(['mode'])
   })
 
   it('shows the declared start option for a required choice with nothing stored; a run refuses it', () => {
@@ -714,10 +725,13 @@ describe('type choices', () => {
     expect(elabInputsOf(e)[2]!.spec.widget).toEqual({ widgetType: 'FLOAT', options: { min: 0 }, default: 0.5 })
   })
 
-  it('refuses an unknown stored variant', () => {
+  it('a stored variant the pack no longer has is no pick', () => {
     const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'gone' } } }, connectedInputs('model'))
-    expect(e.diagnostics.map((d) => d.code)).toEqual(['prompt.bad_dynamic_choice'])
-    expect(elabInputsOf(e)).toEqual([])
+    expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
+      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null }],
+    ])
+    expect(e.choices?.model).toBeUndefined()
+    expect(elabInputsOf(e).map((input) => input.address.port)).not.toContain('model.weight')
   })
 
   it('reads a member type choice from state at its flattened id', () => {
@@ -1016,8 +1030,8 @@ describe('formulas', () => {
       EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics.map((diagnostic) => diagnostic.message)
     const start = { 'g.1.c': { selected: 'x' }, 'g.2.c': { selected: 'x' } }
     expect(census({ ...start, 'g.4.c': { selected: 'y' } })).toEqual([])
-    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.5.c'"])
-    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: unknown stored dynamic state 'g.z.c'"])
+    expect(census({ ...start, 'g.5.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.5.c' is no longer part of this node. What was stored for it is kept in the file."])
+    expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.z.c' is no longer part of this node. What was stored for it is kept in the file."])
     const active = elaborateInterface(schema!, { values: { n: 2 }, dynamic: { ...start, 'g.4.c': { selected: 'y' } } } as never)
     expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['n', 'g.1.c', 'g.2.c'])
   })

@@ -1,6 +1,6 @@
-import { expect, nativeAppViewTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady } from './fixtures.js'
 
-test('proves product numeric, slider, and color controls without native chrome', async ({ page, request }) => {
+test('proves product numeric and color controls without native chrome', async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
@@ -15,7 +15,7 @@ test('proves product numeric, slider, and color controls without native chrome',
   // The test bridge appears asynchronously during boot; evaluating before it
   // exists races and fails with "Cannot read properties of undefined".
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
@@ -86,38 +86,7 @@ test('proves product numeric, slider, and color controls without native chrome',
   await page.getByRole('button', { name: 'Apply color' }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.proof!.values.color)).toBe('#Ab12Cd')
 
-  const mainModule = await (await request.get('/src/main.tsx')).text()
-  const renderModule = mainModule.match(/from "([^"]*solid-js_web[^"]*)"/)?.[1]
-  expect(renderModule).toBeDefined()
-  await page.evaluate(async ({ renderModule }) => {
-    const { render } = await import(renderModule)
-    const runtimeSettingsModule = '/src/RuntimeSettingsPanel.tsx'
-    const { RuntimeSettingsPanel } = await import(runtimeSettingsModule)
-    const host = document.createElement('section')
-    host.id = 'runtime-proof'
-    document.body.append(host)
-    const updates: unknown[] = []
-    const section = { value: { 'cuda:0': 512 * 1024 ** 2 }, source: 'default', mutability: 'live', writable: true, persistence: { available: true, persisted: true } }
-    const connection = {
-      fetchRuntimeSettings: async () => ({ categories: { granted: ['memory-budgets'], available: ['memory-budgets'] }, settings: { 'memory-budgets': section } }),
-      updateRuntimeSetting: async (category: string, value: unknown) => { updates.push([category, value]); return { ...section, value } },
-    }
-    render(() => RuntimeSettingsPanel({ connection, alwaysOpen: true, memoryControls: true }), host)
-    ;(window as any).__numericProofUpdates = updates
-  }, { renderModule: new URL(renderModule!, page.url()).href })
-
-  const budget = page.locator('#runtime-proof [role="spinbutton"]')
-  const budgetSlider = page.locator('#runtime-proof [role="slider"]')
-  await expect(budget).toHaveValue('512')
-  await budget.fill('768')
-  await expect(budgetSlider).toHaveAttribute('aria-valuenow', '768')
-  expect(await page.evaluate(() => (window as any).__numericProofUpdates.length)).toBe(0)
-  await budgetSlider.press('ArrowRight')
-  await expect(budget).toHaveValue('832')
-  await budget.press('Enter')
-  await expect.poll(() => page.evaluate(() => (window as any).__numericProofUpdates.length)).toBe(1)
-
-  const chrome = await page.locator('[data-testid="app-view-number"], [data-testid="app-view-color"], #runtime-proof [role="slider"]').evaluateAll((elements) => elements.map((element) => ({
+  const chrome = await page.locator('[data-testid="app-view-number"], [data-testid="app-view-color"]').evaluateAll((elements) => elements.map((element) => ({
     tag: element.tagName,
     type: element.getAttribute('type'),
     appearance: getComputedStyle(element).appearance,

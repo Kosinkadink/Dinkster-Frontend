@@ -43,7 +43,6 @@ const descriptor = { typeId: 'VIDEO', fingerprint: 'retained-source', meta: {
   probe: { width: 1080, height: 1920, rotation: 90, color_space: 'HDR PQ' },
   effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 240 },
 } }
-const startupLineages = new WeakMap<Page, string>()
 const imported = { vendor: { future: [1, 'keep'] }, trim: { start_time: 1.25, duration: 3.5, extra: true }, crop: { x: 100, y: 40, width: 1280, height: 720, extra: 'keep' } }
 
 test.beforeEach(async ({ page }) => {
@@ -51,15 +50,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) =>
     route.fulfill({ json: { schemaVersion: 1, items: [] } }),
   )
-  await page.route('**/api/library/retentions/*/*?scope=local', (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-    const parts = new URL(route.request().url()).pathname.split('/')
-    const ownerKind = parts.at(-2)!
-    const declaration = route.request().postDataJSON()
-    if (ownerKind === 'shown-result') expect(declaration).toEqual({ revision: 0, complete: false, digests: [] })
-    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind,
-      ownerId: decodeURIComponent(parts.at(-1)!), revision: declaration.revision + 1 } })
-  })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
@@ -73,14 +63,6 @@ async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: 
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })).toBe(true)
-  if (!startupLineages.has(page)) {
-    const startup = await page.evaluate(() => {
-      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
-      return { lineage: doc.lineage, nodes: Object.values(doc.graphs).flatMap((graph) => Object.keys(graph.nodes)) }
-    })
-    expect(startup.nodes).toEqual([])
-    startupLineages.set(page, startup.lineage)
-  }
   const key = editKeys[kind]
   editKeyOf.set(page, key)
   await page.evaluate(async ({ type, key, values, linked }) => {
@@ -176,37 +158,7 @@ async function retainRoundTrip(
   expect(JSON.parse(savedText)).toEqual(afterApply.workflow)
   expect(await page.evaluate(async (text) => (await window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true)), savedText)).toEqual([])
   const afterSaveReload = await persistedState(page)
-  const retainedImportOwners: string[] = []
-  await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
-    const lineage = await page.evaluate((url) => {
-      const ownerId = decodeURIComponent(new URL(url).pathname.split('/').at(-1)!)
-      const key = Object.keys(localStorage).find((candidate) => candidate.endsWith(`workflow-retentions.${ownerId}`))
-      return key === undefined ? undefined : JSON.parse(localStorage.getItem(key)!).documentLineage as string
-    }, route.request().url())
-    expect(lineage).toBeDefined()
-    // Delayed recovery of the verified empty startup document is not a video import.
-    if (lineage === startupLineages.get(page)) {
-      if (route.request().method() === 'PUT') {
-        expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: true, digests: [] })
-      }
-      return route.fallback()
-    }
-    expect(lineage).toMatch(/^video-editor-test(?:-import-[0-9]+-[0-9]+)?$/)
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-    expect(route.request().method()).toBe('PUT')
-    // VIDEO_EDIT and output-target values are opaque, not a certified empty asset set.
-    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-    const ownerId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
-    retainedImportOwners.push(ownerId)
-    return route.fulfill({ json: {
-      scope: 'local', ownerKind: 'document',
-      ownerId,
-      revision: 1, complete: false, digests: [],
-    } })
-  })
   expect(await page.evaluate((text) => window.__dinksterTest!.app.importWorkflowFile(new File([text], 'imported-video.json', { type: 'application/json' })), savedText)).toBe(true)
-  expect(retainedImportOwners.length).toBeGreaterThan(0)
-  expect(new Set(retainedImportOwners).size).toBe(retainedImportOwners.length)
   const afterImport = await persistedState(page)
   for (const state of [afterSaveReload, afterImport]) {
     expect(state.values).toEqual(expected)
@@ -385,21 +337,13 @@ test('changed source refuses stale preview and a concurrent edit cannot be overw
     const app = window.__dinksterTest!.app
     await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
   })
-  // Canvas ownership can close on mutation; a retained editor must also refuse its stale commit.
+  // A stale editor must not overwrite a concurrent mutation.
   if (await page.getByTestId('video-edit-apply').count()) await page.getByTestId('video-edit-apply').click()
   expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: true })
 })
 
 test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', async ({ page }) => {
   await openDocument(page, 'trim')
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
-    if (route.request().method() !== 'PUT' || route.request().postDataJSON().complete === true) return route.fallback()
-    expect(route.request().method()).toBe('PUT')
-    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-    return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
-      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
-      revision: 1, complete: false, digests: [] } })
-  })
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!

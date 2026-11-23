@@ -104,6 +104,6 @@ remain separate environment-gated evidence lanes.
 
 The command-specific video document form is parked because no served pack
 provides its nodes. Its kept branch, contracts and restoration checks are in
-[the rework queue](rework-queue.md#video-document-editor). Saved input values
+[Video document editor](https://github.com/Kosinkadink/comfy-vibe-station/issues/1214). Saved input values
 remain ordinary graph data and use the generic text/JSON editor. The video
 trim/crop widget described above remains available.

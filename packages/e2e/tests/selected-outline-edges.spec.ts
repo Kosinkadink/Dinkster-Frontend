@@ -1,10 +1,10 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 type Edge = 'left' | 'right' | 'top' | 'bottom'
 
 async function openFixture(page: Page, tall = false): Promise<number> {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   return page.evaluate(async (tall) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{

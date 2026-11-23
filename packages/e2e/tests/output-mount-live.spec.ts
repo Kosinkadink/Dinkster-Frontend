@@ -1,9 +1,10 @@
-import { mkdir, readFile, readdir, unlink } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readdir, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
 import { evidenceGroupDir, evidencePath } from "./evidence-output.js";
-import { waitForStartupOwnership } from "./fixtures.js";
+import { waitForWorkspaceReady } from "./fixtures.js";
 
 const backend = process.env["DINKSTER_NATIVE_BACKEND"];
 if (!backend)
@@ -167,12 +168,8 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   };
 
   await page.goto("/");
-  await expect(page.getByTestId("status-bar")).toContainText(
-    /\d+ node schemas/,
-    { timeout: 15_000 },
-  );
-  await expect(page.getByTestId("status-bar")).toContainText("connected");
-  await waitForStartupOwnership(page);
+  await expect(page.getByTestId("status-connection")).toHaveAttribute("data-state", "connected");
+  await waitForWorkspaceReady(page);
   await openSaveImageWorkflow(page, asset);
   await page.getByTestId("assets-toggle").click();
   await expect(page.getByTestId("assets-overlay")).toBeVisible();
@@ -182,9 +179,10 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     "output-mount-proof_00001_.png",
     { timeout: 15_000 },
   );
-  await page.getByRole("tab", { name: "Outputs" }).click();
+  await page.getByRole("tab", { name: "Runs", exact: true }).click();
+  await page.getByTestId("execution-row").first().locator(".runs-details > summary").click();
   await page.getByTestId("rail-resize").press("End");
-  await expect(page.getByTestId("outputs-panel")).toContainText(
+  await expect(page.getByTestId("runs-panel")).toContainText(
     "mounts/output/output-mount-proof_00001_.png",
   );
   expect(await readdir(defaultOutput)).toContain("output-mount-proof_00001_.png");
@@ -193,7 +191,8 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     fullPage: true,
   });
 
-  await page.getByTestId("backends-sidebar-toggle").click();
+  await page.getByTestId("storage-sidebar-toggle").click();
+  await page.getByRole("button", { name: "Default save folder", exact: true }).click();
   const settings = page.getByTestId("output-mount-settings");
   await expect(settings).toBeVisible();
   await settings
@@ -202,18 +201,35 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await page.getByRole("option", { name: "renders" }).click();
   await settings.getByRole("button", { name: "Apply" }).click();
   await expect(settings.getByText("Saved", { exact: true })).toBeVisible();
-  expect(await readFile(resolve(library, "mounts.toml"), "utf8")).toContain(
-    'output-mount = "renders"',
+  const persisted = execFileSync(
+    resolve(process.env["DINKSTER_E2E_GENERATION"]!, "python/bin/python"),
+    [
+      "-c",
+      [
+        "import json, sys",
+        "from pathlib import Path",
+        "from dinkster_library import LibraryClient",
+        "with LibraryClient(Path(sys.argv[1])) as helper:",
+        "    print(json.dumps(helper.call('folders.grants.get')['folders']['values']))",
+      ].join("\n"),
+      library,
+    ],
+    { encoding: "utf8" },
   );
+  expect(JSON.parse(persisted)).toMatchObject({
+    settings: { "output-mount": "renders" },
+    mounts: { renders: { path: alternateOutput, mode: "readwrite" } },
+  });
   await page.screenshot({
     path: evidencePath("issue-145", "alternate-output-setting.png"),
     fullPage: true,
   });
 
-  await page.getByTestId("backends-sidebar-toggle").click();
+  await page.getByTestId("storage-sidebar-toggle").click();
   await queueAndWait(page, 1);
-  await page.getByRole("tab", { name: "Outputs" }).click();
-  await expect(page.getByTestId("outputs-panel")).toContainText(
+  await page.getByRole("tab", { name: "Runs", exact: true }).click();
+  await page.getByTestId("execution-row").first().locator(".runs-details > summary").click();
+  await expect(page.getByTestId("runs-panel")).toContainText(
     "mounts/renders/output-mount-proof_00001_.png",
   );
   expect(await readdir(alternateOutput)).toContain("output-mount-proof_00001_.png");

@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from palette import PALETTE
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -10,15 +12,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     font = ImageFont.truetype("DejaVuSans.ttf", 20)
-    sheet = Image.new("RGB", (2112, 1450), "#E4E8EC")
+    sheet = Image.new("RGB", (2112, 1450), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(sheet)
     for column, (name, background, foreground) in enumerate(
-        (("dark", "#111316", "#F2F4F5"), ("light", "#F7F8FA", "#1F242A"))
+        (
+            (
+                "dark",
+                PALETTE["dark"]["bg"]["canvas"],
+                PALETTE["dark"]["text"]["primary"],
+            ),
+            (
+                "light",
+                PALETTE["light"]["bg"]["canvas"],
+                PALETTE["light"]["text"]["primary"],
+            ),
+        )
     ):
         x = 16 + column * 1040
         draw.rectangle((x, 48, x + 1023, 1433), fill=background)
         draw.text(
-            (x + 20, 12), f"CHROMATIC D - {name} - 1024 px", fill="#1F242A", font=font
+            (x + 20, 12),
+            f"CHROMATIC D - {name} - 1024 px",
+            fill=PALETTE["light"]["text"]["primary"],
+            font=font,
         )
         icon = Image.open(ROOT / "raster/color/1024.png")
         sheet.paste(icon, (x, 48), icon)
@@ -31,7 +47,7 @@ def main():
             font=font,
         )
     sheet.save(ROOT / "previews/color-dark-light.png")
-    proof = Image.new("RGB", (1600, 600), "#E4E8EC")
+    proof = Image.new("RGB", (1600, 600), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(proof)
     for index, size in enumerate((64, 256, 1024)):
         mono = np.asarray(Image.open(ROOT / f"raster/mono/{size}.png"))[:, :, 3]
@@ -46,10 +62,16 @@ def main():
         x = 20 + index * 525
         proof.paste(image, (x, 50))
         draw.text(
-            (x, 15), f"{size} px mono/color alpha overlay", fill="#1F242A", font=font
+            (x, 15),
+            f"{size} px mono/color alpha overlay",
+            fill=PALETTE["light"]["text"]["primary"],
+            font=font,
         )
         draw.text(
-            (x, 550), "0 differing pixels (red = mismatch)", fill="#1F242A", font=font
+            (x, 550),
+            "0 differing pixels (red = mismatch)",
+            fill=PALETTE["light"]["text"]["primary"],
+            font=font,
         )
     proof.save(ROOT / "previews/mono-color-overlay.png")
 

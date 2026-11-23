@@ -5,7 +5,6 @@ import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { captureWebcamFrame, webcamError } from '../webcam.js'
 import { activeProjectId } from '../projects.js'
-import type { PreviewSource } from '../node-previews.js'
 import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './webcam-widget-editor.css'
 
@@ -20,7 +19,6 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
   const [preview, setPreview] = createSignal<string>()
   const abort = new AbortController()
   let ownedUrl: string | undefined
-  let draftReader: PreviewSource['assetReader']
   onCleanup(() => { abort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
   props.editor.bindClickAway?.(props.close)
   onCleanup(() => props.editor.bindClickAway?.(undefined))
@@ -48,20 +46,11 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
         scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal,
       })
       if (!current()) return
-      const reader = await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
-      if (!current()) return
-      const publish = (): boolean => {
-        if (!current() || !reader.current()) return false
-        const previousUrl = ownedUrl
-        ownedUrl = URL.createObjectURL(file)
-        draftReader = reader
-        setPreview(ownedUrl)
-        setDraft(ref)
-        if (previousUrl) URL.revokeObjectURL(previousUrl)
-        return true
-      }
-      if (draftReader) await props.editor.app.replacePickerAssets(draftReader, reader, publish)
-      else publish()
+      const previousUrl = ownedUrl
+      ownedUrl = URL.createObjectURL(file)
+      setPreview(ownedUrl)
+      setDraft(ref)
+      if (previousUrl) URL.revokeObjectURL(previousUrl)
     } catch (reason) {
       if (current()) setError(webcamError(reason))
     } finally {
