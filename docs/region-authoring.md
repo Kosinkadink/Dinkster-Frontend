@@ -18,7 +18,8 @@ State carries a value to the next iteration.
 The node palette, universal search and canvas menu offer no entries to create
 Map, Fold or While regions. Saved regions still load, render, copy, edit and
 run. Double click an existing occurrence to drill into its body through the
-ordinary subgraph path. See [Rework queue](rework-queue.md#regions-rework) for
+ordinary subgraph path. See
+[Regions rework](https://github.com/Kosinkadink/comfy-vibe-station/issues/1198) for
 the parked creation entries and their return condition.
 
 ## Edit roles and configuration
