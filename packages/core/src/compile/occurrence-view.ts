@@ -138,11 +138,11 @@ export function occurrenceDynamicView(
     // values reach the inner node, and an edit there is written back outside.
     const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
     for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
-    for (const [target, projected] of constructs.values) {
-      childValues.set(target, { ...projected, ...childValues.get(target) })
+    for (const [target, projected] of constructs.values) childValues.set(target, { ...projected, ...childValues.get(target) })
+    for (const [target, owners] of constructs.owners) {
       const targetOwners = childValueOwners.get(target) ?? new Map<string, ValueOwner>()
       childValueOwners.set(target, targetOwners)
-      for (const [valueKey, outerKey] of constructs.owners.get(target) ?? []) {
+      for (const [valueKey, outerKey] of owners) {
         if (!targetOwners.has(valueKey)) targetOwners.set(valueKey, valueOwners.get(hop)?.get(outerKey) ?? { graphId: def.id, nodeId: hop, valueKey: outerKey })
       }
     }

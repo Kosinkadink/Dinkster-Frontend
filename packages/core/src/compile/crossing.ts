@@ -195,6 +195,12 @@ export function projectConstructs(
       const route = schema && resolveBoundaryRoute(schema, binding, undefined, target.values, target.dynamic)
       const row = route?.ok ? constructRowOf(route.route) : undefined
       if (!target || row === undefined) continue
+      if (row.kind !== 'group') {
+        // The pick is the subgraph node's: picking inside writes it there.
+        let byKey = owners.get(target.id)
+        if (!byKey) owners.set(target.id, (byKey = new Map()))
+        byKey.set(binding.port, item.id)
+      }
       const interior = row.kind === 'group' ? interiorMembersOf(row, target.dynamic?.[binding.port]) : undefined
       const map = (key: string): string | undefined => innerConstructAddress(child, binding, item.id, key, resolveNode)
       for (const [key, state] of Object.entries(instance.dynamic ?? {})) {
