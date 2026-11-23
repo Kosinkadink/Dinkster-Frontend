@@ -1,5 +1,6 @@
 import {
   defaultValuesOf,
+  documentResolver,
   loadDocument,
   type InputSpec,
   type Json,
@@ -235,6 +236,79 @@ export interface CanvasGalleryFixture {
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
   }[]
+}
+
+/**
+ * One node with an input that accepts a list beside an ordinary input of the
+ * same type variable, shown open, matched by one image and matched by a list
+ * of images, built and solved the way the app builds a graph.
+ */
+function acceptsListScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+): Scene {
+  const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
+  const image = concrete('IMAGE')
+  const schemas = new Map<string, NodeSchema>([
+    ['Join', schema('Join', [
+      { kind: 'input', id: 'items', type: variable, optional: false, acceptsList: true },
+      { kind: 'input', id: 'value', type: variable, optional: false },
+      { kind: 'output', id: 'list', type: { kind: 'list', element: variable } },
+    ])],
+    ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
+    ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
+  ])
+  const nodes: Record<string, { type: string; title?: string; x: number; y: number }> = {
+    open: { type: 'Join', title: 'Open', x: 240, y: 0 },
+    image: { type: 'Image', x: 0, y: 130 },
+    one: { type: 'Join', title: 'One image', x: 240, y: 130 },
+    images: { type: 'Images', x: 0, y: 260 },
+    list: { type: 'Join', title: 'A list of images', x: 240, y: 260 },
+  }
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery-accepts-list',
+    root: 'root',
+    graphs: {
+      root: {
+        id: 'root',
+        name: 'Root',
+        nextOrdinal: 10,
+        nets: {},
+        reroutes: {},
+        nodes: Object.fromEntries(Object.entries(nodes).map(([id, node]) => [
+          id,
+          { id, type: node.type, values: {}, ...(node.title ? { title: node.title } : {}) },
+        ])),
+        links: {
+          'one image': { id: 'one image', from: { node: 'image', port: 'IMAGE' }, to: { node: 'one', port: 'items' } },
+          'list of images': { id: 'list of images', from: { node: 'images', port: 'IMAGE' }, to: { node: 'list', port: 'items' } },
+        },
+      },
+    },
+    view: {
+      graphs: {
+        root: {
+          nodes: Object.fromEntries(Object.entries(nodes).map(([id, node]) => [
+            id,
+            { position: { x: node.x, y: node.y } },
+          ])),
+        },
+      },
+    },
+  })
+  const document = loaded.document
+  if (!document) throw new Error(`Invalid accepts-list gallery document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document,
+    graphId: 'root',
+    resolve: documentResolver(document, (type) => schemas.get(type)),
+    tokens,
+    measure,
+    widgetMeasure,
+  })
 }
 
 /** Fixed public renderer inputs, also reusable for frame-equivalence checks. */
@@ -998,6 +1072,11 @@ export function createCanvasGalleryFixture(
             : {}),
         })
       })
+    examples.push({
+      caption:
+        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, and after a list of images matches it. Value, an ordinary input of the same type, turns into a plain circle once matched.',
+      scene: acceptsListScene(tokens, measure, widgetMeasure),
+    })
     fixture.height = 850
   } else if (page === 'badges') {
     const badges: NodeBadge[] = [
