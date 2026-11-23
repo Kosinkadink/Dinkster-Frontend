@@ -97,21 +97,23 @@ describe('directed partial-execution scopes', () => {
   it('reuses a lazy-selector closure after a move but recomputes it when the branch changes', async () => {
     app.registerSchemas([{
       type: 'LazySelector', displayName: 'Lazy selector', category: 'test', source: 'v3', isOutputNode: true,
-      selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+      selector: { input: 'switch', group: 'branch' },
       body: [
-        { kind: 'input', id: 'switch', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false, widget: { widgetType: 'BOOLEAN', options: {} } },
-        { kind: 'input', id: 'on_false', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-        { kind: 'input', id: 'on_true', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+        { kind: 'input', id: 'switch', type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true },
+        {
+          kind: 'group', id: 'branch', keys: { kind: 'named', names: ['on_false', 'on_true'] }, grows: 'link', minMembers: 1,
+          value: { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true, lazy: true },
+        },
       ],
     }])
     await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'lazy-cache', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Root', nodes: {
         left: { id: 'left', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
         right: { id: 'right', type: 'EmptyImage', values: { width: 32, height: 32, batch_size: 1, color: 255 } },
-        choose: { id: 'choose', type: 'LazySelector', values: { switch: false } },
+        choose: { id: 'choose', type: 'LazySelector', values: { switch: false }, dynamic: { branch: { members: ['on_false', 'on_true'] } } },
       }, links: {
-        a: { id: 'a', from: { node: 'left', port: 'out0' }, to: { node: 'choose', port: 'on_false' } },
-        b: { id: 'b', from: { node: 'right', port: 'out0' }, to: { node: 'choose', port: 'on_true' } },
+        a: { id: 'a', from: { node: 'left', port: 'out0' }, to: { node: 'choose', port: 'branch.on_false' } },
+        b: { id: 'b', from: { node: 'right', port: 'out0' }, to: { node: 'choose', port: 'branch.on_true' } },
       }, nets: {}, reroutes: {}, nextOrdinal: 3 } }, view: { graphs: {} },
     }, 'Lazy cache')
     const tab = app.activeTab()!

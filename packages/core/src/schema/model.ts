@@ -985,14 +985,36 @@ export interface PackBlueprintDescriptor {
 }
 
 /**
- * A backend-lowered document-time selector (schema wire 15). The document
- * stores one boolean under `input`; its value chooses exactly one of the two
- * branch inputs. This is schema/display fact only: submission still carries
+ * A Switch the server routes itself: the `input` row picks one member of the
+ * group of inputs `group`, and the node's one output passes it on. A stored
+ * pick is a member key; a key that is no longer a member, or no pick, picks
+ * the first member. A whole number is a position counting from 0, and a
+ * boolean picks between exactly two members, false first. Submission carries
  * the full graph for server-owned lowering.
  */
 export interface NodeSelectorSpec {
   readonly input: string
-  readonly branches: Readonly<{ false: string; true: string }>
+  readonly group: string
+}
+
+/**
+ * The member input id a pick names among `members` (flattened ids, in stored
+ * order), or undefined when the pick is not one the server accepts.
+ */
+export const selectedMember = (
+  selector: NodeSelectorSpec,
+  members: readonly string[],
+  pick: unknown,
+): string | undefined => {
+  if (members.length === 0) return undefined
+  if (pick === undefined || pick === null) return members[0]
+  if (typeof pick === 'string') {
+    const member = `${selector.group}.${pick}`
+    return members.includes(member) ? member : members[0]
+  }
+  if (typeof pick === 'boolean') return members.length === 2 ? members[Number(pick)] : undefined
+  if (typeof pick === 'number' && Number.isInteger(pick)) return members[pick]
+  return undefined
 }
 
 export type SelectorBranchDisplay = 'active' | 'inactive' | 'neutral'
@@ -1139,26 +1161,23 @@ export function schemaForEditorRole(schemas: Iterable<NodeSchema>, role: string)
 }
 
 /**
- * Derive display treatment from the STORED selector boolean. Missing or
- * malformed stored state is neutral: the server remains authoritative for
- * value validation, and the canvas must not guess which branch will run.
+ * Derive display treatment from the STORED pick: the picked member is active
+ * and the others inactive. `members` are the node's member input ids in
+ * stored order. A pick the server would refuse is neutral: the server remains
+ * authoritative for value validation, and the canvas must not guess which
+ * branch will run.
  */
 export const selectorBranchDisplay = (
   schema: NodeSchema,
   values: Readonly<Record<string, unknown>>,
+  members: readonly string[],
 ): Readonly<Record<string, SelectorBranchDisplay>> | undefined => {
   const selector = schema.selector
   if (selector === undefined) return undefined
-  const selected = values[selector.input]
-  if (typeof selected !== 'boolean') {
-    return {
-      [selector.branches.false]: 'neutral',
-      [selector.branches.true]: 'neutral',
-    }
-  }
-  const active = selector.branches[String(selected) as 'false' | 'true']
-  const inactive = selector.branches[String(!selected) as 'false' | 'true']
-  return { [active]: 'active', [inactive]: 'inactive' }
+  const picked = selectedMember(selector, members, values[selector.input])
+  return Object.fromEntries(
+    members.map((member) => [member, picked === undefined ? 'neutral' : member === picked ? 'active' : 'inactive']),
+  )
 }
 
 /**
