@@ -431,7 +431,6 @@ export function ProductEmptyState(props: {
 }) {
   return (
     <div class="dinkster-empty">
-      <ProductBrandMark />
       <p class="dinkster-description">{props.message}</p>
       {props.action}
     </div>

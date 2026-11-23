@@ -623,7 +623,10 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
     await expect(presentation).toHaveAttribute('data-collection-state', state)
     if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
     if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('GET /api/library failed: 503')
-    if (state === 'empty') await expect(presentation).toContainText('No saved workflows')
+    if (state === 'empty') {
+      await expect(presentation).toContainText('No saved workflows')
+      await expect(presentation.locator('img')).toHaveCount(0)
+    }
     if (state === 'error') await expect(library.getByTestId('collection-retry')).toBeEnabled()
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })

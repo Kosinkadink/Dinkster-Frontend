@@ -133,6 +133,13 @@ for (const width of [1280, 390]) {
         const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
         expect(name!.x + name!.width).toBeLessThan(actions!.x)
         expect(actions!.width).toBeLessThanOrEqual(40)
+        await expect(page.locator('.dinkster-empty img')).toHaveCount(0)
+        await expect(
+          page.getByText('No API keys yet.', { exact: true }),
+        ).toBeVisible()
+        await expect(
+          page.getByRole('button', { name: 'Create key', exact: true }),
+        ).toBeEnabled()
       }
       expect(
         await page.evaluate(
