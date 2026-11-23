@@ -653,7 +653,10 @@ export function solveGraphTypes(
         }
       }
       vars.constrain(varKey, atoms, source)
-      if (toVar !== undefined) feeds.push({ key: toVar, to, source, atoms })
+      // A type outside the variable's allowlist is an ordinary mismatch: a
+      // registered type equivalence may still admit it on the server.
+      const allowed = toVar === undefined ? undefined : atomNamesOf(toType)
+      if (toVar !== undefined && (allowed === undefined || atoms.some((n) => allowed.includes(n)))) feeds.push({ key: toVar, to, source, atoms })
       setVerdict(source, 'ok') // downgraded on conflict
       return
     }

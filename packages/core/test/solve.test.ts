@@ -1087,6 +1087,7 @@ describe('a type variable fed two different types', () => {
   const INT = { kind: 'concrete', name: 'INT' } as const
   const local: Record<string, NodeSchema> = {
     Pair: schemaOf('Pair', [input('first', T('T')), input('second', T('T')), output('out', T('T'))]),
+    ImagePair: schemaOf('ImagePair', [input('first', T('T', ['IMAGE'])), input('second', T('T', ['IMAGE'])), output('out', T('T', ['IMAGE']))]),
     IntSrc: schemaOf('IntSrc', [output('out', INT)]),
     IntValue: schemaOf('IntValue', [input('value', INT), { ...output('out', INT), knownValue: { input: 'value' } }]),
     PickSwitch: {
@@ -1146,6 +1147,11 @@ describe('a type variable fed two different types', () => {
     expect(conflicts(defOf({
       nodes: { img: { type: 'ImageSrc' }, sw: { type: 'ComfyImageSwitch' } },
       links: { l0: { from: ['img', 'out'], to: ['sw', 'in'] } },
+    })).map((c) => c.severity)).toEqual(['warning'])
+    // One input outside the allowlist beside one inside it.
+    expect(conflicts(defOf({
+      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pair: { type: 'ImagePair' } },
+      links: { l0: { from: ['img', 'out'], to: ['pair', 'first'] }, l1: { from: ['lat', 'out'], to: ['pair', 'second'] } },
     })).map((c) => c.severity)).toEqual(['warning'])
     // One untyped generic producer feeding two nodes that each get another type.
     expect(conflicts(defOf({
