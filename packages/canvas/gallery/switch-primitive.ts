@@ -60,13 +60,13 @@ const pin = (id: string, type: string, displayName = id): InputSpec => ({
   type: concrete(type),
   optional: false,
 })
-const out = (id: string, type: string, displayName = id): OutputSpec => ({
+export const out = (id: string, type: string, displayName = id): OutputSpec => ({
   kind: 'output',
   id,
   displayName,
   type: concrete(type),
 })
-const schema = (
+export const schema = (
   type: string,
   displayName: string,
   body: NodeSchema['body'],
@@ -207,7 +207,7 @@ interface NodeEntry {
   /** A subgraph node: an instance of the named graph. */
   readonly instanceOf?: string
 }
-interface Graph {
+export interface Graph {
   readonly name?: string
   readonly nodes: Record<string, NodeEntry>
   /** [from node, from port, to node, to port], or explicit endpoints. */
@@ -224,14 +224,14 @@ interface Graph {
 }
 
 const NODE_WIDTH = 200
-const COLUMN = 230
+export const COLUMN = 230
 
 /**
  * Builds a document of the given graphs and paints one of them the way the
  * app does: the top level with the occurrence view, a subgraph entered
  * through one of its nodes, or a subgraph opened with no node.
  */
-function sceneOf(
+export function sceneOf(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
