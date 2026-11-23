@@ -2296,6 +2296,7 @@ function decodeOutputKnownValue(raw: unknown): OutputKnownValue | undefined {
   }
   if (knownValue['limits'] === undefined) return { input }
   const rawLimits = wireObject(knownValue['limits'], 'output.knownValue.limits')
+  if (Object.keys(rawLimits).length === 0) throw new Error('output.knownValue.limits must name at least one limit')
   const limits: Partial<Record<KnownValueLimit, string>> = {}
   for (const [key, target] of Object.entries(rawLimits)) {
     if (!(KNOWN_VALUE_LIMITS as readonly string[]).includes(key)) throw new Error(`output.knownValue.limits has unknown limit '${key}'`)
